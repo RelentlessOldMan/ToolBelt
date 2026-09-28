@@ -80,6 +80,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Validate method arguments | `Guards.Guard` |
 | Hash / HMAC / verify a token safely | `Security.Hashing`, `Hmac`, `ConstantTime` |
 | Generate a secure token / password | `Security.CryptoRandom` |
+| Hash a login password (with upgrade path) | `Security.PasswordHasher`, `KeyDerivation` |
 
 ## Design laws (inherited from UtilityBelt)
 
@@ -307,6 +308,8 @@ src/
       Hmac.cs               HMAC-SHA-256/384/512 with constant-time verify
       ConstantTime.cs       fixed-time equality for secrets (no timing leak)
       CryptoRandom.cs       CSPRNG bytes / URL-safe token / numeric code / password (unbiased)
+      KeyDerivation.cs      PBKDF2-HMAC-SHA-256/512 (hand-rolled, identical on both TFMs) + salt
+      PasswordHasher.cs     encoded PBKDF2 hash + constant-time verify + rehash-needed check
 tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
     Framework/
@@ -519,6 +522,8 @@ tests/
       HmacTests.cs
       ConstantTimeTests.cs
       CryptoRandomTests.cs
+      KeyDerivationTests.cs
+      PasswordHasherTests.cs
 scripts/
   build.ps1                 build wrapper (disables the persistent build server)
   test.ps1                  build once + launch the test exe directly
