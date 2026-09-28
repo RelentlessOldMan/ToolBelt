@@ -41,6 +41,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Objects** | Reflection / object services | `DeepEquals` `PropertyDiff` `PropertyPath` `ObjectMapper` `TypeUtils` |
 | **Quality** | Statistical process control | `ProcessCapability` `ControlChart` `MeasurementAgreement` |
 | **Resilience** | Retry & rate control | `Retry` `CircuitBreaker` `Bulkhead` `TokenBucketRateLimiter` |
+| **Security** | Hashing, HMAC, secure random | `Hashing` `Hmac` `ConstantTime` `CryptoRandom` |
 | **Signal** | Digital signal processing | `Convolution` `Goertzel` `MedianFilter` `SavitzkyGolay` |
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
 | **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `AtomicCounters` |
@@ -77,6 +78,8 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | CIDR / IP address math | `Net.CidrRange`, `IpUtils` |
 | Render a console table / bar / sparkline | `Cli.ConsoleTable`, `ProgressBar`, `Sparkline` |
 | Validate method arguments | `Guards.Guard` |
+| Hash / HMAC / verify a token safely | `Security.Hashing`, `Hmac`, `ConstantTime` |
+| Generate a secure token / password | `Security.CryptoRandom` |
 
 ## Design laws (inherited from UtilityBelt)
 
@@ -299,6 +302,11 @@ src/
       Throttle.cs           leading-edge throttle gate (injectable clock)
       Jitter.cs             randomized backoff jitter (full/equal)
       Bulkhead.cs           concurrency limiter (max in-flight)
+    Security/
+      Hashing.cs            SHA-256/384/512 (+ legacy MD5) over bytes/string/stream; hex/base64
+      Hmac.cs               HMAC-SHA-256/384/512 with constant-time verify
+      ConstantTime.cs       fixed-time equality for secrets (no timing leak)
+      CryptoRandom.cs       CSPRNG bytes / URL-safe token / numeric code / password (unbiased)
 tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
     Framework/
@@ -506,6 +514,11 @@ tests/
       ThrottleTests.cs
       JitterTests.cs
       BulkheadTests.cs
+    Security/
+      HashingTests.cs
+      HmacTests.cs
+      ConstantTimeTests.cs
+      CryptoRandomTests.cs
 scripts/
   build.ps1                 build wrapper (disables the persistent build server)
   test.ps1                  build once + launch the test exe directly
