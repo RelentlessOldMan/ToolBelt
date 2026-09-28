@@ -39,6 +39,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Net** | Address math | `CidrRange` `IpUtils` |
 | **Numerics** | Math, stats, calculus, random | `DeterministicRandom` `Distributions` `Percentile` `Polynomial` `UnitConvert` `Bootstrap` |
 | **Objects** | Reflection / object services | `DeepEquals` `PropertyDiff` `PropertyPath` `ObjectMapper` `TypeUtils` |
+| **Process** | Child processes | `ProcessRunner` `WhichExe` `ShellOpen` |
 | **Quality** | Statistical process control | `ProcessCapability` `ControlChart` `MeasurementAgreement` |
 | **Resilience** | Retry & rate control | `Retry` `CircuitBreaker` `Bulkhead` `TokenBucketRateLimiter` |
 | **Security** | Hashing, HMAC, secure random | `Hashing` `Hmac` `ConstantTime` `CryptoRandom` |
@@ -62,6 +63,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Change naming case / make a slug | `Text.CaseConverter`, `Slug` |
 | Match paths with wildcards | `Text.GlobMatcher` |
 | Split / build a command line | `Text.CommandLineSplitter`, `CommandLineBuilder` |
+| Run a child process (capture / timeout / kill) | `Process.ProcessRunner` (+ `WhichExe`, `ShellOpen`) |
 | Map CSV rows ↔ typed objects | `IO.CsvLine`, `CsvBinder` |
 | Write a file without torn writes | `IO.AtomicFile` |
 | Merge config from many sources | `Configuration.ConfigLayers` + `ConfigBinder` |
@@ -310,6 +312,10 @@ src/
       CryptoRandom.cs       CSPRNG bytes / URL-safe token / numeric code / password (unbiased)
       KeyDerivation.cs      PBKDF2-HMAC-SHA-256/512 (hand-rolled, identical on both TFMs) + salt
       PasswordHasher.cs     encoded PBKDF2 hash + constant-time verify + rehash-needed check
+    Process/
+      ProcessRunner.cs      run a child: deadlock-free capture, timeout + tree-kill, stdin/env/cancel
+      WhichExe.cs           resolve an executable on PATH (+ PATHEXT on Windows)
+      ShellOpen.cs          open a file/folder/URL with the default handler (per-OS)
 tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
     Framework/
@@ -524,6 +530,10 @@ tests/
       CryptoRandomTests.cs
       KeyDerivationTests.cs
       PasswordHasherTests.cs
+    Process/
+      ProcessRunnerTests.cs   (Windows-only; drives cmd.exe)
+      WhichExeTests.cs
+      ShellOpenTests.cs
 scripts/
   build.ps1                 build wrapper (disables the persistent build server)
   test.ps1                  build once + launch the test exe directly
