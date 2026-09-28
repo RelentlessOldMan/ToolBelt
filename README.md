@@ -45,7 +45,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Resilience** | Retry & rate control | `Retry` `CircuitBreaker` `Bulkhead` `TokenBucketRateLimiter` |
 | **Runtime** | Process/runtime introspection | `StartupTiming` `AppInfo` `MemoryPressure` |
 | **Security** | Hashing, HMAC, secure random | `Hashing` `Hmac` `ConstantTime` `CryptoRandom` |
-| **Signal** | Digital signal processing | `Convolution` `Goertzel` `MedianFilter` `SavitzkyGolay` |
+| **Signal** | Digital signal processing | `Fft` `Window` `Spectrum` `WelchPsd` `Hilbert` `Goertzel` `Convolution` `Resample` `Quantizer` |
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
 | **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `AtomicCounters` |
 | **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `BusinessDays` `UnixTime` |
@@ -211,9 +211,22 @@ src/
       MeasurementAgreement.cs  Bland-Altman bias + limits of agreement between two methods
     Signal/
       Convolution.cs        direct convolution + full cross-correlation
+      Fft.cs                radix-2 + Bluestein FFT — O(n log n) for ANY length; forward/inverse
+      FrequencyGrid.cs      FFT bin <-> frequency mapping; resolution bandwidth
       Goertzel.cs           single-frequency magnitude/phase (cheaper than a full transform)
+      Hampel.cs             sliding-window outlier rejection (median ± k·MAD)
+      Hilbert.cs            analytic signal, amplitude envelope, instantaneous phase/frequency
+      LevelConversions.cs   dB/amplitude/power conversions, RMS, dBFS
       MedianFilter.cs       sliding-window median (removes spikes, preserves edges)
+      PhaseUnwrap.cs        removes 2π jumps from wrapped phase
+      PulseMeasurements.cs  rise/fall time, pulse width, duty cycle (sub-sample crossings)
+      Quantizer.cs          uniform ADC model + ideal 6.02N+1.76 dB SNR
+      Resample.cs           linear resample / rate conversion / anti-aliased decimation
       SavitzkyGolay.cs      polynomial smoothing (preserves peaks; polynomials pass through)
+      Spectrum.cs           one-sided amplitude / power / dB spectra
+      TimeDelayEstimate.cs  cross-correlation & GCC-PHAT lag estimation
+      WelchPsd.cs           Welch's averaged-periodogram power spectral density
+      Window.cs             Hann/Hamming/Blackman/Blackman-Harris/flat-top + gain factors
       ZeroCrossing.cs       zero-crossing indices with sub-sample linear interpolation
     Objects/
       ActivatorUtils.cs     construct by best-matching constructor; safe assembly scan-and-create
@@ -450,9 +463,22 @@ tests/
       MeasurementAgreementTests.cs
     Signal/
       ConvolutionTests.cs
+      FftTests.cs
+      FrequencyGridTests.cs
       GoertzelTests.cs
+      HampelTests.cs
+      HilbertTests.cs
+      LevelConversionsTests.cs
       MedianFilterTests.cs
+      PhaseUnwrapTests.cs
+      PulseMeasurementsTests.cs
+      QuantizerTests.cs
+      ResampleTests.cs
       SavitzkyGolayTests.cs
+      SpectrumTests.cs
+      TimeDelayEstimateTests.cs
+      WelchPsdTests.cs
+      WindowTests.cs
       ZeroCrossingTests.cs
     Objects/
       ActivatorUtilsTests.cs
@@ -606,6 +632,10 @@ tests/
       LogFormattersTests.cs
       StructuredTextFormatterTests.cs
       ScopedContextTests.cs
+  ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
+                            (FFT, distributions, linear algebra, fits, root-finding, statistics)
+                            against Math.NET Numerics. The ONLY project with an external NuGet
+                            dependency, so it is EXCLUDED from ToolBelt.sln — run it on its own.
 scripts/
   build.ps1                 build wrapper (disables the persistent build server)
   test.ps1                  build once + launch the test exe directly
@@ -636,6 +666,18 @@ scripts\test.ps1
 scripts\test.ps1 -- --filter Guard --verbose
 scripts\test.ps1 -- --list
 ```
+
+**Cross-check satellite.** The trickier numerics (FFT, distributions, linear algebra, least-squares
+fits, root-finding, percentiles) get a *second, independent opinion*: `tests/ToolBelt.MathChecks`
+grades them against [Math.NET Numerics](https://numerics.mathdotnet.com/). It is the only project with
+an external NuGet dependency, so it is deliberately excluded from `ToolBelt.sln` — the shipping library
+and its main suite stay BCL-only. Run it on its own (needs network access on first restore):
+
+```powershell
+dotnet run --project tests\ToolBelt.MathChecks -c Release
+```
+
+The main suite's closed-form/differential tests remain authoritative; this is defence in depth.
 
 ## Adding a type
 
