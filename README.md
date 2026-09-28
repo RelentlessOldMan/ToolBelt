@@ -49,6 +49,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
 | **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `AtomicCounters` |
 | **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `BusinessDays` `UnixTime` |
+| **Visualization** | Raster canvas & PNG output | `ImageBuffer` `PngWriter` |
 
 ## Find what you need
 
@@ -91,6 +92,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Download a file (resume / checksum / retry) | `Net.HttpDownload` |
 | Render a console table / bar / sparkline | `Cli.ConsoleTable`, `ProgressBar`, `Sparkline` |
 | Validate method arguments | `Guards.Guard` |
+| Draw a raster image / write a PNG | `Visualization.ImageBuffer`, `PngWriter` |
 | Hash / HMAC / verify a token safely | `Security.Hashing`, `Hmac`, `ConstantTime` |
 | Generate a secure token / password | `Security.CryptoRandom` |
 | Hash a login password (with upgrade path) | `Security.PasswordHasher`, `KeyDerivation` |
@@ -317,6 +319,9 @@ src/
       RelativeTime.cs       "3 minutes ago" / "in 2 hours" (injectable clock)
       TimeOfDayRange.cs     half-open time-of-day window (overnight wrap, Contains)
       UnixTime.cs           Unix epoch conversions (seconds/millis, DTO/DateTime)
+    Visualization/
+      ImageBuffer.cs        RGBA raster canvas (get/set/fill/line/rect/blit)
+      PngWriter.cs          BCL-only PNG encoder (deflate + CRC-32 + Adler-32)
     Resilience/
       Retry.cs              retry with constant/linear/exponential backoff + injectable delay
       CircuitBreaker.cs     Closed/Open/HalfOpen breaker (injectable clock)
@@ -557,6 +562,9 @@ tests/
       RelativeTimeTests.cs
       TimeOfDayRangeTests.cs
       UnixTimeTests.cs
+    Visualization/
+      ImageBufferTests.cs
+      PngWriterTests.cs
     Resilience/
       RetryTests.cs
       CircuitBreakerTests.cs
