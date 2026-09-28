@@ -35,7 +35,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Guards** | Argument validation | `Guard` |
 | **Identifiers** | Id generation & encoding | `Ulid` `NanoId` `ShortGuid` `SnowflakeIdGenerator` |
 | **Intervals** | Interval/range structures | `Interval` `IntervalTree` `RangeMap` `RangeSet` |
-| **IO** | Files, streams, tabular text | `AtomicFile` `CsvLine` `CsvBinder` `FixedWidth` `LineReader` `ByteSize` |
+| **IO** | Files, streams, tabular text, zip | `AtomicFile` `CsvLine` `CsvBinder` `FixedWidth` `LineReader` `ByteSize` `ZipUtils` |
 | **Logging** | Fan-out logging (plain-string events) | `Logger` `TextWriterSink` `FileSink` `AsyncLogSink` `RollingMemorySink` `FilterSink` `RouterSink` `RateLimitedSink` `ScopedContext` |
 | **Net** | Address math, TCP/DNS, HTTP | `CidrRange` `IpUtils` `PortCheck` `TcpLineClient` `HostInfo` `HttpDownload` |
 | **Numerics** | Math, stats, calculus, random | `DeterministicRandom` `Distributions` `Percentile` `Polynomial` `UnitConvert` `Bootstrap` |
@@ -72,6 +72,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | App version / memory / startup timing | `Runtime.AppInfo`, `MemoryPressure`, `StartupTiming` |
 | Map CSV rows ↔ typed objects | `IO.CsvLine`, `CsvBinder` |
 | Write a file without torn writes | `IO.AtomicFile` |
+| Zip / unzip safely (Zip-Slip guarded) | `IO.ZipUtils` |
 | Merge config from many sources | `Configuration.ConfigLayers` + `ConfigBinder` |
 | Bounded-concurrency async fan-out | `Threading.ParallelUtils.ForEachAsync` |
 | Lock across `await` / per key | `Threading.AsyncLock`, `KeyedLock` |
@@ -235,6 +236,7 @@ src/
       SafeFileName.cs       sanitize a string into a safe filename
       StreamUtils.cs        copy-with-progress (+ cancellation) / read-exactly
       TempFile.cs           disposable temp file & directory scopes
+      ZipUtils.cs           zip create/extract/list/read; extract guarded against Zip-Slip
     Numerics/
       Angle.cs              degree normalize / shortest-diff / lerp / deg-rad
       BaseConverter.cs      integer <-> radix string (base 2..36 or custom alphabet)
@@ -466,6 +468,7 @@ tests/
       SafeFileNameTests.cs
       StreamUtilsTests.cs
       TempFileTests.cs
+      ZipUtilsTests.cs
     Numerics/
       AngleTests.cs
       BaseConverterTests.cs
