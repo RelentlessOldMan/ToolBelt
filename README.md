@@ -17,6 +17,67 @@ works, with no dependencies to inherit.
 > **Merge note:** namespaces are currently rooted at `ToolBelt.*` with divisions/paths kept identical to
 > UtilityBelt. When we merge upstream, a single root find-replace (`ToolBelt` → `UtilityBelt`) flips it.
 
+## Divisions at a glance
+
+Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotated file list is in [Layout](#layout).
+
+| Division | What's in it | A few examples |
+|---|---|---|
+| **Binary** | Encodings, checksums, bit twiddling | `Base32` `Base58` `Hex` `Crc32` `Fnv1a` `VarInt` `Bits` `Luhn` |
+| **Cli** | Console output rendering | `ConsoleTable` `ProgressBar` `Sparkline` |
+| **Collections** | Data structures & sequence ops | `LruCache` `TtlCache` `Deque` `BloomFilter` `Trie` `Batch` `Aggregation` |
+| **Configuration** | Layered config & typed binding | `ConfigLayers` `ConfigBinder` |
+| **Control** | Control loops & filters | `PidController` `KalmanFilter1D` |
+| **Diagnostics** | Measurement | `Benchmark` |
+| **Enums** | Enum helpers | `EnumExtensions` `EnumFlags` `EnumMap` |
+| **Functional** | Result/optional types, memoization | `Result` `Option` `Either` `Memoize` |
+| **Graphs** | Graph algorithms | `Graph` `TopologicalSort` `ShortestPath` `MinimumSpanningTree` |
+| **Guards** | Argument validation | `Guard` |
+| **Identifiers** | Id generation & encoding | `Ulid` `NanoId` `ShortGuid` `SnowflakeIdGenerator` |
+| **Intervals** | Interval/range structures | `Interval` `IntervalTree` `RangeMap` `RangeSet` |
+| **IO** | Files, streams, tabular text | `AtomicFile` `CsvLine` `CsvBinder` `FixedWidth` `LineReader` `ByteSize` |
+| **Net** | Address math | `CidrRange` `IpUtils` |
+| **Numerics** | Math, stats, calculus, random | `DeterministicRandom` `Distributions` `Percentile` `Polynomial` `UnitConvert` `Bootstrap` |
+| **Objects** | Reflection / object services | `DeepEquals` `PropertyDiff` `PropertyPath` `ObjectMapper` `TypeUtils` |
+| **Quality** | Statistical process control | `ProcessCapability` `ControlChart` `MeasurementAgreement` |
+| **Resilience** | Retry & rate control | `Retry` `CircuitBreaker` `Bulkhead` `TokenBucketRateLimiter` |
+| **Signal** | Digital signal processing | `Convolution` `Goertzel` `MedianFilter` `SavitzkyGolay` |
+| **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
+| **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `AtomicCounters` |
+| **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `BusinessDays` `UnixTime` |
+
+## Find what you need
+
+| I want to… | Reach for |
+|---|---|
+| Hash / checksum bytes | `Binary.Crc32`, `Binary.Fnv1a`, `Binary.Adler32` |
+| Encode binary as text | `Binary.Base32` / `Base58` / `Base64Url` / `Hex` |
+| Generate a unique id | `Identifiers.Ulid`, `NanoId`, `ShortGuid` |
+| Retry / rate-limit a flaky call | `Resilience.Retry`, `CircuitBreaker`, `TokenBucketRateLimiter` |
+| Cache with eviction / expiry | `Collections.LruCache`, `TtlCache` |
+| Parse or format a duration | `Time.HumanDuration`, `Iso8601Duration` |
+| Compute the next cron occurrence | `Time.CronSchedule` |
+| Fuzzy-match strings ("did you mean") | `Text.JaroWinkler`, `LevenshteinDistance`, `NGramSimilarity` |
+| Change naming case / make a slug | `Text.CaseConverter`, `Slug` |
+| Match paths with wildcards | `Text.GlobMatcher` |
+| Split / build a command line | `Text.CommandLineSplitter`, `CommandLineBuilder` |
+| Map CSV rows ↔ typed objects | `IO.CsvLine`, `CsvBinder` |
+| Write a file without torn writes | `IO.AtomicFile` |
+| Merge config from many sources | `Configuration.ConfigLayers` + `ConfigBinder` |
+| Bounded-concurrency async fan-out | `Threading.ParallelUtils.ForEachAsync` |
+| Lock across `await` / per key | `Threading.AsyncLock`, `KeyedLock` |
+| Reproducible random / sampling | `Numerics.DeterministicRandom`, `RandomUtils` |
+| Streaming mean / variance / percentiles | `Numerics.RunningStatistics`, `Percentile` |
+| Confidence intervals / bootstrap | `Numerics.ConfidenceInterval`, `Bootstrap` |
+| Fit a curve / solve a linear system | `Numerics.Polynomial`, `LinearAlgebra` |
+| Convert units | `Numerics.UnitConvert` |
+| Shortest path / dependency order | `Graphs.ShortestPath`, `TopologicalSort` |
+| Query overlapping intervals | `Intervals.IntervalTree`, `RangeSet` |
+| Diff or deep-compare object graphs | `Objects.PropertyDiff`, `DeepEquals` |
+| CIDR / IP address math | `Net.CidrRange`, `IpUtils` |
+| Render a console table / bar / sparkline | `Cli.ConsoleTable`, `ProgressBar`, `Sparkline` |
+| Validate method arguments | `Guards.Guard` |
+
 ## Design laws (inherited from UtilityBelt)
 
 1. **Clone-and-own, drop-in files.** Every `.cs` file is independently copyable and self-contained. Its
@@ -478,8 +539,15 @@ scripts\test.ps1 -- --list
 
 ## Adding a type
 
-Beyond the code itself: add it to the **layout block above** and add a **test file** (`<Type>Tests.cs`,
-plus `<Type>HardeningTests.cs` for edge cases).
+Beyond the code itself, keep the docs in sync so people can still find things:
+
+1. Add the file to the **[Layout](#layout)** block (the exhaustive index).
+2. Add a **test file** (`<Type>Tests.cs`, plus `<Type>HardeningTests.cs` for edge cases).
+3. If it does something a consumer would search for, add a row to **[Find what you need](#find-what-you-need)**.
+4. If it starts a **new division**, add a row to **[Divisions at a glance](#divisions-at-a-glance)** (and list a couple of its types in the examples column of existing divisions when you add notable ones).
+
+The discovery tables (Divisions at a glance, Find what you need) are hand-maintained and describe *capabilities*,
+so they only change when a genuinely new capability or division lands — not on every file.
 
 ## Contributing
 

@@ -22,3 +22,7 @@ Thumbs.db
 # Misc temp
 *.tmp
 commit-msg.tmp
+
+# Local Claude Code / MCP session config (machine-specific, not part of the library)
+.mcp.json
+.claude/
