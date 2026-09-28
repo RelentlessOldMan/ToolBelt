@@ -37,7 +37,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Intervals** | Interval/range structures | `Interval` `IntervalTree` `RangeMap` `RangeSet` |
 | **IO** | Files, streams, tabular text | `AtomicFile` `CsvLine` `CsvBinder` `FixedWidth` `LineReader` `ByteSize` |
 | **Logging** | Fan-out logging (plain-string events) | `Logger` `TextWriterSink` `FileSink` `AsyncLogSink` `RollingMemorySink` `FilterSink` `RouterSink` `RateLimitedSink` `ScopedContext` |
-| **Net** | Address math & TCP/DNS | `CidrRange` `IpUtils` `PortCheck` `TcpLineClient` `HostInfo` |
+| **Net** | Address math, TCP/DNS, HTTP | `CidrRange` `IpUtils` `PortCheck` `TcpLineClient` `HostInfo` `HttpDownload` |
 | **Numerics** | Math, stats, calculus, random | `DeterministicRandom` `Distributions` `Percentile` `Polynomial` `UnitConvert` `Bootstrap` |
 | **Objects** | Reflection / object services | `DeepEquals` `PropertyDiff` `PropertyPath` `ObjectMapper` `TypeUtils` |
 | **Process** | Child processes | `ProcessRunner` `WhichExe` `ShellOpen` |
@@ -87,6 +87,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Check a port / find a free one | `Net.PortCheck` |
 | Line-oriented TCP request/response | `Net.TcpLineClient` |
 | Resolve DNS (with timeout) / list interfaces | `Net.HostInfo` |
+| Download a file (resume / checksum / retry) | `Net.HttpDownload` |
 | Render a console table / bar / sparkline | `Cli.ConsoleTable`, `ProgressBar`, `Sparkline` |
 | Validate method arguments | `Guards.Guard` |
 | Hash / HMAC / verify a token safely | `Security.Hashing`, `Hmac`, `ConstantTime` |
@@ -197,6 +198,7 @@ src/
       PortCheck.cs          TCP reachability within a timeout + find a free local port
       TcpLineClient.cs      line-oriented TCP client (connect/read/write timeouts)
       HostInfo.cs           local host/interface info + DNS resolve with a timeout
+      HttpDownload.cs       download to file: progress, resume (Range), checksum, transient retry
     Quality/
       ProcessCapability.cs  Cp/Cpk/sigma-level/ppm (explicit overall vs within-subgroup sigma)
       ControlChart.cs       I-MR limits + run rules (beyond-limits / one-side / trend)
@@ -529,6 +531,7 @@ tests/
       PortCheckTests.cs
       TcpLineClientTests.cs
       HostInfoTests.cs
+      HttpDownloadTests.cs
     Threading/
       AsyncEventTests.cs
       AtomicCountersTests.cs
