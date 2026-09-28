@@ -36,6 +36,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Identifiers** | Id generation & encoding | `Ulid` `NanoId` `ShortGuid` `SnowflakeIdGenerator` |
 | **Intervals** | Interval/range structures | `Interval` `IntervalTree` `RangeMap` `RangeSet` |
 | **IO** | Files, streams, tabular text | `AtomicFile` `CsvLine` `CsvBinder` `FixedWidth` `LineReader` `ByteSize` |
+| **Logging** | Fan-out logging (plain-string events) | `Logger` `TextWriterSink` `RollingMemorySink` `LogFormatters` |
 | **Net** | Address math | `CidrRange` `IpUtils` |
 | **Numerics** | Math, stats, calculus, random | `DeterministicRandom` `Distributions` `Percentile` `Polynomial` `UnitConvert` `Bootstrap` |
 | **Objects** | Reflection / object services | `DeepEquals` `PropertyDiff` `PropertyPath` `ObjectMapper` `TypeUtils` |
@@ -64,6 +65,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Match paths with wildcards | `Text.GlobMatcher` |
 | Split / build a command line | `Text.CommandLineSplitter`, `CommandLineBuilder` |
 | Run a child process (capture / timeout / kill) | `Process.ProcessRunner` (+ `WhichExe`, `ShellOpen`) |
+| Log to sinks (console / file / memory) | `Logging.Logger` + `TextWriterSink` / `RollingMemorySink` |
 | Map CSV rows ↔ typed objects | `IO.CsvLine`, `CsvBinder` |
 | Write a file without torn writes | `IO.AtomicFile` |
 | Merge config from many sources | `Configuration.ConfigLayers` + `ConfigBinder` |
@@ -316,6 +318,11 @@ src/
       ProcessRunner.cs      run a child: deadlock-free capture, timeout + tree-kill, stdin/env/cancel
       WhichExe.cs           resolve an executable on PATH (+ PATHEXT on Windows)
       ShellOpen.cs          open a file/folder/URL with the default handler (per-OS)
+    Logging/
+      Log.cs                LogLevel, LogEvent, ILogSink (shared contracts)
+      Logger.cs             thread-safe fan-out logger (levels, category, injectable clock)
+      LogSinks.cs           DelegateSink / TextWriterSink (console/file) / RollingMemorySink
+      LogFormatters.cs      plain / compact / single-line-JSON line formatters
 tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
     Framework/
@@ -534,6 +541,10 @@ tests/
       ProcessRunnerTests.cs   (Windows-only; drives cmd.exe)
       WhichExeTests.cs
       ShellOpenTests.cs
+    Logging/
+      LoggerTests.cs
+      LogSinksTests.cs
+      LogFormattersTests.cs
 scripts/
   build.ps1                 build wrapper (disables the persistent build server)
   test.ps1                  build once + launch the test exe directly
