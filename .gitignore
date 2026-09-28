@@ -26,3 +26,6 @@ commit-msg.tmp
 # Local Claude Code / MCP session config (machine-specific, not part of the library)
 .mcp.json
 .claude/
+
+# Local demo artifacts (generated, never committed)
+artifacts-demo/

@@ -50,7 +50,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
 | **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `AtomicCounters` |
 | **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `BusinessDays` `UnixTime` |
-| **Visualization** | Raster canvas, charts, PNG & SVG | `ImageBuffer` `PngWriter` `SvgDocument` `Colormap` `HeatMap` `LinePlot` |
+| **Visualization** | Raster canvas, charts, PNG & SVG | `ImageBuffer` `PngWriter` `SvgDocument` `Colormap` `HeatMap` `LinePlot` `Histogram` `BoxPlot` `ErrorBarChart` `BandChart` `Colorbar` |
 
 ## Find what you need
 
@@ -346,7 +346,12 @@ src/
       PngWriter.cs          BCL-only PNG encoder (deflate + CRC-32 + Adler-32)
       SvgDocument.cs        fluent SVG vector builder (shapes/text/path; invariant coords)
       Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops)
+      Colorbar.cs           render a colormap as a gradient legend strip (vertical/horizontal)
       HeatMap.cs            render a 2-D grid via a colormap (cell size, range, NaN color)
+      Histogram.cs          bin 1-D data (exposed) and render the counts as bars
+      BoxPlot.cs            five-number summary + Tukey whiskers/outliers; side-by-side boxes
+      ErrorBarChart.cs      points with symmetric vertical error bars (auto-scales to caps)
+      BandChart.cs          shaded band between lower/upper curves + optional center line
       LinePlot.cs           line/scatter/bar series to an image (auto-scale, frame; no text)
     Resilience/
       Retry.cs              retry with constant/linear/exponential backoff + injectable delay
@@ -612,7 +617,12 @@ tests/
       PngWriterTests.cs
       SvgDocumentTests.cs
       ColormapTests.cs
+      ColorbarTests.cs
       HeatMapTests.cs
+      HistogramTests.cs
+      BoxPlotTests.cs
+      ErrorBarChartTests.cs
+      BandChartTests.cs
       LinePlotTests.cs
     Resilience/
       RetryTests.cs
