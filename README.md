@@ -28,7 +28,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Collections** | Data structures & sequence ops | `LruCache` `TtlCache` `Deque` `BloomFilter` `Trie` `Batch` `Aggregation` |
 | **Configuration** | Layered config & typed binding | `ConfigLayers` `ConfigBinder` |
 | **Control** | Control loops & filters | `PidController` `KalmanFilter1D` |
-| **Diagnostics** | Measurement | `Benchmark` |
+| **Diagnostics** | Measurement & observability | `Benchmark` `MetricsRegistry` `ScopedTimer` `ExceptionUtils` |
 | **Enums** | Enum helpers | `EnumExtensions` `EnumFlags` `EnumMap` |
 | **Functional** | Result/optional types, memoization | `Result` `Option` `Either` `Memoize` |
 | **Graphs** | Graph algorithms | `Graph` `TopologicalSort` `ShortestPath` `MinimumSpanningTree` |
@@ -43,6 +43,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Process** | Child processes | `ProcessRunner` `WhichExe` `ShellOpen` |
 | **Quality** | Statistical process control | `ProcessCapability` `ControlChart` `MeasurementAgreement` |
 | **Resilience** | Retry & rate control | `Retry` `CircuitBreaker` `Bulkhead` `TokenBucketRateLimiter` |
+| **Runtime** | Process/runtime introspection | `StartupTiming` `AppInfo` `MemoryPressure` |
 | **Security** | Hashing, HMAC, secure random | `Hashing` `Hmac` `ConstantTime` `CryptoRandom` |
 | **Signal** | Digital signal processing | `Convolution` `Goertzel` `MedianFilter` `SavitzkyGolay` |
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
@@ -66,6 +67,9 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Split / build a command line | `Text.CommandLineSplitter`, `CommandLineBuilder` |
 | Run a child process (capture / timeout / kill) | `Process.ProcessRunner` (+ `WhichExe`, `ShellOpen`) |
 | Log to sinks (console / file / memory) | `Logging.Logger` + `TextWriterSink` / `RollingMemorySink` |
+| Collect metrics / time a block | `Diagnostics.MetricsRegistry`, `ScopedTimer` |
+| Flatten / classify an exception | `Diagnostics.ExceptionUtils` |
+| App version / memory / startup timing | `Runtime.AppInfo`, `MemoryPressure`, `StartupTiming` |
 | Map CSV rows ↔ typed objects | `IO.CsvLine`, `CsvBinder` |
 | Write a file without torn writes | `IO.AtomicFile` |
 | Merge config from many sources | `Configuration.ConfigLayers` + `ConfigBinder` |
@@ -161,6 +165,9 @@ src/
       KalmanFilter1D.cs     scalar Kalman filter (predict/update, converging gain)
     Diagnostics/
       Benchmark.cs          micro-benchmark harness (warmup, stats, bytes/op, compare-to-baseline)
+      MetricsRegistry.cs    named counters / gauges / timers with percentile snapshots (thread-safe)
+      ScopedTimer.cs        time a using-block to a callback / metrics (injectable clock)
+      ExceptionUtils.cs     root-cause / flatten / describe / transient-vs-permanent classify
     Enums/
       EnumExtensions.cs     cached values/names, strict name parse, [Description], flag split
       EnumFlags.cs          generic [Flags] add / remove / toggle / has-all/any
@@ -307,6 +314,10 @@ src/
       Throttle.cs           leading-edge throttle gate (injectable clock)
       Jitter.cs             randomized backoff jitter (full/equal)
       Bulkhead.cs           concurrency limiter (max in-flight)
+    Runtime/
+      StartupTiming.cs      record named milestones from a start instant (injectable clock)
+      AppInfo.cs            assembly version / config / build time / location / runtime description
+      MemoryPressure.cs     working set / total allocated / GC counts + delta-since-snapshot
     Security/
       Hashing.cs            SHA-256/384/512 (+ legacy MD5) over bytes/string/stream; hex/base64
       Hmac.cs               HMAC-SHA-256/384/512 with constant-time verify
@@ -389,6 +400,9 @@ tests/
       KalmanFilter1DTests.cs
     Diagnostics/
       BenchmarkTests.cs
+      MetricsRegistryTests.cs
+      ScopedTimerTests.cs
+      ExceptionUtilsTests.cs
     Enums/
       EnumExtensionsTests.cs
       EnumFlagsTests.cs
@@ -535,6 +549,10 @@ tests/
       ThrottleTests.cs
       JitterTests.cs
       BulkheadTests.cs
+    Runtime/
+      StartupTimingTests.cs
+      AppInfoTests.cs
+      MemoryPressureTests.cs
     Security/
       HashingTests.cs
       HmacTests.cs
