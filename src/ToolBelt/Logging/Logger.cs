@@ -57,7 +57,7 @@ namespace ToolBelt.Logging
         public void Log(LogLevel level, string message, Exception? exception = null)
         {
             if (level < MinimumLevel) return;
-            var logEvent = new LogEvent(_clock(), level, Category, message ?? string.Empty, exception);
+            var logEvent = new LogEvent(_clock(), level, EffectiveCategory(), message ?? string.Empty, exception);
 
             ILogSink[] snapshot;
             lock (_gate) snapshot = _sinks.ToArray();
@@ -66,6 +66,14 @@ namespace ToolBelt.Logging
                 try { sink.Emit(logEvent); }
                 catch { /* a failing sink must not break logging or the remaining sinks */ }
             }
+        }
+
+        // Combines the logger's category with any ambient scope pushed via ScopedContext.
+        private string EffectiveCategory()
+        {
+            string? scope = ScopedContext.Current;
+            if (string.IsNullOrEmpty(scope)) return Category;
+            return Category.Length == 0 ? scope! : Category + "/" + scope;
         }
 
         public void Trace(string message) => Log(LogLevel.Trace, message);

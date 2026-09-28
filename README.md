@@ -36,7 +36,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Identifiers** | Id generation & encoding | `Ulid` `NanoId` `ShortGuid` `SnowflakeIdGenerator` |
 | **Intervals** | Interval/range structures | `Interval` `IntervalTree` `RangeMap` `RangeSet` |
 | **IO** | Files, streams, tabular text | `AtomicFile` `CsvLine` `CsvBinder` `FixedWidth` `LineReader` `ByteSize` |
-| **Logging** | Fan-out logging (plain-string events) | `Logger` `TextWriterSink` `RollingMemorySink` `LogFormatters` |
+| **Logging** | Fan-out logging (plain-string events) | `Logger` `TextWriterSink` `RollingMemorySink` `FilterSink` `RouterSink` `RateLimitedSink` `ScopedContext` |
 | **Net** | Address math | `CidrRange` `IpUtils` |
 | **Numerics** | Math, stats, calculus, random | `DeterministicRandom` `Distributions` `Percentile` `Polynomial` `UnitConvert` `Bootstrap` |
 | **Objects** | Reflection / object services | `DeepEquals` `PropertyDiff` `PropertyPath` `ObjectMapper` `TypeUtils` |
@@ -322,7 +322,9 @@ src/
       Log.cs                LogLevel, LogEvent, ILogSink (shared contracts)
       Logger.cs             thread-safe fan-out logger (levels, category, injectable clock)
       LogSinks.cs           DelegateSink / TextWriterSink (console/file) / RollingMemorySink
+      LogDecorators.cs      FilterSink / RouterSink / RateLimitedSink (composable sink wrappers)
       LogFormatters.cs      plain / compact / single-line-JSON line formatters
+      ScopedContext.cs      ambient flow-local scope label folded into each event's category
 tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
     Framework/
@@ -544,7 +546,9 @@ tests/
     Logging/
       LoggerTests.cs
       LogSinksTests.cs
+      LogDecoratorsTests.cs
       LogFormattersTests.cs
+      ScopedContextTests.cs
 scripts/
   build.ps1                 build wrapper (disables the persistent build server)
   test.ps1                  build once + launch the test exe directly
