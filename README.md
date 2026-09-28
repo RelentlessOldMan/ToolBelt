@@ -28,7 +28,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Collections** | Data structures & sequence ops | `LruCache` `TtlCache` `Deque` `BloomFilter` `Trie` `Batch` `Aggregation` |
 | **Configuration** | Layered config & typed binding | `ConfigLayers` `ConfigBinder` |
 | **Control** | Control loops & filters | `PidController` `KalmanFilter1D` |
-| **Diagnostics** | Measurement & observability | `Benchmark` `MetricsRegistry` `ScopedTimer` `ExceptionUtils` |
+| **Diagnostics** | Measurement & observability | `Benchmark` `MetricsRegistry` `ScopedTimer` `ExceptionUtils` `EnvironmentReport` |
 | **Enums** | Enum helpers | `EnumExtensions` `EnumFlags` `EnumMap` |
 | **Functional** | Result/optional types, memoization | `Result` `Option` `Either` `Memoize` |
 | **Graphs** | Graph algorithms | `Graph` `TopologicalSort` `ShortestPath` `MinimumSpanningTree` |
@@ -71,6 +71,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Collect metrics / time a block | `Diagnostics.MetricsRegistry`, `ScopedTimer` |
 | Flatten / classify an exception | `Diagnostics.ExceptionUtils` |
 | App version / memory / startup timing | `Runtime.AppInfo`, `MemoryPressure`, `StartupTiming` |
+| Capture a bug-report environment snapshot | `Diagnostics.EnvironmentReport` |
 | Map CSV rows ↔ typed objects | `IO.CsvLine`, `CsvBinder` |
 | Write a file without torn writes | `IO.AtomicFile` |
 | Zip / unzip safely (Zip-Slip guarded) | `IO.ZipUtils` |
@@ -175,6 +176,7 @@ src/
       MetricsRegistry.cs    named counters / gauges / timers with percentile snapshots (thread-safe)
       ScopedTimer.cs        time a using-block to a callback / metrics (injectable clock)
       ExceptionUtils.cs     root-cause / flatten / describe / transient-vs-permanent classify
+      EnvironmentReport.cs  one-call bug-report snapshot (versions/OS/culture/uptime/env, secret-safe)
     Enums/
       EnumExtensions.cs     cached values/names, strict name parse, [Description], flag split
       EnumFlags.cs          generic [Flags] add / remove / toggle / has-all/any
@@ -418,6 +420,7 @@ tests/
       MetricsRegistryTests.cs
       ScopedTimerTests.cs
       ExceptionUtilsTests.cs
+      EnvironmentReportTests.cs
     Enums/
       EnumExtensionsTests.cs
       EnumFlagsTests.cs
