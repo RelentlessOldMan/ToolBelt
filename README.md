@@ -29,6 +29,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Configuration** | Layered config & typed binding | `ConfigLayers` `ConfigBinder` |
 | **Control** | Control loops & filters | `PidController` `KalmanFilter1D` |
 | **Diagnostics** | Measurement & observability | `Benchmark` `MetricsRegistry` `ScopedTimer` `ExceptionUtils` `EnvironmentReport` |
+| **Documents** | Report writers (MD/HTML/PDF/DOCX) | `MarkdownReport` `HtmlReport` `PdfWriter` `DocxWriter` |
 | **Enums** | Enum helpers | `EnumExtensions` `EnumFlags` `EnumMap` |
 | **Functional** | Result/optional types, memoization | `Result` `Option` `Either` `Memoize` |
 | **Graphs** | Graph algorithms | `Graph` `TopologicalSort` `ShortestPath` `MinimumSpanningTree` |
@@ -49,7 +50,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
 | **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `AtomicCounters` |
 | **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `BusinessDays` `UnixTime` |
-| **Visualization** | Raster canvas, charts & PNG | `ImageBuffer` `PngWriter` `Colormap` `HeatMap` `LinePlot` |
+| **Visualization** | Raster canvas, charts, PNG & SVG | `ImageBuffer` `PngWriter` `SvgDocument` `Colormap` `HeatMap` `LinePlot` |
 
 ## Find what you need
 
@@ -178,6 +179,11 @@ src/
       ScopedTimer.cs        time a using-block to a callback / metrics (injectable clock)
       ExceptionUtils.cs     root-cause / flatten / describe / transient-vs-permanent classify
       EnvironmentReport.cs  one-call bug-report snapshot (versions/OS/culture/uptime/env, secret-safe)
+    Documents/
+      MarkdownReport.cs     fluent GitHub-flavored Markdown (headings/lists/tables/code/quotes)
+      HtmlReport.cs         self-contained HTML doc with embedded CSS; escaping; base64 image embed
+      PdfWriter.cs          hand-rolled PDF (base-14 fonts, wrapping, auto-pagination, real xref)
+      DocxWriter.cs         Word .docx via OOXML zip (System.IO.Compression); runs/tables/headings
     Enums/
       EnumExtensions.cs     cached values/names, strict name parse, [Description], flag split
       EnumFlags.cs          generic [Flags] add / remove / toggle / has-all/any
@@ -338,6 +344,7 @@ src/
     Visualization/
       ImageBuffer.cs        RGBA raster canvas (get/set/fill/line/rect/blit)
       PngWriter.cs          BCL-only PNG encoder (deflate + CRC-32 + Adler-32)
+      SvgDocument.cs        fluent SVG vector builder (shapes/text/path; invariant coords)
       Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops)
       HeatMap.cs            render a 2-D grid via a colormap (cell size, range, NaN color)
       LinePlot.cs           line/scatter/bar series to an image (auto-scale, frame; no text)
@@ -438,6 +445,11 @@ tests/
       ScopedTimerTests.cs
       ExceptionUtilsTests.cs
       EnvironmentReportTests.cs
+    Documents/
+      MarkdownReportTests.cs
+      HtmlReportTests.cs
+      PdfWriterTests.cs     (independent xref-table + structure parser)
+      DocxWriterTests.cs    (unzips parts + parses OOXML)
     Enums/
       EnumExtensionsTests.cs
       EnumFlagsTests.cs
@@ -598,6 +610,7 @@ tests/
     Visualization/
       ImageBufferTests.cs
       PngWriterTests.cs
+      SvgDocumentTests.cs
       ColormapTests.cs
       HeatMapTests.cs
       LinePlotTests.cs
