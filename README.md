@@ -49,7 +49,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
 | **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `AtomicCounters` |
 | **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `BusinessDays` `UnixTime` |
-| **Visualization** | Raster canvas & PNG output | `ImageBuffer` `PngWriter` |
+| **Visualization** | Raster canvas, charts & PNG | `ImageBuffer` `PngWriter` `Colormap` `HeatMap` `LinePlot` |
 
 ## Find what you need
 
@@ -94,6 +94,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Render a console table / bar / sparkline | `Cli.ConsoleTable`, `ProgressBar`, `Sparkline` |
 | Validate method arguments | `Guards.Guard` |
 | Draw a raster image / write a PNG | `Visualization.ImageBuffer`, `PngWriter` |
+| Render a heat map / line plot | `Visualization.HeatMap`, `LinePlot` (+ `Colormap`) |
 | Hash / HMAC / verify a token safely | `Security.Hashing`, `Hmac`, `ConstantTime` |
 | Generate a secure token / password | `Security.CryptoRandom` |
 | Hash a login password (with upgrade path) | `Security.PasswordHasher`, `KeyDerivation` |
@@ -324,6 +325,9 @@ src/
     Visualization/
       ImageBuffer.cs        RGBA raster canvas (get/set/fill/line/rect/blit)
       PngWriter.cs          BCL-only PNG encoder (deflate + CRC-32 + Adler-32)
+      Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops)
+      HeatMap.cs            render a 2-D grid via a colormap (cell size, range, NaN color)
+      LinePlot.cs           line/scatter/bar series to an image (auto-scale, frame; no text)
     Resilience/
       Retry.cs              retry with constant/linear/exponential backoff + injectable delay
       CircuitBreaker.cs     Closed/Open/HalfOpen breaker (injectable clock)
@@ -568,6 +572,9 @@ tests/
     Visualization/
       ImageBufferTests.cs
       PngWriterTests.cs
+      ColormapTests.cs
+      HeatMapTests.cs
+      LinePlotTests.cs
     Resilience/
       RetryTests.cs
       CircuitBreakerTests.cs
