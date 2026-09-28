@@ -37,7 +37,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Intervals** | Interval/range structures | `Interval` `IntervalTree` `RangeMap` `RangeSet` |
 | **IO** | Files, streams, tabular text | `AtomicFile` `CsvLine` `CsvBinder` `FixedWidth` `LineReader` `ByteSize` |
 | **Logging** | Fan-out logging (plain-string events) | `Logger` `TextWriterSink` `FileSink` `AsyncLogSink` `RollingMemorySink` `FilterSink` `RouterSink` `RateLimitedSink` `ScopedContext` |
-| **Net** | Address math | `CidrRange` `IpUtils` |
+| **Net** | Address math & TCP/DNS | `CidrRange` `IpUtils` `PortCheck` `TcpLineClient` `HostInfo` |
 | **Numerics** | Math, stats, calculus, random | `DeterministicRandom` `Distributions` `Percentile` `Polynomial` `UnitConvert` `Bootstrap` |
 | **Objects** | Reflection / object services | `DeepEquals` `PropertyDiff` `PropertyPath` `ObjectMapper` `TypeUtils` |
 | **Process** | Child processes | `ProcessRunner` `WhichExe` `ShellOpen` |
@@ -84,6 +84,9 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Query overlapping intervals | `Intervals.IntervalTree`, `RangeSet` |
 | Diff or deep-compare object graphs | `Objects.PropertyDiff`, `DeepEquals` |
 | CIDR / IP address math | `Net.CidrRange`, `IpUtils` |
+| Check a port / find a free one | `Net.PortCheck` |
+| Line-oriented TCP request/response | `Net.TcpLineClient` |
+| Resolve DNS (with timeout) / list interfaces | `Net.HostInfo` |
 | Render a console table / bar / sparkline | `Cli.ConsoleTable`, `ProgressBar`, `Sparkline` |
 | Validate method arguments | `Guards.Guard` |
 | Hash / HMAC / verify a token safely | `Security.Hashing`, `Hmac`, `ConstantTime` |
@@ -191,6 +194,9 @@ src/
     Net/
       CidrRange.cs          CIDR block (v4/v6): parse, Contains, network/broadcast, count, enumerate
       IpUtils.cs            private/loopback detection, IPv4 netmask <-> prefix length
+      PortCheck.cs          TCP reachability within a timeout + find a free local port
+      TcpLineClient.cs      line-oriented TCP client (connect/read/write timeouts)
+      HostInfo.cs           local host/interface info + DNS resolve with a timeout
     Quality/
       ProcessCapability.cs  Cp/Cpk/sigma-level/ppm (explicit overall vs within-subgroup sigma)
       ControlChart.cs       I-MR limits + run rules (beyond-limits / one-side / trend)
@@ -520,6 +526,9 @@ tests/
     Net/
       CidrRangeTests.cs
       IpUtilsTests.cs
+      PortCheckTests.cs
+      TcpLineClientTests.cs
+      HostInfoTests.cs
     Threading/
       AsyncEventTests.cs
       AtomicCountersTests.cs
