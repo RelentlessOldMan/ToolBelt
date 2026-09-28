@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ToolBelt portable core. BCL-only, zero external dependencies. -->
+  <!-- Multi-targets netstandard2.0 (legacy .NET Framework / Unity) and net8.0 (modern). -->
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <RootNamespace>ToolBelt</RootNamespace>
+    <AssemblyName>ToolBelt</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- CS1591: not every public member needs an XML doc comment (yet). -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+</Project>

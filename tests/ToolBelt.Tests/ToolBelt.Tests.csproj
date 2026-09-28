@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Hand-rolled, zero-dependency test runner. No xUnit/NUnit/MSTest. A plain console exe: exit 0 == all green. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>ToolBelt.Tests</RootNamespace>
+    <AssemblyName>ToolBelt.Tests</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ToolBelt\ToolBelt.csproj" />
+  </ItemGroup>
+
+</Project>
