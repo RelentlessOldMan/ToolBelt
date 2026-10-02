@@ -78,6 +78,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | App version / memory / startup timing | `Runtime.AppInfo`, `MemoryPressure`, `StartupTiming` |
 | Capture a bug-report environment snapshot | `Diagnostics.EnvironmentReport` |
 | Map CSV rows ↔ typed objects | `IO.CsvLine`, `CsvBinder` |
+| Query untyped rows by column (filter/sort/join/group) | `Collections.DataTableLite` |
 | Write a file without torn writes | `IO.AtomicFile` |
 | Zip / unzip safely (Zip-Slip guarded) | `IO.ZipUtils` |
 | Merge config from many sources | `Configuration.ConfigLayers` + `ConfigBinder` |
@@ -160,6 +161,7 @@ src/
       SlidingWindow.cs      lazy fixed-size sliding windows (step 1)
       Combinatorics.cs      lazy permutations & combinations
       Counter.cs            multiset / frequency counter (most-common)
+      DataTableLite.cs      untyped in-memory table: project/filter/sort/distinct/group/inner-join by column
       Deque.cs              double-ended queue (growable circular array, O(1) ends)
       DisjointSet.cs        union-find (path compression + union by rank)
       FenwickTree.cs        binary indexed tree (prefix/range sums, point update)
@@ -437,6 +439,7 @@ tests/
       CombinatoricsTests.cs
       CounterTests.cs
       CountMinSketchTests.cs
+      DataTableLiteTests.cs
       SlidingWindowTests.cs
       DequeTests.cs
       DisjointSetTests.cs
