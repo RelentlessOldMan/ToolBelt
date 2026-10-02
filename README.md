@@ -89,6 +89,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Streaming mean / variance / percentiles | `Numerics.RunningStatistics`, `Percentile` |
 | Confidence intervals / bootstrap | `Numerics.ConfidenceInterval`, `Bootstrap` |
 | Fit a curve / solve a linear system | `Numerics.Polynomial`, `LinearAlgebra` |
+| Gamma / erf / incomplete gamma & beta | `Numerics.SpecialFunctions` |
 | Convert units | `Numerics.UnitConvert` |
 | Shortest path / dependency order | `Graphs.ShortestPath`, `TopologicalSort` |
 | Query overlapping intervals | `Intervals.IntervalTree`, `RangeSet` |
@@ -302,6 +303,7 @@ src/
       RootFinding.cs        bisection / Brent / Newton / secant (explicit convergence result)
       Rounding.cs           round to multiple / significant digits
       RunningStatistics.cs  Welford online mean/variance/stddev/min/max
+      SpecialFunctions.cs   gamma / log-gamma / erf / regularized incomplete gamma & beta
       ToleranceCheck.cs     evaluate a series against limits (violations, worst deviation)
       Trend.cs              Mann-Kendall trend test + Sen's slope (robust)
       UnitConvert.cs        length/mass/time/angle/data + temperature conversions (+ parse)
@@ -572,6 +574,7 @@ tests/
       RootFindingTests.cs
       RoundingTests.cs
       RunningStatisticsTests.cs
+      SpecialFunctionsTests.cs
       ToleranceCheckTests.cs
       TrendTests.cs
       UnitConvertTests.cs
@@ -675,7 +678,7 @@ tests/
       StructuredTextFormatterTests.cs
       ScopedContextTests.cs
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
-                            (FFT, distributions, linear algebra, fits, root-finding, statistics)
+                            (FFT, distributions, special functions, linear algebra, fits, root-finding, statistics)
                             against Math.NET Numerics. The ONLY project with an external NuGet
                             dependency, so it is EXCLUDED from ToolBelt.sln — run it on its own.
 scripts/
