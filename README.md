@@ -61,9 +61,12 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Generate a unique id | `Identifiers.Ulid`, `NanoId`, `ShortGuid` |
 | Retry / rate-limit a flaky call | `Resilience.Retry`, `CircuitBreaker`, `TokenBucketRateLimiter` |
 | Cache with eviction / expiry | `Collections.LruCache`, `TtlCache` |
+| Probabilistic set membership (optionally with deletes) | `Collections.BloomFilter`, `CountingBloomFilter` |
 | Parse or format a duration | `Time.HumanDuration`, `Iso8601Duration` |
 | Compute the next cron occurrence | `Time.CronSchedule` |
 | Fuzzy-match strings ("did you mean") | `Text.JaroWinkler`, `LevenshteinDistance`, `NGramSimilarity` |
+| Rank "did you mean" suggestions from a list | `Text.StringSimilarity.BestMatch` / `TopMatches` |
+| Diff two blocks of text (line by line) | `Text.TextDiff` |
 | Change naming case / make a slug | `Text.CaseConverter`, `Slug` |
 | Match paths with wildcards | `Text.GlobMatcher` |
 | Split / build a command line | `Text.CommandLineSplitter`, `CommandLineBuilder` |
@@ -148,6 +151,7 @@ src/
       BiMap.cs              bidirectional one-to-one map
       Aggregation.cs        group-by summaries (count/mean/min/max/stddev) + pivot
       BloomFilter.cs        probabilistic set membership (no false negatives)
+      CountingBloomFilter.cs  counting Bloom filter: probabilistic set with delete (saturating counters)
       CartesianProduct.cs   lazy Cartesian product of sequences
       CountMinSketch.cs     approximate stream frequencies (never under-counts)
       SlidingWindow.cs      lazy fixed-size sliding windows (step 1)
@@ -317,7 +321,9 @@ src/
       RomanNumerals.cs      integer <-> Roman numeral (1..3999, validated)
       Slug.cs               URL/filename-safe slugs (diacritic folding)
       Soundex.cs            American Soundex phonetic key
+      StringSimilarity.cs   "did you mean" best/top-N match ranking (pluggable scorer)
       TemplateFormatter.cs  {name} placeholder substitution ({{ }} escaping)
+      TextDiff.cs           minimal line-based diff (LCS edit script; +/-/space format)
       Truncate.cs           ellipsis truncation (char-exact + word-aware)
       WordWrap.cs           greedy word wrap to a column width (hard-breaks long words)
     Threading/
@@ -420,6 +426,7 @@ tests/
       BinaryHeapTests.cs
       BitSetTests.cs
       BloomFilterTests.cs
+      CountingBloomFilterTests.cs
       CircularBufferTests.cs
       CartesianProductTests.cs
       CombinatoricsTests.cs
@@ -581,7 +588,9 @@ tests/
       RomanNumeralsTests.cs
       SlugTests.cs
       SoundexTests.cs
+      StringSimilarityTests.cs
       TemplateFormatterTests.cs
+      TextDiffTests.cs
       TruncateTests.cs
       WordWrapTests.cs
     Net/
