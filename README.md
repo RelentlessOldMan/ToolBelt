@@ -88,6 +88,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Reproducible random / sampling | `Numerics.DeterministicRandom`, `RandomUtils` |
 | Streaming mean / variance / percentiles | `Numerics.RunningStatistics`, `Percentile` |
 | Confidence intervals / bootstrap | `Numerics.ConfidenceInterval`, `Bootstrap` |
+| Run a significance test (t / χ² / KS / Mann-Whitney) | `Numerics.HypothesisTests` |
 | Fit a curve / solve a linear system | `Numerics.Polynomial`, `LinearAlgebra` |
 | Gamma / erf / incomplete gamma & beta | `Numerics.SpecialFunctions` |
 | Convert units | `Numerics.UnitConvert` |
@@ -284,6 +285,7 @@ src/
       EngineeringNotation.cs  SI-prefix format + parse (yocto..yotta, round-trip)
       ExponentialMovingAverage.cs  EMA smoothing (alpha)
       Histogram.cs          fixed-bin histogram (under/overflow tracking)
+      HypothesisTests.cs    t-test / chi-square / Kolmogorov-Smirnov / Mann-Whitney U (p-values)
       Correlation.cs        Pearson correlation coefficient
       Fraction.cs           exact rational number (BigInteger-backed, always reduced)
       Integration.cs        trapezoid / Simpson / adaptive Simpson / cumulative
@@ -557,6 +559,7 @@ tests/
       ExponentialMovingAverageTests.cs
       FractionTests.cs
       HistogramTests.cs
+      HypothesisTestsTests.cs
       IntegrationTests.cs
       InterpolationTests.cs
       LinearAlgebraTests.cs
@@ -678,7 +681,8 @@ tests/
       StructuredTextFormatterTests.cs
       ScopedContextTests.cs
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
-                            (FFT, distributions, special functions, linear algebra, fits, root-finding, statistics)
+                            (FFT, distributions, special functions, hypothesis tests, linear algebra,
+                            fits, root-finding, statistics)
                             against Math.NET Numerics. The ONLY project with an external NuGet
                             dependency, so it is EXCLUDED from ToolBelt.sln — run it on its own.
 scripts/
