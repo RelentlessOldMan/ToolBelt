@@ -58,6 +58,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 |---|---|
 | Hash / checksum bytes | `Binary.Crc32`, `Binary.Fnv1a`, `Binary.Adler32` |
 | Encode binary as text | `Binary.Base32` / `Base58` / `Base64Url` / `Hex` |
+| Encode/decode MIME quoted-printable | `Binary.QuotedPrintable` |
 | Generate a unique id | `Identifiers.Ulid`, `NanoId`, `ShortGuid` |
 | Retry / rate-limit a flaky call | `Resilience.Retry`, `CircuitBreaker`, `TokenBucketRateLimiter` |
 | Cache with eviction / expiry | `Collections.LruCache`, `TtlCache` |
@@ -82,6 +83,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Merge config from many sources | `Configuration.ConfigLayers` + `ConfigBinder` |
 | Bounded-concurrency async fan-out | `Threading.ParallelUtils.ForEachAsync` |
 | Lock across `await` / per key | `Threading.AsyncLock`, `KeyedLock` |
+| Await a cancellation token / link it with a timeout | `Threading.CancellationTokenExtensions` |
 | Reproducible random / sampling | `Numerics.DeterministicRandom`, `RandomUtils` |
 | Streaming mean / variance / percentiles | `Numerics.RunningStatistics`, `Percentile` |
 | Confidence intervals / bootstrap | `Numerics.ConfidenceInterval`, `Bootstrap` |
@@ -139,6 +141,7 @@ src/
       GrayCode.cs           reflected binary (Gray) code conversion
       Hex.cs                hex encode/decode (case option, strict decode)
       Luhn.cs               Luhn mod-10 checksum (validate + check digit)
+      QuotedPrintable.cs    MIME quoted-printable encode/decode (RFC 2045, byte-exact round-trip)
       VarInt.cs             LEB128 var-length ints (unsigned + ZigZag signed)
     Cli/
       ConsoleTable.cs       box-drawing text table (alignment, padding)
@@ -337,6 +340,7 @@ src/
       KeyedLock.cs          per-key async locks (lock striping, ref-counted)
       ParallelUtils.cs      bounded-concurrency async fan-out (fail-fast / collect-all)
       PeriodicWorker.cs     run an action on an interval, graceful stop (injectable delay)
+      CancellationTokenExtensions.cs  await a token (WhenCanceled) + CreateLinkedTimeout source
       TaskExtensions.cs     WithTimeout / WithCancellation / FireAndForget / WhenAllOrFirstException
     Time/
       BusinessDays.cs       business-day add/count (weekends + holidays)
@@ -414,6 +418,7 @@ tests/
       GrayCodeTests.cs
       HexTests.cs
       LuhnTests.cs
+      QuotedPrintableTests.cs
       VarIntTests.cs
     Cli/
       ConsoleTableTests.cs
@@ -611,6 +616,7 @@ tests/
       KeyedLockTests.cs
       ParallelUtilsTests.cs
       PeriodicWorkerTests.cs
+      CancellationTokenExtensionsTests.cs
       TaskExtensionsTests.cs
     Time/
       BusinessDaysTests.cs
