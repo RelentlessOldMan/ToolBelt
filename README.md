@@ -1,6 +1,6 @@
 # ToolBelt 🧰
 
-**A zero-dependency, cross-platform C# "tool belt" — 180+ small, heavily-tested utilities that drop straight into any project.** Collections, numerics, text, graphs, intervals, async, signal processing, statistics, and more — spread across focused divisions, every file independently copyable, every public contract exercised by tests.
+**A zero-dependency, cross-platform C# "tool belt" — 200+ small, heavily-tested utilities that drop straight into any project.** Collections, numerics, text, graphs, intervals, async, signal processing, statistics, and more — spread across focused divisions, every file independently copyable, every public contract exercised by tests.
 
 A companion to **UtilityBelt** — a generic, project-agnostic collection of C# helper and utility
 classes. ToolBelt is a separate playground repo where we build **net-new** reusable utilities under the
@@ -11,7 +11,7 @@ same design laws, so they can later be pulled into the UtilityBelt tree with min
 A defect in application code affects one application; a defect in a shared utility propagates into every
 project that consumes it. ToolBelt treats that blast radius seriously: each utility is small, focused,
 predictable, hard to misuse, and covered by behavioral, property-based, and differential tests
-(**1,100+** of them). Drop a single `.cs` file into a project, or reference the whole assembly — either
+(**1,400+** of them). Drop a single `.cs` file into a project, or reference the whole assembly — either
 works, with no dependencies to inherit.
 
 > **Merge note:** namespaces are currently rooted at `ToolBelt.*` with divisions/paths kept identical to
@@ -140,7 +140,7 @@ src/
     Cli/
       ConsoleTable.cs       box-drawing text table (alignment, padding)
       ProgressBar.cs        render a text progress bar (bar body / bracketed + percent)
-      Sparkline.cs          one-line block-character mini chart of a series       aligned monospace text tables
+      Sparkline.cs          one-line block-character mini chart of a series
     Collections/
       BinaryHeap.cs         binary-heap priority queue (custom comparer)
       Batch.cs              lazy fixed-size batching of any IEnumerable<T>
@@ -305,6 +305,7 @@ src/
       CommandLineBuilder.cs  quote + join args (inverse of the splitter; round-trips)
       CommandLineSplitter.cs  split a command line into args (quote-aware)
       GlobMatcher.cs        glob matching (*, ?, [a-z], negation)
+      HammingDistance.cs    Hamming distance between equal-length strings / bit sequences
       Indent.cs             indent / dedent multi-line text
       JaroWinkler.cs        Jaro & Jaro-Winkler string similarity
       LevenshteinDistance.cs edit distance + normalized similarity (rolling buffer)
