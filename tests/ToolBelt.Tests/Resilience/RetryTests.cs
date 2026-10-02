@@ -143,6 +143,31 @@ namespace ToolBelt.Tests.Resilience
             Check.Equal(TimeSpan.MaxValue, policy.DelayForAttempt(60));
         }
 
+        public async Task NonGenericOverload_RunsAndRetries()
+        {
+            // The result-less ExecuteAsync(Func<CancellationToken, Task>, ...) overload wraps the generic one;
+            // a lambda returning plain Task binds here. Verify it actually retries and reports completion.
+            var (policy, delays) = PolicyWithRecordedDelays(new RetryPolicy { MaxAttempts = 3 });
+            int calls = 0;
+
+            await Retry.ExecuteAsync(_ =>
+            {
+                calls++;
+                if (calls < 2) throw new InvalidOperationException("transient");
+                return Task.CompletedTask;
+            }, policy);
+
+            Check.Equal(2, calls);        // failed once, then succeeded
+            Check.Equal(1, delays.Count); // one delay before the single retry
+        }
+
+        public async Task NonGenericOverload_NullOperation_Throws()
+        {
+            var policy = new RetryPolicy();
+            await AssertThrowsAsync<ArgumentNullException>(
+                () => Retry.ExecuteAsync((Func<CancellationToken, Task>)null!, policy));
+        }
+
         // Local async-throws helper (Check.Throws is sync-only).
         private static async Task<TException> AssertThrowsAsync<TException>(Func<Task> action)
             where TException : Exception

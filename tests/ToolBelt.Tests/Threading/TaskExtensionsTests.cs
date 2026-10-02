@@ -59,5 +59,25 @@ namespace ToolBelt.Tests.Threading
             Check.Throws<ArgumentNullException>(() => ((Task)null!).FireAndForget(_ => { }));
             Check.Throws<ArgumentNullException>(() => Task.CompletedTask.FireAndForget(null!));
         }
+
+        public async Task WithTimeout_NonGeneric_Completes()
+        {
+            // Static type Task (not Task<T>) binds the result-less overload.
+            Task done = Task.CompletedTask;
+            await done.WithTimeout(TimeSpan.FromSeconds(5)); // returns without throwing
+        }
+
+        public async Task WithTimeout_NonGeneric_Fires()
+        {
+            Task never = new TaskCompletionSource<int>().Task;
+            await Check.ThrowsAsync<TimeoutException>(() => never.WithTimeout(TimeSpan.FromMilliseconds(20)));
+        }
+
+        public async Task WithTimeout_NullTask_Throws()
+        {
+            // async methods surface the null-check as a faulted task, not a synchronous throw.
+            await Check.ThrowsAsync<ArgumentNullException>(() => ((Task)null!).WithTimeout(TimeSpan.FromSeconds(1)));
+            await Check.ThrowsAsync<ArgumentNullException>(() => ((Task<int>)null!).WithTimeout(TimeSpan.FromSeconds(1)));
+        }
     }
 }

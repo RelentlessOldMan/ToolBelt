@@ -83,5 +83,18 @@ namespace ToolBelt.Tests.Objects
             Check.Equal(DeepEquals.Equals(a, b), PropertyDiff.Compare(a, b).Count == 0);
             Check.Equal(2, PropertyDiff.Compare(a, b).Count);
         }
+
+        public void Difference_ToString_RendersPathAndValues()
+        {
+            // ToString is the human-facing audit-log line; exercise both the value and the null-substitution branches.
+            var a = Sample();
+            var b = Sample();
+            b.Home!.City = "Paris";
+            Check.Equal("Home.City: London -> Paris", PropertyDiff.Compare(a, b)[0].ToString());
+
+            var c = Sample();
+            c.Tags.Add("c"); // added element: OldValue is null → "null" substitution
+            Check.Equal("Tags[2]: null -> c", PropertyDiff.Compare(a, c)[0].ToString());
+        }
     }
 }
