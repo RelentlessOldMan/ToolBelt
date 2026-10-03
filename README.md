@@ -1,6 +1,6 @@
 # ToolBelt 🧰
 
-**A zero-dependency, cross-platform C# "tool belt" — 200+ small, heavily-tested utilities that drop straight into any project.** Collections, numerics, text, graphs, intervals, async, signal processing, statistics, and more — spread across focused divisions, every file independently copyable, every public contract exercised by tests.
+**A zero-dependency, cross-platform C# "tool belt" — 200+ small, heavily-tested utilities that drop straight into any project.** Collections, numerics, text, graphs, grids, intervals, async, signal processing, statistics, and more — spread across focused divisions, every file independently copyable, every public contract exercised by tests.
 
 A companion to **UtilityBelt** — a generic, project-agnostic collection of C# helper and utility
 classes. ToolBelt is a separate playground repo where we build **net-new** reusable utilities under the
@@ -33,6 +33,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Enums** | Enum helpers | `EnumExtensions` `EnumFlags` `EnumMap` |
 | **Functional** | Result/optional types, memoization | `Result` `Option` `Either` `Memoize` |
 | **Graphs** | Graph algorithms | `Graph` `TopologicalSort` `ShortestPath` `MinimumSpanningTree` |
+| **Grids** | 2-D grid algorithms | `FloodFill` `ConnectedComponents2D` `GridPathfinding` |
 | **Guards** | Argument validation | `Guard` |
 | **Identifiers** | Id generation & encoding | `Ulid` `NanoId` `ShortGuid` `SnowflakeIdGenerator` |
 | **Intervals** | Interval/range structures | `Interval` `IntervalTree` `RangeMap` `RangeSet` |
@@ -93,6 +94,9 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Gamma / erf / incomplete gamma & beta | `Numerics.SpecialFunctions` |
 | Convert units | `Numerics.UnitConvert` |
 | Shortest path / dependency order | `Graphs.ShortestPath`, `TopologicalSort` |
+| Find a path across a 2-D grid (BFS / A* / Dijkstra) | `Grids.GridPathfinding` |
+| Flood-fill / find a connected region | `Grids.FloodFill` |
+| Label connected components in a grid | `Grids.ConnectedComponents2D` |
 | Query overlapping intervals | `Intervals.IntervalTree`, `RangeSet` |
 | Diff or deep-compare object graphs | `Objects.PropertyDiff`, `DeepEquals` |
 | CIDR / IP address math | `Net.CidrRange`, `IpUtils` |
@@ -210,6 +214,11 @@ src/
       StronglyConnectedComponents.cs  Tarjan's SCC (iterative, reverse-topological order)
       ShortestPath.cs       BFS (unweighted) + Dijkstra (non-negative) over the shared binary heap
       MinimumSpanningTree.cs  Kruskal's MST/forest over the shared union-find
+    Grids/
+      Cell.cs               (row, col) coordinate + Connectivity (Four/Eight) — the division's shared types
+      FloodFill.cs          paint-bucket region find / in-place fill (value or predicate)
+      ConnectedComponents2D.cs  label connected regions (boolean mask or equal-value partition) + bounding boxes
+      GridPathfinding.cs    BFS (fewest steps) / A* (uniform, admissible heuristic) / Dijkstra (weighted)
     Intervals/
       Interval.cs           half-open [start, end) over any comparable key
       IntervalTree.cs       augmented index: intervals containing a point / overlapping a range
@@ -490,6 +499,10 @@ tests/
       StronglyConnectedComponentsTests.cs
       ShortestPathTests.cs
       MinimumSpanningTreeTests.cs
+    Grids/
+      FloodFillTests.cs
+      ConnectedComponents2DTests.cs
+      GridPathfindingTests.cs
     Intervals/
       IntervalTreeTests.cs
       RangeMapTests.cs
