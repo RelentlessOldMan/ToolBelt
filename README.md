@@ -59,7 +59,8 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 > `ShortcutUtils`, `ClipboardUtils`, `ScreenCapture`, `ResourceSampler`, `RunElevated`, `OsVersionInfo`,
 > `MemoryStatus`, `IdleTime` — so they never burden the portable core. MVVM / forms helpers live in further
 > Windows-only assemblies, `ToolBelt.Wpf` (`ObservableObject`, `RelayCommand`, `AsyncRelayCommand`,
-> `NotifyTaskCompletion`, `ValidationObservableObject`, `ValueConverters`, `Messenger`) and
+> `NotifyTaskCompletion`, `ValidationObservableObject`, `ValueConverters`, `MultiValueConverters`,
+> `BindingProxy`, `Messenger`) and
 > `ToolBelt.WinForms` (`ControlExtensions`, `ControlTreeExtensions`, `DoubleBufferedExtensions`,
 > `WaitCursorScope`, `ComboBoxEnumExtensions`, `LayoutSuspender`, `FormStatePersistence`). See [Layout](#layout).
 
@@ -450,6 +451,8 @@ src/
     NotifyTaskCompletion.cs bindable async-task wrapper (status/result/error via INPC)
     ValidationObservableObject.cs  INotifyDataErrorInfo + INotifyPropertyChanged validation base
     ValueConverters.cs      common IValueConverters (bool/visibility/null/enum/count)
+    MultiValueConverters.cs IMultiValueConverters (boolean AND / OR for MultiBinding)
+    BindingProxy.cs         Freezable DataContext bridge for out-of-tree bindings
     Messenger.cs            thread-safe publish/subscribe message aggregator
   ToolBelt.WinForms/        WinForms UI satellite (net8.0-windows) — forms helpers
     ControlExtensions.cs    InvokeIfRequired / BeginInvokeIfRequired UI-thread marshalling
@@ -768,6 +771,8 @@ tests/
     NotifyTaskCompletionTests.cs
     ValidationObservableObjectTests.cs
     ValueConvertersTests.cs
+    MultiValueConvertersTests.cs
+    BindingProxyTests.cs
     MessengerTests.cs
   ToolBelt.WinForms.Tests/  WinForms UI satellite tests (net8.0-windows)
     ControlExtensionsTests.cs
