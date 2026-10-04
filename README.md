@@ -90,6 +90,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Streaming mean / variance / percentiles | `Numerics.RunningStatistics`, `Percentile` |
 | Confidence intervals / bootstrap | `Numerics.ConfidenceInterval`, `Bootstrap` |
 | Run a significance test (t / χ² / KS / Mann-Whitney) | `Numerics.HypothesisTests` |
+| Compare several group means (one-way ANOVA / F-test) | `Numerics.Anova` |
 | Fit a curve / solve a linear system | `Numerics.Polynomial`, `LinearAlgebra` |
 | Gamma / erf / incomplete gamma & beta | `Numerics.SpecialFunctions` |
 | Convert units | `Numerics.UnitConvert` |
@@ -285,6 +286,7 @@ src/
       ZipUtils.cs           zip create/extract/list/read; extract guarded against Zip-Slip
     Numerics/
       Angle.cs              degree normalize / shortest-diff / lerp / deg-rad
+      Anova.cs              one-way ANOVA (F-test table) + F-distribution tail probability
       BaseConverter.cs      integer <-> radix string (base 2..36 or custom alphabet)
       Bootstrap.cs          resampling percentile confidence interval (any statistic, seeded)
       ChangePoint.cs        CUSUM + binary-segmentation level-shift detection
@@ -562,6 +564,7 @@ tests/
       ZipUtilsTests.cs
     Numerics/
       AngleTests.cs
+      AnovaTests.cs
       BaseConverterTests.cs
       BootstrapTests.cs
       ChangePointTests.cs
