@@ -34,8 +34,10 @@ namespace ToolBelt.Grids
     /// finds a shortest geometric path on a uniform grid (orthogonal step 1, diagonal step √2) using an
     /// admissible heuristic; <see cref="Dijkstra(int, int, Cell, Cell, Func{int, int, bool}, Func{int, int, double}, Connectivity, bool)"/>
     /// finds a least-cost path for arbitrary non-negative per-cell entry costs. With
-    /// <see cref="Connectivity.Eight"/>, the <c>allowCornerCutting</c> flag controls whether a diagonal
-    /// move may squeeze between two blocked orthogonal cells.
+    /// <see cref="Connectivity.Eight"/>, the <c>allowCornerCutting</c> flag controls diagonal moves: when
+    /// false, a diagonal step is disallowed if <em>either</em> of the two orthogonal cells it passes between
+    /// is blocked (so the path never cuts a wall corner); when true (the default), diagonals are always
+    /// allowed as long as the destination is walkable.
     /// </summary>
     public static class GridPathfinding
     {
@@ -231,6 +233,8 @@ namespace ToolBelt.Grids
         {
             if (rows <= 0) throw new ArgumentOutOfRangeException(nameof(rows), rows, "Grid must have at least one row.");
             if (cols <= 0) throw new ArgumentOutOfRangeException(nameof(cols), cols, "Grid must have at least one column.");
+            if ((long)rows * cols > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(rows), "Grid is too large: rows * cols must fit in an int.");
             if (passable is null) throw new ArgumentNullException(nameof(passable));
             if ((uint)start.Row >= (uint)rows || (uint)start.Col >= (uint)cols)
                 throw new ArgumentOutOfRangeException(nameof(start), start, "Start is outside the grid.");

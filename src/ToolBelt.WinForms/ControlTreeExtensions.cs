@@ -17,22 +17,33 @@ namespace ToolBelt.WinForms
         public static IEnumerable<Control> Descendants(this Control control)
         {
             if (control is null) throw new ArgumentNullException(nameof(control));
-            var stack = new Stack<Control>();
-            PushChildren(control, stack);
-            while (stack.Count > 0)
+            return Iterate(control);
+
+            static IEnumerable<Control> Iterate(Control root)
             {
-                Control current = stack.Pop();
-                yield return current;
-                PushChildren(current, stack);
+                var stack = new Stack<Control>();
+                PushChildren(root, stack);
+                while (stack.Count > 0)
+                {
+                    Control current = stack.Pop();
+                    yield return current;
+                    PushChildren(current, stack);
+                }
             }
         }
 
         /// <summary>Descendant controls of type <typeparamref name="T"/>.</summary>
         public static IEnumerable<T> DescendantsOfType<T>(this Control control) where T : Control
         {
-            foreach (Control c in control.Descendants())
-                if (c is T typed)
-                    yield return typed;
+            if (control is null) throw new ArgumentNullException(nameof(control));
+            return Iterate(control);
+
+            static IEnumerable<T> Iterate(Control root)
+            {
+                foreach (Control c in root.Descendants())
+                    if (c is T typed)
+                        yield return typed;
+            }
         }
 
         /// <summary>The first descendant whose <see cref="Control.Name"/> equals <paramref name="name"/> (ordinal), or null.</summary>

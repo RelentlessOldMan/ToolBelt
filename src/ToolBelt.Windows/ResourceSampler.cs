@@ -62,6 +62,7 @@ namespace ToolBelt.Windows
         /// <summary>
         /// Returns a reading covering the span since the previous <see cref="Sample"/> (or construction) and
         /// resets the baseline. If no measurable time has elapsed, <see cref="ResourceSample.CpuPercent"/> is 0.
+        /// Throws if the target process has exited (its processor-time/memory counters are no longer available).
         /// </summary>
         public ResourceSample Sample()
         {

@@ -109,6 +109,8 @@ namespace ToolBelt.Tests.Grids
             Check.Throws<ArgumentOutOfRangeException>(() => GridPathfinding.AStar(2, 2, new Cell(2, 0), new Cell(0, 1), pass));
             Check.Throws<ArgumentOutOfRangeException>(() => GridPathfinding.AStar(2, 2, new Cell(0, 0), new Cell(0, 5), pass));
             Check.Throws<ArgumentNullException>(() => GridPathfinding.AStar(2, 2, new Cell(0, 0), new Cell(0, 1), null!));
+            // rows * cols must fit in an int (index math is int-based).
+            Check.Throws<ArgumentOutOfRangeException>(() => GridPathfinding.AStar(100000, 100000, new Cell(0, 0), new Cell(1, 1), pass));
             Check.Throws<ArgumentNullException>(() => GridPathfinding.AStar((bool[,])null!, new Cell(0, 0), new Cell(0, 1)));
             Check.Throws<ArgumentNullException>(() =>
                 GridPathfinding.Dijkstra(2, 2, new Cell(0, 0), new Cell(0, 1), pass, null!));

@@ -63,7 +63,9 @@ namespace ToolBelt.WinForms.Tests
             RunSta(() =>
             {
                 using var root = new Panel();
-                Check.Throws<ArgumentNullException>(() => ControlTreeExtensions.Descendants(null!).GetEnumerator().MoveNext());
+                // Null-check is eager (not deferred until enumeration).
+                Check.Throws<ArgumentNullException>(() => ControlTreeExtensions.Descendants(null!));
+                Check.Throws<ArgumentNullException>(() => ControlTreeExtensions.DescendantsOfType<Button>(null!));
                 Check.Throws<ArgumentNullException>(() => root.FindByName(null!));
             });
         }

@@ -47,7 +47,7 @@ namespace ToolBelt.WinForms
                 return false;
             if (ws != (int)FormWindowState.Normal && ws != (int)FormWindowState.Maximized)
                 return false;
-            if (w < 0 || h < 0)
+            if (w <= 0 || h <= 0) // a real form always has a positive size; reject 0×0 placements
                 return false;
             state = new FormState(new Rectangle(x, y, w, h), (FormWindowState)ws);
             return true;

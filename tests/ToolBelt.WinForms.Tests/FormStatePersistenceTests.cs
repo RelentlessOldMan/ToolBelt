@@ -28,6 +28,7 @@ namespace ToolBelt.WinForms.Tests
             Check.False(FormState.TryParse("a,b,c,d,e", out _));        // non-numeric
             Check.False(FormState.TryParse("0,0,100,100,7", out _));    // invalid window state
             Check.False(FormState.TryParse("0,0,-5,100,0", out _));     // negative size
+            Check.False(FormState.TryParse("100,100,0,0,0", out _));    // zero size (no real form is 0x0)
         }
 
         public void TryParse_UsesInvariantCulture()

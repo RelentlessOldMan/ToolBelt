@@ -127,8 +127,10 @@ namespace ToolBelt.Numerics
         /// </summary>
         public static double FUpperTailProbability(double f, double df1, double df2)
         {
-            if (df1 <= 0 || df2 <= 0)
-                throw new ArgumentOutOfRangeException(nameof(df1), "Degrees of freedom must be positive.");
+            if (df1 <= 0)
+                throw new ArgumentOutOfRangeException(nameof(df1), df1, "Degrees of freedom must be positive.");
+            if (df2 <= 0)
+                throw new ArgumentOutOfRangeException(nameof(df2), df2, "Degrees of freedom must be positive.");
             if (f <= 0) return 1.0;
             // P(F > f) = I_{df2/(df2 + df1 f)}(df2/2, df1/2).
             double x = df2 / (df2 + df1 * f);

@@ -68,6 +68,15 @@ namespace ToolBelt.Windows
                 CloseHandle(_handle); // closing the last handle enforces kill-on-close
                 _handle = IntPtr.Zero;
             }
+            GC.SuppressFinalize(this);
+        }
+
+        // Backstop: if the caller forgets to Dispose, close the handle so it neither leaks nor (with
+        // kill-on-close) silently keeps the child processes alive past this object's lifetime.
+        ~JobObject()
+        {
+            if (_handle != IntPtr.Zero)
+                CloseHandle(_handle);
         }
 
         private const int JobObjectExtendedLimitInformation = 9;

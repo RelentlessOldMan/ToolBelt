@@ -8,8 +8,11 @@ namespace ToolBelt.Wpf
     /// A minimal, thread-safe message aggregator (publish/subscribe) for decoupling view models: subscribers
     /// register a handler for a message type and publishers <see cref="Send{TMessage}"/> instances of it.
     /// Handlers are held with <b>strong</b> references, so a subscriber must <see cref="Unsubscribe{TMessage}"/>
-    /// (or call <see cref="Clear"/>) to avoid keeping itself alive. Delivery is synchronous on the calling
-    /// thread, to a snapshot of the subscribers taken when <see cref="Send{TMessage}"/> is invoked.
+    /// (or call <see cref="Clear"/>) to avoid keeping itself alive — this matters most for the process-wide
+    /// <see cref="Default"/> instance, where a forgotten subscriber leaks for the life of the process.
+    /// Delivery is synchronous on the calling thread, to a snapshot of the subscribers taken when
+    /// <see cref="Send{TMessage}"/> is invoked; an exception thrown by one handler propagates to the caller
+    /// and stops delivery to the remaining handlers.
     /// </summary>
     public sealed class Messenger
     {

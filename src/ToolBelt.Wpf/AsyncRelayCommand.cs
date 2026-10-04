@@ -12,6 +12,12 @@ namespace ToolBelt.Wpf
     /// callers; the <see cref="ICommand.Execute(object)"/> entry point is fire-and-forget (async void), the
     /// standard shape for binding. As with <see cref="RelayCommand"/>, raise
     /// <see cref="RaiseCanExecuteChanged"/> yourself — no dispatcher dependency.
+    ///
+    /// <para>Intended for use on a single UI thread: the re-entrancy guard is not synchronised, so concurrent
+    /// invocations from different threads are not protected. An unhandled exception from the task is not
+    /// swallowed — via the async-void <see cref="ICommand.Execute(object)"/> it surfaces on the captured
+    /// synchronization context (typically crashing the app); prefer <see cref="ExecuteAsync"/> and await it
+    /// when you need to observe failures.</para>
     /// </summary>
     public sealed class AsyncRelayCommand : ICommand
     {
