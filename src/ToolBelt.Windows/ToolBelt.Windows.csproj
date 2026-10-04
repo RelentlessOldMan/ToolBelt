@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ToolBelt Windows platform satellite (roadmap file 12A). Windows-only (net8.0-windows): Win32 /
+       registry / WMI utilities that cannot live in the cross-platform, BCL-only core. Each file is a
+       self-contained drop-in. Part of ToolBelt.sln, but it only builds and runs on Windows. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <RootNamespace>ToolBelt.Windows</RootNamespace>
+    <AssemblyName>ToolBelt.Windows</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- CS1591: not every public member needs an XML doc comment (yet). -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+</Project>

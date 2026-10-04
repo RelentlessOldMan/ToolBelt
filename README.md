@@ -53,6 +53,10 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `BusinessDays` `UnixTime` |
 | **Visualization** | Raster canvas, charts, PNG & SVG | `ImageBuffer` `PngWriter` `SvgDocument` `Colormap` `HeatMap` `LinePlot` `Histogram` `BoxPlot` `ErrorBarChart` `BandChart` `Colorbar` |
 
+> The cross-platform core above is BCL-only. Windows-only Win32/registry helpers live in a **separate**
+> `ToolBelt.Windows` assembly (net8.0-windows) — `PowerStatus`, `SingleInstance`, `DriveAndVolumeInfo`,
+> `MonitorInfo`, `RegistryUtils` — so they never burden the portable core. See [Layout](#layout).
+
 ## Find what you need
 
 | I want to… | Reach for |
@@ -415,6 +419,12 @@ src/
       LogFormatters.cs      plain / compact / single-line-JSON line formatters
       StructuredTextFormatter.cs  configurable field order / delimiter / timestamp (delimited preset)
       ScopedContext.cs      ambient flow-local scope label folded into each event's category
+  ToolBelt.Windows/         Windows platform satellite (net8.0-windows) — Win32 / registry utilities
+    PowerStatus.cs          AC line / battery charge / saver mode via GetSystemPowerStatus
+    SingleInstance.cs       single-instance gate over a named mutex (abandoned-owner safe)
+    DriveAndVolumeInfo.cs   fixed-drive enumeration + free space for any path
+    MonitorInfo.cs          attached monitors: bounds / work area / primary (EnumDisplayMonitors)
+    RegistryUtils.cs        hive+subkey read/write/delete/enumerate helpers (default view)
 tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
     Framework/
@@ -699,6 +709,12 @@ tests/
       LogFormattersTests.cs
       StructuredTextFormatterTests.cs
       ScopedContextTests.cs
+  ToolBelt.Windows.Tests/   Windows-only integration tests for the platform satellite (net8.0-windows)
+    PowerStatusTests.cs
+    SingleInstanceTests.cs
+    DriveAndVolumeInfoTests.cs
+    MonitorInfoTests.cs
+    RegistryUtilsTests.cs
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
                             fits, root-finding, statistics)
