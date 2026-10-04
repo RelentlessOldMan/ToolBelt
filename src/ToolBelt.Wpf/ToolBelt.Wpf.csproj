@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ToolBelt WPF UI satellite (roadmap file 12B). Windows-only (net8.0-windows, WPF): MVVM building
+       blocks (INotifyPropertyChanged / ICommand / validation / messaging). Separate from the core so the
+       portable library never references a UI framework. Each file is a self-contained drop-in. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <RootNamespace>ToolBelt.Wpf</RootNamespace>
+    <AssemblyName>ToolBelt.Wpf</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- CS1591: not every public member needs an XML doc comment (yet). -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+</Project>

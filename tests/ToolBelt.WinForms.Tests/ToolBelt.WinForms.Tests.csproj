@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Hand-rolled, zero-dependency runner for the WinForms UI satellite. Windows-only; exit 0 == all green. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>ToolBelt.WinForms.Tests</RootNamespace>
+    <AssemblyName>ToolBelt.WinForms.Tests</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ToolBelt.WinForms\ToolBelt.WinForms.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\ToolBelt.Tests\Framework\Check.cs" Link="Framework\Check.cs" />
+    <Compile Include="..\ToolBelt.Tests\Framework\TestRunner.cs" Link="Framework\TestRunner.cs" />
+  </ItemGroup>
+
+</Project>

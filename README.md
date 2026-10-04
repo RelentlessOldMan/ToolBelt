@@ -57,7 +57,9 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 > `ToolBelt.Windows` assembly (net8.0-windows) — `PowerStatus`, `SingleInstance`, `DriveAndVolumeInfo`,
 > `MonitorInfo`, `RegistryUtils`, `Elevation`, `JobObject`, `WindowUtils`, `FileAssociation`,
 > `ShortcutUtils`, `ClipboardUtils`, `ScreenCapture`, `ResourceSampler`, `RunElevated` — so they never
-> burden the portable core. See [Layout](#layout).
+> burden the portable core. MVVM / forms helpers live in further Windows-only assemblies, `ToolBelt.Wpf`
+> (`ObservableObject`, `RelayCommand`, `ValidationObservableObject`, `Messenger`) and `ToolBelt.WinForms`
+> (`ControlExtensions`, `FormStatePersistence`). See [Layout](#layout).
 
 ## Find what you need
 
@@ -436,6 +438,14 @@ src/
     ScreenCapture.cs        capture screen/region to a raw BGRA buffer via GDI BitBlt (no System.Drawing)
     ResourceSampler.cs      per-process CPU% (core-normalised) + working-set / private memory
     RunElevated.cs          launch/relaunch a process elevated via ShellExecute "runas" (UAC)
+  ToolBelt.Wpf/             WPF UI satellite (net8.0-windows) — MVVM building blocks
+    ObservableObject.cs     INotifyPropertyChanged base with SetProperty
+    RelayCommand.cs         ICommand over delegates (+ generic RelayCommand<T>)
+    ValidationObservableObject.cs  INotifyDataErrorInfo + INotifyPropertyChanged validation base
+    Messenger.cs            thread-safe publish/subscribe message aggregator
+  ToolBelt.WinForms/        WinForms UI satellite (net8.0-windows) — forms helpers
+    ControlExtensions.cs    InvokeIfRequired / BeginInvokeIfRequired UI-thread marshalling
+    FormStatePersistence.cs capture/apply/serialize a form's window placement
 tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
     Framework/
@@ -735,6 +745,14 @@ tests/
     ScreenCaptureTests.cs
     ResourceSamplerTests.cs
     RunElevatedTests.cs
+  ToolBelt.Wpf.Tests/       WPF UI satellite tests (net8.0-windows)
+    ObservableObjectTests.cs
+    RelayCommandTests.cs
+    ValidationObservableObjectTests.cs
+    MessengerTests.cs
+  ToolBelt.WinForms.Tests/  WinForms UI satellite tests (net8.0-windows)
+    ControlExtensionsTests.cs
+    FormStatePersistenceTests.cs
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
                             fits, root-finding, statistics)

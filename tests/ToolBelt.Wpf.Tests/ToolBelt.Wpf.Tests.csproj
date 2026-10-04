@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Hand-rolled, zero-dependency runner for the WPF UI satellite. Windows-only; exit 0 == all green.
+       The MVVM building blocks need no Dispatcher, so tests run on the default thread. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>ToolBelt.Wpf.Tests</RootNamespace>
+    <AssemblyName>ToolBelt.Wpf.Tests</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ToolBelt.Wpf\ToolBelt.Wpf.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\ToolBelt.Tests\Framework\Check.cs" Link="Framework\Check.cs" />
+    <Compile Include="..\ToolBelt.Tests\Framework\TestRunner.cs" Link="Framework\TestRunner.cs" />
+  </ItemGroup>
+
+</Project>

@@ -22,17 +22,20 @@ Write-Host "Running $exe" -ForegroundColor Cyan
 & $exe @RunnerArgs
 $mainExit = $LASTEXITCODE
 
-# Windows platform satellite (net8.0-windows). Only meaningful on Windows; skip elsewhere.
+# Windows-only satellites (net8.0-windows): platform + WPF + WinForms. Only meaningful on Windows; skip elsewhere.
 if ($IsWindows -or $env:OS -eq "Windows_NT") {
-    $winProj = "$repoRoot\tests\ToolBelt.Windows.Tests\ToolBelt.Windows.Tests.csproj"
-    Write-Host "Building Windows satellite tests ($Configuration)..." -ForegroundColor Cyan
-    dotnet build $winProj -c $Configuration --nologo -p:UseSharedCompilation=false
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $satellites = @("ToolBelt.Windows.Tests", "ToolBelt.Wpf.Tests", "ToolBelt.WinForms.Tests")
+    foreach ($name in $satellites) {
+        $proj = "$repoRoot\tests\$name\$name.csproj"
+        Write-Host "Building $name ($Configuration)..." -ForegroundColor Cyan
+        dotnet build $proj -c $Configuration --nologo -p:UseSharedCompilation=false
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    $winExe = "$repoRoot\tests\ToolBelt.Windows.Tests\bin\$Configuration\net8.0-windows\ToolBelt.Windows.Tests.exe"
-    Write-Host "Running $winExe" -ForegroundColor Cyan
-    & $winExe @RunnerArgs
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $exe = "$repoRoot\tests\$name\bin\$Configuration\net8.0-windows\$name.exe"
+        Write-Host "Running $exe" -ForegroundColor Cyan
+        & $exe @RunnerArgs
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
 }
 
 exit $mainExit
