@@ -56,7 +56,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 > The cross-platform core above is BCL-only. Windows-only Win32/registry helpers live in a **separate**
 > `ToolBelt.Windows` assembly (net8.0-windows) — `PowerStatus`, `SingleInstance`, `DriveAndVolumeInfo`,
 > `MonitorInfo`, `RegistryUtils`, `Elevation`, `JobObject`, `WindowUtils`, `FileAssociation`,
-> `ShortcutUtils` — so they never burden the portable core. See [Layout](#layout).
+> `ShortcutUtils`, `ClipboardUtils` — so they never burden the portable core. See [Layout](#layout).
 
 ## Find what you need
 
@@ -431,6 +431,7 @@ src/
     WindowUtils.cs          enumerate top-level windows / foreground / find by title
     FileAssociation.cs      per-extension opener / friendly name / command / ProgID
     ShortcutUtils.cs        create & read .lnk shortcuts via COM IShellLink
+    ClipboardUtils.cs       get/set/clear Unicode clipboard text (raw Win32, STA thread)
 tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
     Framework/
@@ -726,6 +727,7 @@ tests/
     WindowUtilsTests.cs
     FileAssociationTests.cs
     ShortcutUtilsTests.cs
+    ClipboardUtilsTests.cs
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
                             fits, root-finding, statistics)
