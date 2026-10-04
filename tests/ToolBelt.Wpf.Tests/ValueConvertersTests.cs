@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
@@ -63,6 +64,23 @@ namespace ToolBelt.Wpf.Tests
             // ConvertBack: checked -> parameter, unchecked -> DoNothing.
             Check.Equal(Day.Tue, (Day)c.ConvertBack(true, typeof(Day), Day.Tue, Ci)!);
             Check.Equal(Binding.DoNothing, c.ConvertBack(false, typeof(Day), Day.Tue, Ci));
+        }
+
+        public void CountToVisibility_IntAndCollectionAndInvert()
+        {
+            var c = new CountToVisibilityConverter();
+            Check.Equal(Visibility.Visible, (Visibility)c.Convert(3, typeof(Visibility), null, Ci)!);
+            Check.Equal(Visibility.Collapsed, (Visibility)c.Convert(0, typeof(Visibility), null, Ci)!);
+            Check.Equal(Visibility.Collapsed, (Visibility)c.Convert(null, typeof(Visibility), null, Ci)!);
+
+            Check.Equal(Visibility.Visible, (Visibility)c.Convert(new List<int> { 1 }, typeof(Visibility), null, Ci)!);
+            Check.Equal(Visibility.Collapsed, (Visibility)c.Convert(new List<int>(), typeof(Visibility), null, Ci)!);
+
+            c.Invert = true; // "show when empty"
+            Check.Equal(Visibility.Visible, (Visibility)c.Convert(new List<int>(), typeof(Visibility), null, Ci)!);
+            Check.Equal(Visibility.Collapsed, (Visibility)c.Convert(new List<int> { 1 }, typeof(Visibility), null, Ci)!);
+
+            Check.Equal(Binding.DoNothing, c.ConvertBack(Visibility.Visible, typeof(object), null, Ci));
         }
 
         private enum Day { Mon, Tue, Wed }

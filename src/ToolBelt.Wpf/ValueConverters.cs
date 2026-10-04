@@ -1,5 +1,6 @@
 // ToolBelt.Wpf drop-in — Windows-only (net8.0-windows), self-contained (BCL + WPF).
 using System;
+using System.Collections;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
@@ -79,5 +80,41 @@ namespace ToolBelt.Wpf
 
         public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
             => value is bool b && b ? parameter : Binding.DoNothing;
+    }
+
+    /// <summary>
+    /// Maps a count to a <see cref="Visibility"/>: a positive <see cref="int"/>, or a non-empty collection /
+    /// sequence, becomes Visible; null, zero, or an empty collection becomes Collapsed (or Hidden via
+    /// <see cref="UseHidden"/>). <see cref="Invert"/> swaps the sense — handy for "show this when the list is
+    /// empty" placeholders. One-way: <see cref="ConvertBack"/> returns <see cref="Binding.DoNothing"/>.
+    /// </summary>
+    public sealed class CountToVisibilityConverter : IValueConverter
+    {
+        public bool UseHidden { get; set; }
+        public bool Invert { get; set; }
+
+        public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        {
+            bool any = value switch
+            {
+                null => false,
+                int n => n > 0,
+                ICollection c => c.Count > 0,
+                IEnumerable e => HasAny(e),
+                _ => true,
+            };
+            if (Invert) any = !any;
+            return any ? Visibility.Visible : (UseHidden ? Visibility.Hidden : Visibility.Collapsed);
+        }
+
+        public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+            => Binding.DoNothing;
+
+        private static bool HasAny(IEnumerable sequence)
+        {
+            IEnumerator e = sequence.GetEnumerator();
+            try { return e.MoveNext(); }
+            finally { (e as IDisposable)?.Dispose(); }
+        }
     }
 }

@@ -56,11 +56,12 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 > The cross-platform core above is BCL-only. Windows-only Win32/registry helpers live in a **separate**
 > `ToolBelt.Windows` assembly (net8.0-windows) — `PowerStatus`, `SingleInstance`, `DriveAndVolumeInfo`,
 > `MonitorInfo`, `RegistryUtils`, `Elevation`, `JobObject`, `WindowUtils`, `FileAssociation`,
-> `ShortcutUtils`, `ClipboardUtils`, `ScreenCapture`, `ResourceSampler`, `RunElevated` — so they never
-> burden the portable core. MVVM / forms helpers live in further Windows-only assemblies, `ToolBelt.Wpf`
-> (`ObservableObject`, `RelayCommand`, `AsyncRelayCommand`, `ValidationObservableObject`, `ValueConverters`,
-> `Messenger`) and `ToolBelt.WinForms` (`ControlExtensions`, `ControlTreeExtensions`,
-> `DoubleBufferedExtensions`, `WaitCursorScope`, `FormStatePersistence`). See [Layout](#layout).
+> `ShortcutUtils`, `ClipboardUtils`, `ScreenCapture`, `ResourceSampler`, `RunElevated`, `OsVersionInfo`,
+> `MemoryStatus`, `IdleTime` — so they never burden the portable core. MVVM / forms helpers live in further
+> Windows-only assemblies, `ToolBelt.Wpf` (`ObservableObject`, `RelayCommand`, `AsyncRelayCommand`,
+> `NotifyTaskCompletion`, `ValidationObservableObject`, `ValueConverters`, `Messenger`) and
+> `ToolBelt.WinForms` (`ControlExtensions`, `ControlTreeExtensions`, `DoubleBufferedExtensions`,
+> `WaitCursorScope`, `ComboBoxEnumExtensions`, `LayoutSuspender`, `FormStatePersistence`). See [Layout](#layout).
 
 ## Find what you need
 
@@ -439,18 +440,24 @@ src/
     ScreenCapture.cs        capture screen/region to a raw BGRA buffer via GDI BitBlt (no System.Drawing)
     ResourceSampler.cs      per-process CPU% (core-normalised) + working-set / private memory
     RunElevated.cs          launch/relaunch a process elevated via ShellExecute "runas" (UAC)
+    OsVersionInfo.cs        true OS version via RtlGetVersion (Win10/Win11 detection)
+    MemoryStatus.cs         system physical / page-file memory + load % (GlobalMemoryStatusEx)
+    IdleTime.cs             time since last user input (GetLastInputInfo)
   ToolBelt.Wpf/             WPF UI satellite (net8.0-windows) — MVVM building blocks
     ObservableObject.cs     INotifyPropertyChanged base with SetProperty
     RelayCommand.cs         ICommand over delegates (+ generic RelayCommand<T>)
     AsyncRelayCommand.cs    async ICommand (Task execute) with re-entrancy guard
+    NotifyTaskCompletion.cs bindable async-task wrapper (status/result/error via INPC)
     ValidationObservableObject.cs  INotifyDataErrorInfo + INotifyPropertyChanged validation base
-    ValueConverters.cs      common IValueConverters (bool/visibility/null/enum)
+    ValueConverters.cs      common IValueConverters (bool/visibility/null/enum/count)
     Messenger.cs            thread-safe publish/subscribe message aggregator
   ToolBelt.WinForms/        WinForms UI satellite (net8.0-windows) — forms helpers
     ControlExtensions.cs    InvokeIfRequired / BeginInvokeIfRequired UI-thread marshalling
     ControlTreeExtensions.cs  recursive descendant enumeration / typed filter / find-by-name
     DoubleBufferedExtensions.cs  toggle a control's (protected) double buffering
     WaitCursorScope.cs      using-scope hourglass cursor (restores previous state)
+    ComboBoxEnumExtensions.cs  bind enum values to a ComboBox + get/set selection as the enum
+    LayoutSuspender.cs      using-scope SuspendLayout/ResumeLayout batch
     FormStatePersistence.cs capture/apply/serialize a form's window placement
 tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
@@ -751,10 +758,14 @@ tests/
     ScreenCaptureTests.cs
     ResourceSamplerTests.cs
     RunElevatedTests.cs
+    OsVersionInfoTests.cs
+    MemoryStatusTests.cs
+    IdleTimeTests.cs
   ToolBelt.Wpf.Tests/       WPF UI satellite tests (net8.0-windows)
     ObservableObjectTests.cs
     RelayCommandTests.cs
     AsyncRelayCommandTests.cs
+    NotifyTaskCompletionTests.cs
     ValidationObservableObjectTests.cs
     ValueConvertersTests.cs
     MessengerTests.cs
@@ -763,6 +774,8 @@ tests/
     ControlTreeExtensionsTests.cs
     DoubleBufferedExtensionsTests.cs
     WaitCursorScopeTests.cs
+    ComboBoxEnumExtensionsTests.cs
+    LayoutSuspenderTests.cs
     FormStatePersistenceTests.cs
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
