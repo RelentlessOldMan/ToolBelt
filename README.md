@@ -58,8 +58,9 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 > `MonitorInfo`, `RegistryUtils`, `Elevation`, `JobObject`, `WindowUtils`, `FileAssociation`,
 > `ShortcutUtils`, `ClipboardUtils`, `ScreenCapture`, `ResourceSampler`, `RunElevated` — so they never
 > burden the portable core. MVVM / forms helpers live in further Windows-only assemblies, `ToolBelt.Wpf`
-> (`ObservableObject`, `RelayCommand`, `ValidationObservableObject`, `Messenger`) and `ToolBelt.WinForms`
-> (`ControlExtensions`, `FormStatePersistence`). See [Layout](#layout).
+> (`ObservableObject`, `RelayCommand`, `AsyncRelayCommand`, `ValidationObservableObject`, `ValueConverters`,
+> `Messenger`) and `ToolBelt.WinForms` (`ControlExtensions`, `ControlTreeExtensions`,
+> `DoubleBufferedExtensions`, `WaitCursorScope`, `FormStatePersistence`). See [Layout](#layout).
 
 ## Find what you need
 
@@ -441,10 +442,15 @@ src/
   ToolBelt.Wpf/             WPF UI satellite (net8.0-windows) — MVVM building blocks
     ObservableObject.cs     INotifyPropertyChanged base with SetProperty
     RelayCommand.cs         ICommand over delegates (+ generic RelayCommand<T>)
+    AsyncRelayCommand.cs    async ICommand (Task execute) with re-entrancy guard
     ValidationObservableObject.cs  INotifyDataErrorInfo + INotifyPropertyChanged validation base
+    ValueConverters.cs      common IValueConverters (bool/visibility/null/enum)
     Messenger.cs            thread-safe publish/subscribe message aggregator
   ToolBelt.WinForms/        WinForms UI satellite (net8.0-windows) — forms helpers
     ControlExtensions.cs    InvokeIfRequired / BeginInvokeIfRequired UI-thread marshalling
+    ControlTreeExtensions.cs  recursive descendant enumeration / typed filter / find-by-name
+    DoubleBufferedExtensions.cs  toggle a control's (protected) double buffering
+    WaitCursorScope.cs      using-scope hourglass cursor (restores previous state)
     FormStatePersistence.cs capture/apply/serialize a form's window placement
 tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
@@ -748,10 +754,15 @@ tests/
   ToolBelt.Wpf.Tests/       WPF UI satellite tests (net8.0-windows)
     ObservableObjectTests.cs
     RelayCommandTests.cs
+    AsyncRelayCommandTests.cs
     ValidationObservableObjectTests.cs
+    ValueConvertersTests.cs
     MessengerTests.cs
   ToolBelt.WinForms.Tests/  WinForms UI satellite tests (net8.0-windows)
     ControlExtensionsTests.cs
+    ControlTreeExtensionsTests.cs
+    DoubleBufferedExtensionsTests.cs
+    WaitCursorScopeTests.cs
     FormStatePersistenceTests.cs
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
