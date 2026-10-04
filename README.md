@@ -46,7 +46,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Quality** | Statistical process control | `ProcessCapability` `ControlChart` `MeasurementAgreement` |
 | **Resilience** | Retry & rate control | `Retry` `CircuitBreaker` `Bulkhead` `TokenBucketRateLimiter` |
 | **Runtime** | Process/runtime introspection | `StartupTiming` `AppInfo` `MemoryPressure` |
-| **Security** | Hashing, HMAC, secure random | `Hashing` `Hmac` `ConstantTime` `CryptoRandom` |
+| **Security** | Hashing, HMAC, KDF, secure random, AEAD | `Hashing` `Hmac` `KeyDerivation` `CryptoRandom` `AuthenticatedEncryption` |
 | **Signal** | Digital signal processing | `Fft` `Window` `Spectrum` `WelchPsd` `Hilbert` `Goertzel` `Convolution` `Resample` `Quantizer` |
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
 | **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `AtomicCounters` |
@@ -124,6 +124,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Hash / HMAC / verify a token safely | `Security.Hashing`, `Hmac`, `ConstantTime` |
 | Generate a secure token / password | `Security.CryptoRandom` |
 | Hash a login password (with upgrade path) | `Security.PasswordHasher`, `KeyDerivation` |
+| Encrypt + authenticate a message (AEAD) | `Security.AuthenticatedEncryption` (AES-GCM) |
 
 ## Design laws (inherited from UtilityBelt)
 
@@ -412,6 +413,7 @@ src/
       CryptoRandom.cs       CSPRNG bytes / URL-safe token / numeric code / password (unbiased)
       KeyDerivation.cs      PBKDF2-HMAC-SHA-256/512 (hand-rolled, identical on both TFMs) + salt
       PasswordHasher.cs     encoded PBKDF2 hash + constant-time verify + rehash-needed check
+      AuthenticatedEncryption.cs  AES-GCM AEAD: self-describing nonce‖ct‖tag blob + detached form (net8.0)
     Process/
       ProcessRunner.cs      run a child: deadlock-free capture, timeout + tree-kill, stdin/env/cancel
       WhichExe.cs           resolve an executable on PATH (+ PATHEXT on Windows)
@@ -733,6 +735,7 @@ tests/
       CryptoRandomTests.cs
       KeyDerivationTests.cs
       PasswordHasherTests.cs
+      AuthenticatedEncryptionTests.cs
     Process/
       ProcessRunnerTests.cs   (Windows-only; drives cmd.exe)
       WhichExeTests.cs
