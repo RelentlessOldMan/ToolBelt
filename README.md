@@ -99,6 +99,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Label connected components in a grid | `Grids.ConnectedComponents2D` |
 | Query overlapping intervals | `Intervals.IntervalTree`, `RangeSet` |
 | Diff or deep-compare object graphs | `Objects.PropertyDiff`, `DeepEquals` |
+| Fast reflection-free get/set by member name | `Objects.ExpressionAccessor` |
 | CIDR / IP address math | `Net.CidrRange`, `IpUtils` |
 | Check a port / find a free one | `Net.PortCheck` |
 | Line-oriented TCP request/response | `Net.TcpLineClient` |
@@ -258,6 +259,7 @@ src/
       ActivatorUtils.cs     construct by best-matching constructor; safe assembly scan-and-create
       AttributeCache.cs     cached custom-attribute lookups for types/members (thread-safe)
       DeepEquals.cs         structural graph equality (cycles, float tolerance, collections)
+      ExpressionAccessor.cs compiled get/set delegates by member name (cached; boxing-free typed path)
       FlattenObject.cs      object graph -> flat path->value dictionary
       ObjectMapper.cs       copy matching properties across types (convert / ignore / custom)
       PropertyDiff.cs       differences between two graphs as (path, old, new)
@@ -534,6 +536,7 @@ tests/
       ActivatorUtilsTests.cs
       AttributeCacheTests.cs
       DeepEqualsTests.cs
+      ExpressionAccessorTests.cs
       FlattenObjectTests.cs
       ObjectMapperTests.cs
       PropertyDiffTests.cs
