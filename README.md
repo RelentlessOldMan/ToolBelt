@@ -125,6 +125,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Generate a secure token / password | `Security.CryptoRandom` |
 | Hash a login password (with upgrade path) | `Security.PasswordHasher`, `KeyDerivation` |
 | Encrypt + authenticate a message (AEAD) | `Security.AuthenticatedEncryption` (AES-GCM) |
+| Use a list/array as a dictionary key by contents | `Collections.SequenceEqualityComparer`, `MultisetEqualityComparer` |
 
 ## Design laws (inherited from UtilityBelt)
 
@@ -193,6 +194,7 @@ src/
       OrderedDictionary.cs  insertion-ordered generic dictionary
       OrderedSet.cs         insertion-ordered set
       Sampling.cs           Fisher-Yates shuffle + weighted pick (injected Random)
+      SequenceEqualityComparer.cs  structural sequence equality: ordered element-wise + unordered multiset (dict/set keys)
       TopN.cs               streaming N-largest via a bounded min-heap
       Trie.cs               prefix tree (contains / starts-with / with-prefix)
       TtlCache.cs           time-expiring cache (injectable clock)
@@ -517,6 +519,7 @@ tests/
       OrderedDictionaryTests.cs
       OrderedSetTests.cs
       SamplingTests.cs
+      SequenceEqualityComparerTests.cs
       TopNTests.cs
       TrieTests.cs
       TtlCacheTests.cs
