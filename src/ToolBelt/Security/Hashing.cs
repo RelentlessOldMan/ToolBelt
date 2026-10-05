@@ -28,6 +28,28 @@ namespace ToolBelt.Security
         /// <summary>MD5 — NOT cryptographically secure. Use only for legacy checksums / interop, never for security.</summary>
         public static byte[] Md5(byte[] data) => Compute(MD5.Create(), data);
 
+        /// <summary>SHA-256 of a file, streamed (any size).</summary>
+        public static byte[] Sha256File(string path) => HashFile(SHA256.Create(), path);
+        public static byte[] Sha512File(string path) => HashFile(SHA512.Create(), path);
+
+        /// <summary>Lowercase hex SHA-256 of a file — the form <c>sha256sum</c> prints.</summary>
+        public static string Sha256FileHex(string path) => ToHex(Sha256File(path));
+
+        /// <summary>
+        /// Hashes data that arrives in pieces (a socket, a capture loop, chunks you already have in memory) without
+        /// buffering it: <c>using var h = Hashing.CreateIncremental(); h.Append(chunk); … h.GetHashAndReset()</c>.
+        /// </summary>
+        public static IncrementalHash CreateIncremental(HashAlgorithmName? algorithm = null)
+            => IncrementalHash.CreateHash(algorithm ?? HashAlgorithmName.SHA256);
+
+        private static byte[] HashFile(HashAlgorithm algorithm, string path)
+        {
+            if (path is null) throw new ArgumentNullException(nameof(path));
+            using (algorithm)
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.SequentialScan))
+                return algorithm.ComputeHash(fs);
+        }
+
         /// <summary>Lowercase hex encoding of a hash.</summary>
         public static string ToHex(byte[] hash)
         {

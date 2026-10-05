@@ -26,7 +26,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Binary** | Encodings, checksums, bit twiddling | `Base32` `Base58` `Hex` `Crc32` `Fnv1a` `VarInt` `Bits` `Luhn` |
 | **Cli** | Console output, input and process plumbing | `ConsoleTable` `ProgressBar` `AnsiStyle` `ConsoleSpinner` `Prompt` `ConsoleApp` |
 | **Collections** | Data structures & sequence ops | `LruCache` `TtlCache` `Deque` `BloomFilter` `Trie` `Batch` `Aggregation` |
-| **Configuration** | Layered config & typed binding | `ConfigLayers` `ConfigBinder` |
+| **Configuration** | Layered config, typed binding, env vars, user settings | `ConfigLayers` `ConfigBinder` `EnvironmentVariables` `SettingsStore` |
 | **Control** | Control loops & filters | `PidController` `KalmanFilter1D` |
 | **Diagnostics** | Measurement, observability & health | `Benchmark` `MetricsRegistry` `ScopedTimer` `HealthCheck` `DiskSpace` `AssertInvariant` |
 | **Documents** | Report writers & builder (MD/HTML/PDF/DOCX) | `ReportBuilder` `ReportTemplates` `MarkdownReport` `HtmlReport` `PdfWriter` `DocxWriter` |
@@ -37,7 +37,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Guards** | Argument validation | `Guard` |
 | **Identifiers** | Id generation & encoding | `Ulid` `NanoId` `ShortGuid` `SnowflakeIdGenerator` |
 | **Intervals** | Interval/range structures | `Interval` `IntervalTree` `RangeMap` `RangeSet` |
-| **IO** | Files, directories, streams, tabular text, zip | `AtomicFile` `DirectoryUtils` `FileWatcher` `ChecksumManifest` `CsvBinder` `LineReader` `ZipUtils` |
+| **IO** | Files, directories, streams, tabular text, zip | `AtomicFile` `DirectoryUtils` `FileWatcher` `ChecksumManifest` `CsvBinder` `CsvDialect` `JsonFile` `JsonLines` `FileRetention` `ZipUtils` `TarUtils` |
 | **Logging** | Fan-out logging (plain-string events) | `Logger` `TextWriterSink` `FileSink` `AsyncLogSink` `RollingMemorySink` `FilterSink` `RouterSink` `RateLimitedSink` `ScopedContext` |
 | **Net** | Address math, TCP/DNS, HTTP | `CidrRange` `IpUtils` `PortCheck` `TcpLineClient` `HostInfo` `HttpDownload` |
 | **Numerics** | Math, stats, calculus, random | `DeterministicRandom` `Distributions` `Percentile` `Polynomial` `UnitConvert` `Bootstrap` |
@@ -46,7 +46,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Quality** | Statistical process control | `ProcessCapability` `ControlChart` `MeasurementAgreement` |
 | **Resilience** | Retry & rate control | `Retry` `CircuitBreaker` `Bulkhead` `TokenBucketRateLimiter` |
 | **Runtime** | Process/runtime introspection & scratch memory | `StartupTiming` `AppInfo` `MemoryPressure` `ArrayPoolScope` |
-| **Security** | Hashing, HMAC, KDF, secure random, AEAD | `Hashing` `Hmac` `KeyDerivation` `CryptoRandom` `AuthenticatedEncryption` |
+| **Security** | Hashing, HMAC, KDF, secure random, AEAD | `Hashing` `Hmac` `KeyDerivation` `CryptoRandom` `AuthenticatedEncryption` `SecretsFile` |
 | **Signal** | Digital signal processing | `Fft` `Window` `Spectrum` `WelchPsd` `Hilbert` `Goertzel` `Convolution` `Resample` `Quantizer` |
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
 | **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `TaskRace` `PauseTokenSource` `AtomicCounters` |
@@ -99,10 +99,17 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Query untyped rows by column (filter/sort/join/group) | `Collections.DataTableLite` |
 | Write a file without torn writes | `IO.AtomicFile` |
 | Zip / unzip safely (Zip-Slip guarded) | `IO.ZipUtils` |
+| Tar / .tar.gz safely (traversal and links guarded) | `IO.TarUtils` |
+| Load/save JSON files (atomic, errors name the line) / JSON Lines | `IO.JsonFile`, `JsonLines` |
+| Keep only the newest N logs/captures; numbered rotation | `IO.FileRetention` |
+| Count bytes through a stream / copy a stream while reading it | `IO.CountingStream`, `TeeStream` |
+| Read European `;` CSV with decimal commas / sniff the dialect | `IO.CsvDialect` |
 | Copy / delete / size a directory tree safely | `IO.DirectoryUtils` |
 | React to file changes without duplicate or half-written events | `IO.FileWatcher` |
 | Hash a tree, verify it later, diff two trees | `IO.ChecksumManifest` (sha256sum-compatible) |
 | Merge config from many sources | `Configuration.ConfigLayers` + `ConfigBinder` |
+| Typed environment variables that fail loudly when malformed | `Configuration.EnvironmentVariables` |
+| Per-user settings file that survives corruption | `Configuration.SettingsStore<T>` |
 | Bounded-concurrency async fan-out | `Threading.ParallelUtils.ForEachAsync` |
 | Lock across `await` / per key | `Threading.AsyncLock`, `KeyedLock` |
 | Await a cancellation token / link it with a timeout | `Threading.CancellationTokenExtensions` |
@@ -157,6 +164,8 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Limit lines / shaded zones / callouts on a plot | `Visualization.Annotations` (SVG or raster via `LinePlot.Frame`) |
 | Map data to pixels for a custom renderer | `Visualization.PlotFrame` (+ `SvgUtils` for SVG output) |
 | Hash / HMAC / verify a token safely | `Security.Hashing`, `Hmac`, `ConstantTime` |
+| Hash a file / hash data arriving in chunks | `Security.Hashing.Sha256File`, `CreateIncremental` |
+| Store secrets encrypted under a passphrase | `Security.SecretsFile` |
 | Generate a secure token / password | `Security.CryptoRandom` |
 | Hash a login password (with upgrade path) | `Security.PasswordHasher`, `KeyDerivation` |
 | Encrypt + authenticate a message (AEAD) | `Security.AuthenticatedEncryption` (AES-GCM) |
@@ -240,6 +249,8 @@ src/
     Configuration/
       ConfigLayers.cs       merge sources by priority into a flat key space (with provenance)
       ConfigBinder.cs       bind a flat key space to a typed object (nested/arrays/enums/durations)
+      EnvironmentVariables.cs  typed env reads (int/bool/duration/enum/list), malformed = error naming the variable
+      SettingsStore.cs      per-user JSON settings: atomic save, corrupt file moved aside, defaults (net8)
     Control/
       PidController.cs      PID with clamping, anti-windup, derivative-on-measurement
       KalmanFilter1D.cs     scalar Kalman filter (predict/update, converging gain)
@@ -338,14 +349,19 @@ src/
       ByteSize.cs           human-readable byte sizes (format + parse, binary/decimal)
       CsvBinder.cs          map string rows <-> typed objects by header (converts via TypeUtils)
       CsvLine.cs            RFC 4180 CSV line parse + format
+      CsvDialect.cs         delimiter/decimal/header presets (Excel European, tab, pipe) + Detect sniffing
+      FileRetention.cs      prune by count/age/total size (+ dry run), numbered rotation, timestamped names
+      JsonFile.cs           JSON load/save with shared options and atomic writes + JsonLines (NDJSON) (net8)
       DotEnv.cs             .env key=value parser (comments, quotes, export)
       FixedWidth.cs         fixed column-width record parse + format
       HexDump.cs            classic offset/hex/ascii hex dump
       LineReader.cs         enumerate lines with byte offsets (mixed line endings)
       SafeFileName.cs       sanitize a string into a safe filename
       StreamUtils.cs        copy-with-progress (+ cancellation) / read-exactly
+      StreamWrappers.cs     CountingStream (bytes read/written) and TeeStream (duplicate reads or writes)
       TempFile.cs           disposable temp file & directory scopes
       ZipUtils.cs           zip create/extract/list/read; extract guarded against Zip-Slip
+      TarUtils.cs           tar/.tar.gz create/extract/list; traversal and link escapes rejected (net8)
       DirectoryUtils.cs     tree copy (overwrite/filter policies), delete w/ read-only + lock retry, never follows links
       ChecksumManifest.cs   SHA-256 tree manifest in sha256sum format: create/save/verify/compare directories
       FileWatcher.cs        debounced, coalescing FileSystemWatcher; wait-until-stable; rescans on overflow/restart/dir moves
@@ -481,7 +497,8 @@ src/
       MemoryPressure.cs     working set / total allocated / GC counts + delta-since-snapshot
       ArrayPoolScope.cs     self-returning rented array (ArrayPool on net8, allocation on ns2.0; double-return safe)
     Security/
-      Hashing.cs            SHA-256/384/512 (+ legacy MD5) over bytes/string/stream; hex/base64
+      Hashing.cs            SHA-256/384/512 (+ legacy MD5) over bytes/string/stream/file; incremental; hex/base64
+      SecretsFile.cs        passphrase-encrypted key/value file (PBKDF2 + AES-GCM, tamper-evident) (net8)
       Hmac.cs               HMAC-SHA-256/384/512 with constant-time verify
       ConstantTime.cs       fixed-time equality for secrets (no timing leak)
       CryptoRandom.cs       CSPRNG bytes / URL-safe token / numeric code / password (unbiased)
@@ -705,6 +722,8 @@ tests/
       ZipUtilsTests.cs
       DirectoryUtilsTests.cs  (real junction, ACL-denied subtree, locked file)
       ChecksumManifestTests.cs
+      FilesWaveTests.cs     (retention, stream wrappers, CSV dialects, env vars, file hashing)
+      JsonTarSecretsTests.cs (JSON/JSONL, settings recovery, hostile tars, secrets tamper sweep)
       FileWatcherTests.cs     (deterministic coalescing rules + real file-system scenarios)
     Numerics/
       AngleTests.cs
