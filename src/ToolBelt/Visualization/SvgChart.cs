@@ -53,6 +53,18 @@ namespace ToolBelt.Visualization
 
         /// <summary>Overlays drawn in data coordinates; their values are included when auto-ranging.</summary>
         public Annotations? Annotations { get; set; }
+
+        /// <summary>
+        /// Minimum margins around the plot area. Leave at 0 for automatic margins; multi-panel figures raise them
+        /// so neighbouring panels' plot areas line up exactly.
+        /// </summary>
+        public double MinMarginLeft { get; set; }
+        public double MinMarginTop { get; set; }
+        public double MinMarginRight { get; set; }
+        public double MinMarginBottom { get; set; }
+
+        /// <summary>A shallow copy (the <see cref="Annotations"/> instance is shared).</summary>
+        public SvgChartOptions Clone() => (SvgChartOptions)MemberwiseClone();
     }
 
     /// <summary>
@@ -170,6 +182,10 @@ namespace ToolBelt.Visualization
             double left = 10 + (string.IsNullOrEmpty(o.YLabel) ? 0 : fs + 8) + (o.ShowYTickLabels ? maxYLabel + 9 : 0);
             double bottom = 10 + (o.ShowXTickLabels ? fs + 8 : 0) + (string.IsNullOrEmpty(o.XLabel) ? 0 : fs + 8);
             double right = Math.Max(14, lastXLabel / 2 + 6);
+            left = Math.Max(left, o.MinMarginLeft);
+            top = Math.Max(top, o.MinMarginTop);
+            right = Math.Max(right, o.MinMarginRight);
+            bottom = Math.Max(bottom, o.MinMarginBottom);
             double pw = o.Width - left - right, ph = o.Height - top - bottom;
             if (pw < 20 || ph < 20)
                 throw new ArgumentException("The chart is too small for its labels; increase Width/Height or reduce FontSize.");
