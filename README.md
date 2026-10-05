@@ -60,7 +60,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 > `MemoryStatus`, `IdleTime` — so they never burden the portable core. MVVM / forms helpers live in further
 > Windows-only assemblies, `ToolBelt.Wpf` (`ObservableObject`, `RelayCommand`, `AsyncRelayCommand`,
 > `NotifyTaskCompletion`, `ValidationObservableObject`, `ValueConverters`, `MultiValueConverters`,
-> `BindingProxy`, `Messenger`) and
+> `BindingProxy`, `Messenger`, `DialogService`, `IncrementalCollection`) and
 > `ToolBelt.WinForms` (`ControlExtensions`, `ControlTreeExtensions`, `DoubleBufferedExtensions`,
 > `WaitCursorScope`, `ComboBoxEnumExtensions`, `LayoutSuspender`, `FormStatePersistence`). See [Layout](#layout).
 
@@ -483,6 +483,8 @@ src/
     MultiValueConverters.cs IMultiValueConverters (boolean AND / OR for MultiBinding)
     BindingProxy.cs         Freezable DataContext bridge for out-of-tree bindings
     Messenger.cs            thread-safe WEAK-reference pub/sub (recipient-keyed, no forgotten-unsubscribe leak)
+    DialogService.cs        IDialogService + WPF impl (MessageBox/file/folder) + strict RecordingDialogService fake
+    IncrementalCollection.cs  page-at-a-time ObservableCollection (coalesced loads, stale-page-safe reset)
   ToolBelt.WinForms/        WinForms UI satellite (net8.0-windows) — forms helpers
     ControlExtensions.cs    InvokeIfRequired / BeginInvokeIfRequired UI-thread marshalling
     ControlTreeExtensions.cs  recursive descendant enumeration / typed filter / find-by-name
@@ -818,6 +820,8 @@ tests/
     MultiValueConvertersTests.cs
     BindingProxyTests.cs
     MessengerTests.cs
+    DialogServiceTests.cs
+    IncrementalCollectionTests.cs
   ToolBelt.WinForms.Tests/  WinForms UI satellite tests (net8.0-windows)
     ControlExtensionsTests.cs
     ControlTreeExtensionsTests.cs
