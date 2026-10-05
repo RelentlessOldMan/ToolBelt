@@ -57,11 +57,12 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 > `ToolBelt.Windows` assembly (net8.0-windows) — `PowerStatus`, `SingleInstance`, `DriveAndVolumeInfo`,
 > `MonitorInfo`, `RegistryUtils`, `Elevation`, `JobObject`, `WindowUtils`, `FileAssociation`,
 > `ShortcutUtils`, `ClipboardUtils`, `ScreenCapture`, `ResourceSampler`, `RunElevated`, `OsVersionInfo`,
-> `MemoryStatus`, `IdleTime` — so they never burden the portable core. MVVM / forms helpers live in further
+> `MemoryStatus`, `IdleTime`, `EventLogWriter`, `SingleInstanceApp`, `StorageDeviceInfo`, `DpiInfo`, `PrivilegeScope`,
+> `PowerScheme` — so they never burden the portable core. MVVM / forms helpers live in further
 > Windows-only assemblies, `ToolBelt.Wpf` (`ObservableObject`, `RelayCommand`, `AsyncRelayCommand`,
-> `NotifyTaskCompletion`, `ValidationObservableObject`, `ValueConverters`, `MultiValueConverters`,
+> `NotifyTaskCompletion`, `ValidationObservableObject`, `ValidationRules`, `BindingDiagnostics`, `ValueConverters`, `MultiValueConverters`,
 > `BindingProxy`, `Messenger`, `DialogService`, `IncrementalCollection`, `FileDropBehavior`, `NumericInputBehavior`, `GlobalHotkeys`, `ThemeManager`, `PlotPresenter`) and
-> `ToolBelt.WinForms` (`ControlExtensions`, `ControlTreeExtensions`, `DoubleBufferedExtensions`,
+> `ToolBelt.WinForms` (`ControlExtensions`, `ControlTreeExtensions`, `DoubleBufferedExtensions`, `DoubleBufferedPanel`,
 > `WaitCursorScope`, `ComboBoxEnumExtensions`, `LayoutSuspender`, `FormStatePersistence`, `DataGridViewExtensions`,
 > `MenuBuilder`, `ToolStripBuilder`, `PlotPictureBox`). See [Layout](#layout).
 
@@ -102,6 +103,9 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Temporarily enable a Windows privilege | `ToolBelt.Windows.PrivilegeScope` |
 | Check / switch the power plan | `ToolBelt.Windows.PowerScheme` |
 | Copy files or an image to the clipboard | `ToolBelt.Windows.ClipboardUtils` |
+| Declarative view-model validation rules (WPF) | `ToolBelt.Wpf.ValidationRuleSet`, `RuleValidatedObject` |
+| Find broken WPF bindings (or fail tests on them) | `ToolBelt.Wpf.BindingFailureListener`, `DebugConverter` |
+| Flicker-free custom drawing (WinForms) | `ToolBelt.WinForms.DoubleBufferedPanel` |
 | Will this run fit on disk / is the folder writable | `Diagnostics.DiskSpace` (`Preflight`, `EstimateBytes`) |
 | Debug-only internal consistency checks | `Diagnostics.AssertInvariant` |
 | Borrow a scratch buffer safely | `Runtime.ArrayPoolScope` |
@@ -585,6 +589,8 @@ src/
     AsyncRelayCommand.cs    async ICommand (Task execute) with re-entrancy guard
     NotifyTaskCompletion.cs bindable async-task wrapper (status/result/error via INPC)
     ValidationObservableObject.cs  INotifyDataErrorInfo + INotifyPropertyChanged validation base
+    ValidationRules.cs      fluent rule sets (Required/Range/Length/Matches/Must/DependsOn) + RuleValidatedObject + XAML rules
+    BindingDiagnostics.cs   BindingFailureListener (surface or throw on binding errors) + pass-through DebugConverter
     ValueConverters.cs      common IValueConverters (bool/visibility/null/enum/count)
     MultiValueConverters.cs IMultiValueConverters (boolean AND / OR for MultiBinding)
     BindingProxy.cs         Freezable DataContext bridge for out-of-tree bindings
@@ -600,6 +606,7 @@ src/
     ControlExtensions.cs    InvokeIfRequired / BeginInvokeIfRequired UI-thread marshalling
     ControlTreeExtensions.cs  recursive descendant enumeration / typed filter / find-by-name
     DoubleBufferedExtensions.cs  toggle a control's (protected) double buffering
+    DoubleBufferedPanel.cs  flicker-free custom-drawing panel (Render callback, anti-aliasing)
     WaitCursorScope.cs      using-scope hourglass cursor (restores previous state)
     ComboBoxEnumExtensions.cs  bind enum values to a ComboBox + get/set selection as the enum
     LayoutSuspender.cs      using-scope SuspendLayout/ResumeLayout batch
@@ -956,6 +963,7 @@ tests/
     AsyncRelayCommandTests.cs
     NotifyTaskCompletionTests.cs
     ValidationObservableObjectTests.cs
+    ValidationAndBindingDiagnosticsTests.cs
     ValueConvertersTests.cs
     MultiValueConvertersTests.cs
     BindingProxyTests.cs
@@ -971,6 +979,7 @@ tests/
     ControlExtensionsTests.cs
     ControlTreeExtensionsTests.cs
     DoubleBufferedExtensionsTests.cs
+    DoubleBufferedPanelTests.cs
     WaitCursorScopeTests.cs
     ComboBoxEnumExtensionsTests.cs
     LayoutSuspenderTests.cs
