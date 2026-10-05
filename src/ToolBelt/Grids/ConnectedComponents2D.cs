@@ -4,10 +4,14 @@ using System.Collections.Generic;
 
 namespace ToolBelt.Grids
 {
-    /// <summary>A single connected component: its label, the cells it covers, and their bounding box.</summary>
+    /// <summary>
+    /// A single connected component ("blob"): its label, the cells it covers (area), bounding box, centroid and
+    /// perimeter.
+    /// </summary>
     public sealed class GridComponent
     {
-        internal GridComponent(int label, IReadOnlyList<Cell> cells, int minRow, int minCol, int maxRow, int maxCol)
+        internal GridComponent(int label, IReadOnlyList<Cell> cells, int minRow, int minCol, int maxRow, int maxCol,
+            double centroidRow, double centroidCol, int perimeter)
         {
             Label = label;
             Cells = cells;
@@ -15,6 +19,9 @@ namespace ToolBelt.Grids
             MinCol = minCol;
             MaxRow = maxRow;
             MaxCol = maxCol;
+            CentroidRow = centroidRow;
+            CentroidCol = centroidCol;
+            Perimeter = perimeter;
         }
 
         /// <summary>The component's 1-based label, matching the value written into <see cref="ComponentLabeling.Labels"/>.</summary>
@@ -36,6 +43,21 @@ namespace ToolBelt.Grids
 
         /// <summary>Width of the axis-aligned bounding box (columns).</summary>
         public int Width => MaxCol - MinCol + 1;
+
+        /// <summary>Mean row index of the component's cells (its centre of mass, in cell coordinates).</summary>
+        public double CentroidRow { get; }
+
+        /// <summary>Mean column index of the component's cells.</summary>
+        public double CentroidCol { get; }
+
+        /// <summary>
+        /// Edge perimeter: the number of unit cell sides bordering anything outside the component — a different
+        /// region, background, or the edge of the grid. Edges around enclosed holes count, so a 3×3 ring is
+        /// 12 (outside) + 4 (hole) = 16. Always measured on the four sides of each cell, independent of the
+        /// connectivity used to build the component (two diagonally-touching cells under eight-connectivity
+        /// have perimeter 8).
+        /// </summary>
+        public int Perimeter { get; }
     }
 
     /// <summary>The outcome of labeling a grid's connected components.</summary>
@@ -117,6 +139,8 @@ namespace ToolBelt.Grids
                     int label = components.Count + 1;
                     var cells = new List<Cell>();
                     int minRow = r, minCol = c, maxRow = r, maxCol = c;
+                    long sumRow = 0, sumCol = 0;
+                    int perimeter = 0;
 
                     labels[r, c] = label;
                     queue.Enqueue(new Cell(r, c));
@@ -124,6 +148,8 @@ namespace ToolBelt.Grids
                     {
                         Cell cell = queue.Dequeue();
                         cells.Add(cell);
+                        sumRow += cell.Row;
+                        sumCol += cell.Col;
                         if (cell.Row < minRow) minRow = cell.Row;
                         if (cell.Row > maxRow) maxRow = cell.Row;
                         if (cell.Col < minCol) minCol = cell.Col;
@@ -140,8 +166,19 @@ namespace ToolBelt.Grids
                             labels[nr, nc] = label;
                             queue.Enqueue(new Cell(nr, nc));
                         }
+
+                        // Every orthogonal neighbour in this component is labelled by now (it is either already
+                        // known or was just claimed above), so any side not facing `label` is boundary.
+                        for (int d = 0; d < 4; d++)
+                        {
+                            int nr = cell.Row + DRow[d];
+                            int nc = cell.Col + DCol[d];
+                            if ((uint)nr >= (uint)rows || (uint)nc >= (uint)cols || labels[nr, nc] != label)
+                                perimeter++;
+                        }
                     }
-                    components.Add(new GridComponent(label, cells, minRow, minCol, maxRow, maxCol));
+                    components.Add(new GridComponent(label, cells, minRow, minCol, maxRow, maxCol,
+                        (double)sumRow / cells.Count, (double)sumCol / cells.Count, perimeter));
                 }
             }
             return new ComponentLabeling(labels, components);

@@ -240,7 +240,7 @@ src/
     Grids/
       Cell.cs               (row, col) coordinate + Connectivity (Four/Eight) — the division's shared types
       FloodFill.cs          paint-bucket region find / in-place fill (value or predicate)
-      ConnectedComponents2D.cs  label connected regions (boolean mask or equal-value partition) + bounding boxes
+      ConnectedComponents2D.cs  label blobs (mask or equal-value); area, bbox, centroid, edge perimeter (holes included)
       GridPathfinding.cs    BFS (fewest steps) / A* (uniform, admissible heuristic) / Dijkstra (weighted)
     Intervals/
       Interval.cs           half-open [start, end) over any comparable key

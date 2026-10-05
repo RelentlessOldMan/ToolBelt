@@ -105,6 +105,107 @@ namespace ToolBelt.Tests.Grids
             }
         }
 
+        // ---------- centroid & perimeter ----------
+
+        private static bool[,] Mask(params string[] rows)
+        {
+            var m = new bool[rows.Length, rows[0].Length];
+            for (int r = 0; r < rows.Length; r++)
+                for (int c = 0; c < rows[0].Length; c++)
+                    m[r, c] = rows[r][c] == '#';
+            return m;
+        }
+
+        public void Shape_SingleCell()
+        {
+            var comp = ConnectedComponents2D.Label(Mask("...", ".#.", "...")).Components[0];
+            Check.Equal(4, comp.Perimeter);
+            Check.Close(1.0, comp.CentroidRow);
+            Check.Close(1.0, comp.CentroidCol);
+        }
+
+        public void Shape_Rectangle_TouchingGridEdge()
+        {
+            // 2×3 block in the top-left corner: grid edges count as boundary too.
+            var comp = ConnectedComponents2D.Label(Mask("###.", "###.", "....")).Components[0];
+            Check.Equal(6, comp.Size);
+            Check.Equal(10, comp.Perimeter);           // 2·(2+3)
+            Check.Close(0.5, comp.CentroidRow);
+            Check.Close(1.0, comp.CentroidCol);
+        }
+
+        public void Shape_Plus()
+        {
+            var comp = ConnectedComponents2D.Label(Mask(".#.", "###", ".#.")).Components[0];
+            Check.Equal(12, comp.Perimeter);
+            Check.Close(1.0, comp.CentroidRow);
+            Check.Close(1.0, comp.CentroidCol);
+        }
+
+        public void Shape_RingCountsHoleEdges()
+        {
+            var comp = ConnectedComponents2D.Label(Mask("###", "#.#", "###")).Components[0];
+            Check.Equal(8, comp.Size);
+            Check.Equal(16, comp.Perimeter);           // 12 outside + 4 around the hole
+            Check.Close(1.0, comp.CentroidRow);
+            Check.Close(1.0, comp.CentroidCol);
+        }
+
+        public void Shape_DiagonalPair_EightConnected()
+        {
+            var labeling = ConnectedComponents2D.Label(Mask("#.", ".#"), Connectivity.Eight);
+            Check.Equal(1, labeling.Count);
+            Check.Equal(8, labeling.Components[0].Perimeter);
+            Check.Close(0.5, labeling.Components[0].CentroidRow);
+        }
+
+        public void ValueLabel_AdjacentRegionsBothCountTheSharedEdge()
+        {
+            // Two regions side by side: the seam is boundary for each.
+            var grid = new[,] { { 1, 1, 2 }, { 1, 1, 2 } };
+            var labeling = ConnectedComponents2D.LabelByValue(grid);
+            Check.Equal(8, labeling.Components[0].Perimeter);  // 2×2 block
+            Check.Equal(6, labeling.Components[1].Perimeter);  // 2×1 column
+        }
+
+        public void CentroidAndPerimeter_DifferentialVsPairCounting()
+        {
+            var rng = new DeterministicRandom(55443322);
+            foreach (var connectivity in new[] { Connectivity.Four, Connectivity.Eight })
+            {
+                for (int trial = 0; trial < 300; trial++)
+                {
+                    int rows = rng.Next(1, 10), cols = rng.Next(1, 10);
+                    var mask = new bool[rows, cols];
+                    for (int r = 0; r < rows; r++)
+                        for (int c = 0; c < cols; c++)
+                            mask[r, c] = rng.NextDouble() < 0.6;
+
+                    var result = ConnectedComponents2D.Label(mask, connectivity);
+                    int[,] labels = result.Labels;
+                    foreach (GridComponent comp in result.Components)
+                    {
+                        // Independent: perimeter = 4·area − 2·(orthogonally adjacent pairs inside the component);
+                        // centroid rebuilt from the label array rather than the Cells list.
+                        int area = 0, pairs = 0;
+                        double sr = 0, sc = 0;
+                        for (int r = 0; r < rows; r++)
+                            for (int c = 0; c < cols; c++)
+                            {
+                                if (labels[r, c] != comp.Label) continue;
+                                area++; sr += r; sc += c;
+                                if (r + 1 < rows && labels[r + 1, c] == comp.Label) pairs++;
+                                if (c + 1 < cols && labels[r, c + 1] == comp.Label) pairs++;
+                            }
+                        Check.Equal(area, comp.Size);
+                        Check.Equal(4 * area - 2 * pairs, comp.Perimeter);
+                        Check.Close(sr / area, comp.CentroidRow, 1e-12);
+                        Check.Close(sc / area, comp.CentroidCol, 1e-12);
+                    }
+                }
+            }
+        }
+
         // Builds the ground-truth partition with DisjointSet and checks count + label consistency.
         private static void CheckAgainstUnionFind(
             int rows, int cols, Func<int, int, bool> fg, bool foreground, Connectivity connectivity, ComponentLabeling result)
