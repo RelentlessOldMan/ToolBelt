@@ -37,7 +37,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Guards** | Argument validation | `Guard` |
 | **Identifiers** | Id generation & encoding | `Ulid` `NanoId` `ShortGuid` `SnowflakeIdGenerator` |
 | **Intervals** | Interval/range structures | `Interval` `IntervalTree` `RangeMap` `RangeSet` |
-| **IO** | Files, streams, tabular text, zip | `AtomicFile` `CsvLine` `CsvBinder` `FixedWidth` `LineReader` `ByteSize` `ZipUtils` |
+| **IO** | Files, directories, streams, tabular text, zip | `AtomicFile` `DirectoryUtils` `FileWatcher` `ChecksumManifest` `CsvBinder` `LineReader` `ZipUtils` |
 | **Logging** | Fan-out logging (plain-string events) | `Logger` `TextWriterSink` `FileSink` `AsyncLogSink` `RollingMemorySink` `FilterSink` `RouterSink` `RateLimitedSink` `ScopedContext` |
 | **Net** | Address math, TCP/DNS, HTTP | `CidrRange` `IpUtils` `PortCheck` `TcpLineClient` `HostInfo` `HttpDownload` |
 | **Numerics** | Math, stats, calculus, random | `DeterministicRandom` `Distributions` `Percentile` `Polynomial` `UnitConvert` `Bootstrap` |
@@ -98,6 +98,9 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Query untyped rows by column (filter/sort/join/group) | `Collections.DataTableLite` |
 | Write a file without torn writes | `IO.AtomicFile` |
 | Zip / unzip safely (Zip-Slip guarded) | `IO.ZipUtils` |
+| Copy / delete / size a directory tree safely | `IO.DirectoryUtils` |
+| React to file changes without duplicate or half-written events | `IO.FileWatcher` |
+| Hash a tree, verify it later, diff two trees | `IO.ChecksumManifest` (sha256sum-compatible) |
 | Merge config from many sources | `Configuration.ConfigLayers` + `ConfigBinder` |
 | Bounded-concurrency async fan-out | `Threading.ParallelUtils.ForEachAsync` |
 | Lock across `await` / per key | `Threading.AsyncLock`, `KeyedLock` |
@@ -318,6 +321,9 @@ src/
       StreamUtils.cs        copy-with-progress (+ cancellation) / read-exactly
       TempFile.cs           disposable temp file & directory scopes
       ZipUtils.cs           zip create/extract/list/read; extract guarded against Zip-Slip
+      DirectoryUtils.cs     tree copy (overwrite/filter policies), delete w/ read-only + lock retry, never follows links
+      ChecksumManifest.cs   SHA-256 tree manifest in sha256sum format: create/save/verify/compare directories
+      FileWatcher.cs        debounced, coalescing FileSystemWatcher; wait-until-stable; rescans on overflow/restart/dir moves
     Numerics/
       Angle.cs              degree normalize / shortest-diff / lerp / deg-rad
       Anova.cs              one-way ANOVA (F-test table) + F-distribution tail probability
@@ -657,6 +663,9 @@ tests/
       StreamUtilsTests.cs
       TempFileTests.cs
       ZipUtilsTests.cs
+      DirectoryUtilsTests.cs  (real junction, ACL-denied subtree, locked file)
+      ChecksumManifestTests.cs
+      FileWatcherTests.cs     (deterministic coalescing rules + real file-system scenarios)
     Numerics/
       AngleTests.cs
       AnovaTests.cs
