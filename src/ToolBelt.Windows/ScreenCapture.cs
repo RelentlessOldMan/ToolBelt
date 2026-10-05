@@ -6,14 +6,18 @@ using System.Runtime.InteropServices;
 namespace ToolBelt.Windows
 {
     /// <summary>
-    /// A captured screen image as a raw 32-bit pixel buffer. Pixels are stored top-down, one row after
-    /// another, four bytes each in <b>BGRA</b> order (the alpha byte is unused/zero — GDI does not provide a
-    /// real alpha channel). Row <c>r</c>, column <c>c</c> starts at byte index <c>(r * Width + c) * 4</c>.
+    /// A raw 32-bit image: a screen capture, or an image to or from the clipboard. Pixels are stored top-down, one row
+    /// after another, four bytes each in <b>BGRA</b> order. Screen captures leave alpha unused/zero (GDI has no real
+    /// alpha channel). Row <c>r</c>, column <c>c</c> starts at byte index <c>(r * Width + c) * 4</c>.
     /// </summary>
     public readonly struct ScreenImage
     {
-        internal ScreenImage(int width, int height, byte[] pixels)
+        /// <summary>Wraps a BGRA top-down buffer of exactly <c>width * height * 4</c> bytes.</summary>
+        public ScreenImage(int width, int height, byte[] pixels)
         {
+            if (width < 1 || height < 1) throw new ArgumentOutOfRangeException(nameof(width), "Size must be positive.");
+            if (pixels is null) throw new ArgumentNullException(nameof(pixels));
+            if (pixels.Length != (long)width * height * 4) throw new ArgumentException("Buffer length must be width * height * 4.", nameof(pixels));
             Width = width;
             Height = height;
             Pixels = pixels;

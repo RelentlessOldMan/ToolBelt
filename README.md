@@ -95,6 +95,13 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Find exceptions that are thrown and swallowed | `Diagnostics.FirstChanceMonitor` |
 | Send logs to a syslog server (UDP/TCP, RFC 5424) | `Logging.SyslogSink` |
 | Write to the Windows Event Log | `ToolBelt.Windows.EventLogWriter` |
+| Second app launch hands its arguments to the running one | `ToolBelt.Windows.SingleInstanceApp` |
+| Cap a child process's memory / CPU | `ToolBelt.Windows.JobObject` |
+| Is this drive USB / SSD? Where does Z: really point? | `ToolBelt.Windows.StorageDeviceInfo` |
+| Physical pixels on a scaled display (DPI) | `ToolBelt.Windows.DpiInfo` |
+| Temporarily enable a Windows privilege | `ToolBelt.Windows.PrivilegeScope` |
+| Check / switch the power plan | `ToolBelt.Windows.PowerScheme` |
+| Copy files or an image to the clipboard | `ToolBelt.Windows.ClipboardUtils` |
 | Will this run fit on disk / is the folder writable | `Diagnostics.DiskSpace` (`Preflight`, `EstimateBytes`) |
 | Debug-only internal consistency checks | `Diagnostics.AssertInvariant` |
 | Borrow a scratch buffer safely | `Runtime.ArrayPoolScope` |
@@ -551,21 +558,26 @@ src/
   ToolBelt.Windows/         Windows platform satellite (net8.0-windows) — Win32 / registry utilities
     PowerStatus.cs          AC line / battery charge / saver mode via GetSystemPowerStatus
     SingleInstance.cs       single-instance gate over a named mutex (abandoned-owner safe)
+    SingleInstanceApp.cs    second launch forwards args + cwd to the primary (per-user pipe) + foreground handoff
     DriveAndVolumeInfo.cs   fixed-drive enumeration + free space for any path
+    StorageDeviceInfo.cs    bus type (USB/NVMe/SATA/SD…), removable, SSD vs HDD, vendor/serial; mapped drive -> UNC path
     MonitorInfo.cs          attached monitors: bounds / work area / primary (EnumDisplayMonitors)
     RegistryUtils.cs        hive+subkey read/write/delete/enumerate helpers (default view)
     Elevation.cs            elevation / Administrator role / mandatory integrity level
-    JobObject.cs            job object grouping child processes (kill-on-close)
+    JobObject.cs            job object grouping child processes (kill-on-close; memory / process-count / CPU-rate caps; accounting)
     WindowUtils.cs          enumerate top-level windows / foreground / find by title
     FileAssociation.cs      per-extension opener / friendly name / command / ProgID
     ShortcutUtils.cs        create & read .lnk shortcuts via COM IShellLink
-    ClipboardUtils.cs       get/set/clear Unicode clipboard text (raw Win32, STA thread)
+    ClipboardUtils.cs       clipboard text, Explorer file lists (CF_HDROP) and images (CF_DIB) via raw Win32 on an STA thread
     ScreenCapture.cs        capture screen/region to a raw BGRA buffer via GDI BitBlt (no System.Drawing)
     ResourceSampler.cs      per-process CPU% (core-normalised) + working-set / private memory
     RunElevated.cs          launch/relaunch a process elevated via ShellExecute "runas" (UAC)
     OsVersionInfo.cs        true OS version via RtlGetVersion (Win10/Win11 detection)
     MemoryStatus.cs         system physical / page-file memory + load % (GlobalMemoryStatusEx)
     IdleTime.cs             time since last user input (GetLastInputInfo)
+    PrivilegeScope.cs       enable a token privilege (SeBackup, SeShutdown…) for a scope, restore on dispose
+    PowerScheme.cs          active/installed power plans, switch, Use() scope that restores the previous plan
+    DpiInfo.cs              per-monitor DPI/scale, system DPI, thread DPI-awareness scope (physical-pixel capture)
     EventLogWriter.cs       Windows Event Log via ReportEvent (no package); source registration helpers
   ToolBelt.Wpf/             WPF UI satellite (net8.0-windows) — MVVM building blocks
     ObservableObject.cs     INotifyPropertyChanged base with SetProperty
@@ -922,6 +934,7 @@ tests/
     PowerStatusTests.cs
     SingleInstanceTests.cs
     EventLogWriterTests.cs  (reads the event back with wevtutil)
+    WindowsWaveTests.cs     (real job caps on PowerShell children, clipboard round-trips, pipe handoff; no machine-state changes)
     DriveAndVolumeInfoTests.cs
     MonitorInfoTests.cs
     RegistryUtilsTests.cs
