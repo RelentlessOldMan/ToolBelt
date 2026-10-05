@@ -173,6 +173,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Pairs plot of several channels (correlations at a glance) | `Visualization.ScatterMatrix` |
 | Digital timing / protocol diagram (clock, buses, cursors) | `Visualization.TimingDiagram` |
 | One report, many formats (HTML/MD/PDF/Word) | `Documents.ReportBuilder` |
+| Write a Word document (lists, images, page numbers) | `Documents.DocxWriter` |
 | Run summary / A-vs-B comparison / pass-fail report | `Documents.ReportTemplates` |
 | Limit lines / shaded zones / callouts on a plot | `Visualization.Annotations` (SVG or raster via `LinePlot.Frame`) |
 | Map data to pixels for a custom renderer | `Visualization.PlotFrame` (+ `SvgUtils` for SVG output) |
@@ -284,7 +285,8 @@ src/
       MarkdownReport.cs     fluent GitHub-flavored Markdown (headings/lists/tables/code/quotes)
       HtmlReport.cs         self-contained HTML doc with embedded CSS; escaping; base64 image embed
       PdfWriter.cs          hand-rolled PDF (base-14 fonts, wrapping, auto-pagination, real xref)
-      DocxWriter.cs         Word .docx via OOXML zip (System.IO.Compression); runs/tables/headings
+      DocxWriter.cs         Word .docx via OOXML zip: mixed-format runs, real nested bullet/numbered lists, tables,
+                            PNG images, page breaks, header + "Page X of Y" footer, title/author
       ReportBuilder.cs      typed report model (meta, TOC, props, tables, figures, code, callouts) -> HTML/MD/PDF/DOCX
       ReportTemplates.cs    ready-made RunSummary / Comparison (A vs B, deltas, flags) / PassFailMatrix reports
     Enums/
@@ -670,6 +672,7 @@ tests/
       HtmlReportTests.cs
       PdfWriterTests.cs     (independent xref-table + structure parser)
       DocxWriterTests.cs    (unzips parts + parses OOXML)
+      DocxFeaturesTests.cs  (+ opens the file in real Word via COM when installed: pages, list numbers, footer fields)
       ReportBuilderTests.cs
       ReportTemplatesTests.cs
     Enums/

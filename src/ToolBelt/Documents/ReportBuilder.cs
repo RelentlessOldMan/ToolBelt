@@ -28,8 +28,9 @@ namespace ToolBelt.Documents
     /// <item><b>PDF</b> (<see cref="ToPdf"/>): monospace text so tables align exactly; long table rows wrap. Figures
     /// are replaced by a captioned placeholder (the PDF writer has no image support); contents lists headings
     /// without page numbers.</item>
-    /// <item><b>Word</b> (<see cref="ToDocx"/>): headings, paragraphs, lists and real tables. Code loses its monospace
-    /// styling, figures become captioned placeholders, and the contents list is static text.</item>
+    /// <item><b>Word</b> (<see cref="ToDocx"/>): headings, paragraphs, real lists and tables, monospace code, PNG figures
+    /// embedded with captions, title in the document properties and "Page X of Y" footers. SVG-only figures become
+    /// captioned placeholders (Word needs a raster), and the contents list is a static nested list.</item>
     /// </list>
     /// Figures are supplied already rendered (SVG markup and/or PNG bytes — e.g. from the visualization renderers),
     /// so this file has no dependency on any plotting code. Tables and figures are numbered automatically.
@@ -367,10 +368,10 @@ namespace ToolBelt.Documents
 
         // ================= Word =================
 
-        /// <summary>A .docx document. Code loses monospace styling and figures become placeholders — see the class summary.</summary>
+        /// <summary>A .docx document. SVG-only figures become placeholders — see the class summary.</summary>
         public byte[] ToDocx()
         {
-            var doc = new DocxWriter().Heading(Title, 1);
+            var doc = new DocxWriter { Title = Title }.Header(Title).Footer().Heading(Title, 1);
             if (_metadata.Count > 0)
             {
                 var rows = new List<IReadOnlyList<string>>();
@@ -386,9 +387,9 @@ namespace ToolBelt.Documents
                     case Kind.Toc:
                     {
                         doc.Paragraph("Contents", bold: true);
-                        var items = new List<string>();
-                        foreach (var h in headings) items.Add(new string(' ', (h.Level - 1) * 3) + h.Text);
-                        doc.BulletList(items);
+                        var items = new List<(int, string)>();
+                        foreach (var h in headings) items.Add((Math.Min(8, h.Level - 1), h.Text));
+                        doc.List(items, numbered: false);
                         break;
                     }
                     case Kind.Heading: doc.Heading(b.Text!, b.Level + 1); break;
@@ -402,10 +403,25 @@ namespace ToolBelt.Documents
                         break;
                     case Kind.Figure:
                         figure++;
-                        doc.Paragraph("[Figure " + figure.ToString(CultureInfo.InvariantCulture) + ": " + b.Caption + " - see the HTML version for graphics]", italic: true);
+                        string label = "Figure " + figure.ToString(CultureInfo.InvariantCulture) + ": " + b.Caption;
+                        bool embedded = false;
+                        if (b.Png != null && b.Png.Length > 0)
+                        {
+                            try
+                            {
+                                doc.Image(b.Png, altText: b.Caption);
+                                doc.Paragraph(label, italic: true);
+                                embedded = true;
+                            }
+                            catch (ArgumentException)
+                            {
+                                // Not a usable PNG: one bad figure must not abort the whole document.
+                            }
+                        }
+                        if (!embedded) doc.Paragraph("[" + label + " - see the HTML version for graphics]", italic: true);
                         break;
                     case Kind.Code:
-                        foreach (string line in b.Text!.Split('\n')) doc.Paragraph(line.Length == 0 ? " " : line);
+                        doc.RichParagraph(DocxRun.Mono(b.Text!));                   // line breaks become <w:br/>
                         break;
                     case Kind.Callout: doc.Paragraph(CalloutLabel(b.Callout) + ": " + b.Text, bold: true); break;
                 }

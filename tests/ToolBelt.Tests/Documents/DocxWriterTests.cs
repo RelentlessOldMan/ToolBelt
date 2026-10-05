@@ -67,12 +67,16 @@ namespace ToolBelt.Tests.Documents
             Check.NotNull(rpr.Element(W + "sz"));
         }
 
-        public void BulletList_PrefixesGlyph()
+        public void BulletList_UsesWordNumbering()
         {
-            var doc = Document(new DocxWriter().BulletList(new[] { "one", "two" }).Build());
-            var texts = doc.Descendants(W + "t").Select(t => t.Value).ToList();
-            Check.True(texts.Contains("• one"), string.Join("|", texts));
-            Check.True(texts.Contains("• two"), string.Join("|", texts));
+            var bytes = new DocxWriter().BulletList(new[] { "one", "two" }).Build();
+            var doc = Document(bytes);
+            var items = doc.Descendants(W + "p").Where(p => p.Descendants(W + "numPr").Any()).ToList();
+            Check.Equal(2, items.Count);
+            Check.Equal("one", items[0].Descendants(W + "t").Single().Value);           // no glyph baked into the text
+            Check.Equal("1", items[0].Descendants(W + "numId").Single().Attribute(W + "val")!.Value);
+            var numbering = XDocument.Parse(Unzip(bytes)["word/numbering.xml"]).Root!;
+            Check.Equal("bullet", numbering.Descendants(W + "numFmt").First().Attribute(W + "val")!.Value);
         }
 
         public void Table_HasRowsAndCells()
