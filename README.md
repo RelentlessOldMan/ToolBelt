@@ -60,7 +60,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 > `MemoryStatus`, `IdleTime` — so they never burden the portable core. MVVM / forms helpers live in further
 > Windows-only assemblies, `ToolBelt.Wpf` (`ObservableObject`, `RelayCommand`, `AsyncRelayCommand`,
 > `NotifyTaskCompletion`, `ValidationObservableObject`, `ValueConverters`, `MultiValueConverters`,
-> `BindingProxy`, `Messenger`, `DialogService`, `IncrementalCollection`) and
+> `BindingProxy`, `Messenger`, `DialogService`, `IncrementalCollection`, `FileDropBehavior`, `NumericInputBehavior`, `GlobalHotkeys`) and
 > `ToolBelt.WinForms` (`ControlExtensions`, `ControlTreeExtensions`, `DoubleBufferedExtensions`,
 > `WaitCursorScope`, `ComboBoxEnumExtensions`, `LayoutSuspender`, `FormStatePersistence`). See [Layout](#layout).
 
@@ -485,6 +485,9 @@ src/
     Messenger.cs            thread-safe WEAK-reference pub/sub (recipient-keyed, no forgotten-unsubscribe leak)
     DialogService.cs        IDialogService + WPF impl (MessageBox/file/folder) + strict RecordingDialogService fake
     IncrementalCollection.cs  page-at-a-time ObservableCollection (coalesced loads, stale-page-safe reset)
+    FileDropBehavior.cs     attached: dropped files -> ICommand, extension filter, correct drag-over effects
+    NumericInputBehavior.cs attached: numeric TextBox (min/max/decimals, culture-aware, arrows/wheel step)
+    GlobalHotkeys.cs        system-wide RegisterHotKey on a message-only window + HotkeyGesture parse/format
   ToolBelt.WinForms/        WinForms UI satellite (net8.0-windows) — forms helpers
     ControlExtensions.cs    InvokeIfRequired / BeginInvokeIfRequired UI-thread marshalling
     ControlTreeExtensions.cs  recursive descendant enumeration / typed filter / find-by-name
@@ -822,6 +825,9 @@ tests/
     MessengerTests.cs
     DialogServiceTests.cs
     IncrementalCollectionTests.cs
+    FileDropBehaviorTests.cs
+    NumericInputBehaviorTests.cs
+    GlobalHotkeysTests.cs
   ToolBelt.WinForms.Tests/  WinForms UI satellite tests (net8.0-windows)
     ControlExtensionsTests.cs
     ControlTreeExtensionsTests.cs
