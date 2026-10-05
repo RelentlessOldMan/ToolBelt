@@ -51,7 +51,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
 | **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `AtomicCounters` |
 | **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `BusinessDays` `UnixTime` |
-| **Visualization** | Raster canvas, charts, PNG & SVG | `ImageBuffer` `PngWriter` `SvgDocument` `Colormap` `HeatMap` `LinePlot` `Histogram` `BoxPlot` `ErrorBarChart` `BandChart` `Colorbar` |
+| **Visualization** | Raster canvas, charts, PNG & SVG | `ImageBuffer` `PngWriter` `SvgDocument` `SvgChart` `Annotations` `AxisTicks` `Colormap` `HeatMap` `LinePlot` `Histogram` `BoxPlot` `ErrorBarChart` `BandChart` `Colorbar` |
 
 > The cross-platform core above is BCL-only. Windows-only Win32/registry helpers live in a **separate**
 > `ToolBelt.Windows` assembly (net8.0-windows) — `PowerStatus`, `SingleInstance`, `DriveAndVolumeInfo`,
@@ -126,6 +126,8 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Draw a raster image / write a PNG | `Visualization.ImageBuffer`, `PngWriter` |
 | Render a heat map / line plot | `Visualization.HeatMap`, `LinePlot` (+ `Colormap`) |
 | Nice axis ticks (linear / log / time) | `Visualization.AxisTicks` |
+| Labelled vector chart for a report | `Visualization.SvgChart` |
+| Limit lines / shaded zones / callouts on a plot | `Visualization.Annotations` (SVG or raster via `LinePlot.Frame`) |
 | Map data to pixels for a custom renderer | `Visualization.PlotFrame` (+ `SvgUtils` for SVG output) |
 | Hash / HMAC / verify a token safely | `Security.Hashing`, `Hmac`, `ConstantTime` |
 | Generate a secure token / password | `Security.CryptoRandom` |
@@ -401,6 +403,8 @@ src/
       SvgUtils.cs           shared SVG primitives: escaping, numbers/colors, PathBuilder, transforms, text-width estimate
       AxisTicks.cs          nice ticks + labels: linear (1-2-5, count-bounded), log decades, clock-friendly time
       PlotFrame.cs          shared data<->pixel mapping (linear/log axes) for renderers and overlays
+      Annotations.cs        data-space ref lines / bands / callouts / arrows -> SVG (labelled) or raster
+      SvgChart.cs           labelled SVG XY chart: line/scatter/bar, linear/log/time axes, grid, legend, annotations
       Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops)
       Colorbar.cs           render a colormap as a gradient legend strip (vertical/horizontal)
       HeatMap.cs            render a 2-D grid via a colormap (cell size, range, NaN color)
@@ -731,6 +735,8 @@ tests/
       SvgUtilsTests.cs
       AxisTicksTests.cs
       PlotFrameTests.cs
+      AnnotationsTests.cs
+      SvgChartTests.cs
       ColormapTests.cs
       ColorbarTests.cs
       HeatMapTests.cs
