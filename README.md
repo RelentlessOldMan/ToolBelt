@@ -62,7 +62,8 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 > `NotifyTaskCompletion`, `ValidationObservableObject`, `ValueConverters`, `MultiValueConverters`,
 > `BindingProxy`, `Messenger`, `DialogService`, `IncrementalCollection`, `FileDropBehavior`, `NumericInputBehavior`, `GlobalHotkeys`, `ThemeManager`, `PlotPresenter`) and
 > `ToolBelt.WinForms` (`ControlExtensions`, `ControlTreeExtensions`, `DoubleBufferedExtensions`,
-> `WaitCursorScope`, `ComboBoxEnumExtensions`, `LayoutSuspender`, `FormStatePersistence`). See [Layout](#layout).
+> `WaitCursorScope`, `ComboBoxEnumExtensions`, `LayoutSuspender`, `FormStatePersistence`, `DataGridViewExtensions`,
+> `MenuBuilder`, `ToolStripBuilder`, `PlotPictureBox`). See [Layout](#layout).
 
 ## Find what you need
 
@@ -498,6 +499,9 @@ src/
     ComboBoxEnumExtensions.cs  bind enum values to a ComboBox + get/set selection as the enum
     LayoutSuspender.cs      using-scope SuspendLayout/ResumeLayout batch
     FormStatePersistence.cs capture/apply/serialize window placement; Apply validates vs current monitors (never off-screen)
+    DataGridViewExtensions.cs  BindList<T> (DisplayName headers), AutoSizeColumns cap, selection->TSV (Excel), CSV export
+    MenuBuilder.cs          declarative MenuStrip/ToolStrip builders, ICommand items, Shortcut parse, FindItem(path)
+    PlotPictureBox.cs       zoom/pan/fit image view (crisp pixels, flicker-free) + RGBA->Bitmap bridge
 tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
     Framework/
@@ -840,6 +844,9 @@ tests/
     ComboBoxEnumExtensionsTests.cs
     LayoutSuspenderTests.cs
     FormStatePersistenceTests.cs
+    DataGridViewExtensionsTests.cs
+    MenuBuilderTests.cs
+    PlotPictureBoxTests.cs
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
                             fits, root-finding, statistics)
