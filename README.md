@@ -457,7 +457,7 @@ src/
     ValueConverters.cs      common IValueConverters (bool/visibility/null/enum/count)
     MultiValueConverters.cs IMultiValueConverters (boolean AND / OR for MultiBinding)
     BindingProxy.cs         Freezable DataContext bridge for out-of-tree bindings
-    Messenger.cs            thread-safe publish/subscribe message aggregator
+    Messenger.cs            thread-safe WEAK-reference pub/sub (recipient-keyed, no forgotten-unsubscribe leak)
   ToolBelt.WinForms/        WinForms UI satellite (net8.0-windows) — forms helpers
     ControlExtensions.cs    InvokeIfRequired / BeginInvokeIfRequired UI-thread marshalling
     ControlTreeExtensions.cs  recursive descendant enumeration / typed filter / find-by-name
@@ -465,7 +465,7 @@ src/
     WaitCursorScope.cs      using-scope hourglass cursor (restores previous state)
     ComboBoxEnumExtensions.cs  bind enum values to a ComboBox + get/set selection as the enum
     LayoutSuspender.cs      using-scope SuspendLayout/ResumeLayout batch
-    FormStatePersistence.cs capture/apply/serialize a form's window placement
+    FormStatePersistence.cs capture/apply/serialize window placement; Apply validates vs current monitors (never off-screen)
 tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
     Framework/
