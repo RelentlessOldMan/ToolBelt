@@ -289,7 +289,7 @@ src/
       Hilbert.cs            analytic signal, amplitude envelope, instantaneous phase/frequency
       LevelConversions.cs   dB/amplitude/power conversions, RMS, dBFS
       MedianFilter.cs       sliding-window median (removes spikes, preserves edges)
-      PhaseUnwrap.cs        removes 2π jumps from wrapped phase
+      PhaseUnwrap.cs        removes 2π jumps from wrapped phase; group delay −dφ/dω
       PulseMeasurements.cs  rise/fall time, pulse width, duty cycle (sub-sample crossings)
       Quantizer.cs          uniform ADC model + ideal 6.02N+1.76 dB SNR
       Resample.cs           linear resample / rate conversion / anti-aliased decimation
@@ -297,6 +297,10 @@ src/
       Spectrum.cs           one-sided amplitude / power / dB spectra
       TimeDelayEstimate.cs  cross-correlation & GCC-PHAT lag estimation
       WelchPsd.cs           Welch's averaged-periodogram power spectral density
+      Multitaper.cs         sine-taper multitaper PSD (low variance from short records; Welch-compatible units)
+      PeakInterpolation.cs  sub-bin peak: parabolic / Gaussian (log-parabolic) + spectral-peak frequency readout
+      EnvelopeFollower.cs   streaming attack/release peak envelope (exact time constants)
+      CycleMeasurements.cs  cycle-by-cycle period/frequency/high time/duty + jitter stats, hysteresis crossings
       Window.cs             Hann/Hamming/Blackman/Blackman-Harris/flat-top + gain factors
       ZeroCrossing.cs       zero-crossing indices with sub-sample linear interpolation
     Objects/
@@ -646,6 +650,7 @@ tests/
       SpectrumTests.cs
       TimeDelayEstimateTests.cs
       WelchPsdTests.cs
+      SignalExtrasTests.cs  (multitaper, peak interpolation, envelope, group delay, cycles)
       WindowTests.cs
       ZeroCrossingTests.cs
     Objects/
