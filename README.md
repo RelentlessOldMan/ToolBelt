@@ -125,6 +125,8 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Validate method arguments | `Guards.Guard` |
 | Draw a raster image / write a PNG | `Visualization.ImageBuffer`, `PngWriter` |
 | Render a heat map / line plot | `Visualization.HeatMap`, `LinePlot` (+ `Colormap`) |
+| Nice axis ticks (linear / log / time) | `Visualization.AxisTicks` |
+| Map data to pixels for a custom renderer | `Visualization.PlotFrame` (+ `SvgUtils` for SVG output) |
 | Hash / HMAC / verify a token safely | `Security.Hashing`, `Hmac`, `ConstantTime` |
 | Generate a secure token / password | `Security.CryptoRandom` |
 | Hash a login password (with upgrade path) | `Security.PasswordHasher`, `KeyDerivation` |
@@ -396,6 +398,9 @@ src/
       ImageBuffer.cs        RGBA raster canvas (get/set/fill/line/rect/blit)
       PngWriter.cs          BCL-only PNG encoder (deflate + CRC-32 + Adler-32)
       SvgDocument.cs        fluent SVG vector builder (shapes/text/path; invariant coords)
+      SvgUtils.cs           shared SVG primitives: escaping, numbers/colors, PathBuilder, transforms, text-width estimate
+      AxisTicks.cs          nice ticks + labels: linear (1-2-5, count-bounded), log decades, clock-friendly time
+      PlotFrame.cs          shared data<->pixel mapping (linear/log axes) for renderers and overlays
       Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops)
       Colorbar.cs           render a colormap as a gradient legend strip (vertical/horizontal)
       HeatMap.cs            render a 2-D grid via a colormap (cell size, range, NaN color)
@@ -723,6 +728,9 @@ tests/
       ImageBufferTests.cs
       PngWriterTests.cs
       SvgDocumentTests.cs
+      SvgUtilsTests.cs
+      AxisTicksTests.cs
+      PlotFrameTests.cs
       ColormapTests.cs
       ColorbarTests.cs
       HeatMapTests.cs
