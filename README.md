@@ -49,7 +49,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Security** | Hashing, HMAC, KDF, secure random, AEAD | `Hashing` `Hmac` `KeyDerivation` `CryptoRandom` `AuthenticatedEncryption` |
 | **Signal** | Digital signal processing | `Fft` `Window` `Spectrum` `WelchPsd` `Hilbert` `Goertzel` `Convolution` `Resample` `Quantizer` |
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
-| **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `AtomicCounters` |
+| **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `TaskRace` `PauseTokenSource` `AtomicCounters` |
 | **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `CronScheduler` `BusinessDays` `UnixTime` |
 | **Visualization** | Raster canvas, charts, PNG & SVG | `ImageBuffer` `PngWriter` `SvgDocument` `SvgChart` `MultiPanel` `Waterfall` `Annotations` `AxisTicks` `Colormap` `HeatMap` `LinePlot` `Histogram` `BoxPlot` `ErrorBarChart` `BandChart` `Colorbar` |
 
@@ -106,6 +106,9 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Bounded-concurrency async fan-out | `Threading.ParallelUtils.ForEachAsync` |
 | Lock across `await` / per key | `Threading.AsyncLock`, `KeyedLock` |
 | Await a cancellation token / link it with a timeout | `Threading.CancellationTokenExtensions` |
+| First good answer from several attempts / hedged request | `Threading.TaskRace` |
+| Pause and resume a long-running async job | `Threading.PauseTokenSource` |
+| Cancel on Ctrl+C | `Cli.ConsoleApp.CreateInterruptSource` |
 | Reproducible random / sampling | `Numerics.DeterministicRandom`, `RandomUtils` |
 | Streaming mean / variance / percentiles | `Numerics.RunningStatistics`, `Percentile` |
 | Confidence intervals / bootstrap | `Numerics.ConfidenceInterval`, `Bootstrap` |
@@ -431,6 +434,8 @@ src/
       KeyedLock.cs          per-key async locks (lock striping, ref-counted)
       ParallelUtils.cs      bounded-concurrency async fan-out (fail-fast / collect-all)
       PeriodicWorker.cs     run an action on an interval, graceful stop (injectable delay)
+      PauseTokenSource.cs   cooperative pause/resume (PauseToken.WaitWhilePausedAsync at safe points)
+      TaskRace.cs           FirstSuccessful / FirstMatching / FirstToComplete / Hedged — losers cancelled and awaited
       CancellationTokenExtensions.cs  await a token (WhenCanceled) + CreateLinkedTimeout source
       TaskExtensions.cs     WithTimeout / WithCancellation / FireAndForget / WhenAllOrFirstException
     Time/
@@ -791,6 +796,7 @@ tests/
       KeyedLockTests.cs
       ParallelUtilsTests.cs
       PeriodicWorkerTests.cs
+      PauseAndRaceTests.cs
       CancellationTokenExtensionsTests.cs
       TaskExtensionsTests.cs
     Time/
