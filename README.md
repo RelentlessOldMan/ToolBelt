@@ -28,7 +28,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Collections** | Data structures & sequence ops | `LruCache` `TtlCache` `Deque` `BloomFilter` `Trie` `Batch` `Aggregation` |
 | **Configuration** | Layered config & typed binding | `ConfigLayers` `ConfigBinder` |
 | **Control** | Control loops & filters | `PidController` `KalmanFilter1D` |
-| **Diagnostics** | Measurement & observability | `Benchmark` `MetricsRegistry` `ScopedTimer` `ExceptionUtils` `EnvironmentReport` |
+| **Diagnostics** | Measurement, observability & health | `Benchmark` `MetricsRegistry` `ScopedTimer` `HealthCheck` `DiskSpace` `AssertInvariant` |
 | **Documents** | Report writers (MD/HTML/PDF/DOCX) | `MarkdownReport` `HtmlReport` `PdfWriter` `DocxWriter` |
 | **Enums** | Enum helpers | `EnumExtensions` `EnumFlags` `EnumMap` |
 | **Functional** | Result/optional types, memoization | `Result` `Option` `Either` `Memoize` |
@@ -45,7 +45,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Process** | Child processes | `ProcessRunner` `WhichExe` `ShellOpen` |
 | **Quality** | Statistical process control | `ProcessCapability` `ControlChart` `MeasurementAgreement` |
 | **Resilience** | Retry & rate control | `Retry` `CircuitBreaker` `Bulkhead` `TokenBucketRateLimiter` |
-| **Runtime** | Process/runtime introspection | `StartupTiming` `AppInfo` `MemoryPressure` |
+| **Runtime** | Process/runtime introspection & scratch memory | `StartupTiming` `AppInfo` `MemoryPressure` `ArrayPoolScope` |
 | **Security** | Hashing, HMAC, KDF, secure random, AEAD | `Hashing` `Hmac` `KeyDerivation` `CryptoRandom` `AuthenticatedEncryption` |
 | **Signal** | Digital signal processing | `Fft` `Window` `Spectrum` `WelchPsd` `Hilbert` `Goertzel` `Convolution` `Resample` `Quantizer` |
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
@@ -89,6 +89,10 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Flatten / classify an exception | `Diagnostics.ExceptionUtils` |
 | App version / memory / startup timing | `Runtime.AppInfo`, `MemoryPressure`, `StartupTiming` |
 | Capture a bug-report environment snapshot | `Diagnostics.EnvironmentReport` |
+| Startup health checks with timeouts | `Diagnostics.HealthCheck` |
+| Will this run fit on disk / is the folder writable | `Diagnostics.DiskSpace` (`Preflight`, `EstimateBytes`) |
+| Debug-only internal consistency checks | `Diagnostics.AssertInvariant` |
+| Borrow a scratch buffer safely | `Runtime.ArrayPoolScope` |
 | Map CSV rows ↔ typed objects | `IO.CsvLine`, `CsvBinder` |
 | Query untyped rows by column (filter/sort/join/group) | `Collections.DataTableLite` |
 | Write a file without torn writes | `IO.AtomicFile` |
@@ -210,6 +214,9 @@ src/
       ScopedTimer.cs        time a using-block to a callback / metrics (injectable clock)
       ExceptionUtils.cs     root-cause / flatten / describe / transient-vs-permanent classify
       EnvironmentReport.cs  one-call bug-report snapshot (versions/OS/culture/uptime/env, secret-safe)
+      HealthCheck.cs        named probes w/ enforced timeouts, run concurrently -> worst-status report
+      DiskSpace.cs          free space on a path's volume, writability probe, pre-run fit check + size estimate
+      AssertInvariant.cs    conditionally compiled internal-consistency checks (DEBUG / TOOLBELT_INVARIANTS)
     Documents/
       MarkdownReport.cs     fluent GitHub-flavored Markdown (headings/lists/tables/code/quotes)
       HtmlReport.cs         self-contained HTML doc with embedded CSS; escaping; base64 image embed
@@ -408,6 +415,7 @@ src/
       StartupTiming.cs      record named milestones from a start instant (injectable clock)
       AppInfo.cs            assembly version / config / build time / location / runtime description
       MemoryPressure.cs     working set / total allocated / GC counts + delta-since-snapshot
+      ArrayPoolScope.cs     self-returning rented array (ArrayPool on net8, allocation on ns2.0; double-return safe)
     Security/
       Hashing.cs            SHA-256/384/512 (+ legacy MD5) over bytes/string/stream; hex/base64
       Hmac.cs               HMAC-SHA-256/384/512 with constant-time verify
@@ -535,6 +543,9 @@ tests/
       ScopedTimerTests.cs
       ExceptionUtilsTests.cs
       EnvironmentReportTests.cs
+      HealthCheckTests.cs
+      DiskSpaceTests.cs
+      AssertInvariantTests.cs
     Documents/
       MarkdownReportTests.cs
       HtmlReportTests.cs
@@ -731,6 +742,7 @@ tests/
       StartupTimingTests.cs
       AppInfoTests.cs
       MemoryPressureTests.cs
+      ArrayPoolScopeTests.cs
     Security/
       HashingTests.cs
       HmacTests.cs
