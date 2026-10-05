@@ -28,7 +28,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Collections** | Data structures & sequence ops | `LruCache` `TtlCache` `Deque` `BloomFilter` `Trie` `Batch` `Aggregation` |
 | **Configuration** | Layered config, typed binding, env vars, user settings | `ConfigLayers` `ConfigBinder` `EnvironmentVariables` `SettingsStore` |
 | **Control** | Control loops & filters | `PidController` `KalmanFilter1D` |
-| **Diagnostics** | Measurement, observability & health | `Benchmark` `MetricsRegistry` `ScopedTimer` `HealthCheck` `DiskSpace` `AssertInvariant` |
+| **Diagnostics** | Measurement, observability & health | `Benchmark` `MetricsRegistry` `ScopedTimer` `HealthCheck` `DiskSpace` `AssertInvariant` `FirstChanceMonitor` |
 | **Documents** | Report writers & builder (MD/HTML/PDF/DOCX) | `ReportBuilder` `ReportTemplates` `MarkdownReport` `HtmlReport` `PdfWriter` `DocxWriter` |
 | **Enums** | Enum helpers | `EnumExtensions` `EnumFlags` `EnumMap` |
 | **Functional** | Result/optional types, memoization | `Result` `Option` `Either` `Memoize` |
@@ -38,7 +38,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Identifiers** | Id generation & encoding | `Ulid` `NanoId` `ShortGuid` `SnowflakeIdGenerator` |
 | **Intervals** | Interval/range structures | `Interval` `IntervalTree` `RangeMap` `RangeSet` |
 | **IO** | Files, directories, streams, tabular text, zip | `AtomicFile` `DirectoryUtils` `FileWatcher` `ChecksumManifest` `CsvBinder` `CsvDialect` `JsonFile` `JsonLines` `FileRetention` `ZipUtils` `TarUtils` |
-| **Logging** | Fan-out logging (plain-string events) | `Logger` `TextWriterSink` `FileSink` `AsyncLogSink` `RollingMemorySink` `FilterSink` `RouterSink` `RateLimitedSink` `ScopedContext` |
+| **Logging** | Fan-out logging (plain-string events) | `Logger` `TextWriterSink` `FileSink` `SyslogSink` `AsyncLogSink` `RollingMemorySink` `FilterSink` `RouterSink` `RateLimitedSink` `ScopedContext` |
 | **Net** | Address math, TCP/DNS, HTTP | `CidrRange` `IpUtils` `PortCheck` `TcpLineClient` `HostInfo` `HttpDownload` |
 | **Numerics** | Math, stats, calculus, random | `DeterministicRandom` `Distributions` `Percentile` `Polynomial` `UnitConvert` `Bootstrap` |
 | **Objects** | Reflection / object services | `DeepEquals` `PropertyDiff` `PropertyPath` `ObjectMapper` `TypeUtils` |
@@ -92,6 +92,9 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | App version / memory / startup timing | `Runtime.AppInfo`, `MemoryPressure`, `StartupTiming` |
 | Capture a bug-report environment snapshot | `Diagnostics.EnvironmentReport` |
 | Startup health checks with timeouts | `Diagnostics.HealthCheck` |
+| Find exceptions that are thrown and swallowed | `Diagnostics.FirstChanceMonitor` |
+| Send logs to a syslog server (UDP/TCP, RFC 5424) | `Logging.SyslogSink` |
+| Write to the Windows Event Log | `ToolBelt.Windows.EventLogWriter` |
 | Will this run fit on disk / is the folder writable | `Diagnostics.DiskSpace` (`Preflight`, `EstimateBytes`) |
 | Debug-only internal consistency checks | `Diagnostics.AssertInvariant` |
 | Borrow a scratch buffer safely | `Runtime.ArrayPoolScope` |
@@ -261,6 +264,7 @@ src/
       ExceptionUtils.cs     root-cause / flatten / describe / transient-vs-permanent classify
       EnvironmentReport.cs  one-call bug-report snapshot (versions/OS/culture/uptime/env, secret-safe)
       HealthCheck.cs        named probes w/ enforced timeouts, run concurrently -> worst-status report
+      FirstChanceMonitor.cs report thrown-then-swallowed exceptions; throttled per signature, recursion-safe
       DiskSpace.cs          free space on a path's volume, writability probe, pre-run fit check + size estimate
       AssertInvariant.cs    conditionally compiled internal-consistency checks (DEBUG / TOOLBELT_INVARIANTS)
     Documents/
@@ -514,6 +518,7 @@ src/
       Logger.cs             thread-safe fan-out logger (levels, category, injectable clock)
       LogSinks.cs           DelegateSink / TextWriterSink (console) / RollingMemorySink
       FileSink.cs           file sink with size-based rotation + retention
+      SyslogSink.cs         RFC 5424 syslog over UDP or TCP (octet counting); failures counted, never thrown
       AsyncLogSink.cs       off-thread bounded-queue sink (built on ConcurrentPipeline)
       LogDecorators.cs      FilterSink / RouterSink / RateLimitedSink (composable sink wrappers)
       LogFormatters.cs      plain / compact / single-line-JSON line formatters
@@ -537,6 +542,7 @@ src/
     OsVersionInfo.cs        true OS version via RtlGetVersion (Win10/Win11 detection)
     MemoryStatus.cs         system physical / page-file memory + load % (GlobalMemoryStatusEx)
     IdleTime.cs             time since last user input (GetLastInputInfo)
+    EventLogWriter.cs       Windows Event Log via ReportEvent (no package); source registration helpers
   ToolBelt.Wpf/             WPF UI satellite (net8.0-windows) — MVVM building blocks
     ObservableObject.cs     INotifyPropertyChanged base with SetProperty
     RelayCommand.cs         ICommand over delegates (+ generic RelayCommand<T>)
@@ -881,9 +887,11 @@ tests/
       LogFormattersTests.cs
       StructuredTextFormatterTests.cs
       ScopedContextTests.cs
+      SyslogAndFirstChanceTests.cs (real UDP/TCP loopback collectors, reconnect)
   ToolBelt.Windows.Tests/   Windows-only integration tests for the platform satellite (net8.0-windows)
     PowerStatusTests.cs
     SingleInstanceTests.cs
+    EventLogWriterTests.cs  (reads the event back with wevtutil)
     DriveAndVolumeInfoTests.cs
     MonitorInfoTests.cs
     RegistryUtilsTests.cs
