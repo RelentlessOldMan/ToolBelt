@@ -24,7 +24,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Division | What's in it | A few examples |
 |---|---|---|
 | **Binary** | Encodings, checksums, bit twiddling | `Base32` `Base58` `Hex` `Crc32` `Fnv1a` `VarInt` `Bits` `Luhn` |
-| **Cli** | Console output rendering | `ConsoleTable` `ProgressBar` `Sparkline` |
+| **Cli** | Console output, input and process plumbing | `ConsoleTable` `ProgressBar` `AnsiStyle` `ConsoleSpinner` `Prompt` `ConsoleApp` |
 | **Collections** | Data structures & sequence ops | `LruCache` `TtlCache` `Deque` `BloomFilter` `Trie` `Batch` `Aggregation` |
 | **Configuration** | Layered config & typed binding | `ConfigLayers` `ConfigBinder` |
 | **Control** | Control loops & filters | `PidController` `KalmanFilter1D` |
@@ -50,7 +50,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Signal** | Digital signal processing | `Fft` `Window` `Spectrum` `WelchPsd` `Hilbert` `Goertzel` `Convolution` `Resample` `Quantizer` |
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
 | **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `AtomicCounters` |
-| **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `BusinessDays` `UnixTime` |
+| **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `CronScheduler` `BusinessDays` `UnixTime` |
 | **Visualization** | Raster canvas, charts, PNG & SVG | `ImageBuffer` `PngWriter` `SvgDocument` `SvgChart` `MultiPanel` `Waterfall` `Annotations` `AxisTicks` `Colormap` `HeatMap` `LinePlot` `Histogram` `BoxPlot` `ErrorBarChart` `BandChart` `Colorbar` |
 
 > The cross-platform core above is BCL-only. Windows-only Win32/registry helpers live in a **separate**
@@ -78,6 +78,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Probabilistic set membership (optionally with deletes) | `Collections.BloomFilter`, `CountingBloomFilter` |
 | Parse or format a duration | `Time.HumanDuration`, `Iso8601Duration` |
 | Compute the next cron occurrence | `Time.CronSchedule` |
+| Run jobs on cron schedules | `Time.CronScheduler` |
 | Fuzzy-match strings ("did you mean") | `Text.JaroWinkler`, `LevenshteinDistance`, `NGramSimilarity` |
 | Rank "did you mean" suggestions from a list | `Text.StringSimilarity.BestMatch` / `TopMatches` |
 | Diff two blocks of text (line by line) | `Text.TextDiff` |
@@ -134,6 +135,13 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Resolve DNS (with timeout) / list interfaces | `Net.HostInfo` |
 | Download a file (resume / checksum / retry) | `Net.HttpDownload` |
 | Render a console table / bar / sparkline | `Cli.ConsoleTable`, `ProgressBar`, `Sparkline` |
+| Colour console output (honours NO_COLOR) | `Cli.AnsiStyle` |
+| Show a spinner while working | `Cli.ConsoleSpinner` |
+| Ask yes/no, text, number or choice — safely in scripts | `Cli.Prompt` |
+| Main wrapper: Ctrl+C token, exit codes, error reporting | `Cli.ConsoleApp`, `ExitCodes` |
+| Pad / centre / fit coloured or CJK text in columns | `Text.TextAlign` |
+| Split a line with quotes and escapes (shell or CSV rules) | `Text.Tokenizer` |
+| Percent-encode / decode (RFC 3986, strict UTF-8) | `Text.PercentEncoding` |
 | Validate method arguments | `Guards.Guard` |
 | Draw a raster image / write a PNG | `Visualization.ImageBuffer`, `PngWriter` |
 | Render a heat map / line plot | `Visualization.HeatMap`, `LinePlot` (+ `Colormap`) |
@@ -193,6 +201,10 @@ src/
       ConsoleTable.cs       box-drawing text table (alignment, padding)
       ProgressBar.cs        render a text progress bar (bar body / bracketed + percent)
       Sparkline.cs          one-line block-character mini chart of a series
+      AnsiStyle.cs          16/256/24-bit colour + bold/underline; NO_COLOR / FORCE_COLOR / TERM=dumb aware
+      ConsoleSpinner.cs     in-place spinner (stderr), plain lines when not a terminal
+      Prompt.cs             confirm / text / integer / choice; defaults or NonInteractiveException when scripted
+      ConsoleApp.cs         Main wrapper: Ctrl+C token, ExitCodes (sysexits, 130), ExitException, error lines
     Collections/
       BinaryHeap.cs         binary-heap priority queue (custom comparer)
       Batch.cs              lazy fixed-size batching of any IEnumerable<T>
@@ -387,6 +399,9 @@ src/
       CaseConverter.cs      convert between camel/Pascal/snake/kebab/CONSTANT/Title
       CommandLineBuilder.cs  quote + join args (inverse of the splitter; round-trips)
       CommandLineSplitter.cs  split a command line into args (quote-aware)
+      Tokenizer.cs          configurable quote/escape-aware splitter with spans (Shell / Csv presets)
+      PercentEncoding.cs    RFC 3986 percent-encode/decode, strict UTF-8, form (+) variant
+      TextAlign.cs          display-width pad/centre/fit: ANSI-, combining- and wide-char-aware
       GlobMatcher.cs        glob matching (*, ?, [a-z], negation)
       HammingDistance.cs    Hamming distance between equal-length strings / bit sequences
       Indent.cs             indent / dedent multi-line text
@@ -421,6 +436,7 @@ src/
     Time/
       BusinessDays.cs       business-day add/count (weekends + holidays)
       CronSchedule.cs       5-field cron parse + next-occurrence
+      CronScheduler.cs      run jobs on cron schedules: no self-overlap, no catch-up bursts, injectable clock
       DateRange.cs          date/time interval (contains / overlaps / intersect)
       Iso8601Duration.cs    ISO 8601 duration parse/format (PT1H30M)
       IsoWeek.cs            ISO 8601 week-of-year and week-year
@@ -553,6 +569,7 @@ tests/
       VarIntTests.cs
     Cli/
       ConsoleTableTests.cs
+      ConsoleHelpersTests.cs
       ProgressBarTests.cs
       SparklineTests.cs
     Collections/
@@ -747,6 +764,7 @@ tests/
       NaturalComparerTests.cs
       NGramSimilarityTests.cs
       QueryStringTests.cs
+      TokenizerAndEncodingTests.cs (CSV agreement with CsvLine; encoding agreement with Uri.EscapeDataString)
       RomanNumeralsTests.cs
       SlugTests.cs
       SoundexTests.cs
@@ -778,6 +796,7 @@ tests/
     Time/
       BusinessDaysTests.cs
       CronScheduleTests.cs
+      CronSchedulerTests.cs
       DateRangeTests.cs
       Iso8601DurationTests.cs
       IsoWeekTests.cs
