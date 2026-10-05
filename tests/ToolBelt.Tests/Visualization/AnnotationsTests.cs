@@ -87,6 +87,19 @@ namespace ToolBelt.Tests.Visualization
             Check.Equal("peak", g.Elements("text").Single().Value);
         }
 
+        public void Callout_LabelIsKeptInsideThePlot()
+        {
+            // A point at the very top-right with an up-right offset would put the label off the chart.
+            XElement g = Svg(new Annotations().Callout(10, 10, "peak value", dx: 30, dy: -30));
+            XElement text = g.Elements("text").Single();
+            double x = D(text, "x"), y = D(text, "y");
+            double w = SvgUtils.EstimateTextWidth("peak value", 11);
+            string anchor = text.Attribute("text-anchor")!.Value;
+            double left = anchor == "end" ? x - w : x, right = anchor == "end" ? x : x + w;
+            Check.True(left >= Frame.Left && right <= Frame.Right, $"label spans {left}..{right}");
+            Check.True(y - 11 >= Frame.Top && y <= Frame.Bottom, $"label baseline {y}");
+        }
+
         public void Arrow_HeadSitsOnTarget()
         {
             XElement poly = Svg(new Annotations().Arrow(1, 1, 5, 5)).Elements("polygon").Single();

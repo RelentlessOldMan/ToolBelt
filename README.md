@@ -29,7 +29,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Configuration** | Layered config & typed binding | `ConfigLayers` `ConfigBinder` |
 | **Control** | Control loops & filters | `PidController` `KalmanFilter1D` |
 | **Diagnostics** | Measurement, observability & health | `Benchmark` `MetricsRegistry` `ScopedTimer` `HealthCheck` `DiskSpace` `AssertInvariant` |
-| **Documents** | Report writers (MD/HTML/PDF/DOCX) | `MarkdownReport` `HtmlReport` `PdfWriter` `DocxWriter` |
+| **Documents** | Report writers & builder (MD/HTML/PDF/DOCX) | `ReportBuilder` `ReportTemplates` `MarkdownReport` `HtmlReport` `PdfWriter` `DocxWriter` |
 | **Enums** | Enum helpers | `EnumExtensions` `EnumFlags` `EnumMap` |
 | **Functional** | Result/optional types, memoization | `Result` `Option` `Either` `Memoize` |
 | **Graphs** | Graph algorithms | `Graph` `TopologicalSort` `ShortestPath` `MinimumSpanningTree` |
@@ -129,6 +129,8 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Labelled vector chart for a report | `Visualization.SvgChart` |
 | Several plots in one figure (shared axes) | `Visualization.MultiPanel` |
 | Spectrogram / waterfall display | `Visualization.Waterfall` |
+| One report, many formats (HTML/MD/PDF/Word) | `Documents.ReportBuilder` |
+| Run summary / A-vs-B comparison / pass-fail report | `Documents.ReportTemplates` |
 | Limit lines / shaded zones / callouts on a plot | `Visualization.Annotations` (SVG or raster via `LinePlot.Frame`) |
 | Map data to pixels for a custom renderer | `Visualization.PlotFrame` (+ `SvgUtils` for SVG output) |
 | Hash / HMAC / verify a token safely | `Security.Hashing`, `Hmac`, `ConstantTime` |
@@ -228,6 +230,8 @@ src/
       HtmlReport.cs         self-contained HTML doc with embedded CSS; escaping; base64 image embed
       PdfWriter.cs          hand-rolled PDF (base-14 fonts, wrapping, auto-pagination, real xref)
       DocxWriter.cs         Word .docx via OOXML zip (System.IO.Compression); runs/tables/headings
+      ReportBuilder.cs      typed report model (meta, TOC, props, tables, figures, code, callouts) -> HTML/MD/PDF/DOCX
+      ReportTemplates.cs    ready-made RunSummary / Comparison (A vs B, deltas, flags) / PassFailMatrix reports
     Enums/
       EnumExtensions.cs     cached values/names, strict name parse, [Description], flag split
       EnumFlags.cs          generic [Flags] add / remove / toggle / has-all/any
@@ -564,6 +568,8 @@ tests/
       HtmlReportTests.cs
       PdfWriterTests.cs     (independent xref-table + structure parser)
       DocxWriterTests.cs    (unzips parts + parses OOXML)
+      ReportBuilderTests.cs
+      ReportTemplatesTests.cs
     Enums/
       EnumExtensionsTests.cs
       EnumFlagsTests.cs

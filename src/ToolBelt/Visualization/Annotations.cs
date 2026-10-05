@@ -208,6 +208,16 @@ namespace ToolBelt.Visualization
                 tipX = f.MapX(it.A); tipY = f.MapY(it.B);
                 if (double.IsNaN(tipX) || double.IsNaN(tipY)) return;
                 tailX = tipX + it.C; tailY = tipY + it.D;
+
+                // Keep the label (and so the arrow's tail) inside the plot: a point near an edge would otherwise push
+                // its pixel-offset label off the chart. Horizontal room depends on which way the text runs.
+                double w = SvgUtils.EstimateTextWidth(it.Label ?? "", fontSize);
+                bool runsLeft = tipX >= tailX; // label anchored "end"
+                double minX = f.Left + 2 + (runsLeft ? w : 0), maxX = f.Right - 2 - (runsLeft ? 0 : w);
+                if (minX <= maxX) tailX = Math.Max(minX, Math.Min(maxX, tailX));
+                bool above = tipY >= tailY;
+                double minY = f.Top + 2 + (above ? fontSize + 3 : 0), maxY = f.Bottom - 2 - (above ? 0 : fontSize);
+                if (minY <= maxY) tailY = Math.Max(minY, Math.Min(maxY, tailY));
                 sb.Append("<circle cx=\"").Append(SvgUtils.Number(tipX)).Append("\" cy=\"").Append(SvgUtils.Number(tipY))
                   .Append("\" r=\"3\" ").Append(SvgUtils.FillAttributes(it.Color)).Append("/>\n");
             }
