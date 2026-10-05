@@ -115,10 +115,10 @@ namespace ToolBelt.Tests.Documents
             Check.True(text.TrimEnd().EndsWith("%%EOF", StringComparison.Ordinal));
             Check.True(text.Contains("Contents"));
             Check.True(text.Contains("Table 1: Readings"));
-            Check.True(text.Contains("alpha | 1"));                             // monospace-aligned table row
+            Check.True(text.Contains("(alpha) Tj") && text.Contains("(1) Tj"));       // table cells
             Check.True(text.Contains("[Figure 1: Trend - graphics are not rendered in PDF output]"));
             Check.True(text.Contains("WARNING: Fan speed near limit."));
-            Check.True(text.Contains("Operator : J. Doe"));
+            Check.True(text.Contains("(Operator) Tj") && text.Contains("(J. Doe) Tj"));
         }
 
         // ---------- Word ----------

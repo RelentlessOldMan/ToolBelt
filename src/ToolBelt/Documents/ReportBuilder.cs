@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Text;
 
 namespace ToolBelt.Documents
@@ -25,9 +26,9 @@ namespace ToolBelt.Documents
     /// <item><b>Markdown</b> (<see cref="ToMarkdown"/>): GitHub-flavoured — anchored contents links, <c>&gt; [!WARNING]</c>
     /// alerts, pipe tables. Figures become data-URI images, which some viewers (GitHub among them) do not display;
     /// their captions always remain.</item>
-    /// <item><b>PDF</b> (<see cref="ToPdf"/>): monospace text so tables align exactly; long table rows wrap. Figures
-    /// are replaced by a captioned placeholder (the PDF writer has no image support); contents lists headings
-    /// without page numbers.</item>
+    /// <item><b>PDF</b> (<see cref="ToPdf"/>): Helvetica text, bordered tables (header repeated across pages), PNG figures,
+    /// monospace code, a bookmark outline and page numbers. SVG-only figures become captioned placeholders, the contents
+    /// list has no page numbers, and characters outside Windows-1252 print as '?' (base-14 fonts).</item>
     /// <item><b>Word</b> (<see cref="ToDocx"/>): headings, paragraphs, real lists and tables, monospace code, PNG figures
     /// embedded with captions, title in the document properties and "Page X of Y" footers. SVG-only figures become
     /// captioned placeholders (Word needs a raster), and the contents list is a static nested list.</item>
@@ -302,18 +303,16 @@ namespace ToolBelt.Documents
         // ================= PDF =================
 
         /// <summary>
-        /// A PDF in a monospace font (so tables align exactly). Figures become captioned placeholders and the contents
-        /// list has no page numbers — see the class summary.
+        /// A PDF in Helvetica with real bordered tables, embedded PNG figures, monospace code, a bookmark outline from the
+        /// headings, page numbers and the title in the document properties — see the class summary for what is lost.
         /// </summary>
-        public byte[] ToPdf(PdfPageSize pageSize = PdfPageSize.Letter, double fontSize = 9.5)
+        public byte[] ToPdf(PdfPageSize pageSize = PdfPageSize.Letter, double fontSize = 10)
         {
-            var pdf = new PdfWriter(pageSize, 54, PdfFont.Courier, fontSize);
-            double width = pageSize == PdfPageSize.A4 ? 595 : 612;
-            int columns = Math.Max(20, (int)((width - 2 * 54) / (fontSize * 0.6)));
+            var pdf = new PdfWriter(pageSize, 54, PdfFont.Helvetica, fontSize) { Title = Title, PageNumbers = true };
             var headings = CollectHeadings(new Anchors());
 
-            pdf.Heading(Title, fontSize * 1.8);
-            if (_metadata.Count > 0) pdf.Lines(AlignedPairs(_metadata, columns)).Space(fontSize);
+            pdf.Heading(Title, fontSize * 1.9, level: 1);
+            if (_metadata.Count > 0) pdf.Table(new[] { "Property", "Value" }, PairRows(_metadata), new[] { 1.0, 3.0 });
 
             int table = 0, figure = 0;
             foreach (Block b in _blocks)
@@ -322,48 +321,53 @@ namespace ToolBelt.Documents
                 {
                     case Kind.Toc:
                     {
-                        pdf.Heading("Contents", fontSize * 1.3);
-                        var lines = new List<string>();
-                        foreach (var h in headings) lines.Add(new string(' ', (h.Level - 1) * 2) + h.Text);
-                        pdf.Lines(lines).Space(fontSize);
+                        pdf.Heading("Contents", fontSize * 1.3, bookmark: false);
+                        var items = new List<(int, string)>();
+                        foreach (var h in headings) items.Add((h.Level - 1, h.Text));
+                        pdf.BulletList(items);
                         break;
                     }
-                    case Kind.Heading: pdf.Heading(b.Text!, fontSize * (1.6 - 0.15 * b.Level)); break;
+                    case Kind.Heading: pdf.Heading(b.Text!, fontSize * (1.6 - 0.15 * b.Level), level: b.Level + 1); break;
                     case Kind.Paragraph: pdf.Paragraph(b.Text!); break;
-                    case Kind.Bullets:
-                    {
-                        var lines = new List<string>();
-                        foreach (string item in b.Items!) lines.Add("  * " + item);
-                        pdf.Lines(lines).Space(fontSize * 0.6);
-                        break;
-                    }
-                    case Kind.Properties:
-                    {
-                        var pairs = new List<KeyValuePair<string, string>>();
-                        foreach (var r in b.Rows!) pairs.Add(new KeyValuePair<string, string>(r[0], r[1]));
-                        pdf.Lines(AlignedPairs(pairs, columns)).Space(fontSize * 0.6);
-                        break;
-                    }
+                    case Kind.Bullets: pdf.BulletList(b.Items!); break;
+                    case Kind.Properties: pdf.Table(new[] { "Property", "Value" }, b.Rows!, new[] { 1.0, 3.0 }); break;
                     case Kind.Table:
                         table++;
-                        if (!string.IsNullOrEmpty(b.Caption)) pdf.Lines(new[] { "Table " + table.ToString(CultureInfo.InvariantCulture) + ": " + b.Caption });
-                        pdf.Lines(TextTable(b.Headers!, b.Rows!)).Space(fontSize * 0.6);
+                        if (!string.IsNullOrEmpty(b.Caption)) pdf.Paragraph("Table " + table.ToString(CultureInfo.InvariantCulture) + ": " + b.Caption, bold: true);
+                        pdf.Table(b.Headers!, b.Rows!);
                         break;
                     case Kind.Figure:
-                        figure++;
-                        pdf.Paragraph("[Figure " + figure.ToString(CultureInfo.InvariantCulture) + ": " + b.Caption + " - graphics are not rendered in PDF output]");
-                        break;
-                    case Kind.Code:
                     {
-                        var lines = new List<string>();
-                        foreach (string line in b.Text!.Split('\n')) lines.Add("  " + line);
-                        pdf.Lines(lines).Space(fontSize * 0.6);
+                        figure++;
+                        string label = "Figure " + figure.ToString(CultureInfo.InvariantCulture) + ": " + b.Caption;
+                        bool embedded = false;
+                        if (b.Png != null && b.Png.Length > 0)
+                        {
+                            try
+                            {
+                                pdf.ImagePng(b.Png);
+                                embedded = true;
+                            }
+                            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is InvalidDataException)
+                            {
+                                // Not a usable PNG: one bad figure must not abort the whole document.
+                            }
+                        }
+                        pdf.Paragraph(embedded ? label : "[" + label + " - graphics are not rendered in PDF output]");
                         break;
                     }
-                    case Kind.Callout: pdf.Paragraph(CalloutLabel(b.Callout).ToUpperInvariant() + ": " + b.Text); break;
+                    case Kind.Code: pdf.Code(b.Text!); break;
+                    case Kind.Callout: pdf.Paragraph(CalloutLabel(b.Callout).ToUpperInvariant() + ": " + b.Text, bold: true); break;
                 }
             }
             return pdf.Build();
+        }
+
+        private static List<IReadOnlyList<string>> PairRows(IEnumerable<KeyValuePair<string, string>> pairs)
+        {
+            var rows = new List<IReadOnlyList<string>>();
+            foreach (var kv in pairs) rows.Add(new[] { kv.Key, kv.Value });
+            return rows;
         }
 
         // ================= Word =================
@@ -472,45 +476,6 @@ namespace ToolBelt.Documents
                 _seen[candidate] = 0;
                 return candidate;
             }
-        }
-
-        private static List<string> AlignedPairs(IReadOnlyList<KeyValuePair<string, string>> pairs, int columns)
-        {
-            int keyWidth = 0;
-            foreach (var kv in pairs) keyWidth = Math.Max(keyWidth, kv.Key.Length);
-            keyWidth = Math.Min(keyWidth, Math.Max(8, columns / 3));
-            var lines = new List<string>();
-            foreach (var kv in pairs)
-                lines.Add((kv.Key.Length > keyWidth ? kv.Key.Substring(0, keyWidth) : kv.Key.PadRight(keyWidth)) + " : " + kv.Value);
-            return lines;
-        }
-
-        private static List<string> TextTable(IReadOnlyList<string> headers, IReadOnlyList<IReadOnlyList<string>> rows)
-        {
-            var widths = new int[headers.Count];
-            for (int c = 0; c < headers.Count; c++) widths[c] = headers[c].Length;
-            foreach (var r in rows)
-                for (int c = 0; c < widths.Length; c++) widths[c] = Math.Max(widths[c], r[c].Length);
-            string Row(IReadOnlyList<string> cells)
-            {
-                var sb = new StringBuilder();
-                for (int c = 0; c < widths.Length; c++)
-                {
-                    if (c > 0) sb.Append(" | ");
-                    sb.Append(cells[c].PadRight(widths[c]));
-                }
-                return sb.ToString().TrimEnd();
-            }
-            var lines = new List<string> { Row(headers) };
-            var rule = new StringBuilder();
-            for (int c = 0; c < widths.Length; c++)
-            {
-                if (c > 0) rule.Append("-+-");
-                rule.Append('-', widths[c]);
-            }
-            lines.Add(rule.ToString());
-            foreach (var r in rows) lines.Add(Row(r));
-            return lines;
         }
 
         private static string? StripXmlDeclaration(string? svg)

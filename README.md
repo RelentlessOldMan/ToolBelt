@@ -174,6 +174,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Digital timing / protocol diagram (clock, buses, cursors) | `Visualization.TimingDiagram` |
 | One report, many formats (HTML/MD/PDF/Word) | `Documents.ReportBuilder` |
 | Write a Word document (lists, images, page numbers) | `Documents.DocxWriter` |
+| Write a PDF (tables, images, bookmarks, page numbers) | `Documents.PdfWriter` |
 | Run summary / A-vs-B comparison / pass-fail report | `Documents.ReportTemplates` |
 | Limit lines / shaded zones / callouts on a plot | `Visualization.Annotations` (SVG or raster via `LinePlot.Frame`) |
 | Map data to pixels for a custom renderer | `Visualization.PlotFrame` (+ `SvgUtils` for SVG output) |
@@ -284,7 +285,8 @@ src/
     Documents/
       MarkdownReport.cs     fluent GitHub-flavored Markdown (headings/lists/tables/code/quotes)
       HtmlReport.cs         self-contained HTML doc with embedded CSS; escaping; base64 image embed
-      PdfWriter.cs          hand-rolled PDF (base-14 fonts, wrapping, auto-pagination, real xref)
+      PdfWriter.cs          hand-rolled PDF: exact base-14 metrics, wrapping, pagination, tables (header repeats),
+                            PNG/RGBA images with alpha, bookmarks from headings, page numbers, code blocks, title
       DocxWriter.cs         Word .docx via OOXML zip: mixed-format runs, real nested bullet/numbered lists, tables,
                             PNG images, page breaks, header + "Page X of Y" footer, title/author
       ReportBuilder.cs      typed report model (meta, TOC, props, tables, figures, code, callouts) -> HTML/MD/PDF/DOCX
@@ -671,6 +673,7 @@ tests/
       MarkdownReportTests.cs
       HtmlReportTests.cs
       PdfWriterTests.cs     (independent xref-table + structure parser)
+      PdfFeaturesTests.cs   (object-level reader: outline tree links, image/SMask streams, WinAnsi bytes, line widths)
       DocxWriterTests.cs    (unzips parts + parses OOXML)
       DocxFeaturesTests.cs  (+ opens the file in real Word via COM when installed: pages, list numbers, footer fields)
       ReportBuilderTests.cs
