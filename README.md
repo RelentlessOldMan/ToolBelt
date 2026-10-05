@@ -51,7 +51,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
 | **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `TaskRace` `PauseTokenSource` `AtomicCounters` |
 | **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `CronScheduler` `BusinessDays` `UnixTime` |
-| **Visualization** | Raster canvas, charts, PNG & SVG | `ImageBuffer` `PngWriter` `SvgDocument` `SvgChart` `MultiPanel` `Waterfall` `Annotations` `AxisTicks` `Colormap` `HeatMap` `LinePlot` `Histogram` `BoxPlot` `ErrorBarChart` `BandChart` `Colorbar` |
+| **Visualization** | Raster canvas, charts, PNG/BMP & SVG, palettes | `ImageBuffer` `PngWriter` `PngReader` `Bmp` `Palettes` `SvgDocument` `SvgChart` `MultiPanel` `Waterfall` `Annotations` `AxisTicks` `Colormap` `HeatMap` `LinePlot` `Histogram` `BoxPlot` `ErrorBarChart` `BandChart` `Colorbar` |
 
 > The cross-platform core above is BCL-only. Windows-only Win32/registry helpers live in a **separate**
 > `ToolBelt.Windows` assembly (net8.0-windows) — `PowerStatus`, `SingleInstance`, `DriveAndVolumeInfo`,
@@ -162,6 +162,8 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Percent-encode / decode (RFC 3986, strict UTF-8) | `Text.PercentEncoding` |
 | Validate method arguments | `Guards.Guard` |
 | Draw a raster image / write a PNG | `Visualization.ImageBuffer`, `PngWriter` |
+| Read a PNG (any colour type/depth, interlaced) / read or write BMP | `Visualization.PngReader`, `Bmp` |
+| Colour-blind-safe series colours / readable label colour (WCAG) | `Visualization.Palettes` |
 | Render a heat map / line plot | `Visualization.HeatMap`, `LinePlot` (+ `Colormap`) |
 | Nice axis ticks (linear / log / time) | `Visualization.AxisTicks` |
 | Labelled vector chart for a report | `Visualization.SvgChart` |
@@ -481,6 +483,9 @@ src/
     Visualization/
       ImageBuffer.cs        RGBA raster canvas (get/set/fill/line/rect/blit)
       PngWriter.cs          BCL-only PNG encoder (deflate + CRC-32 + Adler-32)
+      PngReader.cs          BCL-only PNG decoder: all colour types, 1-16 bit, all filters, Adam7, tRNS; CRC/Adler verified
+      Bmp.cs                BMP read/write (32-bit BGRA V4 or 24-bit; reads top-down, bitfields, 8-bit palette)
+      Palettes.cs           Okabe-Ito / Tableau10, WCAG luminance + contrast ratio, contrasting label colour, hex
       SvgDocument.cs        fluent SVG vector builder (shapes/text/path; invariant coords)
       SvgUtils.cs           shared SVG primitives: escaping, numbers/colors, PathBuilder, transforms, text-width estimate
       AxisTicks.cs          nice ticks + labels: linear (1-2-5, count-bounded), log decades, clock-friendly time
@@ -848,6 +853,8 @@ tests/
     Visualization/
       ImageBufferTests.cs
       PngWriterTests.cs
+      RasterFormatsTests.cs (PNG fixtures from scripts/gen-png-fixtures.py, cross-checked vs Pillow)
+      PngFixtureData.cs     (generated)
       SvgDocumentTests.cs
       SvgUtilsTests.cs
       AxisTicksTests.cs
@@ -954,6 +961,7 @@ scripts/
   build.ps1                 build wrapper (disables the persistent build server)
   test.ps1                  build once + launch the test exe directly
   gen-distribution-references.py  regenerates the 40-digit distribution reference table (needs mpmath)
+  gen-png-fixtures.py     regenerates the PNG decoder fixtures (needs Pillow, used as a cross-check)
 samples/
   ConsumerSmoke/            a fresh EXTERNAL consumer (public API only); doubles as a usage example
                             and a misuse smoke test. Build + run its exe; exit 0 == all good.
