@@ -105,6 +105,8 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Reproducible random / sampling | `Numerics.DeterministicRandom`, `RandomUtils` |
 | Streaming mean / variance / percentiles | `Numerics.RunningStatistics`, `Percentile` |
 | Confidence intervals / bootstrap | `Numerics.ConfidenceInterval`, `Bootstrap` |
+| t / chi-square / F critical values and p-values | `Numerics.Distributions` (`StudentTQuantile`, `ChiSquareQuantile`, `FQuantile`, ...) |
+| Compare two variances / significance decision | `Numerics.HypothesisTests.FTestEqualVariances`, `TestResult.IsSignificant` |
 | Run a significance test (t / χ² / KS / Mann-Whitney) | `Numerics.HypothesisTests` |
 | Compare several group means (one-way ANOVA / F-test) | `Numerics.Anova` |
 | Fit a curve / solve a linear system | `Numerics.Polynomial`, `LinearAlgebra` |
@@ -322,15 +324,15 @@ src/
       BaseConverter.cs      integer <-> radix string (base 2..36 or custom alphabet)
       Bootstrap.cs          resampling percentile confidence interval (any statistic, seeded)
       ChangePoint.cs        CUSUM + binary-segmentation level-shift detection
-      ConfidenceInterval.cs  z-based mean CI + Wilson proportion CI
+      ConfidenceInterval.cs  mean CI (Student-t, or large-sample z) / variance & SD (chi-square) / Wilson proportion
       DeterministicRandom.cs  seeded fixed-algorithm PRNG (xoshiro256**, stable across runtimes)
       Differentiation.cs    numerical derivative (uniform/uneven samples, function, Richardson)
-      Distributions.cs      normal/exponential/uniform PDF/CDF/quantile (Acklam inverse-normal)
+      Distributions.cs      normal/log-normal/exponential/uniform/Student-t/chi-square/F PDF/CDF/quantile (<1e-13 rel vs 40-digit refs)
       EmpiricalDistribution.cs  empirical CDF step function (value<->percentile lookups)
       EngineeringNotation.cs  SI-prefix format + parse (yocto..yotta, round-trip)
       ExponentialMovingAverage.cs  EMA smoothing (alpha)
       Histogram.cs          fixed-bin histogram (under/overflow tracking)
-      HypothesisTests.cs    t-test / chi-square / Kolmogorov-Smirnov / Mann-Whitney U (p-values)
+      HypothesisTests.cs    t-test / chi-square / KS / Mann-Whitney U / F-test for variances; IsSignificant(alpha)
       Correlation.cs        Pearson correlation coefficient
       Fraction.cs           exact rational number (BigInteger-backed, always reduced)
       Integration.cs        trapezoid / Simpson / adaptive Simpson / cumulative
@@ -666,6 +668,9 @@ tests/
       DeterministicRandomTests.cs
       DifferentiationTests.cs
       DistributionsTests.cs
+      DistributionsTailTests.cs      (closed forms, identities, deep-tail round trips)
+      DistributionReferenceTests.cs  (+ DistributionReferenceData.cs: 229 mpmath 40-digit reference values)
+      InferenceAccuracyTests.cs      (worked examples + simulated coverage / false-positive rates)
       EmpiricalDistributionTests.cs
       EngineeringNotationTests.cs
       ExponentialMovingAverageTests.cs
@@ -855,6 +860,7 @@ tests/
 scripts/
   build.ps1                 build wrapper (disables the persistent build server)
   test.ps1                  build once + launch the test exe directly
+  gen-distribution-references.py  regenerates the 40-digit distribution reference table (needs mpmath)
 samples/
   ConsumerSmoke/            a fresh EXTERNAL consumer (public API only); doubles as a usage example
                             and a misuse smoke test. Build + run its exe; exit 0 == all good.

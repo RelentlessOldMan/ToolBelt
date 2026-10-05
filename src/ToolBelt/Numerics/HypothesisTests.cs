@@ -9,10 +9,17 @@ namespace ToolBelt.Numerics
     public readonly struct TestResult
     {
         public TestResult(double statistic, double pValue, double degreesOfFreedom)
+            : this(statistic, pValue, degreesOfFreedom, double.NaN)
+        {
+        }
+
+        /// <summary>For tests with two degrees-of-freedom parameters (the F-test: numerator, then denominator).</summary>
+        public TestResult(double statistic, double pValue, double degreesOfFreedom, double degreesOfFreedom2)
         {
             Statistic = statistic;
             PValue = pValue;
             DegreesOfFreedom = degreesOfFreedom;
+            DegreesOfFreedom2 = degreesOfFreedom2;
         }
 
         /// <summary>The test statistic (t, chi-square, D, or U depending on the test).</summary>
@@ -21,19 +28,34 @@ namespace ToolBelt.Numerics
         /// <summary>The p-value. Two-sided for the t and Mann-Whitney tests; upper-tail for chi-square; the KS tail probability for KS.</summary>
         public double PValue { get; }
 
-        /// <summary>Degrees of freedom where the test defines them (NaN for KS and Mann-Whitney).</summary>
+        /// <summary>Degrees of freedom where the test defines them (NaN for KS and Mann-Whitney); the numerator df for F.</summary>
         public double DegreesOfFreedom { get; }
 
-        public override string ToString() => string.Format(
-            CultureInfo.InvariantCulture, "statistic={0:0.######}, p={1:0.######}, df={2:0.###}",
-            Statistic, PValue, DegreesOfFreedom);
+        /// <summary>The second degrees-of-freedom parameter (denominator df for F); NaN for single-df tests.</summary>
+        public double DegreesOfFreedom2 { get; }
+
+        /// <summary>
+        /// The decision at significance level <paramref name="alpha"/>: true when p &lt; α, i.e. the null hypothesis is
+        /// rejected. Choose α before looking at the data.
+        /// </summary>
+        public bool IsSignificant(double alpha = 0.05)
+        {
+            if (!(alpha > 0 && alpha < 1)) throw new ArgumentOutOfRangeException(nameof(alpha), alpha, "Alpha must be in (0, 1).");
+            return PValue < alpha;
+        }
+
+        public override string ToString() => double.IsNaN(DegreesOfFreedom2)
+            ? string.Format(CultureInfo.InvariantCulture, "statistic={0:0.######}, p={1:0.######}, df={2:0.###}", Statistic, PValue, DegreesOfFreedom)
+            : string.Format(CultureInfo.InvariantCulture, "statistic={0:0.######}, p={1:0.######}, df=({2:0.###}, {3:0.###})",
+                Statistic, PValue, DegreesOfFreedom, DegreesOfFreedom2);
     }
 
     /// <summary>
     /// Classical significance tests built on <see cref="SpecialFunctions"/>-style primitives (duplicated
     /// privately here so the file stands alone): Student's t (one-sample, paired, and two-sample with Welch
     /// or pooled variance), Pearson's chi-square (goodness-of-fit and independence), Kolmogorov-Smirnov
-    /// (one- and two-sample), and the Mann-Whitney U rank-sum test. Each returns a <see cref="TestResult"/>.
+    /// (one- and two-sample), the Mann-Whitney U rank-sum test, and the F-test for equal variances. Each returns a
+    /// <see cref="TestResult"/> with the statistic, degrees of freedom, p-value and an <c>IsSignificant(α)</c> decision.
     /// p-values are exact up to the usual numerical tolerances for the t and chi-square tests; the KS and
     /// Mann-Whitney p-values use the standard asymptotic approximations (document-worthy for very small n).
     /// </summary>
@@ -98,6 +120,32 @@ namespace ToolBelt.Numerics
             if (double.IsInfinity(t)) return new TestResult(t, 0, df);
             if (double.IsNaN(t)) return new TestResult(0, 1, df); // both variances zero and means equal
             return new TestResult(t, TwoSidedTP(t, df), df);
+        }
+
+        // ---------- F-test for equal variances ----------
+
+        /// <summary>
+        /// Two-sided F-test that two normal populations have equal variances: F = s²(a)/s²(b) with (n_a − 1, n_b − 1)
+        /// degrees of freedom; p = 2·min(P(F′ ≤ F), P(F′ ≥ F)). Very sensitive to non-normality — for skewed or
+        /// heavy-tailed data a significant result may reflect the shape rather than the spread.
+        /// </summary>
+        public static TestResult FTestEqualVariances(IReadOnlyList<double> a, IReadOnlyList<double> b)
+        {
+            RequireCount(a, 2, nameof(a));
+            RequireCount(b, 2, nameof(b));
+            var (_, va, na) = MeanVariance(a);
+            var (_, vb, nb) = MeanVariance(b);
+            double d1 = na - 1, d2 = nb - 1;
+            if (vb == 0)
+                return va == 0 ? new TestResult(double.NaN, 1, d1, d2) : new TestResult(double.PositiveInfinity, 0, d1, d2);
+            double f = va / vb;
+            if (f == 0) return new TestResult(0, 0, d1, d2);
+
+            // Each tail from its own incomplete-beta argument, so tiny p-values keep their precision.
+            double lower = RegularizedBetaI(d1 * f / (d1 * f + d2), d1 / 2, d2 / 2);
+            double upper = RegularizedBetaI(d2 / (d1 * f + d2), d2 / 2, d1 / 2);
+            double p = Math.Min(1, 2 * Math.Min(lower, upper));
+            return new TestResult(f, p, d1, d2);
         }
 
         // ---------- Pearson's chi-square ----------

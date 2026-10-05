@@ -20,9 +20,8 @@ namespace ToolBelt.MathChecks
                 double sd = rng.NextDouble() * 3 + 0.1;
                 double x = mean + (rng.NextDouble() * 8 - 4) * sd;
                 Check.Close(Normal.PDF(mean, sd, x), Distributions.NormalPdf(x, mean, sd), 1e-10, $"pdf t{t}");
-                // ToolBelt's CDF uses an Abramowitz–Stegun erf approximation (max error ~1.5e-7) rather
-                // than Math.NET's exact erf; this cross-check pins that documented accuracy grade.
-                Check.Close(Normal.CDF(mean, sd, x), Distributions.NormalCdf(x, mean, sd), 2e-7, $"cdf t{t}");
+                // Full precision since the incomplete-gamma rewrite (was an A&S erf approximation, ~1.5e-7).
+                Check.Close(Normal.CDF(mean, sd, x), Distributions.NormalCdf(x, mean, sd), 1e-14, $"cdf t{t}");
             }
         }
 
@@ -34,14 +33,14 @@ namespace ToolBelt.MathChecks
                 double p = rng.NextDouble() * 0.998 + 0.001; // avoid the exact 0/1 asymptotes
                 double mean = rng.NextDouble() * 4 - 2;
                 double sd = rng.NextDouble() * 2 + 0.2;
-                Check.Close(Normal.InvCDF(mean, sd, p), Distributions.NormalQuantile(p, mean, sd), 1e-6, $"quantile t{t} p={p}");
+                Check.Close(Normal.InvCDF(mean, sd, p), Distributions.NormalQuantile(p, mean, sd), 1e-12, $"quantile t{t} p={p}");
             }
         }
 
         public void NormalQuantile_DeepTails()
         {
-            foreach (double p in new[] { 1e-6, 1e-4, 0.01, 0.99, 0.9999, 1 - 1e-6 })
-                Check.Close(Normal.InvCDF(0, 1, p), Distributions.NormalQuantile(p), 1e-5, $"p={p}");
+            foreach (double p in new[] { 1e-300, 1e-100, 1e-20, 1e-6, 1e-4, 0.01, 0.99, 0.9999, 1 - 1e-6 })
+                Check.Close(Normal.InvCDF(0, 1, p), Distributions.NormalQuantile(p), 1e-12 * Math.Max(1, Math.Abs(Normal.InvCDF(0, 1, p))), $"p={p}");
         }
 
         public void Exponential_MatchesMathNet()
