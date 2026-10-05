@@ -25,7 +25,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 |---|---|---|
 | **Binary** | Encodings, checksums, bit twiddling | `Base32` `Base58` `Hex` `Crc32` `Fnv1a` `VarInt` `Bits` `Luhn` |
 | **Cli** | Console output, input and process plumbing | `ConsoleTable` `ProgressBar` `AnsiStyle` `ConsoleSpinner` `Prompt` `ConsoleApp` |
-| **Collections** | Data structures & sequence ops | `LruCache` `TtlCache` `Deque` `BloomFilter` `Trie` `Batch` `Aggregation` |
+| **Collections** | Data structures & sequence ops | `LruCache` `TtlCache` `Deque` `BloomFilter` `Trie` `Batch` `Pairwise` `SortedListExtensions` `ReservoirSampler` `Aggregation` |
 | **Configuration** | Layered config, typed binding, env vars, user settings | `ConfigLayers` `ConfigBinder` `EnvironmentVariables` `SettingsStore` |
 | **Control** | Control loops & filters | `PidController` `KalmanFilter1D` |
 | **Diagnostics** | Measurement, observability & health | `Benchmark` `MetricsRegistry` `ScopedTimer` `HealthCheck` `DiskSpace` `AssertInvariant` `FirstChanceMonitor` |
@@ -41,7 +41,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Logging** | Fan-out logging (plain-string events) | `Logger` `TextWriterSink` `FileSink` `SyslogSink` `AsyncLogSink` `RollingMemorySink` `FilterSink` `RouterSink` `RateLimitedSink` `ScopedContext` |
 | **Net** | Address math, TCP/DNS, HTTP | `CidrRange` `IpUtils` `PortCheck` `TcpLineClient` `HostInfo` `HttpDownload` |
 | **Numerics** | Math, stats, calculus, random | `DeterministicRandom` `Distributions` `Percentile` `Polynomial` `UnitConvert` `Bootstrap` |
-| **Objects** | Reflection / object services | `DeepEquals` `PropertyDiff` `PropertyPath` `ObjectMapper` `TypeUtils` |
+| **Objects** | Reflection / object services | `DeepEquals` `PropertyDiff` `PropertyPath` `ObjectMapper` `FlattenObject` `UnflattenObject` `TypeUtils` |
 | **Process** | Child processes | `ProcessRunner` `WhichExe` `ShellOpen` |
 | **Quality** | Statistical process control | `ProcessCapability` `ControlChart` `MeasurementAgreement` |
 | **Resilience** | Retry & rate control | `Retry` `CircuitBreaker` `Bulkhead` `TokenBucketRateLimiter` |
@@ -123,6 +123,11 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Streaming mean / variance / percentiles | `Numerics.RunningStatistics`, `Percentile` |
 | Confidence intervals / bootstrap | `Numerics.ConfidenceInterval`, `Bootstrap` |
 | Percentiles of a huge stream in O(1) memory | `Numerics.StreamingQuantile` |
+| Random sample of a stream of unknown length | `Collections.ReservoirSampler<T>` |
+| Weighted sample without replacement / stratified sample | `Collections.SamplingPlans` |
+| lower_bound / upper_bound / nearest on a sorted list | `Collections.SortedListExtensions` |
+| Consecutive pairs / differences of a sequence | `Collections.PairwiseExtensions.Pairwise` |
+| Rebuild a nested object from dotted paths | `Objects.UnflattenObject` |
 | Significance test with no distribution assumptions | `Numerics.PermutationTest` |
 | Regress on several predictors / robust line fit | `Numerics.MultipleRegression`, `RobustRegression.TheilSen` |
 | Which distribution fits this data? | `Numerics.DistributionFit` |
@@ -223,6 +228,7 @@ src/
     Collections/
       BinaryHeap.cs         binary-heap priority queue (custom comparer)
       Batch.cs              lazy fixed-size batching of any IEnumerable<T>
+      Pairwise.cs           lazy single-pass adjacent pairs (+ selector)
       CircularBuffer.cs     fixed-capacity ring buffer (overwrites oldest)
       BiMap.cs              bidirectional one-to-one map
       Aggregation.cs        group-by summaries (count/mean/min/max/stddev) + pivot
@@ -245,6 +251,8 @@ src/
       OrderedDictionary.cs  insertion-ordered generic dictionary
       OrderedSet.cs         insertion-ordered set
       Sampling.cs           Fisher-Yates shuffle + weighted pick (injected Random)
+      StreamSampling.cs     ReservoirSampler (Algorithm L) + SamplingPlans: weighted w/o replacement (A-ES), stratified
+      SortedListExtensions.cs  LowerBound/UpperBound/EqualRange/NearestBy/InsertSorted/RemoveSorted/RangeSorted
       SequenceEqualityComparer.cs  structural sequence equality: ordered element-wise + unordered multiset (dict/set keys)
       TopN.cs               streaming N-largest via a bounded min-heap
       Trie.cs               prefix tree (contains / starts-with / with-prefix)
@@ -339,6 +347,7 @@ src/
       DeepEquals.cs         structural graph equality (cycles, float tolerance, collections)
       ExpressionAccessor.cs compiled get/set delegates by member name (cached; boxing-free typed path)
       FlattenObject.cs      object graph -> flat path->value dictionary
+      UnflattenObject.cs    flat paths -> nested dictionaries/lists (inverse of Flatten), conflicts named
       ObjectMapper.cs       copy matching properties across types (convert / ignore / custom)
       PropertyDiff.cs       differences between two graphs as (path, old, new)
       PropertyPath.cs       get/set via dotted path with indexers (clear per-segment errors)
@@ -625,6 +634,7 @@ tests/
       OrderedDictionaryTests.cs
       OrderedSetTests.cs
       SamplingTests.cs
+      SamplingSortedPairwiseTests.cs (uniformity/conditional-probability checks, scan-vs-bound differential)
       SequenceEqualityComparerTests.cs
       TopNTests.cs
       TrieTests.cs
