@@ -108,6 +108,12 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Reproducible random / sampling | `Numerics.DeterministicRandom`, `RandomUtils` |
 | Streaming mean / variance / percentiles | `Numerics.RunningStatistics`, `Percentile` |
 | Confidence intervals / bootstrap | `Numerics.ConfidenceInterval`, `Bootstrap` |
+| Percentiles of a huge stream in O(1) memory | `Numerics.StreamingQuantile` |
+| Significance test with no distribution assumptions | `Numerics.PermutationTest` |
+| Regress on several predictors / robust line fit | `Numerics.MultipleRegression`, `RobustRegression.TheilSen` |
+| Which distribution fits this data? | `Numerics.DistributionFit` |
+| Report a measurement with its uncertainty | `Numerics.Uncertainty` |
+| Smooth interpolation without ringing / scattered 2-D data | `Numerics.AkimaSpline`, `ScatteredInterpolation` |
 | t / chi-square / F critical values and p-values | `Numerics.Distributions` (`StudentTQuantile`, `ChiSquareQuantile`, `FQuantile`, ...) |
 | Compare two variances / significance decision | `Numerics.HypothesisTests.FTestEqualVariances`, `TestResult.IsSignificant` |
 | Run a significance test (t / χ² / KS / Mann-Whitney) | `Numerics.HypothesisTests` |
@@ -339,6 +345,13 @@ src/
       ExponentialMovingAverage.cs  EMA smoothing (alpha)
       Histogram.cs          fixed-bin histogram (under/overflow tracking)
       HypothesisTests.cs    t-test / chi-square / KS / Mann-Whitney U / F-test for variances; IsSignificant(alpha)
+      StreamingQuantile.cs  one-pass constant-memory quantiles (P² algorithm) + multi-quantile tracker
+      PermutationTest.cs    distribution-free two-sample / paired tests, exact when small, any statistic
+      MultipleRegression.cs OLS via Householder QR: SEs, t, p, R²/adj, prediction & mean intervals + Theil-Sen robust line
+      DistributionFit.cs    MLE fits (normal/log-normal/exponential/gamma/Weibull), AIC/BIC, KS plausibility, FitAll
+      Uncertainty.cs        round value to its uncertainty (PDG rule), "12.346 ± 0.012" / "12.346(12)" formatting
+      AkimaSpline.cs        Akima / modified-Akima (makima) C1 spline: no ringing at steps, exact on lines
+      ScatteredInterpolation.cs  inverse-distance-weighted 2-D scattered data -> point or grid (nearest-k / radius)
       Correlation.cs        Pearson correlation coefficient
       Fraction.cs           exact rational number (BigInteger-backed, always reduced)
       Integration.cs        trapezoid / Simpson / adaptive Simpson / cumulative
@@ -354,7 +367,7 @@ src/
       Percentile.cs         percentile / median / quartiles (type-7 interpolation)
       Polynomial.cs         eval/derivative/integral, least-squares fit, real roots (deg <= 3)
       Primes.cs             primality test / next-prime / factorize / sieve
-      RandomUtils.cs        shuffle / sample-without-replacement / weighted / gaussian / exponential
+      RandomUtils.cs        shuffle / sample-without-replacement / weighted / gaussian / exponential / Poisson (PTRS) / gamma
       RootFinding.cs        bisection / Brent / Newton / secant (explicit convergence result)
       Rounding.cs           round to multiple / significant digits
       RunningStatistics.cs  Welford online mean/variance/stddev/min/max
@@ -680,6 +693,10 @@ tests/
       DistributionsTailTests.cs      (closed forms, identities, deep-tail round trips)
       DistributionReferenceTests.cs  (+ DistributionReferenceData.cs: 229 mpmath 40-digit reference values)
       InferenceAccuracyTests.cs      (worked examples + simulated coverage / false-positive rates)
+      StreamingQuantileTests.cs
+      SamplingAndPermutationTests.cs (Poisson/gamma sampling vs pmf/CDF; exact permutation p-values)
+      RegressionAndFitTests.cs       (textbook SEs, interval coverage, MLE optimality, family recovery)
+      InterpolationAndUncertaintyTests.cs
       EmpiricalDistributionTests.cs
       EngineeringNotationTests.cs
       ExponentialMovingAverageTests.cs
