@@ -51,7 +51,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
 | **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `TaskRace` `PauseTokenSource` `AtomicCounters` |
 | **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `CronScheduler` `BusinessDays` `UnixTime` |
-| **Visualization** | Raster canvas, charts, PNG/BMP & SVG, palettes | `ImageBuffer` `PngWriter` `PngReader` `Bmp` `Palettes` `SvgDocument` `SvgChart` `MultiPanel` `Waterfall` `Annotations` `AxisTicks` `Colormap` `HeatMap` `LinePlot` `Histogram` `BoxPlot` `ErrorBarChart` `BandChart` `Colorbar` |
+| **Visualization** | Raster canvas, charts, PNG/BMP & SVG, palettes | `ImageBuffer` `PngWriter` `PngReader` `Bmp` `Palettes` `SvgDocument` `SvgChart` `MultiPanel` `Waterfall` `HexBin` `ScatterMatrix` `TimingDiagram` `Annotations` `AxisTicks` `Colormap` `HeatMap` `LinePlot` `Histogram` `BoxPlot` `ErrorBarChart` `BandChart` `Colorbar` |
 
 > The cross-platform core above is BCL-only. Windows-only Win32/registry helpers live in a **separate**
 > `ToolBelt.Windows` assembly (net8.0-windows) — `PowerStatus`, `SingleInstance`, `DriveAndVolumeInfo`,
@@ -169,6 +169,9 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Labelled vector chart for a report | `Visualization.SvgChart` |
 | Several plots in one figure (shared axes) | `Visualization.MultiPanel` |
 | Spectrogram / waterfall display | `Visualization.Waterfall` |
+| Too many points for a scatter plot (density) | `Visualization.HexBin` |
+| Pairs plot of several channels (correlations at a glance) | `Visualization.ScatterMatrix` |
+| Digital timing / protocol diagram (clock, buses, cursors) | `Visualization.TimingDiagram` |
 | One report, many formats (HTML/MD/PDF/Word) | `Documents.ReportBuilder` |
 | Run summary / A-vs-B comparison / pass-fail report | `Documents.ReportTemplates` |
 | Limit lines / shaded zones / callouts on a plot | `Visualization.Annotations` (SVG or raster via `LinePlot.Frame`) |
@@ -494,6 +497,9 @@ src/
       SvgChart.cs           labelled SVG XY chart: line/scatter/bar, linear/log/time axes, grid, legend, annotations
       MultiPanel.cs         grid of SvgChart panels w/ common title + shared x/y (exactly aligned); raster tiling
       Waterfall.cs          time x frequency waterfall: SVG (embedded PNG cells, freq/time axes, color scale) or raster
+      HexBin.cs             exact hexagonal binning in pixel space + SVG (log colour, count scale, edge cells clipped)
+      ScatterMatrix.cs      pairs plot: histograms on the diagonal, group colours + legend, Pearson r per panel
+      TimingDiagram.cs      logic-analyser view: digital lanes, labelled buses, unknown hatching, cursors, SI time axis
       Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops)
       Colorbar.cs           render a colormap as a gradient legend strip (vertical/horizontal)
       HeatMap.cs            render a 2-D grid via a colormap (cell size, range, NaN color)
@@ -853,6 +859,7 @@ tests/
     Visualization/
       ImageBufferTests.cs
       PngWriterTests.cs
+      HexScatterTimingTests.cs (brute-force nearest-hex check, segment logic, well-formed SVG)
       RasterFormatsTests.cs (PNG fixtures from scripts/gen-png-fixtures.py, cross-checked vs Pillow)
       PngFixtureData.cs     (generated)
       SvgDocumentTests.cs
