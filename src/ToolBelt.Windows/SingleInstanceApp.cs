@@ -63,8 +63,30 @@ namespace ToolBelt.Windows
         /// <summary>In a secondary instance: whether the primary acknowledged the arguments.</summary>
         public bool ForwardedToPrimary { get; }
 
-        /// <summary>Raised in the primary for each later launch.</summary>
-        public event EventHandler<SecondInstanceEventArgs>? SecondInstanceStarted;
+        private readonly object _deliveryGate = new object();
+        private readonly List<SecondInstanceEventArgs> _queued = new List<SecondInstanceEventArgs>();
+        private EventHandler<SecondInstanceEventArgs>? _handlers;
+
+        /// <summary>
+        /// Raised in the primary for each later launch. Launches that arrive before the first handler is attached (while the
+        /// primary is still building its window) are kept and delivered as soon as one subscribes, so none are lost.
+        /// </summary>
+        public event EventHandler<SecondInstanceEventArgs>? SecondInstanceStarted
+        {
+            add
+            {
+                if (value is null) return;
+                List<SecondInstanceEventArgs> backlog;
+                lock (_deliveryGate)
+                {
+                    _handlers += value;
+                    backlog = new List<SecondInstanceEventArgs>(_queued);
+                    _queued.Clear();
+                }
+                if (backlog.Count > 0) _ = Task.Run(() => { foreach (var e in backlog) value(this, e); });
+            }
+            remove { lock (_deliveryGate) _handlers -= value; }
+        }
 
         /// <summary>
         /// Claims the instance named <paramref name="appId"/> for this user session, or forwards <paramref name="args"/>
@@ -76,7 +98,9 @@ namespace ToolBelt.Windows
             if (string.IsNullOrWhiteSpace(appId) || appId.IndexOfAny(new[] { '\\', '/' }) >= 0)
                 throw new ArgumentException("App id is required and may not contain slashes.", nameof(appId));
             if (args is null) throw new ArgumentNullException(nameof(args));
-            string pipe = "ToolBelt.SingleInstance." + appId + "." + System.Diagnostics.Process.GetCurrentProcess().SessionId;
+            // Per session and per user (SID), so another account cannot sit on the name.
+            string user = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName;
+            string pipe = "ToolBelt.SingleInstance." + appId + "." + System.Diagnostics.Process.GetCurrentProcess().SessionId + "." + user;
             var gate = SingleInstance.TryAcquire(@"Local\ToolBelt.SingleInstance." + appId);
             if (gate.IsOwned) return new SingleInstanceApp(gate, pipe, primary: true, forwarded: false);
             bool forwarded = Forward(pipe, args, forwardTimeout ?? TimeSpan.FromSeconds(5));
@@ -98,21 +122,31 @@ namespace ToolBelt.Windows
             {
                 try
                 {
-                    using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.CurrentUserOnly);
+                    using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.CurrentUserOnly | PipeOptions.Asynchronous);
                     int remaining = (int)Math.Max(1, (deadline - DateTime.UtcNow).TotalMilliseconds);
                     client.Connect(Math.Min(remaining, 1000));
-                    using var reader = new BinaryReader(client, Encoding.UTF8, leaveOpen: true);
-                    using var writer = new BinaryWriter(client, Encoding.UTF8, leaveOpen: true);
-                    int primaryPid = reader.ReadInt32();
+                    // Pipes don't support ReadTimeout; bound the reads with a token so a hung primary can't hang this launch.
+                    using var replyTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    int primaryPid = ReadInt32Async(client, replyTimeout.Token).GetAwaiter().GetResult();
                     AllowSetForegroundWindow(primaryPid);                             // let the primary come to the front
-                    writer.Write(Environment.ProcessId);
-                    writer.Write(Environment.CurrentDirectory);
-                    writer.Write(args.Count);
-                    foreach (string a in args) writer.Write(a ?? "");
-                    writer.Flush();
-                    return reader.ReadByte() == 1;
+                    var message = new MemoryStream();
+                    WriteInt32(message, Environment.ProcessId);
+                    WriteString(message, Environment.CurrentDirectory);
+                    WriteInt32(message, args.Count);
+                    foreach (string a in args) WriteString(message, a ?? "");
+                    if (message.Length > MaxMessageBytes) return false;               // the primary would reject it anyway
+                    message.Position = 0;
+                    message.CopyTo(client);
+                    client.Flush();
+                    var ack = new byte[1];
+                    client.ReadExactlyAsync(ack, replyTimeout.Token).AsTask().GetAwaiter().GetResult();
+                    return ack[0] == 1;
                 }
-                catch (Exception ex) when (ex is TimeoutException || ex is IOException)
+                catch (UnauthorizedAccessException)
+                {
+                    return false;                                                     // the pipe belongs to someone else
+                }
+                catch (Exception ex) when (ex is TimeoutException || ex is IOException || ex is OperationCanceledException)
                 {
                     if (DateTime.UtcNow >= deadline) return false;
                     Thread.Sleep(50);                                                 // primary still starting its listener
@@ -120,42 +154,109 @@ namespace ToolBelt.Windows
             }
         }
 
+        private const int MaxArgs = 1000, MaxStringBytes = 32 * 1024, MaxMessageBytes = 1024 * 1024;
+
         private async Task ListenAsync(CancellationToken ct)
         {
             while (!ct.IsCancellationRequested)
             {
+                NamedPipeServerStream server;
                 try
                 {
-                    using var server = new NamedPipeServerStream(_pipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances,
-                        PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-                    await server.WaitForConnectionAsync(ct).ConfigureAwait(false);
-                    using var reader = new BinaryReader(server, Encoding.UTF8, leaveOpen: true);
-                    using var writer = new BinaryWriter(server, Encoding.UTF8, leaveOpen: true);
-                    writer.Write(Environment.ProcessId);
-                    writer.Flush();
-                    int pid = reader.ReadInt32();
-                    string cwd = reader.ReadString();
-                    int count = reader.ReadInt32();
-                    if (count < 0 || count > 10_000) throw new InvalidDataException("Implausible argument count.");
-                    var received = new string[count];
-                    for (int i = 0; i < count; i++) received[i] = reader.ReadString();
-                    writer.Write((byte)1);
-                    writer.Flush();
-                    var handler = SecondInstanceStarted;
-                    if (handler != null)
-                    {
-                        var e = new SecondInstanceEventArgs(received, cwd, pid);
-                        _ = Task.Run(() => handler(this, e));                          // never let a slow handler block the next launch
-                    }
+                    // FirstPipeInstance: if anyone else already holds this name, fail (and retry later) rather than share it.
+                    server = new NamedPipeServerStream(_pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
+                        PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly | PipeOptions.FirstPipeInstance);
                 }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
-                catch (Exception ex) when (ex is IOException || ex is InvalidDataException || ex is EndOfStreamException)
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
-                    // A client that disconnected mid-message: ignore it and keep listening.
+                    try { await Task.Delay(500, ct).ConfigureAwait(false); } catch (OperationCanceledException) { return; }
+                    continue;                                                          // name busy or squatted: back off, don't spin
+                }
+
+                using (server)
+                {
+                    try
+                    {
+                        await server.WaitForConnectionAsync(ct).ConfigureAwait(false);
+                        // One client at a time, so a client that connects and never speaks must not hold everyone else up.
+                        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+                        var t = timeout.Token;
+                        await server.WriteAsync(BitConverter.GetBytes(Environment.ProcessId), t).ConfigureAwait(false);
+                        await server.FlushAsync(t).ConfigureAwait(false);
+                        var budget = new Budget(MaxMessageBytes);
+                        int pid = await ReadInt32Async(server, t).ConfigureAwait(false);
+                        string cwd = await ReadStringAsync(server, budget, t).ConfigureAwait(false);
+                        int count = await ReadInt32Async(server, t).ConfigureAwait(false);
+                        if (count < 0 || count > MaxArgs) throw new InvalidDataException("Implausible argument count.");
+                        var received = new string[count];
+                        for (int i = 0; i < count; i++) received[i] = await ReadStringAsync(server, budget, t).ConfigureAwait(false);
+                        await server.WriteAsync(new byte[] { 1 }, t).ConfigureAwait(false);
+                        await server.FlushAsync(t).ConfigureAwait(false);
+                        Deliver(new SecondInstanceEventArgs(received, cwd, pid));
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+                    catch (Exception) when (!ct.IsCancellationRequested)
+                    {
+                        // A broken, malformed, oversized or silent client: drop it and keep listening for real launches.
+                    }
                 }
             }
         }
 
+        private void Deliver(SecondInstanceEventArgs e)
+        {
+            EventHandler<SecondInstanceEventArgs>? handlers;
+            lock (_deliveryGate)
+            {
+                handlers = _handlers;
+                if (handlers is null)
+                {
+                    if (_queued.Count < 100) _queued.Add(e);                           // nobody subscribed yet: keep it
+                    return;
+                }
+            }
+            _ = Task.Run(() => handlers(this, e));                                     // never let a slow handler block the next launch
+        }
+
+        // Wire format: little-endian int32; strings as an int32 byte count + UTF-8, bounded per string and per message so a
+        // client can't make the primary allocate gigabytes.
+        private sealed class Budget
+        {
+            public Budget(int bytes) => Remaining = bytes;
+            public int Remaining;
+        }
+
+        private static void WriteInt32(Stream s, int value) => s.Write(BitConverter.GetBytes(value), 0, 4);
+
+        private static void WriteString(Stream s, string value)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(value);
+            WriteInt32(s, bytes.Length);
+            s.Write(bytes, 0, bytes.Length);
+        }
+
+        private static async Task<int> ReadInt32Async(Stream s, CancellationToken ct)
+        {
+            var b = new byte[4];
+            await s.ReadExactlyAsync(b, ct).ConfigureAwait(false);
+            return BitConverter.ToInt32(b, 0);
+        }
+
+        private static async Task<string> ReadStringAsync(Stream s, Budget budget, CancellationToken ct)
+        {
+            int length = await ReadInt32Async(s, ct).ConfigureAwait(false);
+            if (length < 0 || length > MaxStringBytes || length > budget.Remaining) throw new InvalidDataException("String too long.");
+            budget.Remaining -= length;
+            var bytes = new byte[length];
+            await s.ReadExactlyAsync(bytes, ct).ConfigureAwait(false);
+            return new UTF8Encoding(false, throwOnInvalidBytes: true).GetString(bytes);
+        }
+
+        /// <summary>
+        /// Stops listening and releases the instance name. Call it on the thread that called <see cref="Start"/>: the name is
+        /// a thread-owned mutex, and releasing it from another thread fails (it is then freed only when that thread exits).
+        /// </summary>
         public void Dispose()
         {
             _cts.Cancel();

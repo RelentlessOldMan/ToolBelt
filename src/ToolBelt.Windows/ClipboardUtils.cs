@@ -203,32 +203,51 @@ namespace ToolBelt.Windows
             BitConverter.GetBytes(w * h * 4).CopyTo(dib, 20);
             for (int y = 0; y < h; y++)
                 Buffer.BlockCopy(image.Pixels, y * w * 4, dib, 40 + (h - 1 - y) * w * 4, w * 4);
+            // Screen captures carry alpha 0 (GDI has none); apps that honour alpha would paste them fully transparent.
+            bool allTransparent = true;
+            for (int i = 43; i < dib.Length && allTransparent; i += 4) allTransparent = dib[i] == 0;
+            if (allTransparent) for (int i = 43; i < dib.Length; i += 4) dib[i] = 255;
             RunSta<object?>(() => { SetData(new[] { (CF_DIB, dib) }); return null; });
         }
 
         /// <summary>Decodes a CF_DIB payload (BITMAPINFOHEADER + pixels; 24/32-bit, BI_RGB or BI_BITFIELDS) to BGRA top-down.</summary>
         public static ScreenImage DecodeDib(byte[] dib)
         {
+            // Untrusted data (any process can put a DIB on the clipboard): validate every field, compute sizes in long.
+            if (dib is null) throw new ArgumentNullException(nameof(dib));
             if (dib.Length < 40) throw new InvalidOperationException("Clipboard DIB is truncated.");
             int headerSize = BitConverter.ToInt32(dib, 0), w = BitConverter.ToInt32(dib, 4), rawH = BitConverter.ToInt32(dib, 8);
             int bpp = BitConverter.ToInt16(dib, 14), compression = BitConverter.ToInt32(dib, 16), colorsUsed = BitConverter.ToInt32(dib, 32);
-            if (w <= 0 || rawH == 0) throw new InvalidOperationException("Clipboard DIB has an invalid size.");
+            if (headerSize < 40 || headerSize > dib.Length) throw new InvalidOperationException("Clipboard DIB has an invalid header size.");
+            if (w <= 0 || rawH == 0 || rawH == int.MinValue || w > 1 << 16 || Math.Abs(rawH) > 1 << 16)
+                throw new InvalidOperationException("Clipboard DIB has an invalid size.");
             if (bpp != 24 && bpp != 32) throw new NotSupportedException($"Clipboard DIBs of {bpp} bits per pixel are not supported.");
-            if (compression != 0 && compression != 3) throw new NotSupportedException("Compressed clipboard DIBs are not supported.");
+            if (compression != 0 && !(compression == 3 && bpp == 32)) throw new NotSupportedException("Compressed clipboard DIBs are not supported.");
+            if (colorsUsed < 0 || colorsUsed > 256) throw new InvalidOperationException("Clipboard DIB has an invalid colour-table size.");
             int h = Math.Abs(rawH);
-            int offset = headerSize + (compression == 3 && headerSize == 40 ? 12 : 0) + colorsUsed * 4;
-            bool hasAlpha = headerSize >= 56 && compression == 3 && BitConverter.ToUInt32(dib, 52) == 0xFF000000;
-            int stride = (w * bpp / 8 + 3) & ~3;
-            if (offset + (long)stride * h > dib.Length) throw new InvalidOperationException("Clipboard DIB is truncated.");
-            var pixels = new byte[w * h * 4];
+            bool hasAlpha = false;
+            if (compression == 3)
+            {
+                // The three colour masks follow a 40-byte header, or sit inside a V4/V5 header at the same offset.
+                if (dib.Length < 52) throw new InvalidOperationException("Clipboard DIB is truncated.");
+                uint r = BitConverter.ToUInt32(dib, 40), g = BitConverter.ToUInt32(dib, 44), b = BitConverter.ToUInt32(dib, 48);
+                if (r != 0x00FF0000 || g != 0x0000FF00 || b != 0x000000FF)
+                    throw new NotSupportedException("Only BGR-ordered 32-bit bitfield DIBs are supported.");
+                hasAlpha = headerSize >= 56 && dib.Length >= 56 && BitConverter.ToUInt32(dib, 52) == 0xFF000000;
+            }
+            long offset = (long)headerSize + (compression == 3 && headerSize == 40 ? 12 : 0) + (long)colorsUsed * 4;
+            long stride = ((long)w * bpp / 8 + 3) & ~3L;
+            if (offset + stride * h > dib.Length) throw new InvalidOperationException("Clipboard DIB is truncated.");
+            var pixels = new byte[(long)w * h * 4];                               // bounded by the length check above
             for (int y = 0; y < h; y++)
             {
-                int src = offset + (rawH > 0 ? h - 1 - y : y) * stride;
+                long src = offset + (rawH > 0 ? h - 1 - y : y) * stride;
                 for (int x = 0; x < w; x++)
                 {
-                    int s = src + x * (bpp / 8), d = (y * w + x) * 4;
-                    pixels[d] = dib[s]; pixels[d + 1] = dib[s + 1]; pixels[d + 2] = dib[s + 2];
-                    pixels[d + 3] = bpp == 32 && hasAlpha ? dib[s + 3] : (byte)255;
+                    long sIdx = src + (long)x * (bpp / 8);
+                    int d = (y * w + x) * 4;
+                    pixels[d] = dib[sIdx]; pixels[d + 1] = dib[sIdx + 1]; pixels[d + 2] = dib[sIdx + 2];
+                    pixels[d + 3] = bpp == 32 && hasAlpha ? dib[sIdx + 3] : (byte)255;
                 }
             }
             return new ScreenImage(w, h, pixels);

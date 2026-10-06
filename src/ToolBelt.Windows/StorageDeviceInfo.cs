@@ -97,7 +97,14 @@ namespace ToolBelt.Windows
         {
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path is required.", nameof(path));
             string full = Path.GetFullPath(path);
-            if (full.StartsWith(@"\\", StringComparison.Ordinal)) return full;
+            // Device paths are local unless they name a UNC share: \\?\UNC\server\share → \\server\share; \\?\C:\x → C:\x.
+            if (full.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase)) return @"\\" + full.Substring(8);
+            if (full.StartsWith(@"\\?\", StringComparison.Ordinal) || full.StartsWith(@"\\.\", StringComparison.Ordinal))
+            {
+                full = full.Substring(4);
+                if (full.Length < 2 || full[1] != ':') return null;                    // a volume GUID or device: no network share
+            }
+            else if (full.StartsWith(@"\\", StringComparison.Ordinal)) return full;
             string drive = full.Substring(0, 2);
             int length = 512;
             var sb = new StringBuilder(length);

@@ -262,6 +262,99 @@ namespace ToolBelt.Windows.Tests
             Check.Equal(Environment.CurrentDirectory, e.WorkingDirectory);
         }
 
+        // ---------- review regressions ----------
+
+        private static string PipeNameFor(string id)
+            => "ToolBelt.SingleInstance." + id + "." + Process.GetCurrentProcess().SessionId + "."
+               + (System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName);
+
+        private static (bool IsPrimary, bool Forwarded) LaunchSecond(string id, string[] args, TimeSpan? timeout = null)
+            => Task.Run(() =>
+            {
+                using var app = SingleInstanceApp.Start(id, args, timeout);
+                return (app.IsPrimary, app.ForwardedToPrimary);
+            }).Result;
+
+        public void SingleInstance_SurvivesMalformedAndSilentClients()
+        {
+            string id = "ToolBeltTest." + Guid.NewGuid().ToString("N");
+            using var primary = SingleInstanceApp.Start(id, Array.Empty<string>());
+            var got = new System.Collections.Concurrent.ConcurrentQueue<string>();
+            primary.SecondInstanceStarted += (_, e) => got.Enqueue(string.Join("|", e.Args));
+
+            // A client that sends garbage (huge length prefix, bad bytes).
+            using (var bad = new System.IO.Pipes.NamedPipeClientStream(".", PipeNameFor(id), System.IO.Pipes.PipeDirection.InOut))
+            {
+                bad.Connect(5000);
+                var pid = new byte[4];
+                bad.ReadExactly(pid);
+                try
+                {
+                    bad.Write(new byte[] { 1, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0xFF });
+                    bad.Flush();
+                }
+                catch (IOException) { /* the primary may hang up on us mid-write: that's the point */ }
+            }
+            var r1 = LaunchSecond(id, new[] { "after-garbage" });
+            Check.True(r1.Forwarded, "the listener must survive a malformed client");
+
+            // A client that connects and never speaks: later launches still get through (per-connection timeout).
+            using (var silent = new System.IO.Pipes.NamedPipeClientStream(".", PipeNameFor(id), System.IO.Pipes.PipeDirection.InOut))
+            {
+                silent.Connect(5000);
+                var r2 = LaunchSecond(id, new[] { "after-silent" }, TimeSpan.FromSeconds(15));
+                Check.True(r2.Forwarded, "a silent client must not block later launches for good");
+            }
+            for (int i = 0; i < 50 && got.Count < 2; i++) Thread.Sleep(100);
+            Check.Equal("after-garbage,after-silent", string.Join(",", got));
+        }
+
+        public void SingleInstance_LaunchBeforeSubscribeIsDelivered()
+        {
+            string id = "ToolBeltTest." + Guid.NewGuid().ToString("N");
+            using var primary = SingleInstanceApp.Start(id, Array.Empty<string>());
+            var r = LaunchSecond(id, new[] { "early" });                               // before anyone subscribed
+            Check.True(r.Forwarded);
+            var received = new TaskCompletionSource<string>();
+            primary.SecondInstanceStarted += (_, e) => received.TrySetResult(string.Join("|", e.Args));
+            Check.True(received.Task.Wait(5000), "the queued launch was delivered on subscribe");
+            Check.Equal("early", received.Task.Result);
+        }
+
+        public void Dib_HostileHeadersAreRejected()
+        {
+            byte[] Header(int w, int h, short bpp, int compression, int clrUsed, int extra = 64)
+            {
+                var b = new byte[40 + extra];
+                BitConverter.GetBytes(40).CopyTo(b, 0); BitConverter.GetBytes(w).CopyTo(b, 4); BitConverter.GetBytes(h).CopyTo(b, 8);
+                BitConverter.GetBytes((short)1).CopyTo(b, 12); BitConverter.GetBytes(bpp).CopyTo(b, 14);
+                BitConverter.GetBytes(compression).CopyTo(b, 16); BitConverter.GetBytes(clrUsed).CopyTo(b, 32);
+                return b;
+            }
+            Check.Throws<InvalidOperationException>(() => ClipboardUtils.DecodeDib(Header(1 << 27, 1, 32, 0, 0)));   // stride overflow
+            Check.Throws<InvalidOperationException>(() => ClipboardUtils.DecodeDib(Header(1 << 16, 1 << 16, 32, 0, 0)));   // claims 16 GB
+            Check.Throws<InvalidOperationException>(() => ClipboardUtils.DecodeDib(Header(2, 2, 32, 0, -5)));
+            Check.Throws<InvalidOperationException>(() => ClipboardUtils.DecodeDib(Header(2, int.MinValue, 32, 0, 0)));
+            var rgba = Header(1, 1, 32, 3, 0);
+            BitConverter.GetBytes(0x000000FF).CopyTo(rgba, 40);                         // red in the low byte: RGBA order
+            BitConverter.GetBytes(0x0000FF00).CopyTo(rgba, 44);
+            BitConverter.GetBytes(0x00FF0000).CopyTo(rgba, 48);
+            Check.Throws<NotSupportedException>(() => ClipboardUtils.DecodeDib(rgba));
+            var bgr40 = Header(1, 1, 32, 3, 0);                                         // 40-byte header + BGR masks + 1 pixel
+            BitConverter.GetBytes(0x00FF0000).CopyTo(bgr40, 40); BitConverter.GetBytes(0x0000FF00).CopyTo(bgr40, 44);
+            BitConverter.GetBytes(0x000000FF).CopyTo(bgr40, 48);
+            new byte[] { 9, 8, 7, 6 }.CopyTo(bgr40, 52);
+            Check.Equal("9,8,7,255", string.Join(",", ClipboardUtils.DecodeDib(bgr40).Pixels));
+        }
+
+        public void Unc_DevicePathsAreLocal()
+        {
+            Check.Null(StorageDeviceInfo.GetUncPath(@"\\?\" + Environment.SystemDirectory));
+            Check.Null(StorageDeviceInfo.GetUncPath(@"\\.\" + Environment.SystemDirectory));
+            Check.Equal(@"\\server\share\x", StorageDeviceInfo.GetUncPath(@"\\?\UNC\server\share\x"));
+            Check.False(StorageDeviceInfo.IsNetworkDrive(@"\\?\" + Environment.SystemDirectory));
+        }
+
         public void SingleInstance_NoPrimaryListening_TimesOutQuickly()
         {
             string id = "ToolBeltTest." + Guid.NewGuid().ToString("N");
