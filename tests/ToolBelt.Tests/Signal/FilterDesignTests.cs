@@ -1,0 +1,286 @@
+using System;
+using System.Linq;
+using System.Numerics;
+using ToolBelt.Signal;
+using ToolBelt.Tests.Framework;
+
+namespace ToolBelt.Tests.Signal
+{
+    public sealed class FilterDesignTests
+    {
+        private const double Fs = FilterReferenceData.SampleRate;
+
+        internal static double[] TestSignal()
+        {
+            var x = new double[FilterReferenceData.SignalLength];
+            for (int i = 0; i < x.Length; i++)
+                x[i] = 1.5 + Math.Sin(0.05 * i) + 0.5 * Math.Sin(0.9 * i) + 0.3 * Math.Cos(2.1 * i + 0.4) + 0.004 * i;
+            return x;
+        }
+
+        private static IirFilter Design(int index)
+        {
+            var (proto, band, order, ripple, f1, f2) = FilterReferenceData.IirDesigns[index];
+            bool cheb = proto == "Chebyshev";
+            switch (band)
+            {
+                case "LowPass": return cheb ? IirFilter.ChebyshevLowPass(order, ripple, f1, Fs) : IirFilter.ButterworthLowPass(order, f1, Fs);
+                case "HighPass": return cheb ? IirFilter.ChebyshevHighPass(order, ripple, f1, Fs) : IirFilter.ButterworthHighPass(order, f1, Fs);
+                case "BandPass": return cheb ? IirFilter.ChebyshevBandPass(order, ripple, f1, f2, Fs) : IirFilter.ButterworthBandPass(order, f1, f2, Fs);
+                default: return cheb ? IirFilter.ChebyshevBandStop(order, ripple, f1, f2, Fs) : IirFilter.ButterworthBandStop(order, f1, f2, Fs);
+            }
+        }
+
+        public void Iir_ResponseMatchesSciPy()
+        {
+            foreach (var (d, f, re, im) in FilterReferenceData.IirResponse)
+            {
+                Complex h = Design(d).Response(f, Fs);
+                double expected = new Complex(re, im).Magnitude;
+                Check.True((h - new Complex(re, im)).Magnitude <= 1e-12 + 1e-10 * expected, $"design {d} at {f} Hz: {h} vs ({re}, {im})");
+            }
+        }
+
+        public void Iir_SectionCountsMatchOrder()
+        {
+            for (int d = 0; d < FilterReferenceData.IirDesigns.Length; d++)
+            {
+                var (_, band, order, _, _, _) = FilterReferenceData.IirDesigns[d];
+                int poles = band == "BandPass" || band == "BandStop" ? 2 * order : order;
+                Check.Equal((poles + 1) / 2, Design(d).Sections.Count, $"design {d}");
+            }
+        }
+
+        public void Iir_FilterAndFiltFiltMatchSciPy()
+        {
+            var x = TestSignal();
+            for (int d = 0; d < FilterReferenceData.IirDesigns.Length; d++)
+            {
+                var filter = Design(d);
+                var causal = filter.Filter(x);
+                var zeroPhase = filter.FiltFilt(x);
+                foreach (var row in FilterReferenceData.IirOutputs.Where(r => r.Design == d))
+                {
+                    Check.Close(row.Causal, causal[row.Index], 1e-9 * Math.Max(1, Math.Abs(row.Causal)), $"sosfilt design {d} [{row.Index}]");
+                    Check.Close(row.ZeroPhase, zeroPhase[row.Index], 1e-9 * Math.Max(1, Math.Abs(row.ZeroPhase)), $"sosfiltfilt design {d} [{row.Index}]");
+                }
+            }
+        }
+
+        public void Iir_ButterworthIsMinus3DbAtCutoffAndFlatInPassband()
+        {
+            foreach (int order in new[] { 1, 2, 3, 4, 7, 10 })
+            {
+                var lp = IirFilter.ButterworthLowPass(order, 100, Fs);
+                Check.Close(-3.0103, lp.MagnitudeDb(100, Fs), 1e-3, $"order {order}");
+                Check.Close(0, lp.MagnitudeDb(0, Fs), 1e-9);
+                Check.True(lp.MagnitudeDb(20, Fs) > -0.01 || order == 1, $"order {order} not flat");
+                var hp = IirFilter.ButterworthHighPass(order, 100, Fs);
+                Check.Close(-3.0103, hp.MagnitudeDb(100, Fs), 1e-3);
+                Check.Close(0, hp.MagnitudeDb(Fs / 2, Fs), 1e-9);
+            }
+        }
+
+        public void Iir_ChebyshevRippleStaysWithinBand()
+        {
+            foreach (int order in new[] { 2, 3, 5, 6 })
+            {
+                var f = IirFilter.ChebyshevLowPass(order, 1.0, 100, Fs);
+                double min = double.MaxValue, max = double.MinValue;
+                for (double hz = 0; hz <= 100; hz += 0.25)
+                {
+                    double db = f.MagnitudeDb(hz, Fs);
+                    min = Math.Min(min, db);
+                    max = Math.Max(max, db);
+                }
+                Check.True(max <= 1e-9 && min >= -1.0 - 1e-9, $"order {order}: passband [{min}, {max}] dB");
+                Check.Close(-1.0, f.MagnitudeDb(100, Fs), 1e-6, "gain at the edge is -ripple");
+            }
+        }
+
+        public void Iir_ProcessMatchesFilterAndResetClears()
+        {
+            var x = TestSignal();
+            var f = IirFilter.ButterworthBandPass(3, 20, 200, Fs);
+            var batch = f.Filter(x);
+            for (int i = 0; i < x.Length; i++) Check.Close(batch[i], f.Process(x[i]), 1e-12, $"[{i}]");
+            f.Reset();
+            Check.Close(batch[0], f.Process(x[0]), 1e-15);
+        }
+
+        public void Iir_ResetToValueRemovesStartupTransient()
+        {
+            var f = IirFilter.ButterworthLowPass(4, 10, Fs);
+            f.Reset(42);
+            for (int i = 0; i < 100; i++) Check.Close(42, f.Process(42), 1e-9, $"[{i}]");
+        }
+
+        public void Iir_FiltFiltHasNoPhaseShift()
+        {
+            var x = new double[2000];
+            for (int i = 0; i < x.Length; i++) x[i] = Math.Sin(2 * Math.PI * 5 * i / Fs);
+            var y = IirFilter.ButterworthLowPass(4, 50, Fs).FiltFilt(x);
+            for (int i = 500; i < 1500; i++) Check.Close(x[i], y[i], 1e-4, $"[{i}]");    // 5 Hz is deep in the passband
+            var causal = IirFilter.ButterworthLowPass(4, 50, Fs).Filter(x);
+            Check.True(Math.Abs(causal[1000] - x[1000]) > 0.01, "the causal pass is delayed");
+        }
+
+        public void Iir_RejectsBadArguments()
+        {
+            Check.Throws<ArgumentOutOfRangeException>(() => IirFilter.ButterworthLowPass(0, 10, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => IirFilter.ButterworthLowPass(41, 10, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => IirFilter.ButterworthLowPass(2, 500, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => IirFilter.ButterworthLowPass(2, 0, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => IirFilter.ButterworthLowPass(2, double.NaN, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => IirFilter.ButterworthLowPass(2, 10, double.PositiveInfinity));
+            Check.Throws<ArgumentException>(() => IirFilter.ButterworthBandPass(2, 200, 100, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => IirFilter.ChebyshevLowPass(2, 0, 10, Fs));
+            Check.Throws<ArgumentException>(() => new IirFilter());
+            Check.Throws<ArgumentException>(() => new IirFilter(new Biquad[] { null! }));
+            Check.Throws<ArgumentException>(() => new Biquad(double.NaN, 0, 0, 0, 0));
+            var f = IirFilter.ButterworthLowPass(4, 10, Fs);
+            Check.Throws<ArgumentException>(() => f.FiltFilt(new double[15]));               // default pad is 3 × (2 sections · 2 + 1) = 15
+            Check.Equal(16, f.FiltFilt(new double[16]).Length);
+            Check.Equal(5, f.FiltFilt(new double[] { 1, 2, 3, 4, 5 }, padLength: 2).Length);
+            Check.Throws<ArgumentOutOfRangeException>(() => f.FiltFilt(new double[50], padLength: -1));
+        }
+
+        // ---- Biquad cookbook properties ---------------------------------------------------------------------------------
+
+        public void Biquad_CookbookShapes()
+        {
+            const double f0 = 1000, fs = 48000;
+            var lp = Biquad.LowPass(fs, f0, 2);
+            Check.Close(1, lp.Response(0, fs).Magnitude, 1e-12);
+            Check.Close(0, lp.Response(fs / 2, fs).Magnitude, 1e-12);
+            Check.Close(2, lp.Response(f0, fs).Magnitude, 1e-9, "|H(f0)| = Q");
+            var hp = Biquad.HighPass(fs, f0);
+            Check.Close(0, hp.Response(0, fs).Magnitude, 1e-12);
+            Check.Close(1, hp.Response(fs / 2, fs).Magnitude, 1e-12);
+            Check.Close(Math.Sqrt(0.5), hp.Response(f0, fs).Magnitude, 1e-9);
+            var bp = Biquad.BandPass(fs, f0, 5);
+            Check.Close(1, bp.Response(f0, fs).Magnitude, 1e-12);
+            Check.True(bp.Response(f0 * 3, fs).Magnitude < 0.2);
+            var notch = Biquad.Notch(fs, 60, 30);
+            Check.Close(0, notch.Response(60, fs).Magnitude, 1e-9);
+            Check.Close(1, notch.Response(1000, fs).Magnitude, 1e-3);
+            var ap = Biquad.AllPass(fs, f0, 0.7);
+            foreach (double f in new[] { 10.0, 500, 1000, 5000, 20000 }) Check.Close(1, ap.Response(f, fs).Magnitude, 1e-12);
+            Check.Close(Math.PI, Math.Abs(ap.Response(f0, fs).Phase), 1e-9, "-180° at f0");
+            var peak = Biquad.Peaking(fs, f0, 1, 6);
+            Check.Close(6, 20 * Math.Log10(peak.Response(f0, fs).Magnitude), 1e-9);
+            Check.Close(0, 20 * Math.Log10(peak.Response(0, fs).Magnitude), 1e-9);
+            var ls = Biquad.LowShelf(fs, f0, -9);
+            Check.Close(-9, 20 * Math.Log10(ls.Response(0, fs).Magnitude), 1e-9);
+            Check.Close(0, 20 * Math.Log10(ls.Response(fs / 2, fs).Magnitude), 1e-9);
+            Check.Close(-4.5, 20 * Math.Log10(ls.Response(f0, fs).Magnitude), 1e-9, "half the gain at the shelf frequency");
+            var hs = Biquad.HighShelf(fs, f0, 12);
+            Check.Close(0, 20 * Math.Log10(hs.Response(0, fs).Magnitude), 1e-9);
+            Check.Close(12, 20 * Math.Log10(hs.Response(fs / 2, fs).Magnitude), 1e-9);
+        }
+
+        public void Biquad_SecondOrderButterworthMatchesDesign()
+        {
+            var cookbook = new IirFilter(Biquad.LowPass(Fs, 50));
+            var designed = IirFilter.ButterworthLowPass(2, 50, Fs);
+            foreach (double f in new[] { 0.0, 10, 50, 120, 400 })
+                Check.True((cookbook.Response(f, Fs) - designed.Response(f, Fs)).Magnitude < 1e-12, $"{f} Hz");
+        }
+
+        public void Biquad_RejectsBadArguments()
+        {
+            Check.Throws<ArgumentOutOfRangeException>(() => Biquad.LowPass(48000, 24000));
+            Check.Throws<ArgumentOutOfRangeException>(() => Biquad.LowPass(48000, 1000, 0));
+            Check.Throws<ArgumentOutOfRangeException>(() => Biquad.LowPass(0, 1000));
+            Check.Throws<ArgumentOutOfRangeException>(() => Biquad.Peaking(48000, 1000, 1, double.NaN));
+            Check.Throws<ArgumentOutOfRangeException>(() => Biquad.LowShelf(48000, 1000, 24, slope: 5));
+        }
+
+        // ---- FIR -------------------------------------------------------------------------------------------------------
+
+        public void Fir_TapsMatchSciPyFirwin()
+        {
+            foreach (var (band, taps, f1, f2, window, beta, expected) in FilterReferenceData.FirDesigns)
+            {
+                var w = (FirWindow)Enum.Parse(typeof(FirWindow), window);
+                FirFilter f;
+                switch (band)
+                {
+                    case "LowPass": f = FirFilter.LowPass(taps, f1, Fs, w, beta); break;
+                    case "HighPass": f = FirFilter.HighPass(taps, f1, Fs, w, beta); break;
+                    case "BandPass": f = FirFilter.BandPass(taps, f1, f2, Fs, w, beta); break;
+                    default: f = FirFilter.BandStop(taps, f1, f2, Fs, w, beta); break;
+                }
+                Check.Equal(expected.Length, f.Taps.Count);
+                for (int i = 0; i < expected.Length; i++) Check.Close(expected[i], f.Taps[i], 1e-14, $"{band} {taps} {window} [{i}]");
+            }
+        }
+
+        public void Fir_KaiserParametersMatchSciPy()
+        {
+            foreach (var (a, width, taps, beta) in FilterReferenceData.Kaiser)
+            {
+                var (n, b) = FirFilter.KaiserParameters(a, width, Fs);
+                Check.Equal(taps, n, $"{a} dB");
+                Check.Close(beta, b, 1e-12);
+            }
+        }
+
+        public void Fir_KaiserDesignMeetsItsSpecification()
+        {
+            // 60 dB of rejection beyond 120 Hz with the passband edge at 100 Hz: cutoff in the middle of the transition.
+            var (taps, beta) = FirFilter.KaiserParameters(60, 20, Fs);
+            if (taps % 2 == 0) taps++;
+            var f = FirFilter.LowPass(taps, 110, Fs, FirWindow.Kaiser, beta);
+            for (double hz = 120; hz < Fs / 2; hz += 0.5) Check.True(f.MagnitudeDb(hz, Fs) < -59, $"{hz} Hz: {f.MagnitudeDb(hz, Fs)} dB");
+            for (double hz = 0; hz <= 100; hz += 0.5) Check.True(Math.Abs(f.MagnitudeDb(hz, Fs)) < 0.02, $"{hz} Hz");
+        }
+
+        public void Fir_ProcessMatchesFilterAndAlignedRemovesDelay()
+        {
+            var x = TestSignal();
+            var f = FirFilter.LowPass(21, 80, Fs);
+            var batch = f.Filter(x);
+            for (int i = 0; i < x.Length; i++) Check.Close(batch[i], f.Process(x[i]), 1e-12, $"[{i}]");
+            Check.Equal(10.0, f.DelaySamples);
+            var aligned = f.FilterAligned(x);
+            for (int i = 0; i + 10 < x.Length; i++) Check.Close(batch[i + 10], aligned[i], 1e-12, $"aligned [{i}]");
+            // Near the end the aligned output sees zeros past the last sample, exactly like convolution "same".
+            int n = x.Length;
+            double tail = 0;
+            for (int k = 0; k < 21; k++) { int j = n - 1 + 10 - k; if (j < n) tail += f.Taps[k] * x[j]; }
+            Check.Close(tail, aligned[n - 1], 1e-12);
+            f.Reset();
+            Check.Close(batch[0], f.Process(x[0]), 1e-15);
+            Check.Throws<InvalidOperationException>(() => FirFilter.LowPass(20, 80, Fs).FilterAligned(x));
+        }
+
+        public void Fir_LinearPhase()
+        {
+            var f = FirFilter.BandPass(41, 50, 150, Fs);
+            for (int i = 0; i < 41; i++) Check.Close(f.Taps[i], f.Taps[40 - i], 1e-15, "symmetric taps");
+            // Phase = −2π·f·delay/fs (mod π for sign flips) throughout the passband.
+            foreach (double hz in new[] { 70.0, 100, 130 })
+            {
+                double phase = f.Response(hz, Fs).Phase, expected = -2 * Math.PI * hz * 20 / Fs;
+                double diff = Math.IEEERemainder(phase - expected, Math.PI);
+                Check.Close(0, diff, 1e-9, $"{hz} Hz");
+            }
+        }
+
+        public void Fir_RejectsBadArguments()
+        {
+            Check.Throws<ArgumentException>(() => FirFilter.HighPass(30, 100, Fs));
+            Check.Throws<ArgumentException>(() => FirFilter.BandStop(30, 100, 200, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => FirFilter.LowPass(0, 100, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => FirFilter.LowPass(11, 600, Fs));
+            Check.Throws<ArgumentException>(() => FirFilter.BandPass(11, 200, 100, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => FirFilter.LowPass(11, 100, Fs, FirWindow.Kaiser, -1));
+            Check.Throws<ArgumentOutOfRangeException>(() => FirFilter.LowPass(11, 100, Fs, (FirWindow)99));
+            Check.Throws<ArgumentException>(() => new FirFilter(new double[0]));
+            Check.Throws<ArgumentException>(() => new FirFilter(new[] { 1.0, double.NaN }));
+            Check.Throws<ArgumentOutOfRangeException>(() => FirFilter.KaiserParameters(5, 10, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => FirFilter.KaiserParameters(60, 0, Fs));
+        }
+    }
+}
