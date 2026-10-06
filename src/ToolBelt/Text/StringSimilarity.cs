@@ -54,7 +54,7 @@ namespace ToolBelt.Text
             {
                 if (candidate is null) throw new ArgumentException("Candidates must not contain null.", nameof(candidates));
                 double score = scorer(target, candidate);
-                if (score < minScore) continue;
+                if (double.IsNaN(score) || score < minScore) continue;      // a NaN score must not win by default
                 // Strict > keeps the first-seen candidate on ties (stable).
                 if (!found || score > bestScore)
                 {

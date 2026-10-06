@@ -45,6 +45,9 @@ namespace ToolBelt.Diagnostics
         private readonly Action<FirstChanceRecord> _report;
         private readonly Func<DateTimeOffset> _clock;
         private readonly ConcurrentDictionary<string, Signature> _seen = new ConcurrentDictionary<string, Signature>();
+
+        /// <summary>Distinct type+message signatures tracked before new messages are folded into one per type.</summary>
+        public const int MaxSignatures = 1000;
         private readonly HashSet<Type> _ignored = new HashSet<Type>();
         private readonly object _ignoredGate = new object();
         private int _attached;
@@ -60,11 +63,11 @@ namespace ToolBelt.Diagnostics
 
         /// <param name="report">Called synchronously on the throwing thread — keep it fast and non-blocking.</param>
         /// <param name="attach">Subscribe immediately (default) — pass false to test via <see cref="Observe"/>.</param>
-        /// <param name="clock">Time source for throttling (default: now).</param>
+        /// <param name="clock">Time source for throttling (default: UTC now; a clock that steps backwards never mutes reports).</param>
         public FirstChanceMonitor(Action<FirstChanceRecord> report, bool attach = true, Func<DateTimeOffset>? clock = null)
         {
             _report = report ?? throw new ArgumentNullException(nameof(report));
-            _clock = clock ?? (() => DateTimeOffset.Now);
+            _clock = clock ?? (() => DateTimeOffset.UtcNow);
             Ignore<OperationCanceledException>();
             if (attach)
             {
@@ -117,13 +120,16 @@ namespace ToolBelt.Diagnostics
                 if (IsIgnored(exception.GetType())) return;
                 if (Filter != null && !Filter(exception)) return;
                 string key = exception.GetType().FullName + ": " + exception.Message;
+                // Bounded: messages that embed values ("bad value 'x123' at line 4711") would otherwise add a signature per
+                // throw for the life of the process. Past the cap, new messages share one per-type signature.
+                if (_seen.Count >= MaxSignatures && !_seen.ContainsKey(key)) key = exception.GetType().FullName + ": (other messages)";
                 Signature sig = _seen.GetOrAdd(key, _ => new Signature());
                 DateTimeOffset now = _clock();
                 int occurrence, suppressed;
                 lock (sig)
                 {
                     occurrence = ++sig.Count;
-                    if (sig.LastReported != DateTimeOffset.MinValue && now - sig.LastReported < ThrottleWindow)
+                    if (sig.LastReported != DateTimeOffset.MinValue && now >= sig.LastReported && now - sig.LastReported < ThrottleWindow)
                     {
                         sig.Suppressed++;
                         return;

@@ -154,8 +154,8 @@ namespace ToolBelt.Collections
             for (int i = 0; i < order.Length; i++) order[i] = i;
             Array.Sort(order, (x, y) =>
             {
-                int cmp = comparer.Compare(_rows[x][c], _rows[y][c]);
-                if (descending) cmp = -cmp;
+                // Swap the operands for descending: negating would leave int.MinValue unchanged.
+                int cmp = descending ? comparer.Compare(_rows[y][c], _rows[x][c]) : comparer.Compare(_rows[x][c], _rows[y][c]);
                 return cmp != 0 ? cmp : x.CompareTo(y); // stable tie-break on original position
             });
 

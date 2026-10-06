@@ -72,7 +72,7 @@ namespace ToolBelt.Cli
                 {
                     if (cts.IsCancellationRequested) return;       // second Ctrl+C: let the runtime terminate
                     e.Cancel = true;
-                    cts.Cancel();
+                    try { cts.Cancel(); } catch (ObjectDisposedException) { }   // Ctrl+C racing with RunAsync unwinding
                 };
                 Console.CancelKeyPress += handler;
             }

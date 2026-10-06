@@ -210,7 +210,10 @@ namespace ToolBelt.Diagnostics
             Task<ProbeResult> probeTask;
             try
             {
-                probeTask = reg.Probe(probeCts.Token) ?? throw new InvalidOperationException("The probe returned a null task.");
+                // Started on the thread pool: an "async" probe that blocks before its first await would otherwise run on this
+                // thread, defeating the timeout race and holding up every probe after it.
+                CancellationToken probeToken = probeCts.Token;
+                probeTask = Task.Run(() => reg.Probe(probeToken) ?? throw new InvalidOperationException("The probe returned a null task."));
             }
             catch (Exception ex) when (!(ex is OperationCanceledException && outer.IsCancellationRequested))
             {

@@ -21,7 +21,11 @@ namespace ToolBelt.Threading
 
         public PauseToken Token => new PauseToken(this);
 
-        /// <summary>Raised (outside the lock) when the state changes; the argument is the new <see cref="IsPaused"/>.</summary>
+        /// <summary>
+        /// Raised (outside the lock) when the state changes; the argument is the new <see cref="IsPaused"/>. With Pause and
+        /// Resume racing on different threads, notifications can arrive out of order — read <see cref="IsPaused"/> for the
+        /// current state rather than trusting the last event.
+        /// </summary>
         public event Action<bool>? StateChanged;
 
         public void Pause()

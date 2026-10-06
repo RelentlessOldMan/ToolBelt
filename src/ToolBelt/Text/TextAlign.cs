@@ -31,9 +31,8 @@ namespace ToolBelt.Text
                 if (c == '\u001b') { i = SkipEscape(text, i); continue; }
                 if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
                 {
-                    int cp = char.ConvertToUtf32(c, text[i + 1]);
+                    width += SupplementaryWidth(text, i);
                     i++;
-                    width += cp >= 0x1F000 || (cp >= 0x20000 && cp <= 0x3FFFD) ? 2 : 1;
                     continue;
                 }
                 width += CharWidth(c);
@@ -125,6 +124,18 @@ namespace ToolBelt.Text
                 return s.Length - 1;
             }
             return i + 1;
+        }
+
+        // Width of the surrogate pair at `index`: combining marks, format characters, tags and variation selectors take no
+        // columns; emoji and the CJK supplementary planes take two; everything else one. (Multi-code-point emoji built with
+        // ZWJ or skin-tone modifiers render as one glyph but count per code point — terminals disagree on those anyway.)
+        private static int SupplementaryWidth(string text, int index)
+        {
+            int cp = char.ConvertToUtf32(text[index], text[index + 1]);
+            var cat = CharUnicodeInfo.GetUnicodeCategory(text, index);
+            if (cat == UnicodeCategory.NonSpacingMark || cat == UnicodeCategory.EnclosingMark || cat == UnicodeCategory.Format) return 0;
+            if (cp >= 0xE0000 && cp <= 0xE0FFF) return 0;                                   // tags, variation selectors supplement
+            return (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x20000 && cp <= 0x3FFFD) ? 2 : 1;
         }
 
         private static int CharWidth(char c)

@@ -14,11 +14,16 @@ namespace ToolBelt.Text
     {
         private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, throwOnInvalidBytes: true);
 
-        /// <summary>Encodes <paramref name="text"/>; characters in <paramref name="safe"/> (e.g. "/") are left as they are.</summary>
+        /// <summary>
+        /// Encodes <paramref name="text"/>; characters in <paramref name="safe"/> (e.g. "/") are left as they are. Text with an
+        /// unpaired surrogate (not valid Unicode, so not representable in UTF-8) throws <see cref="ArgumentException"/>.
+        /// </summary>
         public static string Encode(string text, string? safe = null, bool spaceAsPlus = false)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
-            byte[] bytes = StrictUtf8.GetBytes(text);
+            byte[] bytes;
+            try { bytes = StrictUtf8.GetBytes(text); }
+            catch (EncoderFallbackException ex) { throw new ArgumentException("The text contains an unpaired surrogate.", nameof(text), ex); }
             var sb = new StringBuilder(bytes.Length);
             foreach (byte b in bytes)
             {
@@ -67,6 +72,12 @@ namespace ToolBelt.Text
                 }
                 else if (plusAsSpace && c == '+') bytes.Add((byte)' ');
                 else if (c < 0x80) bytes.Add((byte)c);
+                else if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    bytes.AddRange(StrictUtf8.GetBytes(text.Substring(i, 2)));   // a whole non-BMP character (emoji, CJK Ext-B)
+                    i++;
+                }
+                else if (char.IsSurrogate(c)) { error = $"Unpaired surrogate at position {i}."; return false; }
                 else bytes.AddRange(StrictUtf8.GetBytes(c.ToString()));
             }
             try { result = StrictUtf8.GetString(bytes.ToArray()); return true; }

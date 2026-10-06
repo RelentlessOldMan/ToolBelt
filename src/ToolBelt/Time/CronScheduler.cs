@@ -44,7 +44,8 @@ namespace ToolBelt.Time
     public sealed class CronScheduler : IDisposable
     {
         private readonly List<ScheduledJob> _jobs = new List<ScheduledJob>();
-        private readonly List<Task> _running = new List<Task>();
+        private readonly List<(ScheduledJob Job, Task Task)> _running = new List<(ScheduledJob, Task)>();
+        private static readonly AsyncLocal<ScheduledJob?> CurrentJob = new AsyncLocal<ScheduledJob?>();   // the job this flow is running, if any
         private readonly object _gate = new object();
         private readonly Func<DateTimeOffset> _now;
         private readonly Func<TimeSpan, CancellationToken, Task> _delay;
@@ -112,6 +113,7 @@ namespace ToolBelt.Time
             int started = 0;
             lock (_gate)
             {
+                if (_cts.IsCancellationRequested) return 0;          // disposing: start nothing new
                 DateTimeOffset now = _now();
                 foreach (var job in _jobs)
                 {
@@ -122,8 +124,8 @@ namespace ToolBelt.Time
                     job.LastRun = now;
                     started++;
                     Task t = RunJobAsync(job);
-                    _running.Add(t);
-                    _running.RemoveAll(r => r.IsCompleted);
+                    _running.Add((job, t));
+                    _running.RemoveAll(r => r.Task.IsCompleted);
                 }
             }
             return started;
@@ -132,6 +134,7 @@ namespace ToolBelt.Time
         private async Task RunJobAsync(ScheduledJob job)
         {
             await Task.Yield();
+            CurrentJob.Value = job;
             try { await job.Action(_cts.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) when (_cts.IsCancellationRequested) { }
             catch (Exception ex) { _onError?.Invoke(job, ex); }
@@ -166,15 +169,21 @@ namespace ToolBelt.Time
         }
 
         /// <summary>Stops scheduling, cancels the token passed to running jobs and waits for them to finish.</summary>
+        /// <remarks>Safe to call from inside a job (a "run once, then shut down" job): that job's own run is not waited for.</remarks>
         public async Task DisposeAsync()
         {
             _cts.Cancel();
+            if (_loop != null) { try { await _loop.ConfigureAwait(false); } catch (OperationCanceledException) { } }
             Task[] pending;
+            ScheduledJob? self = CurrentJob.Value;
             lock (_gate)
             {
-                pending = _running.ToArray();
+                // Snapshot after the loop has stopped (RunDue starts nothing once cancelled), minus the caller's own run —
+                // waiting for it would wait forever.
+                var list = new List<Task>();
+                foreach (var r in _running) if (!ReferenceEquals(r.Job, self)) list.Add(r.Task);
+                pending = list.ToArray();
             }
-            if (_loop != null) { try { await _loop.ConfigureAwait(false); } catch (OperationCanceledException) { } }
             try { await Task.WhenAll(pending).ConfigureAwait(false); } catch { /* reported via onError */ }
         }
 

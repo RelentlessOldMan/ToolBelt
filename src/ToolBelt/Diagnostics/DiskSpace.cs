@@ -85,8 +85,9 @@ namespace ToolBelt.Diagnostics
     /// <summary>
     /// Portable disk-space queries and a pre-run check: how much room is on the volume holding a path, can this
     /// process write there, and will a run of a given size fit. The volume is resolved by the longest matching
-    /// mount point, so a path under a mounted folder (or a Unix mount like <c>/mnt/data</c>) reports that volume
-    /// rather than the root one. Answers are a snapshot — other processes can consume space after you check —
+    /// mount point, so a path under a Unix mount like <c>/mnt/data</c> reports that volume rather than the root one. On
+    /// Windows only drive letters are enumerated, so a volume mounted into a folder (<c>C:\Mounts\Data</c>) reports the
+    /// drive it sits on — give such paths by their own drive letter or volume GUID path. Answers are a snapshot — other processes can consume space after you check —
     /// so leave a reserve for anything long-running.
     /// </summary>
     public static class DiskSpace
