@@ -1,5 +1,5 @@
 """Generates tests/ToolBelt.Tests/Signal/FilterReferenceData.cs: SciPy reference designs for Signal/IirFilter.cs
-(butter/cheby1 as second-order sections: frequency response, sosfilt and sosfiltfilt outputs) and Signal/FirFilter.cs
+(butter/cheby1/cheby2/ellip/bessel as second-order sections: frequency response, group delay, sosfilt and sosfiltfilt outputs) and Signal/FirFilter.cs
 (firwin taps, kaiserord).
 
 Usage: python scripts/gen-filter-references.py   (needs numpy + scipy)
@@ -16,37 +16,77 @@ def test_signal():
     return 1.5 + np.sin(0.05 * i) + 0.5 * np.sin(0.9 * i) + 0.3 * np.cos(2.1 * i + 0.4) + 0.004 * i
 
 FS = 1000.0
+# (prototype, band, order, passband ripple dB, stop-band attenuation dB, f1, f2, Bessel norm). For one-edge bands f1 is
+# the cutoff (Chebyshev II: the stop-band edge).
 IIR = [
-    ("Butterworth", "LowPass", 1, 0.0, 100.0, 0.0),
-    ("Butterworth", "LowPass", 2, 0.0, 50.0, 0.0),
-    ("Butterworth", "LowPass", 5, 0.0, 120.0, 0.0),
-    ("Butterworth", "LowPass", 8, 0.0, 30.0, 0.0),
-    ("Butterworth", "HighPass", 3, 0.0, 40.0, 0.0),
-    ("Butterworth", "HighPass", 6, 0.0, 200.0, 0.0),
-    ("Butterworth", "BandPass", 2, 0.0, 50.0, 150.0),
-    ("Butterworth", "BandPass", 3, 0.0, 10.0, 300.0),
-    ("Butterworth", "BandStop", 2, 0.0, 45.0, 55.0),
-    ("Butterworth", "BandStop", 3, 0.0, 100.0, 250.0),
-    ("Chebyshev", "LowPass", 3, 1.0, 100.0, 0.0),
-    ("Chebyshev", "LowPass", 4, 0.5, 80.0, 0.0),
-    ("Chebyshev", "HighPass", 5, 0.1, 150.0, 0.0),
-    ("Chebyshev", "BandPass", 4, 1.0, 60.0, 120.0),
-    ("Chebyshev", "BandStop", 3, 2.0, 200.0, 300.0),
+    ("Butterworth", "LowPass", 1, 0, 0, 100.0, 0.0, ""),
+    ("Butterworth", "LowPass", 2, 0, 0, 50.0, 0.0, ""),
+    ("Butterworth", "LowPass", 5, 0, 0, 120.0, 0.0, ""),
+    ("Butterworth", "LowPass", 8, 0, 0, 30.0, 0.0, ""),
+    ("Butterworth", "HighPass", 3, 0, 0, 40.0, 0.0, ""),
+    ("Butterworth", "HighPass", 6, 0, 0, 200.0, 0.0, ""),
+    ("Butterworth", "BandPass", 2, 0, 0, 50.0, 150.0, ""),
+    ("Butterworth", "BandPass", 3, 0, 0, 10.0, 300.0, ""),
+    ("Butterworth", "BandStop", 2, 0, 0, 45.0, 55.0, ""),
+    ("Butterworth", "BandStop", 3, 0, 0, 100.0, 250.0, ""),
+    ("Chebyshev1", "LowPass", 3, 1.0, 0, 100.0, 0.0, ""),
+    ("Chebyshev1", "LowPass", 4, 0.5, 0, 80.0, 0.0, ""),
+    ("Chebyshev1", "HighPass", 5, 0.1, 0, 150.0, 0.0, ""),
+    ("Chebyshev1", "BandPass", 4, 1.0, 0, 60.0, 120.0, ""),
+    ("Chebyshev1", "BandStop", 3, 2.0, 0, 200.0, 300.0, ""),
+    ("Chebyshev2", "LowPass", 1, 0, 20.0, 100.0, 0.0, ""),
+    ("Chebyshev2", "LowPass", 4, 0, 40.0, 100.0, 0.0, ""),
+    ("Chebyshev2", "LowPass", 7, 0, 60.0, 150.0, 0.0, ""),
+    ("Chebyshev2", "HighPass", 5, 0, 50.0, 80.0, 0.0, ""),
+    ("Chebyshev2", "BandPass", 3, 0, 40.0, 50.0, 200.0, ""),
+    ("Chebyshev2", "BandStop", 4, 0, 30.0, 140.0, 160.0, ""),
+    ("Elliptic", "LowPass", 1, 1.0, 40.0, 100.0, 0.0, ""),
+    ("Elliptic", "LowPass", 2, 0.5, 30.0, 100.0, 0.0, ""),
+    ("Elliptic", "LowPass", 3, 1.0, 40.0, 100.0, 0.0, ""),
+    ("Elliptic", "LowPass", 6, 0.1, 80.0, 120.0, 0.0, ""),
+    ("Elliptic", "LowPass", 9, 0.01, 120.0, 200.0, 0.0, ""),
+    ("Elliptic", "HighPass", 5, 0.5, 60.0, 250.0, 0.0, ""),
+    ("Elliptic", "BandPass", 4, 1.0, 50.0, 100.0, 140.0, ""),
+    ("Elliptic", "BandPass", 3, 0.2, 70.0, 20.0, 400.0, ""),
+    ("Elliptic", "BandStop", 5, 0.5, 60.0, 180.0, 220.0, ""),
+    ("Bessel", "LowPass", 1, 0, 0, 100.0, 0.0, "phase"),
+    ("Bessel", "LowPass", 4, 0, 0, 50.0, 0.0, "phase"),
+    ("Bessel", "LowPass", 8, 0, 0, 30.0, 0.0, "delay"),
+    ("Bessel", "LowPass", 6, 0, 0, 80.0, 0.0, "mag"),
+    ("Bessel", "LowPass", 15, 0, 0, 60.0, 0.0, "phase"),
+    ("Bessel", "LowPass", 25, 0, 0, 40.0, 0.0, "mag"),
+    ("Bessel", "HighPass", 5, 0, 0, 100.0, 0.0, "mag"),
+    ("Bessel", "BandPass", 3, 0, 0, 50.0, 150.0, "phase"),
+    ("Bessel", "BandStop", 4, 0, 0, 100.0, 300.0, "delay"),
 ]
 FREQS = [0.0, 5.0, 33.0, 50.0, 100.0, 149.0, 250.0, 400.0, 499.0]
+GD_FREQS = [1.0, 20.0, 70.0, 333.0]
 SAMPLE_AT = [0, 1, 2, 7, 30, 119, 200, 239]
 
-def design(proto, band, order, ripple, f1, f2):
+def design(proto, band, order, rp, rs, f1, f2, norm):
     btype = {"LowPass": "lowpass", "HighPass": "highpass", "BandPass": "bandpass", "BandStop": "bandstop"}[band]
     wn = [f1, f2] if band in ("BandPass", "BandStop") else f1
     if proto == "Butterworth":
         return signal.butter(order, wn, btype=btype, fs=FS, output="sos")
-    return signal.cheby1(order, ripple, wn, btype=btype, fs=FS, output="sos")
+    if proto == "Chebyshev1":
+        return signal.cheby1(order, rp, wn, btype=btype, fs=FS, output="sos")
+    if proto == "Chebyshev2":
+        return signal.cheby2(order, rs, wn, btype=btype, fs=FS, output="sos")
+    if proto == "Elliptic":
+        return signal.ellip(order, rp, rs, wn, btype=btype, fs=FS, output="sos")
+    return signal.bessel(order, wn, btype=btype, fs=FS, norm=norm, output="sos")
+
+def group_delay(sos, f):
+    total = 0.0
+    for sec in sos:
+        _, gd = signal.group_delay((sec[:3], sec[3:]), w=[f], fs=FS)
+        total += gd[0]
+    return total
 
 x = test_signal()
-iir_rows, iir_out = [], []
-for idx, (proto, band, order, ripple, f1, f2) in enumerate(IIR):
-    sos = design(proto, band, order, ripple, f1, f2)
+iir_rows, iir_out, iir_gd = [], [], []
+for idx, spec in enumerate(IIR):
+    sos = design(*spec)
     _, h = signal.sosfreqz(sos, worN=FREQS, fs=FS)
     for f, hv in zip(FREQS, h):
         iir_rows.append((idx, f, hv.real, hv.imag))
@@ -54,6 +94,8 @@ for idx, (proto, band, order, ripple, f1, f2) in enumerate(IIR):
     yy = signal.sosfiltfilt(sos, x)
     for i in SAMPLE_AT:
         iir_out.append((idx, i, y[i], yy[i]))
+    for f in GD_FREQS:
+        iir_gd.append((idx, f, group_delay(sos, f)))
 
 FIR = [
     ("LowPass", 31, 100.0, 0.0, "Hamming", 0.0),
@@ -95,11 +137,18 @@ out.append("    {")
 out.append("        public const double SampleRate = " + r(FS) + ";")
 out.append("        public const int SignalLength = " + str(N_SIGNAL) + ";")
 out.append("")
-out.append("        // Designs: (prototype, band, order, rippleDb, f1, f2). For one-edge bands f1 is the cutoff.")
-out.append("        public static readonly (string Prototype, string Band, int Order, double Ripple, double F1, double F2)[] IirDesigns =")
+out.append("        // Designs: (prototype, band, order, passband ripple dB, stop-band attenuation dB, f1, f2, Bessel norm).")
+out.append("        public static readonly (string Prototype, string Band, int Order, double PassRipple, double StopAttenuation, double F1, double F2, string Norm)[] IirDesigns =")
 out.append("        {")
-for proto, band, order, ripple, f1, f2 in IIR:
-    out.append(f'            ("{proto}", "{band}", {order}, {r(ripple)}, {r(f1)}, {r(f2)}),')
+for proto, band, order, rp, rs, f1, f2, norm in IIR:
+    out.append(f'            ("{proto}", "{band}", {order}, {r(rp)}, {r(rs)}, {r(f1)}, {r(f2)}, "{norm}"),')
+out.append("        };")
+out.append("")
+out.append("        // (design index, frequency Hz, group delay in samples: scipy group_delay summed over sections)")
+out.append("        public static readonly (int Design, double Frequency, double Samples)[] IirGroupDelay =")
+out.append("        {")
+for d, f, g in iir_gd:
+    out.append(f"            ({d}, {r(f)}, {r(g)}),")
 out.append("        };")
 out.append("")
 out.append("        // (design index, frequency Hz, Re H, Im H)")

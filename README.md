@@ -149,7 +149,8 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Run a significance test (t / χ² / KS / Mann-Whitney) | `Numerics.HypothesisTests` |
 | Compare several group means (one-way ANOVA / F-test) | `Numerics.Anova` |
 | Fit a curve / solve a linear system | `Numerics.Polynomial`, `LinearAlgebra` |
-| Low/high/band-pass or notch a signal (Butterworth, Chebyshev, EQ biquads) | `Signal.IirFilter`, `Biquad` |
+| Low/high/band-pass or notch a signal (Butterworth, Chebyshev I/II, elliptic, Bessel, EQ biquads) | `Signal.IirFilter`, `Biquad` |
+| Filter without distorting pulse shape (flat group delay) | `Signal.IirFilter.BesselLowPass`, `GroupDelay` |
 | Zero-phase filtering of a recorded signal (`filtfilt`) | `Signal.IirFilter.FiltFilt` |
 | Linear-phase FIR filter design (windowed sinc, Kaiser sizing) | `Signal.FirFilter` |
 | Rise time / overshoot / settling time of a step response | `Control.StepResponse` |
@@ -355,7 +356,7 @@ src/
     Signal/
       Convolution.cs        direct convolution + full cross-correlation
       Fft.cs                radix-2 + Bluestein FFT — O(n log n) for ANY length; forward/inverse
-      IirFilter.cs          Biquad (RBJ cookbook EQ shapes) + SOS cascade: Butterworth/Chebyshev I design, streaming, filtfilt
+      IirFilter.cs          Biquad (RBJ cookbook EQ shapes) + SOS cascade: Butterworth / Chebyshev I & II / elliptic / Bessel design, group delay, streaming, filtfilt
       FirFilter.cs          windowed-sinc FIR design (firwin-compatible), Kaiser sizing, streaming + delay-aligned filtering
       FrequencyGrid.cs      FFT bin <-> frequency mapping; resolution bandwidth
       Goertzel.cs           single-frequency magnitude/phase (cheaper than a full transform)
@@ -1018,7 +1019,7 @@ scripts/
   test.ps1                  build once + launch the test exe directly
   gen-distribution-references.py  regenerates the 40-digit distribution reference table (needs mpmath)
   gen-png-fixtures.py     regenerates the PNG decoder fixtures (needs Pillow, used as a cross-check)
-  gen-filter-references.py  regenerates the IIR/FIR filter references from SciPy (butter, cheby1, sosfiltfilt, firwin)
+  gen-filter-references.py  regenerates the IIR/FIR filter references from SciPy (butter, cheby1/2, ellip, bessel, group delay, sosfiltfilt, firwin)
   gen-gauge-references.py   regenerates the gauge R&R references (least-squares ANOVA + scipy F tails)
 samples/
   ConsumerSmoke/            a fresh EXTERNAL consumer (public API only); doubles as a usage example
