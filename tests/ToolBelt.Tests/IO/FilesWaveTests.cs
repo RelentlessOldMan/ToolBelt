@@ -183,6 +183,8 @@ namespace ToolBelt.Tests.IO
             Check.Throws<FormatException>(() => e.GetBool("FLAG"));
             Check.Throws<FormatException>(() => e.GetTimeSpan("T", TimeSpan.Zero));
             Check.Throws<FormatException>(() => e.GetEnum("L", Level.Info));
+            foreach (string bad in new[] { "NaNs", "NaNms", "-5s", "Infinitym" })
+                Check.Throws<FormatException>(() => Env(("T", bad)).GetTimeSpan("T", TimeSpan.Zero), bad);
             var missing = Check.Throws<InvalidOperationException>(() => e.RequireAll("PORT", "A", "B"));
             Check.True(missing.Message.Contains("A, B"), missing.Message);
             Check.Equal("80x", e.Require("PORT"));

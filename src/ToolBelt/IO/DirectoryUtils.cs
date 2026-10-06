@@ -121,6 +121,9 @@ namespace ToolBelt.IO
                 string target = rel.Length == 0 ? dst : Path.Combine(dst, rel.Replace('/', Path.DirectorySeparatorChar));
                 try
                 {
+                    // A junction/symlink already sitting in the destination tree would redirect the copy outside it.
+                    if (rel.Length > 0 && IsLink(target))
+                        throw new IOException($"Destination '{target}' is a link; refusing to copy through it.");
                     if (!Directory.Exists(target)) { Directory.CreateDirectory(target); created++; }
                 }
                 catch (Exception ex) when (IsIoError(ex)) { errors++; Report(options.OnError, target, ex); continue; }
@@ -136,6 +139,7 @@ namespace ToolBelt.IO
                     string to = Path.Combine(target, Path.GetFileName(file));
                     try
                     {
+                        if (IsLink(to)) throw new IOException($"Destination '{to}' is a link; refusing to write through it.");
                         if (File.Exists(to))
                         {
                             bool replace = options.Overwrite switch

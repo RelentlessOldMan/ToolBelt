@@ -133,7 +133,11 @@ namespace ToolBelt.Security
             string temp = full + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp";
             try
             {
-                File.WriteAllBytes(temp, bytes);
+                using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    fs.Write(bytes, 0, bytes.Length);
+                    fs.Flush(flushToDisk: true);                            // data on disk before the rename, or a crash can leave an empty file
+                }
                 File.Move(temp, full, overwrite: true);
             }
             finally

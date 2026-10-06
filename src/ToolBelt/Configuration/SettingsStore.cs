@@ -59,11 +59,21 @@ namespace ToolBelt.Configuration
                 T? value = JsonSerializer.Deserialize<T>(File.ReadAllText(full, Encoding.UTF8), Options);
                 return new SettingsStore<T>(full, value ?? new T(), null);
             }
-            catch (JsonException ex)
+            catch (Exception ex) when (ex is JsonException || ex is NotSupportedException)
             {
-                string aside = full + ".corrupt-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture);
-                File.Move(full, aside, overwrite: true);
-                return new SettingsStore<T>(full, new T(), $"Settings file was unreadable ({ex.Message}); moved to '{aside}' and defaults were used.");
+                // Unique name (never overwrite an earlier preserved copy); if the move itself fails, still start with defaults.
+                string aside = full + ".corrupt-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture)
+                               + "-" + Guid.NewGuid().ToString("N").Substring(0, 6);
+                try
+                {
+                    File.Move(full, aside);
+                    return new SettingsStore<T>(full, new T(), $"Settings file was unreadable ({ex.Message}); moved to '{aside}' and defaults were used.");
+                }
+                catch (Exception moveEx) when (moveEx is IOException || moveEx is UnauthorizedAccessException)
+                {
+                    return new SettingsStore<T>(full, new T(),
+                        $"Settings file was unreadable ({ex.Message}) and could not be moved aside ({moveEx.Message}); defaults were used and saving will overwrite it.");
+                }
             }
         }
 

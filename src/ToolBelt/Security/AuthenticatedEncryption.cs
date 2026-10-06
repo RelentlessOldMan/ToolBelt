@@ -133,7 +133,7 @@ namespace ToolBelt.Security
         // ---------- helpers ----------
 
         /// <summary>Generates a fresh random nonce suitable for the detached overloads.</summary>
-        public static byte[] GenerateNonce() => CryptoRandom.Bytes(NonceSize);
+        public static byte[] GenerateNonce() => RandomNumberGenerator.GetBytes(NonceSize);
 
         private static void FillNonce(byte[] destination)
         {

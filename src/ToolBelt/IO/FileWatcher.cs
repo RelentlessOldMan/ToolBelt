@@ -325,7 +325,8 @@ namespace ToolBelt.IO
         private readonly Dictionary<string, (long Length, DateTime LastWrite, DateTime Since)> _probes =
             new Dictionary<string, (long, DateTime, DateTime)>(Path.DirectorySeparatorChar == '\\' ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         private readonly object _gate = new object();
-        private readonly object _raiseGate = new object(); // serialises Changed between the timer and Flush()
+        private readonly object _raiseGate = new object(); // serialises Changed/Error between the timer, Flush() and the raw watcher
+        [ThreadStatic] private static FileWatcher? _raisingOn;   // set while this thread runs one of our handlers
         private readonly Timer _timer;
         private readonly TimeSpan _tick;
         private DirectorySnapshot? _snapshot;
@@ -356,7 +357,7 @@ namespace ToolBelt.IO
             _watcher.Error += (_, e) =>
             {
                 if (e.GetException() is InternalBufferOverflowException) _rescanRequested = true; // recover rather than lose events
-                else Error?.Invoke(this, e);
+                else RaiseError(e.GetException());
             };
 
             long ms = (long)Math.Max(10, Math.Min(250, Math.Min(_options.Debounce.TotalMilliseconds,
@@ -428,8 +429,11 @@ namespace ToolBelt.IO
         {
             ThrowIfDisposed();
             IReadOnlyList<FileChange> batch;
-            lock (_gate) batch = Take(_coalescer.TakeAll());
-            Raise(batch);
+            lock (_raiseGate)                                       // take and raise together, so batches stay in order
+            {
+                lock (_gate) batch = Take(_coalescer.TakeAll());
+                Raise(batch);
+            }
             return batch;
         }
 
@@ -439,8 +443,13 @@ namespace ToolBelt.IO
             _disposed = true;
             _watcher.EnableRaisingEvents = false;
             _watcher.Dispose();
-            using (var done = new ManualResetEvent(false))
+            if (ReferenceEquals(_raisingOn, this))
             {
+                _timer.Dispose();                                   // called from our own handler: waiting for the tick would wait for ourselves
+            }
+            else
+            {
+                using var done = new ManualResetEvent(false);
                 if (_timer.Dispose(done)) done.WaitOne(TimeSpan.FromSeconds(5)); // let an in-flight tick finish
             }
             IsRunning = false;
@@ -463,7 +472,7 @@ namespace ToolBelt.IO
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
             {
-                Error?.Invoke(this, new ErrorEventArgs(ex));
+                RaiseError(ex);
             }
         }
 
@@ -477,17 +486,20 @@ namespace ToolBelt.IO
                     _rescanRequested = false;
                     Rescan();
                 }
-                IReadOnlyList<FileChange> batch;
-                lock (_gate)
+                lock (_raiseGate)                                   // take and raise together, so batches stay in order
                 {
-                    DateTime now = DateTime.UtcNow;
-                    batch = Take(_coalescer.TakeQuiet(now, _options.Debounce, _options.StableFor is null ? null : c => IsStable(c, now)));
+                    IReadOnlyList<FileChange> batch;
+                    lock (_gate)
+                    {
+                        DateTime now = DateTime.UtcNow;
+                        batch = Take(_coalescer.TakeQuiet(now, _options.Debounce, _options.StableFor is null ? null : c => IsStable(c, now)));
+                    }
+                    Raise(batch);
                 }
-                Raise(batch);
             }
             catch (Exception ex) when (!(ex is OutOfMemoryException))
             {
-                Error?.Invoke(this, new ErrorEventArgs(ex));
+                RaiseError(ex);
             }
             finally { Volatile.Write(ref _flushing, 0); }
         }
@@ -527,8 +539,23 @@ namespace ToolBelt.IO
             if (batch.Count == 0) return;
             lock (_raiseGate) // reentrant, so a handler that calls Flush() does not deadlock
             {
+                var previous = _raisingOn;
+                _raisingOn = this;
                 try { Changed?.Invoke(this, new FileChangesEventArgs(batch)); }
-                catch (Exception ex) when (!(ex is OutOfMemoryException)) { Error?.Invoke(this, new ErrorEventArgs(ex)); }
+                catch (Exception ex) when (!(ex is OutOfMemoryException)) { RaiseError(ex); }
+                finally { _raisingOn = previous; }
+            }
+        }
+
+        private void RaiseError(Exception ex)
+        {
+            lock (_raiseGate)
+            {
+                var previous = _raisingOn;
+                _raisingOn = this;
+                try { Error?.Invoke(this, new ErrorEventArgs(ex)); }
+                catch (Exception handlerEx) when (!(handlerEx is OutOfMemoryException)) { /* a throwing Error handler must not kill the watcher */ }
+                finally { _raisingOn = previous; }
             }
         }
 

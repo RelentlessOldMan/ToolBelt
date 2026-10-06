@@ -261,6 +261,26 @@ namespace ToolBelt.Tests.IO
             Check.True(r.Errors.Any(e => e.Message == "handler bug"));
         }
 
+        public void Watcher_DisposeFromInsideAHandlerReturnsPromptly()
+        {
+            using var tmp = new TempDirectory();
+            var w = new FileWatcher(tmp.Path, new FileWatcherOptions { Debounce = TimeSpan.FromMilliseconds(80) });
+            var disposedIn = new ManualResetEventSlim();
+            long ms = -1;
+            w.Changed += (_, __) =>
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                w.Dispose();                                                            // e.g. "stop after the first file"
+                ms = sw.ElapsedMilliseconds;
+                disposedIn.Set();
+            };
+            w.Start();
+            File.WriteAllText(tmp.Combine("one.txt"), "1");
+            Check.True(disposedIn.Wait(10000), "handler ran");
+            Check.True(ms < 1000, $"Dispose from the handler took {ms} ms");
+            Check.False(w.IsRunning);
+        }
+
         public void Watcher_Validation()
         {
             using var tmp = new TempDirectory();

@@ -250,6 +250,21 @@ namespace ToolBelt.Tests.IO
             Check.Throws<ArgumentException>(() => DirectoryUtils.GetRelativePath(src, src + "-sibling"));  // prefix is not containment
         }
 
+        public void Copy_RefusesToWriteThroughALinkInTheDestination()
+        {
+            using var tmp = new TempDirectory();
+            string src = Path.Combine(tmp.Path, "src"), dst = Path.Combine(tmp.Path, "dst"), outside = Path.Combine(tmp.Path, "outside");
+            Directory.CreateDirectory(Path.Combine(src, "sub"));
+            File.WriteAllText(Path.Combine(src, "sub", "f.txt"), "payload");
+            Directory.CreateDirectory(dst);
+            Directory.CreateDirectory(outside);
+            if (!TryCreateDirectoryLink(Path.Combine(dst, "sub"), outside)) return;    // links unavailable here
+            var errors = new List<string>();
+            var r = DirectoryUtils.Copy(src, dst, new CopyOptions { OnError = (p, _) => errors.Add(p) });
+            Check.False(File.Exists(Path.Combine(outside, "f.txt")), "the copy escaped through the destination junction");
+            Check.True(r.Errors >= 1 && errors.Count >= 1);
+        }
+
         private static bool TryCreateDirectoryLink(string link, string target)
         {
             try

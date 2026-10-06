@@ -109,6 +109,17 @@ namespace ToolBelt.Tests.IO
             Check.NotNull(recovered.LoadWarning);
             Check.False(File.Exists(path));
             Check.Equal(1, Directory.GetFiles(Path.GetDirectoryName(path)!, "settings.json.corrupt-*").Length);
+            // Two corrupt loads in a row keep both preserved copies; a locked corrupt file still yields defaults.
+            File.WriteAllText(path, "{ again not json");
+            Check.NotNull(SettingsStore<Config>.LoadFrom(path).LoadWarning);
+            Check.Equal(2, Directory.GetFiles(Path.GetDirectoryName(path)!, "settings.json.corrupt-*").Length);
+            File.WriteAllText(path, "{ locked");
+            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                var locked = SettingsStore<Config>.LoadFrom(path);
+                Check.Equal("default", locked.Value.Name);
+                Check.True(locked.LoadWarning!.Contains("could not be moved aside"), locked.LoadWarning);
+            }
             Check.True(SettingsStore<Config>.DefaultPath("Acme", "Tool").EndsWith(Path.Combine("Acme", "Tool", "settings.json"), StringComparison.Ordinal));
         }
 
@@ -159,9 +170,22 @@ namespace ToolBelt.Tests.IO
             Check.Throws<InvalidDataException>(() => TarUtils.ExtractToDirectory(absolute, dest));
             string link = HostileTar(tmp, "l.tar", w => w.WriteEntry(new PaxTarEntry(TarEntryType.SymbolicLink, "ok") { LinkName = "../../outside" }));
             Check.Throws<InvalidDataException>(() => TarUtils.ExtractToDirectory(link, dest));
-            Check.Throws<InvalidDataException>(() => TarUtils.ExtractToDirectory(link, dest, allowLinks: true));   // still points outside
+            TarUtils.ExtractToDirectory(link, dest, skipLinks: true);                     // skipped, nothing created
+            Check.False(File.Exists(Path.Combine(dest, "ok")) || Directory.Exists(Path.Combine(dest, "ok")));
             string prefix = HostileTar(tmp, "p.tar", w => w.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, "../dest2/x") { DataStream = new MemoryStream(new byte[] { 1 }) }));
             Check.Throws<InvalidDataException>(() => TarUtils.ExtractToDirectory(prefix, dest));   // sibling sharing the prefix
+        }
+
+        public void Tar_ArchiveInsideItsOwnSourceAndFailureCleanup()
+        {
+            using var tmp = new TempDirectory();
+            File.WriteAllText(tmp.Combine("a.txt"), "a");
+            string archive = tmp.Combine("self.tar");
+            TarUtils.CreateFromDirectory(tmp.Path, archive);                            // must not try to archive itself
+            Check.Equal("a.txt", string.Join(",", TarUtils.ListEntries(archive)));
+            string partial = tmp.Combine("partial.tar");
+            Check.Throws<InvalidOperationException>(() => TarUtils.CreateFromDirectory(tmp.Path, partial, filter: _ => throw new InvalidOperationException("boom")));
+            Check.False(File.Exists(partial), "a failed create removes the partial archive");
         }
 
         // ---------- SecretsFile ----------

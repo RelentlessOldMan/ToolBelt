@@ -11,8 +11,8 @@ namespace ToolBelt.IO
 {
     /// <summary>
     /// Tar and .tar.gz archives over <see cref="System.Formats.Tar"/>, with the same safety as <see cref="ZipUtils"/>:
-    /// extraction rejects entries that would escape the destination (<c>../</c>, absolute paths) and refuses symbolic and
-    /// hard links (which can point outside it) unless explicitly allowed. Gzip is chosen by extension (<c>.tar.gz</c>,
+    /// extraction rejects entries that would escape the destination (<c>../</c>, absolute paths) and never creates symbolic
+    /// or hard links (which can point outside it): a link entry is an error, or is skipped with <c>skipLinks</c>. Gzip is chosen by extension (<c>.tar.gz</c>,
     /// <c>.tgz</c>) or by the <c>gzip</c> argument. Entries are written in PAX format with forward-slash names.
     /// </summary>
     public static class TarUtils
@@ -28,22 +28,37 @@ namespace ToolBelt.IO
             if (archivePath is null) throw new ArgumentNullException(nameof(archivePath));
             if (!Directory.Exists(sourceDirectory)) throw new DirectoryNotFoundException(sourceDirectory);
             string root = Path.GetFullPath(sourceDirectory);
+            string archiveFull = Path.GetFullPath(archivePath);
 
-            using var fs = new FileStream(archivePath, FileMode.Create, FileAccess.Write, FileShare.None);
-            using Stream output = UseGzip(archivePath, gzip) ? new GZipStream(fs, CompressionLevel.Optimal) : (Stream)fs;
-            using var writer = new TarWriter(output, TarEntryFormat.Pax, leaveOpen: false);
-            foreach (string file in EnumerateFilesNoLinks(root))
+            bool completed = false;
+            try
             {
-                string name = Path.GetRelativePath(root, file).Replace('\\', '/');
-                if (filter != null && !filter(name)) continue;
-                writer.WriteEntry(file, name);
-                onEntry?.Invoke(name);
+                using var fs = new FileStream(archiveFull, FileMode.Create, FileAccess.Write, FileShare.None);
+                using Stream output = UseGzip(archivePath, gzip) ? new GZipStream(fs, CompressionLevel.Optimal) : (Stream)fs;
+                using var writer = new TarWriter(output, TarEntryFormat.Pax, leaveOpen: false);
+                foreach (string file in EnumerateFilesNoLinks(root))
+                {
+                    if (string.Equals(Path.GetFullPath(file), archiveFull, PathComparison)) continue;   // the archive being written
+                    string name = Path.GetRelativePath(root, file).Replace('\\', '/');
+                    if (filter != null && !filter(name)) continue;
+                    writer.WriteEntry(file, name);
+                    onEntry?.Invoke(name);
+                }
+                completed = true;
+            }
+            finally
+            {
+                // Don't leave a partial archive behind.
+                if (!completed) { try { File.Delete(archiveFull); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
             }
         }
 
-        /// <summary>Extracts into <paramref name="destinationDirectory"/>, rejecting escaping entries (and links unless <paramref name="allowLinks"/>).</summary>
+        /// <summary>
+        /// Extracts into <paramref name="destinationDirectory"/>, rejecting escaping entries. Links are never created: a link
+        /// entry throws <see cref="InvalidDataException"/>, or is skipped when <paramref name="skipLinks"/>.
+        /// </summary>
         public static void ExtractToDirectory(string archivePath, string destinationDirectory, bool overwrite = false, bool? gzip = null,
-            bool allowLinks = false, Action<string>? onEntry = null)
+            bool skipLinks = false, Action<string>? onEntry = null)
         {
             if (archivePath is null) throw new ArgumentNullException(nameof(archivePath));
             if (destinationDirectory is null) throw new ArgumentNullException(nameof(destinationDirectory));
@@ -73,13 +88,10 @@ namespace ToolBelt.IO
                         break;
                     case TarEntryType.SymbolicLink:
                     case TarEntryType.HardLink:
-                        if (!allowLinks) throw new InvalidDataException($"Archive entry '{entry.Name}' is a link; refusing to extract links (pass allowLinks to permit).");
-                        string linkTarget = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(target)!, entry.LinkName));
-                        if (!linkTarget.StartsWith(rootWithSep, PathComparison))
-                            throw new InvalidDataException($"Archive link '{entry.Name}' points outside the destination.");
-                        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                        entry.ExtractToFile(target, overwrite);
-                        break;
+                        // Creating links safely (no escape through link chains, hardlinks to files outside) is a minefield, and
+                        // TarEntry.ExtractToFile doesn't support links anyway. Refuse them, or skip on request.
+                        if (skipLinks) continue;
+                        throw new InvalidDataException($"Archive entry '{entry.Name}' is a link; links are not extracted (pass skipLinks to ignore them).");
                     default:
                         continue;                                           // PAX/GNU metadata, devices, FIFOs: skipped
                 }

@@ -117,7 +117,7 @@ namespace ToolBelt.Configuration
                 if (!s.EndsWith(unit, StringComparison.OrdinalIgnoreCase)) continue;
                 string number = s.Substring(0, s.Length - unit.Length).Trim();
                 if (unit == "s" && number.EndsWith("m", StringComparison.OrdinalIgnoreCase)) continue;   // "ms" handled first
-                if (!double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) || v < 0 || double.IsInfinity(v)) return null;
+                if (!double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) || !(v >= 0) || double.IsInfinity(v)) return null;   // !(v >= 0) also rejects NaN
                 double ms = unit switch { "ms" => v, "s" => v * 1e3, "m" => v * 6e4, "h" => v * 3.6e6, _ => v * 8.64e7 };
                 return ms > TimeSpan.MaxValue.TotalMilliseconds ? (TimeSpan?)null : TimeSpan.FromMilliseconds(ms);
             }
