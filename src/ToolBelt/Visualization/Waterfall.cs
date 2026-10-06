@@ -281,13 +281,22 @@ namespace ToolBelt.Visualization
               .Append("\" fill=\"none\" ").Append(axis).Append("/>\n");
 
             double range = l.VMax - l.VMin;
-            for (int i = 0; i < l.ValueTicks.Count; i++)
+            if (!(range > 0))
             {
-                double v = l.ValueTicks.Values[i];
-                double t = range > 0 ? (v - l.VMin) / range : 0.5;
-                double py = f.Bottom - t * f.Height;
+                // Flat data: every tick would land at the same height and the labels would overprint. Show the one value.
+                double py = f.Bottom - 0.5 * f.Height;
                 Tick(sb, x + BarWidth, py, x + BarWidth + 4, py, axis);
-                Text(sb, x + BarWidth + 6, py + fs * 0.35, l.ValueTicks.Labels[i], "start", ink);
+                Text(sb, x + BarWidth + 6, py + fs * 0.35, l.VMin.ToString("G4", System.Globalization.CultureInfo.InvariantCulture), "start", ink);
+            }
+            else
+            {
+                for (int i = 0; i < l.ValueTicks.Count; i++)
+                {
+                    double v = l.ValueTicks.Values[i];
+                    double py = f.Bottom - (v - l.VMin) / range * f.Height;
+                    Tick(sb, x + BarWidth, py, x + BarWidth + 4, py, axis);
+                    Text(sb, x + BarWidth + 6, py + fs * 0.35, l.ValueTicks.Labels[i], "start", ink);
+                }
             }
             if (!string.IsNullOrEmpty(o.ValueLabel))
                 Rotated(sb, o.Width - 10 - fs * 0.4, f.Top + f.Height / 2, o.ValueLabel!, ink);

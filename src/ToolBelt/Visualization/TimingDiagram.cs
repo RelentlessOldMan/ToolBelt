@@ -38,9 +38,18 @@ namespace ToolBelt.Visualization
         {
             if (!(period > 0)) throw new ArgumentOutOfRangeException(nameof(period), period, "Period must be positive.");
             if (!(duty > 0 && duty < 1)) throw new ArgumentOutOfRangeException(nameof(duty), duty, "Duty must be in (0, 1).");
-            if ((end - start) / period > 100_000) throw new ArgumentException("Too many clock cycles to draw.");
+            if (double.IsNaN(start) || double.IsInfinity(start) || double.IsNaN(end) || double.IsInfinity(end)) throw new ArgumentException("Start and end must be finite.");
+            double cycles = Math.Ceiling((end - start) / period);
+            if (cycles > 100_000) throw new ArgumentException("Too many clock cycles to draw.");
             var c = new List<(double, bool?)>();
-            for (double t = start; t < end; t += period) { c.Add((t, true)); c.Add((t + period * duty, false)); }
+            // Integer cycle index: `t += period` stops advancing when start is huge relative to period (epoch seconds, 100 MHz).
+            for (int k = 0; k < cycles; k++)
+            {
+                double t = start + k * period;
+                if (t >= end) break;
+                c.Add((t, true));
+                c.Add((t + period * duty, false));
+            }
             return Digital(name, c);
         }
 

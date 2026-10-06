@@ -119,14 +119,18 @@ namespace ToolBelt.Visualization
             double ymin = o.YMin ?? (finite.Length > 0 ? finite.Min(p => p.Y) : 0), ymax = o.YMax ?? (finite.Length > 0 ? finite.Max(p => p.Y) : 1);
             if (xmax <= xmin) { xmin -= 0.5; xmax += 0.5; }
             if (ymax <= ymin) { ymin -= 0.5; ymax += 0.5; }
-            TickSet xt = AxisTicks.Linear(xmin, xmax), yt = AxisTicks.Linear(ymin, ymax);
+            // Explicit limits are honoured exactly (inside ticks only); otherwise the axis rounds out to nice ticks.
+            bool fixedX = o.XMin.HasValue || o.XMax.HasValue, fixedY = o.YMin.HasValue || o.YMax.HasValue;
+            TickSet xt = AxisTicks.Linear(xmin, xmax, loose: !fixedX), yt = AxisTicks.Linear(ymin, ymax, loose: !fixedY);
 
             double left = 64, right = 90, top = o.Title != null ? 36 : 14, bottom = o.XLabel != null ? 50 : 34;
             if (o.YLabel != null) left += 18;
             double pw = o.Width - left - right, ph = o.Height - top - bottom;
             if (pw <= 20 || ph <= 20) throw new ArgumentException("Width/Height leave no room for the plot.");
             var frame = new PlotFrame(left, top, pw, ph, xt.Min, xt.Max, yt.Min, yt.Max);
-            var cells = Compute(finite, frame, o.Radius);
+            // Points outside the plotted range are left out, so they can't skew the colour scale.
+            double x0 = Math.Min(frame.XMin, frame.XMax), x1 = Math.Max(frame.XMin, frame.XMax), y0 = Math.Min(frame.YMin, frame.YMax), y1 = Math.Max(frame.YMin, frame.YMax);
+            var cells = Compute(finite.Where(pt => pt.X >= x0 && pt.X <= x1 && pt.Y >= y0 && pt.Y <= y1), frame, o.Radius);
             int maxCount = cells.Count == 0 ? 1 : cells.Max(c => c.Count);
 
             var sb = new StringBuilder();

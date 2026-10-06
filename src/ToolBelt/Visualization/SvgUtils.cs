@@ -162,14 +162,15 @@ namespace ToolBelt.Visualization
             StringBuilder? sb = null;
             for (int i = 0; i < text.Length; i++)
             {
-                string? rep = text[i] switch
+                char ch = text[i];
+                string? rep = ch switch
                 {
                     '&' => "&amp;",
                     '<' => "&lt;",
                     '>' => "&gt;",
                     '"' when attribute => "&quot;",
                     '\'' when attribute => "&#39;",
-                    _ => null,
+                    _ => IsXmlIllegal(text, i) ? "�" : null,   // e.g. ANSI escapes in a series name: XML 1.0 forbids them
                 };
                 if (rep is null)
                 {
@@ -184,6 +185,17 @@ namespace ToolBelt.Visualization
                 sb.Append(rep);
             }
             return sb?.ToString() ?? text;
+        }
+
+        // Characters XML 1.0 forbids: C0 controls other than tab/LF/CR, U+FFFE/U+FFFF, and unpaired surrogates.
+        private static bool IsXmlIllegal(string s, int i)
+        {
+            char c = s[i];
+            if (c < 0x20) return c != '\t' && c != '\n' && c != '\r';
+            if (c == '￾' || c == '￿') return true;
+            if (char.IsHighSurrogate(c)) return i + 1 >= s.Length || !char.IsLowSurrogate(s[i + 1]);
+            if (char.IsLowSurrogate(c)) return i == 0 || !char.IsHighSurrogate(s[i - 1]);
+            return false;
         }
     }
 

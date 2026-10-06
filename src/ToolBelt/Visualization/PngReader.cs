@@ -11,7 +11,8 @@ namespace ToolBelt.Visualization
     /// half of <see cref="PngWriter"/>, for loading reference images, masks and test fixtures on any OS. Supports every
     /// standard PNG: greyscale, RGB, palette, grey+alpha and RGBA; bit depths 1, 2, 4, 8 and 16 (16-bit is reduced to 8);
     /// all five scanline filters; Adam7 interlacing; and tRNS transparency. Chunk CRCs and the zlib checksum are verified,
-    /// and the decompressed size is bounded by the header so a malicious file can't expand without limit. Ancillary chunks
+    /// and decompression is bounded by the header (itself capped at <see cref="MaxPixels"/>) and grows its buffer only as data
+    /// actually inflates, so a tiny file claiming a huge image fails without a huge allocation. Ancillary chunks
     /// (gamma, text, ICC profiles) are ignored.
     /// </summary>
     public static class PngReader
@@ -216,20 +217,29 @@ namespace ToolBelt.Visualization
             if ((cmf & 0x0F) != 8 || ((cmf << 8) | flg) % 31 != 0) throw new InvalidDataException("Bad zlib header in PNG data.");
             if ((flg & 0x20) != 0) throw new InvalidDataException("Preset zlib dictionaries are not allowed in PNG.");
             if (expected > int.MaxValue) throw new InvalidDataException("PNG image too large.");
-            var output = new byte[expected];
-            using (var deflate = new DeflateStream(new MemoryStream(zlib, 2, zlib.Length - 6), CompressionMode.Decompress))
-            {
-                int read = 0;
-                while (read < output.Length)
-                {
-                    int n = deflate.Read(output, read, output.Length - read);
-                    if (n == 0) throw new InvalidDataException($"PNG image data is truncated ({read} of {expected} bytes).");
-                    read += n;
-                }
-            }
+            byte[] output = InflateExactly(new DeflateStream(new MemoryStream(zlib, 2, zlib.Length - 6), CompressionMode.Decompress), (int)expected);
             uint adler = (uint)Be32(zlib, zlib.Length - 4);
             if (Adler32(output) != adler) throw new InvalidDataException("zlib checksum mismatch in PNG data.");
             return output;
+        }
+
+        // Reads exactly `expected` bytes, growing the buffer only as data actually inflates — a tiny file whose header claims
+        // a huge image fails as truncated without first allocating the full claimed size.
+        private static byte[] InflateExactly(Stream deflate, int expected)
+        {
+            using (deflate)
+            {
+                var buffer = new byte[Math.Min(expected, 1 << 16)];
+                int read = 0;
+                while (read < expected)
+                {
+                    if (read == buffer.Length) Array.Resize(ref buffer, (int)Math.Min(expected, (long)buffer.Length * 2));
+                    int n = deflate.Read(buffer, read, buffer.Length - read);
+                    if (n == 0) throw new InvalidDataException($"PNG image data is truncated ({read} of {expected} bytes).");
+                    read += n;
+                }
+                return buffer;
+            }
         }
 
         private static int Be32(byte[] b, int i) => (b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3];

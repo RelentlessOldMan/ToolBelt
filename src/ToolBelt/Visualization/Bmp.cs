@@ -73,6 +73,8 @@ namespace ToolBelt.Visualization
             int offset = Le32(data, 10);
             int headerSize = Le32(data, 14);
             if (headerSize < 40) throw new InvalidDataException("Unsupported BMP header (OS/2 core headers aren't supported).");
+            if (headerSize > 124 || 14L + headerSize > data.Length) throw new InvalidDataException("Implausible BMP header size.");
+            if (offset < 14 + headerSize || offset >= data.Length) throw new InvalidDataException("Implausible BMP pixel-data offset.");
             int w = Le32(data, 18), rawH = Le32(data, 22);
             int bpp = Le16(data, 28), compression = Le32(data, 30);
             if (w <= 0 || rawH == 0 || w > 1 << 15 || Math.Abs((long)rawH) > 1 << 15) throw new InvalidDataException($"Implausible BMP size {w}x{rawH}.");
@@ -83,6 +85,7 @@ namespace ToolBelt.Visualization
             bool hasAlpha = false;
             if (bpp == 32 && compression == 3)
             {
+                if (data.Length < 66 || (headerSize >= 56 && data.Length < 70)) throw new InvalidDataException("Truncated BMP channel masks.");
                 uint r = (uint)Le32(data, 54), g = (uint)Le32(data, 58), b = (uint)Le32(data, 62);
                 if (r != 0x00FF0000 || g != 0x0000FF00 || b != 0x000000FF) throw new InvalidDataException("Unsupported BMP channel masks.");
                 hasAlpha = headerSize >= 56 && (uint)Le32(data, 66) == 0xFF000000;
@@ -94,6 +97,7 @@ namespace ToolBelt.Visualization
             {
                 int colors = Le32(data, 46);
                 if (colors == 0) colors = 256;
+                if (colors < 0 || colors > 256) throw new InvalidDataException($"Implausible BMP palette size {colors}.");
                 int palStart = 14 + headerSize;
                 if (palStart + colors * 4 > data.Length) throw new InvalidDataException("Truncated BMP palette.");
                 palette = new byte[256 * 4];

@@ -101,8 +101,9 @@ namespace ToolBelt.Documents
         }
 
         /// <summary>
-        /// Two runs side by side: a table of A, B, Δ and Δ% per metric, and a summary naming the largest relative
-        /// change. Metrics whose |Δ%| reaches <paramref name="flagPercent"/> are flagged in a warning callout.
+        /// Two runs side by side: a table of A, B, change and percent change per metric, and a summary naming the largest
+        /// relative change. Metrics whose |change %| reaches <paramref name="flagPercent"/> are flagged in a warning callout;
+        /// 0 flags any change at all. (Columns are spelled out rather than "Δ", which the PDF's base fonts can't show.)
         /// </summary>
         public static ReportBuilder Comparison(
             string title,
@@ -127,17 +128,20 @@ namespace ToolBelt.Documents
             {
                 double p = r.PercentChange;
                 if (!double.IsNaN(p) && (largest is null || Math.Abs(p) > Math.Abs(largest.PercentChange))) largest = r;
-                if (!double.IsNaN(p) && Math.Abs(p) >= flagPercent && flagPercent > 0)
+                if (!double.IsNaN(p) && (flagPercent > 0 ? Math.Abs(p) >= flagPercent : p != 0))
                     flagged.Add(r.Metric + " (" + Signed(p, "0.##") + "%)");
             }
 
             if (list.Count == 0)
                 report.Callout(CalloutKind.Note, "No metrics to compare.");
             else if (flagged.Count > 0)
-                report.Callout(CalloutKind.Warning, flagged.Count.ToString(CultureInfo.InvariantCulture) + " metric(s) changed by "
-                    + flagPercent.ToString("0.##", CultureInfo.InvariantCulture) + "% or more: " + string.Join(", ", flagged) + ".");
+                report.Callout(CalloutKind.Warning, flagged.Count.ToString(CultureInfo.InvariantCulture) + " metric(s) changed"
+                    + (flagPercent > 0 ? " by " + flagPercent.ToString("0.##", CultureInfo.InvariantCulture) + "% or more" : "")
+                    + ": " + string.Join(", ", flagged) + ".");
             else
-                report.Callout(CalloutKind.Success, "No metric changed by " + flagPercent.ToString("0.##", CultureInfo.InvariantCulture) + "% or more.");
+                report.Callout(CalloutKind.Success, flagPercent > 0
+                    ? "No metric changed by " + flagPercent.ToString("0.##", CultureInfo.InvariantCulture) + "% or more."
+                    : "No metric changed.");
 
             if (largest != null)
                 report.Paragraph("Largest relative change: " + largest.Metric + ", " + Signed(largest.PercentChange, "0.##") + "%.");
@@ -155,7 +159,7 @@ namespace ToolBelt.Documents
                     double.IsNaN(r.PercentChange) ? "n/a" : Signed(r.PercentChange, "0.##") + "%",
                 });
             }
-            report.Heading("Metrics").Table(new[] { "Metric", labelA, labelB, "Δ", "Δ%" }, table);
+            report.Heading("Metrics").Table(new[] { "Metric", labelA, labelB, "Change", "Change %" }, table);
             return report;
         }
 

@@ -143,6 +143,7 @@ namespace ToolBelt.Documents
         public DocxWriter Table(IReadOnlyList<string> headers, IEnumerable<IReadOnlyList<string>> rows)
         {
             if (headers is null) throw new ArgumentNullException(nameof(headers));
+            if (headers.Count == 0) throw new ArgumentException("A table needs at least one column.", nameof(headers));
             if (rows is null) throw new ArgumentNullException(nameof(rows));
 
             _body.Append("<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/><w:tblBorders>");
@@ -414,8 +415,9 @@ namespace ToolBelt.Documents
         {
             if (string.IsNullOrEmpty(text)) return text ?? "";
             var sb = new StringBuilder(text.Length);
-            foreach (char ch in text)
+            for (int i = 0; i < text.Length; i++)
             {
+                char ch = text[i];
                 switch (ch)
                 {
                     case '&': sb.Append("&amp;"); break;
@@ -424,9 +426,12 @@ namespace ToolBelt.Documents
                     case '"': sb.Append("&quot;"); break;
                     case '\'': sb.Append("&apos;"); break;
                     default:
-                        // Characters XML 1.0 forbids (other control characters) would make Word refuse the file.
-                        if (ch < 0x20 && ch != '\t' && ch != '\n' && ch != '\r') sb.Append('�');
-                        else sb.Append(ch);
+                        // Characters XML 1.0 forbids would make Word refuse the file: other C0 controls, U+FFFE/U+FFFF and
+                        // unpaired surrogates.
+                        bool illegal = (ch < 0x20 && ch != '\t' && ch != '\n' && ch != '\r') || ch == '\uFFFE' || ch == '\uFFFF'
+                                       || (char.IsHighSurrogate(ch) && (i + 1 >= text.Length || !char.IsLowSurrogate(text[i + 1])))
+                                       || (char.IsLowSurrogate(ch) && (i == 0 || !char.IsHighSurrogate(text[i - 1])));
+                        sb.Append(illegal ? '\uFFFD' : ch);
                         break;
                 }
             }

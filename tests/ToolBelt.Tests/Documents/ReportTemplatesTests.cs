@@ -44,7 +44,7 @@ namespace ToolBelt.Tests.Documents
             Check.True(md.Contains("| throughput | 100 u/h | 110 u/h | +10 u/h | +10% |"), md);
             Check.True(md.Contains("| latency | 50 ms | 50.5 ms | +0.5 ms | +1% |"));
             Check.True(md.Contains("| errors | 0 | 3 | +3 | n/a |"));
-            Check.True(md.Contains("| Metric | v1.0 | v1.1 | Δ | Δ% |"));
+            Check.True(md.Contains("| Metric | v1.0 | v1.1 | Change | Change % |"));
 
             Check.Close(10, rows[0].PercentChange);
             Check.True(double.IsNaN(rows[2].PercentChange));
