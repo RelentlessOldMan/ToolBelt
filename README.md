@@ -150,6 +150,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Compare several group means (one-way ANOVA / F-test) | `Numerics.Anova` |
 | Fit a curve / solve a linear system | `Numerics.Polynomial`, `LinearAlgebra` |
 | Low/high/band-pass or notch a signal (Butterworth, Chebyshev I/II, elliptic, Bessel, EQ biquads) | `Signal.IirFilter`, `Biquad` |
+| Lowest filter order that meets a pass/stop spec (`buttord`, `ellipord`, …) | `Signal.IirFilter.ButterworthOrder`, `Chebyshev1Order`, `Chebyshev2Order`, `EllipticOrder` |
 | Filter without distorting pulse shape (flat group delay) | `Signal.IirFilter.BesselLowPass`, `GroupDelay` |
 | Zero-phase filtering of a recorded signal (`filtfilt`) | `Signal.IirFilter.FiltFilt` |
 | Linear-phase FIR filter design (windowed sinc, Kaiser sizing) | `Signal.FirFilter` |
@@ -356,7 +357,7 @@ src/
     Signal/
       Convolution.cs        direct convolution + full cross-correlation
       Fft.cs                radix-2 + Bluestein FFT — O(n log n) for ANY length; forward/inverse
-      IirFilter.cs          Biquad (RBJ cookbook EQ shapes) + SOS cascade: Butterworth / Chebyshev I & II / elliptic / Bessel design, group delay, streaming, filtfilt
+      IirFilter.cs          Biquad (RBJ cookbook EQ shapes) + SOS cascade: Butterworth / Chebyshev I & II / elliptic / Bessel design, order estimation, group delay, streaming, filtfilt
       FirFilter.cs          windowed-sinc FIR design (firwin-compatible), Kaiser sizing, streaming + delay-aligned filtering
       FrequencyGrid.cs      FFT bin <-> frequency mapping; resolution bandwidth
       Goertzel.cs           single-frequency magnitude/phase (cheaper than a full transform)

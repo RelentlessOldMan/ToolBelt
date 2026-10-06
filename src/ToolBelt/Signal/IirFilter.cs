@@ -380,6 +380,219 @@ namespace ToolBelt.Signal
         public static IirFilter BesselBandStop(int order, double low, double high, double sampleRate, BesselNormalization normalization = BesselNormalization.Phase)
             => Design(BesselPrototype(order, normalization), Band.BandStop, sampleRate, low, high);
 
+        // ---- Order estimation ----------------------------------------------------------------------------------------
+        // SciPy's buttord / cheb1ord / cheb2ord / ellipord: from a specification — passband edge(s) where the gain may
+        // drop by at most passRippleDb, stop-band edge(s) where it must be down at least stopAttenuationDb — the lowest
+        // order that meets it and the edge frequencies to hand to the matching design method. The band is implied by
+        // the edges: pass below stop is a low-pass, pass above stop a high-pass; a stop band outside the passband is a
+        // band-pass, one inside it a band-stop. The order is returned even when it exceeds what the designs accept.
+        //
+        // One deliberate difference: for band-stop specs SciPy searches numerically (fminbound) for passband edges that
+        // balance the two transitions. The optimum has a closed form — tighten whichever passband edge restores geometric
+        // symmetry about the stop band, pass_low·pass_high = stop_low·stop_high — so we use it. Orders agree with SciPy
+        // for any sensible spec (the search's tolerance can cost it an order on very narrow ones); edges differ by ~1e-5.
+
+        /// <summary>
+        /// Minimum Butterworth order for a low- or high-pass specification, and the −3 dB cutoff to design it with
+        /// (<see cref="ButterworthLowPass"/> / <see cref="ButterworthHighPass"/>), chosen so the gain at
+        /// <paramref name="passEdge"/> is exactly −<paramref name="passRippleDb"/> dB.
+        /// </summary>
+        /// <example><code>
+        /// var (order, cutoff) = IirFilter.ButterworthOrder(passEdge: 1000, stopEdge: 1500, passRippleDb: 1, stopAttenuationDb: 40, sampleRate: 8000);
+        /// var filter = IirFilter.ButterworthLowPass(order, cutoff, 8000);
+        /// </code></example>
+        public static (int Order, double Cutoff) ButterworthOrder(double passEdge, double stopEdge, double passRippleDb, double stopAttenuationDb, double sampleRate)
+        {
+            var spec = new OrderSpec(passEdge, stopEdge, passRippleDb, stopAttenuationDb, sampleRate);
+            int n = ButterworthOrderFor(spec);
+            double w0 = ButterworthW0(spec, n);
+            return (n, spec.ToHz(spec.Band == Band.LowPass ? w0 * spec.P0 : spec.P0 / w0));
+        }
+
+        /// <summary>
+        /// Minimum Butterworth order for a band-pass or band-stop specification, and the −3 dB edges to design it with
+        /// (<see cref="ButterworthBandPass"/> / <see cref="ButterworthBandStop"/>).
+        /// </summary>
+        public static (int Order, double Low, double High) ButterworthOrder(double passLow, double passHigh, double stopLow, double stopHigh, double passRippleDb, double stopAttenuationDb, double sampleRate)
+        {
+            var spec = new OrderSpec(passLow, passHigh, stopLow, stopHigh, passRippleDb, stopAttenuationDb, sampleRate);
+            int n = ButterworthOrderFor(spec);
+            double w0 = ButterworthW0(spec, n), d = spec.P1 - spec.P0, prod = spec.P0 * spec.P1;
+            double a, b;
+            if (spec.Band == Band.BandPass)
+            {
+                a = Math.Abs(-w0 * d / 2 + Math.Sqrt(w0 * w0 / 4 * d * d + prod));
+                b = Math.Abs(w0 * d / 2 + Math.Sqrt(w0 * w0 / 4 * d * d + prod));
+            }
+            else
+            {
+                double discr = Math.Sqrt(d * d + 4 * w0 * w0 * prod);
+                a = Math.Abs((d + discr) / (2 * w0));
+                b = Math.Abs((d - discr) / (2 * w0));
+            }
+            return (n, spec.ToHz(Math.Min(a, b)), spec.ToHz(Math.Max(a, b)));
+        }
+
+        /// <summary>
+        /// Minimum Chebyshev type I order for a low- or high-pass specification. The cutoff to design with
+        /// (<see cref="Chebyshev1LowPass"/>, ripple = <paramref name="passRippleDb"/>) is the passband edge itself.
+        /// </summary>
+        public static (int Order, double Cutoff) Chebyshev1Order(double passEdge, double stopEdge, double passRippleDb, double stopAttenuationDb, double sampleRate)
+        {
+            var spec = new OrderSpec(passEdge, stopEdge, passRippleDb, stopAttenuationDb, sampleRate);
+            return (ChebyshevOrderFor(spec), spec.ToHz(spec.P0));
+        }
+
+        /// <summary>Minimum Chebyshev type I order for a band-pass or band-stop specification, and the passband edges to design with.</summary>
+        public static (int Order, double Low, double High) Chebyshev1Order(double passLow, double passHigh, double stopLow, double stopHigh, double passRippleDb, double stopAttenuationDb, double sampleRate)
+        {
+            var spec = new OrderSpec(passLow, passHigh, stopLow, stopHigh, passRippleDb, stopAttenuationDb, sampleRate);
+            return (ChebyshevOrderFor(spec), spec.ToHz(spec.P0), spec.ToHz(spec.P1));
+        }
+
+        /// <summary>
+        /// Minimum Chebyshev type II order for a low- or high-pass specification, and the stop-band edge to design it
+        /// with (<see cref="Chebyshev2LowPass"/>, attenuation = <paramref name="stopAttenuationDb"/>): placed so the gain
+        /// at <paramref name="passEdge"/> is exactly −<paramref name="passRippleDb"/> dB, leaving any slack in the stop band.
+        /// </summary>
+        public static (int Order, double StopEdge) Chebyshev2Order(double passEdge, double stopEdge, double passRippleDb, double stopAttenuationDb, double sampleRate)
+        {
+            var spec = new OrderSpec(passEdge, stopEdge, passRippleDb, stopAttenuationDb, sampleRate);
+            int n = ChebyshevOrderFor(spec);
+            double f = Chebyshev2Scale(spec, n);
+            return (n, spec.ToHz(spec.Band == Band.LowPass ? spec.P0 / f : spec.P0 * f));
+        }
+
+        /// <summary>Minimum Chebyshev type II order for a band-pass or band-stop specification, and the stop-band edges to design with.</summary>
+        public static (int Order, double Low, double High) Chebyshev2Order(double passLow, double passHigh, double stopLow, double stopHigh, double passRippleDb, double stopAttenuationDb, double sampleRate)
+        {
+            var spec = new OrderSpec(passLow, passHigh, stopLow, stopHigh, passRippleDb, stopAttenuationDb, sampleRate);
+            int n = ChebyshevOrderFor(spec);
+            double f = Chebyshev2Scale(spec, n), d = spec.P1 - spec.P0, prod = spec.P0 * spec.P1;
+            double a = spec.Band == Band.BandStop
+                ? -f / 2 * d + Math.Sqrt(f * f * d * d / 4 + prod)
+                : -d / (2 * f) + Math.Sqrt(d * d / (4 * f * f) + prod);
+            double b = prod / a;
+            return (n, spec.ToHz(Math.Min(a, b)), spec.ToHz(Math.Max(a, b)));
+        }
+
+        /// <summary>
+        /// Minimum elliptic order for a low- or high-pass specification. The cutoff to design with
+        /// (<see cref="EllipticLowPass"/>, same ripple and attenuation) is the passband edge itself.
+        /// </summary>
+        /// <example><code>
+        /// var (order, cutoff) = IirFilter.EllipticOrder(passEdge: 1000, stopEdge: 1100, passRippleDb: 0.5, stopAttenuationDb: 60, sampleRate: 8000);
+        /// var filter = IirFilter.EllipticLowPass(order, 0.5, 60, cutoff, 8000);
+        /// </code></example>
+        public static (int Order, double Cutoff) EllipticOrder(double passEdge, double stopEdge, double passRippleDb, double stopAttenuationDb, double sampleRate)
+        {
+            var spec = new OrderSpec(passEdge, stopEdge, passRippleDb, stopAttenuationDb, sampleRate);
+            return (EllipticOrderFor(spec), spec.ToHz(spec.P0));
+        }
+
+        /// <summary>Minimum elliptic order for a band-pass or band-stop specification, and the passband edges to design with.</summary>
+        public static (int Order, double Low, double High) EllipticOrder(double passLow, double passHigh, double stopLow, double stopHigh, double passRippleDb, double stopAttenuationDb, double sampleRate)
+        {
+            var spec = new OrderSpec(passLow, passHigh, stopLow, stopHigh, passRippleDb, stopAttenuationDb, sampleRate);
+            return (EllipticOrderFor(spec), spec.ToHz(spec.P0), spec.ToHz(spec.P1));
+        }
+
+        // A specification pre-warped to the analog prototype (ω = tan(π f / fs)), with the band-stop passband already
+        // tightened to geometric symmetry; Selectivity is the stop/pass frequency ratio of the equivalent low-pass.
+        private sealed class OrderSpec
+        {
+            public Band Band;
+            public double P0, P1, S0, S1, Selectivity, Discrimination, PassRippleDb, StopAttenuationDb;
+            private readonly double _fs;
+
+            public OrderSpec(double passEdge, double stopEdge, double passRippleDb, double stopAttenuationDb, double fs)
+            {
+                _fs = CheckSpec(passRippleDb, stopAttenuationDb, fs);
+                CheckEdge(passEdge, fs, nameof(passEdge));
+                CheckEdge(stopEdge, fs, nameof(stopEdge));
+                if (passEdge == stopEdge) throw new ArgumentException("The pass and stop edges must differ.");
+                Band = passEdge < stopEdge ? Band.LowPass : Band.HighPass;
+                P0 = Warp(passEdge); S0 = Warp(stopEdge);
+                Selectivity = Band == Band.LowPass ? S0 / P0 : P0 / S0;
+                Finish(passRippleDb, stopAttenuationDb);
+            }
+
+            public OrderSpec(double passLow, double passHigh, double stopLow, double stopHigh, double passRippleDb, double stopAttenuationDb, double fs)
+            {
+                _fs = CheckSpec(passRippleDb, stopAttenuationDb, fs);
+                CheckEdge(passLow, fs, nameof(passLow));
+                CheckEdge(passHigh, fs, nameof(passHigh));
+                CheckEdge(stopLow, fs, nameof(stopLow));
+                CheckEdge(stopHigh, fs, nameof(stopHigh));
+                if (stopLow < passLow && passLow < passHigh && passHigh < stopHigh) Band = Band.BandPass;
+                else if (passLow < stopLow && stopLow < stopHigh && stopHigh < passHigh) Band = Band.BandStop;
+                else throw new ArgumentException("Band edges must nest: stopLow < passLow < passHigh < stopHigh (band-pass) or passLow < stopLow < stopHigh < passHigh (band-stop).");
+                P0 = Warp(passLow); P1 = Warp(passHigh); S0 = Warp(stopLow); S1 = Warp(stopHigh);
+                if (Band == Band.BandStop)
+                {
+                    if (P0 * P1 < S0 * S1) P0 = S0 * S1 / P1;
+                    else P1 = S0 * S1 / P0;
+                }
+                double Ratio(double s) => Math.Abs((s * s - P0 * P1) / (s * (P1 - P0)));
+                double lower = Ratio(S0), upper = Ratio(S1);
+                Selectivity = Math.Min(Band == Band.BandPass ? lower : 1 / lower, Band == Band.BandPass ? upper : 1 / upper);
+                Finish(passRippleDb, stopAttenuationDb);
+            }
+
+            public double ToHz(double w) => Math.Atan(w) * _fs / Math.PI;
+
+            private double Warp(double f) => Math.Tan(Math.PI * f / _fs);
+
+            private void Finish(double passRippleDb, double stopAttenuationDb)
+            {
+                PassRippleDb = passRippleDb;
+                StopAttenuationDb = stopAttenuationDb;
+                // (10^(As/10) − 1) / (10^(Ap/10) − 1): the squared ratio of stop-band to passband deviation.
+                Discrimination = Pow10m1(stopAttenuationDb / 10) / Pow10m1(passRippleDb / 10);
+            }
+
+            private static double CheckSpec(double passRippleDb, double stopAttenuationDb, double fs)
+            {
+                if (!(fs > 0) || double.IsInfinity(fs)) throw new ArgumentOutOfRangeException("sampleRate", fs, "Sample rate must be positive and finite.");
+                if (!(passRippleDb > 0) || double.IsInfinity(passRippleDb)) throw new ArgumentOutOfRangeException(nameof(passRippleDb), passRippleDb, "Passband ripple must be positive and finite.");
+                if (!(stopAttenuationDb > passRippleDb) || double.IsInfinity(stopAttenuationDb))
+                    throw new ArgumentOutOfRangeException(nameof(stopAttenuationDb), stopAttenuationDb, "Stop-band attenuation must be finite and greater than the passband ripple.");
+                return fs;
+            }
+        }
+
+        private static int ButterworthOrderFor(OrderSpec spec) => Ceiling(Math.Log10(spec.Discrimination) / (2 * Math.Log10(spec.Selectivity)));
+
+        // Prototype frequency at which an order-n Butterworth is exactly −passRipple dB.
+        private static double ButterworthW0(OrderSpec spec, int n) => Math.Pow(Pow10m1(spec.PassRippleDb / 10), -1.0 / (2 * n));
+
+        private static int ChebyshevOrderFor(OrderSpec spec) => Ceiling(Acosh(Math.Sqrt(spec.Discrimination)) / Acosh(spec.Selectivity));
+
+        // Chebyshev II prototype frequency (stop edge = 1) at which the gain is exactly −passRipple dB.
+        private static double Chebyshev2Scale(OrderSpec spec, int n) => 1 / Math.Cosh(Acosh(Math.Sqrt(spec.Discrimination)) / n);
+
+        private static int EllipticOrderFor(OrderSpec spec)
+        {
+            double m0 = 1 / (spec.Selectivity * spec.Selectivity), m1 = 1 / spec.Discrimination;
+            return Ceiling(EllipK(m0) * EllipKm1(m1) / (EllipKm1(m0) * EllipK(m1)));
+        }
+
+        private static int Ceiling(double n)
+        {
+            if (!(n <= int.MaxValue)) throw new ArgumentException("The transition band is too narrow for any practical order.");
+            return Math.Max(1, (int)Math.Ceiling(n));
+        }
+
+        // 10^x − 1 without cancellation for small x (Kahan's expm1 trick).
+        private static double Pow10m1(double x)
+        {
+            double y = x * Math.Log(10), u = Math.Exp(y);
+            if (u == 1) return y;
+            return double.IsInfinity(u) ? u : (u - 1) * y / Math.Log(u);
+        }
+
+        private static double Acosh(double x) => Math.Log(x + Math.Sqrt((x - 1) * (x + 1)));
+
         // ---- Internals -----------------------------------------------------------------------------------------------
 
         private enum Band { LowPass, HighPass, BandPass, BandStop }

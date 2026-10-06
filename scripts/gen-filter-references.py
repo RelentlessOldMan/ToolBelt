@@ -1,6 +1,6 @@
 """Generates tests/ToolBelt.Tests/Signal/FilterReferenceData.cs: SciPy reference designs for Signal/IirFilter.cs
 (butter/cheby1/cheby2/ellip/bessel as second-order sections: frequency response, group delay, sosfilt and sosfiltfilt outputs) and Signal/FirFilter.cs
-(firwin taps, kaiserord).
+(firwin taps, kaiserord), plus the buttord/cheb1ord/cheb2ord/ellipord order estimates.
 
 Usage: python scripts/gen-filter-references.py   (needs numpy + scipy)
 Section ordering is SciPy's own and may differ from ours, so the IIR rows compare order-independent quantities: the
@@ -125,6 +125,22 @@ for a, w in KAISER:
     n, beta = signal.kaiserord(a, w / (FS / 2))
     kaiser_rows.append((a, w, int(n), float(beta)))
 
+# Order estimates: (kind, pass edges, stop edges, gpass, gstop). One-edge specs have a single pass/stop edge. Band-stop
+# rows are checked loosely: SciPy finds their passband edges with fminbound (xatol 1e-5), we use the exact optimum.
+ORDER_SPECS = [
+    ([100.0], [150.0], 1.0, 40.0), ([100.0], [120.0], 0.5, 60.0), ([200.0], [210.0], 0.1, 80.0), ([30.0], [200.0], 3.0, 20.0),
+    ([250.0], [180.0], 1.0, 50.0), ([60.0], [40.0], 0.2, 30.0), ([400.0], [380.0], 2.0, 70.0),
+    ([100.0, 200.0], [60.0, 260.0], 1.0, 40.0), ([300.0, 320.0], [280.0, 345.0], 0.5, 60.0), ([20.0, 400.0], [10.0, 450.0], 0.3, 25.0),
+    ([50.0, 300.0], [100.0, 200.0], 1.0, 40.0), ([100.0, 260.0], [150.0, 190.0], 0.5, 60.0), ([40.0, 450.0], [100.0, 120.0], 2.0, 30.0),
+]
+ORDER_FUNCS = [("Butterworth", signal.buttord), ("Chebyshev1", signal.cheb1ord), ("Chebyshev2", signal.cheb2ord), ("Elliptic", signal.ellipord)]
+order_rows = []
+for kind, fn in ORDER_FUNCS:
+    for wp, ws, gp, gs in ORDER_SPECS:
+        n, wn = fn(wp if len(wp) > 1 else wp[0], ws if len(ws) > 1 else ws[0], gp, gs, fs=FS)
+        wn = list(np.atleast_1d(wn)) + [0.0]
+        order_rows.append((kind, wp + [0.0], ws + [0.0], gp, gs, int(n), wn[:2]))
+
 def r(v):
     return repr(float(v))
 
@@ -177,6 +193,13 @@ out.append("        public static readonly (double Attenuation, double Width, in
 out.append("        {")
 for a, w, n, beta in kaiser_rows:
     out.append(f"            ({r(a)}, {r(w)}, {n}, {r(beta)}),")
+out.append("        };")
+out.append("")
+out.append("        // (kind, pass edge(s), stop edge(s) — second 0 for one-edge specs, gpass, gstop, SciPy order, SciPy Wn (second 0 for one edge)) at SampleRate.")
+out.append("        public static readonly (string Kind, double P0, double P1, double S0, double S1, double PassRipple, double StopAttenuation, int Order, double W0, double W1)[] Orders =")
+out.append("        {")
+for kind, wp, ws, gp, gs, n, wn in order_rows:
+    out.append(f'            ("{kind}", {r(wp[0])}, {r(wp[1])}, {r(ws[0])}, {r(ws[1])}, {r(gp)}, {r(gs)}, {n}, {r(wn[0])}, {r(wn[1])}),')
 out.append("        };")
 out.append("    }")
 out.append("}")
