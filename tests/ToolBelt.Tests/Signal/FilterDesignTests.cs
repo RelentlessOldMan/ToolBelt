@@ -237,6 +237,134 @@ namespace ToolBelt.Tests.Signal
             Check.True(Math.Abs(causal[1000] - x[1000]) > 0.01, "the causal pass is delayed");
         }
 
+        public void Iir_OrderEstimatesMatchSciPy()
+        {
+            foreach (var (kind, p0, p1, s0, s1, gp, gs, order, w0, w1) in FilterReferenceData.Orders)
+            {
+                string what = $"{kind} pass {p0}/{p1} stop {s0}/{s1}";
+                if (p1 == 0)
+                {
+                    var (n, cutoff) = kind == "Butterworth" ? IirFilter.ButterworthOrder(p0, s0, gp, gs, Fs)
+                        : kind == "Chebyshev1" ? IirFilter.Chebyshev1Order(p0, s0, gp, gs, Fs)
+                        : kind == "Chebyshev2" ? IirFilter.Chebyshev2Order(p0, s0, gp, gs, Fs)
+                        : IirFilter.EllipticOrder(p0, s0, gp, gs, Fs);
+                    Check.Equal(order, n, what);
+                    Check.Close(w0, cutoff, 1e-10 * w0, what);
+                }
+                else
+                {
+                    var (n, low, high) = kind == "Butterworth" ? IirFilter.ButterworthOrder(p0, p1, s0, s1, gp, gs, Fs)
+                        : kind == "Chebyshev1" ? IirFilter.Chebyshev1Order(p0, p1, s0, s1, gp, gs, Fs)
+                        : kind == "Chebyshev2" ? IirFilter.Chebyshev2Order(p0, p1, s0, s1, gp, gs, Fs)
+                        : IirFilter.EllipticOrder(p0, p1, s0, s1, gp, gs, Fs);
+                    Check.Equal(order, n, what);
+                    // Band-stop edges come from SciPy's fminbound search (xatol 1e-5); ours are the exact optimum.
+                    double tol = p0 < s0 ? 5e-5 : 1e-10;
+                    Check.Close(w0, low, tol * w0, what + " low");
+                    Check.Close(w1, high, tol * w1, what + " high");
+                }
+            }
+        }
+
+        public void Iir_OrderEstimateDesignsMeetTheirSpecification()
+        {
+            // Random specs of every family and band: the filter designed from the estimate must hold the passband within
+            // the ripple and the stop band below the attenuation, everywhere in each band (not just at the edges).
+            var rng = new Random(88);
+            int checkedDesigns = 0;
+            for (int trial = 0; trial < 400; trial++)
+            {
+                var e = Enumerable.Range(0, 4).Select(_ => 10 + 480 * rng.NextDouble()).OrderBy(x => x).ToArray();
+                double gp = 0.1 + 2.9 * rng.NextDouble(), gs = gp + 10 + 60 * rng.NextDouble();
+                int shape = trial % 4, kind = (trial / 4) % 4;
+                Func<double, bool> inPass, inStop;
+                IirFilter filter;
+                int n;
+                if (shape < 2)
+                {
+                    double pass = shape == 0 ? e[0] : e[3], stop = shape == 0 ? e[1] : e[2];
+                    double cutoff;
+                    (n, cutoff) = kind == 0 ? IirFilter.ButterworthOrder(pass, stop, gp, gs, Fs)
+                        : kind == 1 ? IirFilter.Chebyshev1Order(pass, stop, gp, gs, Fs)
+                        : kind == 2 ? IirFilter.Chebyshev2Order(pass, stop, gp, gs, Fs)
+                        : IirFilter.EllipticOrder(pass, stop, gp, gs, Fs);
+                    if (n > (kind == 3 ? 25 : 40)) continue;
+                    bool low = shape == 0;
+                    filter = kind == 0 ? (low ? IirFilter.ButterworthLowPass(n, cutoff, Fs) : IirFilter.ButterworthHighPass(n, cutoff, Fs))
+                        : kind == 1 ? (low ? IirFilter.Chebyshev1LowPass(n, gp, cutoff, Fs) : IirFilter.Chebyshev1HighPass(n, gp, cutoff, Fs))
+                        : kind == 2 ? (low ? IirFilter.Chebyshev2LowPass(n, gs, cutoff, Fs) : IirFilter.Chebyshev2HighPass(n, gs, cutoff, Fs))
+                        : (low ? IirFilter.EllipticLowPass(n, gp, gs, cutoff, Fs) : IirFilter.EllipticHighPass(n, gp, gs, cutoff, Fs));
+                    inPass = f => low ? f <= pass : f >= pass;
+                    inStop = f => low ? f >= stop : f <= stop;
+                }
+                else
+                {
+                    bool bandPass = shape == 2;
+                    double pl = bandPass ? e[1] : e[0], ph = bandPass ? e[2] : e[3], sl = bandPass ? e[0] : e[1], sh = bandPass ? e[3] : e[2];
+                    double a, b;
+                    (n, a, b) = kind == 0 ? IirFilter.ButterworthOrder(pl, ph, sl, sh, gp, gs, Fs)
+                        : kind == 1 ? IirFilter.Chebyshev1Order(pl, ph, sl, sh, gp, gs, Fs)
+                        : kind == 2 ? IirFilter.Chebyshev2Order(pl, ph, sl, sh, gp, gs, Fs)
+                        : IirFilter.EllipticOrder(pl, ph, sl, sh, gp, gs, Fs);
+                    if (n > (kind == 3 ? 25 : 40)) continue;
+                    filter = kind == 0 ? (bandPass ? IirFilter.ButterworthBandPass(n, a, b, Fs) : IirFilter.ButterworthBandStop(n, a, b, Fs))
+                        : kind == 1 ? (bandPass ? IirFilter.Chebyshev1BandPass(n, gp, a, b, Fs) : IirFilter.Chebyshev1BandStop(n, gp, a, b, Fs))
+                        : kind == 2 ? (bandPass ? IirFilter.Chebyshev2BandPass(n, gs, a, b, Fs) : IirFilter.Chebyshev2BandStop(n, gs, a, b, Fs))
+                        : (bandPass ? IirFilter.EllipticBandPass(n, gp, gs, a, b, Fs) : IirFilter.EllipticBandStop(n, gp, gs, a, b, Fs));
+                    inPass = f => bandPass ? f >= pl && f <= ph : f <= pl || f >= ph;
+                    inStop = f => bandPass ? f <= sl || f >= sh : f >= sl && f <= sh;
+                }
+
+                var grid = Enumerable.Range(1, 999).Select(i => i * Fs / 2000).Concat(e).ToArray();
+                foreach (double f in grid)
+                {
+                    double db = filter.MagnitudeDb(f, Fs);
+                    if (inPass(f)) Check.True(db >= -gp - 1e-6, $"trial {trial}: {db} dB at {f} Hz in the passband (ripple {gp})");
+                    if (inStop(f)) Check.True(db <= -gs + 1e-6, $"trial {trial}: {db} dB at {f} Hz in the stop band (attenuation {gs})");
+                }
+                checkedDesigns++;
+            }
+            Check.True(checkedDesigns > 300, $"only {checkedDesigns} designs were within the order limits");
+        }
+
+        public void Iir_OrderEstimateIsMinimal()
+        {
+            // One order less must fail the spec: for Chebyshev I and elliptic the edges don't depend on the order, so
+            // design at n − 1 and look for a violation in the stop band (the passband edge is met by construction).
+            var rng = new Random(7);
+            for (int trial = 0; trial < 100; trial++)
+            {
+                double pass = 20 + 300 * rng.NextDouble(), stop = pass * (1.05 + 0.5 * rng.NextDouble());
+                double gp = 0.1 + 2 * rng.NextDouble(), gs = 20 + 60 * rng.NextDouble();
+                var (n1, c1) = IirFilter.Chebyshev1Order(pass, stop, gp, gs, Fs);
+                if (n1 > 1 && n1 <= 41)
+                    Check.True(MaxStopGain(IirFilter.Chebyshev1LowPass(n1 - 1, gp, c1, Fs), stop) > -gs, $"Chebyshev I trial {trial}");
+                var (n2, c2) = IirFilter.EllipticOrder(pass, stop, gp, gs, Fs);
+                if (n2 > 1 && n2 <= 26)
+                    Check.True(MaxStopGain(IirFilter.EllipticLowPass(n2 - 1, gp, gs, c2, Fs), stop) > -gs, $"elliptic trial {trial}");
+            }
+        }
+
+        private static double MaxStopGain(IirFilter filter, double stopEdge)
+        {
+            double worst = double.NegativeInfinity;
+            for (int i = 0; i <= 400; i++) worst = Math.Max(worst, filter.MagnitudeDb(stopEdge + (Fs / 2 - stopEdge) * i / 401, Fs));
+            return worst;
+        }
+
+        public void Iir_OrderEstimatesRejectBadArguments()
+        {
+            Check.Throws<ArgumentOutOfRangeException>(() => IirFilter.ButterworthOrder(100, 150, 0, 40, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => IirFilter.ButterworthOrder(100, 150, 3, 3, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => IirFilter.EllipticOrder(100, 150, 1, double.PositiveInfinity, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => IirFilter.Chebyshev1Order(100, 500, 1, 40, Fs));
+            Check.Throws<ArgumentOutOfRangeException>(() => IirFilter.Chebyshev2Order(100, 150, 1, 40, 0));
+            Check.Throws<ArgumentException>(() => IirFilter.ButterworthOrder(100, 100, 1, 40, Fs));
+            Check.Throws<ArgumentException>(() => IirFilter.EllipticOrder(100, 200, 150, 250, 1, 40, Fs));      // overlapping, not nested
+            Check.Throws<ArgumentException>(() => IirFilter.Chebyshev2Order(200, 100, 50, 300, 1, 40, Fs));     // pass edges reversed
+            Check.Throws<ArgumentException>(() => IirFilter.ButterworthOrder(100, 100 + 1e-13, 0.001, 300, Fs));
+        }
+
         public void Iir_RejectsBadArguments()
         {
             Check.Throws<ArgumentOutOfRangeException>(() => IirFilter.ButterworthLowPass(0, 10, Fs));
