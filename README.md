@@ -27,7 +27,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Cli** | Console output, input and process plumbing | `ConsoleTable` `ProgressBar` `AnsiStyle` `ConsoleSpinner` `Prompt` `ConsoleApp` |
 | **Collections** | Data structures & sequence ops | `LruCache` `TtlCache` `Deque` `BloomFilter` `Trie` `Batch` `Pairwise` `SortedListExtensions` `ReservoirSampler` `Aggregation` |
 | **Configuration** | Layered config, typed binding, env vars, user settings | `ConfigLayers` `ConfigBinder` `EnvironmentVariables` `SettingsStore` |
-| **Control** | Control loops & filters | `PidController` `KalmanFilter1D` |
+| **Control** | Control loops, tuning & signal conditioning | `PidController` `PidTuning` `StepResponse` `KalmanFilter1D` `SlewRateLimiter` `SchmittTrigger` |
 | **Diagnostics** | Measurement, observability & health | `Benchmark` `MetricsRegistry` `ScopedTimer` `HealthCheck` `DiskSpace` `AssertInvariant` `FirstChanceMonitor` |
 | **Documents** | Report writers & builder (MD/HTML/PDF/DOCX) | `ReportBuilder` `ReportTemplates` `MarkdownReport` `HtmlReport` `PdfWriter` `DocxWriter` |
 | **Enums** | Enum helpers | `EnumExtensions` `EnumFlags` `EnumMap` |
@@ -43,11 +43,11 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | **Numerics** | Math, stats, calculus, random | `DeterministicRandom` `Distributions` `Percentile` `Polynomial` `UnitConvert` `Bootstrap` |
 | **Objects** | Reflection / object services | `DeepEquals` `PropertyDiff` `PropertyPath` `ObjectMapper` `FlattenObject` `UnflattenObject` `TypeUtils` |
 | **Process** | Child processes | `ProcessRunner` `WhichExe` `ShellOpen` |
-| **Quality** | Statistical process control | `ProcessCapability` `ControlChart` `MeasurementAgreement` |
+| **Quality** | Statistical process control & gauge studies | `ProcessCapability` `ControlChart` `GaugeRR` `MeasurementAgreement` |
 | **Resilience** | Retry & rate control | `Retry` `CircuitBreaker` `Bulkhead` `TokenBucketRateLimiter` |
 | **Runtime** | Process/runtime introspection & scratch memory | `StartupTiming` `AppInfo` `MemoryPressure` `ArrayPoolScope` |
 | **Security** | Hashing, HMAC, KDF, secure random, AEAD | `Hashing` `Hmac` `KeyDerivation` `CryptoRandom` `AuthenticatedEncryption` `SecretsFile` |
-| **Signal** | Digital signal processing | `Fft` `Window` `Spectrum` `WelchPsd` `Hilbert` `Goertzel` `Convolution` `Resample` `Quantizer` |
+| **Signal** | Digital signal processing | `Fft` `Window` `Spectrum` `WelchPsd` `IirFilter` `FirFilter` `Hilbert` `Goertzel` `Convolution` `Resample` `Quantizer` |
 | **Text** | Strings & matching | `CaseConverter` `Slug` `GlobMatcher` `JaroWinkler` `TemplateFormatter` |
 | **Threading** | Async coordination | `AsyncLock` `KeyedLock` `ParallelUtils` `TaskExtensions` `TaskRace` `PauseTokenSource` `AtomicCounters` |
 | **Time** | Dates, durations, schedules | `DateRange` `HumanDuration` `CronSchedule` `CronScheduler` `BusinessDays` `UnixTime` |
@@ -149,6 +149,13 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Run a significance test (t / χ² / KS / Mann-Whitney) | `Numerics.HypothesisTests` |
 | Compare several group means (one-way ANOVA / F-test) | `Numerics.Anova` |
 | Fit a curve / solve a linear system | `Numerics.Polynomial`, `LinearAlgebra` |
+| Low/high/band-pass or notch a signal (Butterworth, Chebyshev, EQ biquads) | `Signal.IirFilter`, `Biquad` |
+| Zero-phase filtering of a recorded signal (`filtfilt`) | `Signal.IirFilter.FiltFilt` |
+| Linear-phase FIR filter design (windowed sinc, Kaiser sizing) | `Signal.FirFilter` |
+| Rise time / overshoot / settling time of a step response | `Control.StepResponse` |
+| Tune a PID loop from a step test | `Control.FopdtModel.FitStep` + `PidTuning` |
+| Ramp a setpoint, hysteresis switch, deadband, time-constant smoothing | `Control.SlewRateLimiter`, `SchmittTrigger`, `Deadband`, `FirstOrderLag` |
+| Gauge R&R / measurement-system analysis | `Quality.GaugeRR` |
 | Gamma / erf / incomplete gamma & beta | `Numerics.SpecialFunctions` |
 | Convert units | `Numerics.UnitConvert` |
 | Shortest path / dependency order | `Graphs.ShortestPath`, `TopologicalSort` |
@@ -282,7 +289,13 @@ src/
       SettingsStore.cs      per-user JSON settings: atomic save, corrupt file moved aside, defaults (net8)
     Control/
       PidController.cs      PID with clamping, anti-windup, derivative-on-measurement
+      PidTuning.cs          FOPDT model fit from a step test (two-point) + SIMC / lambda / Ziegler-Nichols / Cohen-Coon rules
+      StepResponse.cs       rise time, settling time, overshoot/undershoot, peak (interpolated, stepinfo-style)
       KalmanFilter1D.cs     scalar Kalman filter (predict/update, converging gain)
+      SlewRateLimiter.cs    rate-limited follower (separate rise/fall rates) for setpoint ramps
+      SchmittTrigger.cs     comparator with hysteresis (no chatter near the threshold)
+      Deadband.cs           deadband shaping + report-by-exception DeadbandFilter
+      FirstOrderLag.cs      time-constant low-pass, exact for any (irregular) update interval
     Diagnostics/
       Benchmark.cs          micro-benchmark harness (warmup, stats, bytes/op, compare-to-baseline)
       MetricsRegistry.cs    named counters / gauges / timers with percentile snapshots (thread-safe)
@@ -338,9 +351,12 @@ src/
       ProcessCapability.cs  Cp/Cpk/sigma-level/ppm (explicit overall vs within-subgroup sigma)
       ControlChart.cs       I-MR limits + run rules (beyond-limits / one-side / trend)
       MeasurementAgreement.cs  Bland-Altman bias + limits of agreement between two methods
+      GaugeRR.cs            crossed gauge R&R by ANOVA: variance components, %study var/%tolerance, ndc
     Signal/
       Convolution.cs        direct convolution + full cross-correlation
       Fft.cs                radix-2 + Bluestein FFT — O(n log n) for ANY length; forward/inverse
+      IirFilter.cs          Biquad (RBJ cookbook EQ shapes) + SOS cascade: Butterworth/Chebyshev I design, streaming, filtfilt
+      FirFilter.cs          windowed-sinc FIR design (firwin-compatible), Kaiser sizing, streaming + delay-aligned filtering
       FrequencyGrid.cs      FFT bin <-> frequency mapping; resolution bandwidth
       Goertzel.cs           single-frequency magnitude/phase (cheaper than a full transform)
       Hampel.cs             sliding-window outlier rejection (median ± k·MAD)
@@ -678,6 +694,9 @@ tests/
       ConfigBinderTests.cs
     Control/
       PidControllerTests.cs
+      PidTuningTests.cs     (FOPDT fit + tuning rules, closed-loop on a simulated plant)
+      StepResponseTests.cs  (vs analytic second-order / first-order formulas)
+      SignalConditioningTests.cs  (slew limiter, Schmitt trigger, deadband, first-order lag)
       KalmanFilter1DTests.cs
     Diagnostics/
       BenchmarkTests.cs
@@ -724,8 +743,10 @@ tests/
       ProcessCapabilityTests.cs
       ControlChartTests.cs
       MeasurementAgreementTests.cs
+      GaugeRRTests.cs       (GaugeRRReferenceData.cs from scripts/gen-gauge-references.py)
     Signal/
       ConvolutionTests.cs
+      FilterDesignTests.cs  (FilterReferenceData.cs from scripts/gen-filter-references.py, SciPy)
       FftTests.cs
       FrequencyGridTests.cs
       GoertzelTests.cs
@@ -997,6 +1018,8 @@ scripts/
   test.ps1                  build once + launch the test exe directly
   gen-distribution-references.py  regenerates the 40-digit distribution reference table (needs mpmath)
   gen-png-fixtures.py     regenerates the PNG decoder fixtures (needs Pillow, used as a cross-check)
+  gen-filter-references.py  regenerates the IIR/FIR filter references from SciPy (butter, cheby1, sosfiltfilt, firwin)
+  gen-gauge-references.py   regenerates the gauge R&R references (least-squares ANOVA + scipy F tails)
 samples/
   ConsumerSmoke/            a fresh EXTERNAL consumer (public API only); doubles as a usage example
                             and a misuse smoke test. Build + run its exe; exit 0 == all good.
