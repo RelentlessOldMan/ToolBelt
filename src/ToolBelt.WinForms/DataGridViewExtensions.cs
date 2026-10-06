@@ -100,7 +100,9 @@ namespace ToolBelt.WinForms
         /// <summary>
         /// Writes the grid as RFC 4180 CSV: an optional header row, then every row (the new-row placeholder excluded),
         /// visible columns only in display order unless <paramref name="visibleColumnsOnly"/> is false. Fields holding the
-        /// delimiter, a quote or a line break are quoted, with quotes doubled. Lines end in CRLF.
+        /// delimiter, a quote or a line break are quoted, with quotes doubled. Lines end in CRLF. Values are the cells'
+        /// formatted text, which means each row is unshared (WinForms' memory optimisation for big unbound grids) as it is
+        /// read; for 100k+ rows, export from the bound data source instead.
         /// </summary>
         public static void ToCsv(this DataGridView grid, TextWriter writer, bool includeHeaders = true, bool visibleColumnsOnly = true, char delimiter = ',')
         {

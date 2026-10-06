@@ -54,16 +54,31 @@ namespace ToolBelt.Wpf
         private readonly StringBuilder _pending = new StringBuilder();
         private readonly List<BindingFailure> _failures = new List<BindingFailure>();
         private readonly object _gate = new object();
-        private readonly SourceLevels _previousLevel;
         private bool _disposed;
+
+        // The trace level is process-wide: raise it once for the first listener and restore it after the last, so listeners
+        // disposed in any order never switch tracing off under one that is still attached.
+        private static readonly object LevelGate = new object();
+        private static int _activeListeners;
+        private static SourceLevels _originalLevel;
 
         public BindingFailureListener()
         {
-            _previousLevel = PresentationTraceSources.DataBindingSource.Switch.Level;
-            PresentationTraceSources.Refresh();
-            var source = PresentationTraceSources.DataBindingSource;
-            if (source.Switch.Level < SourceLevels.Warning || source.Switch.Level == SourceLevels.Off) source.Switch.Level = SourceLevels.Warning;
-            source.Listeners.Add(this);
+            lock (LevelGate)
+            {
+                var source = PresentationTraceSources.DataBindingSource;
+                if (_activeListeners++ == 0)
+                {
+                    // Refresh() turns binding tracing on when no debugger is attached, but re-reads config and resets the level:
+                    // remember the app's level first and re-apply it, adding Warning if it lacks it. (Flags, not ordering:
+                    // SourceLevels.All is -1, which a "< Warning" test would wrongly "raise" to Warning.)
+                    _originalLevel = source.Switch.Level;
+                    PresentationTraceSources.Refresh();
+                    source = PresentationTraceSources.DataBindingSource;
+                    source.Switch.Level = (_originalLevel & SourceLevels.Warning) == SourceLevels.Warning ? _originalLevel : _originalLevel | SourceLevels.Warning;
+                }
+                source.Listeners.Add(this);
+            }
         }
 
         /// <summary>Raised for each failure, on the thread that evaluated the binding (usually the UI thread).</summary>
@@ -119,8 +134,11 @@ namespace ToolBelt.Wpf
             if (disposing && !_disposed)
             {
                 _disposed = true;
-                PresentationTraceSources.DataBindingSource.Listeners.Remove(this);
-                PresentationTraceSources.DataBindingSource.Switch.Level = _previousLevel;
+                lock (LevelGate)
+                {
+                    PresentationTraceSources.DataBindingSource.Listeners.Remove(this);
+                    if (--_activeListeners == 0) PresentationTraceSources.DataBindingSource.Switch.Level = _originalLevel;
+                }
             }
             base.Dispose(disposing);
         }

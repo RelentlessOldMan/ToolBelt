@@ -31,7 +31,9 @@ namespace ToolBelt.Wpf
     /// allowed mid-edit, and so is a value still below a positive minimum, since more digits may follow — but not one
     /// already beyond a limit that more typing could only push further). Up/Down arrows and the mouse wheel (while
     /// focused) step by <c>Step</c>, clamped; on losing focus the text is clamped, rounded and reformatted. The decimal
-    /// separator comes from the TextBox's <c>Language</c>, so "1,5" works in a German UI. The rules are public pure
+    /// separator comes from the TextBox's <c>Language</c> (set <c>xml:lang</c> on the window), or from the user's current
+    /// culture when no Language was set anywhere — so "1,5" works on a German machine either way. An ASCII "-" is accepted
+    /// even where the culture's minus sign is U+2212. The rules are public pure
     /// functions (<see cref="IsAcceptablePartial"/>, <see cref="Coerce"/>, <see cref="StepValue"/>) and
     /// <see cref="StepBy"/>/<see cref="Normalize"/> drive a box from code (e.g. spin buttons).
     /// </summary>
@@ -68,6 +70,7 @@ namespace ToolBelt.Wpf
             if (rules is null) throw new ArgumentNullException(nameof(rules));
             if (text.Length == 0) return true;
             NumberFormatInfo nf = rules.Format;
+            text = AsciiMinus(text, nf);
             string neg = nf.NegativeSign, sep = nf.NumberDecimalSeparator;
 
             int i = 0;
@@ -114,7 +117,7 @@ namespace ToolBelt.Wpf
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
             if (rules is null) throw new ArgumentNullException(nameof(rules));
-            if (!double.TryParse(text, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, rules.Format, out double v))
+            if (!double.TryParse(AsciiMinus(text, rules.Format), NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, rules.Format, out double v))
                 return null;
             return Format(Clamp(Math.Round(v, Math.Max(0, rules.DecimalPlaces), MidpointRounding.AwayFromZero), rules), rules);
         }
@@ -128,7 +131,7 @@ namespace ToolBelt.Wpf
             if (text is null) throw new ArgumentNullException(nameof(text));
             if (rules is null) throw new ArgumentNullException(nameof(rules));
             if (!(step > 0) || double.IsInfinity(step)) throw new ArgumentOutOfRangeException(nameof(step), step, "Step must be positive.");
-            double v = double.TryParse(text, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, rules.Format, out double parsed)
+            double v = double.TryParse(AsciiMinus(text, rules.Format), NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, rules.Format, out double parsed)
                 ? parsed + Math.Sign(direction) * step
                 : 0;
             v = Math.Round(v, Math.Max(0, rules.DecimalPlaces), MidpointRounding.AwayFromZero);
@@ -158,8 +161,14 @@ namespace ToolBelt.Wpf
         {
             if (box is null) throw new ArgumentNullException(nameof(box));
             CultureInfo culture;
-            try { culture = box.Language.GetSpecificCulture(); }
-            catch (InvalidOperationException) { culture = CultureInfo.CurrentCulture; }
+            // WPF's default Language is en-US whatever the OS culture; only honour it when someone actually set it.
+            bool languageSet = DependencyPropertyHelper.GetValueSource(box, FrameworkElement.LanguageProperty).BaseValueSource != BaseValueSource.Default;
+            if (!languageSet) culture = CultureInfo.CurrentCulture;
+            else
+            {
+                try { culture = box.Language.GetSpecificCulture(); }
+                catch (InvalidOperationException) { culture = CultureInfo.CurrentCulture; }
+            }
             return new NumericInputRules
             {
                 Minimum = GetMinimum(box),
@@ -209,13 +218,15 @@ namespace ToolBelt.Wpf
             string? pasted = e.DataObject.GetDataPresent(DataFormats.UnicodeText)
                 ? e.DataObject.GetData(DataFormats.UnicodeText) as string
                 : null;
-            if (pasted is null || !IsAcceptablePartial(Proposed(box, pasted.Trim()), RulesFor(box)))
-                e.CancelCommand();
+            if (pasted is null) { e.CancelCommand(); return; }
+            string trimmed = pasted.Trim();
+            if (!IsAcceptablePartial(Proposed(box, trimmed), RulesFor(box))) { e.CancelCommand(); return; }
+            if (trimmed != pasted) e.DataObject = new DataObject(DataFormats.UnicodeText, trimmed);   // paste what was checked
         }
 
         private static void OnPreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (!(sender is TextBox box)) return;
+            if (!(sender is TextBox box) || box.IsReadOnly) return;
             switch (e.Key)
             {
                 case Key.Up: StepBy(box, +1); e.Handled = true; break;
@@ -226,7 +237,7 @@ namespace ToolBelt.Wpf
 
         private static void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
-            if (sender is TextBox box && box.IsKeyboardFocusWithin && e.Delta != 0)
+            if (sender is TextBox box && !box.IsReadOnly && box.IsKeyboardFocusWithin && e.Delta != 0)
             {
                 StepBy(box, Math.Sign(e.Delta));
                 e.Handled = true;
@@ -251,7 +262,11 @@ namespace ToolBelt.Wpf
             string t = text.EndsWith(nf.NumberDecimalSeparator, StringComparison.Ordinal)
                 ? text.Substring(0, text.Length - nf.NumberDecimalSeparator.Length)
                 : text;
-            return double.TryParse(t, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, nf, out double v) ? v : 0;
+            return double.TryParse(AsciiMinus(t, nf), NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, nf, out double v) ? v : 0;
         }
+
+        // Cultures whose minus sign is U+2212 (sv-SE, nb-NO, … under ICU) still get "-" from the keyboard.
+        private static string AsciiMinus(string text, NumberFormatInfo nf)
+            => nf.NegativeSign != "-" && text.StartsWith("-", StringComparison.Ordinal) ? nf.NegativeSign + text.Substring(1) : text;
     }
 }

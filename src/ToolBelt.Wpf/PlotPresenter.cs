@@ -107,10 +107,15 @@ namespace ToolBelt.Wpf
             _fitPending = false;
             ImageSource? src = Source;
             if (src is null || ActualWidth <= 0 || ActualHeight <= 0) { _fitPending = src != null; return; }
+            SetView(ClampedFit(src));
+        }
+
+        // The fit matrix with its scale clamped to [MinZoom, MaxZoom] — shared by FitToView and the render-time auto-fit.
+        private Matrix ClampedFit(ImageSource src)
+        {
             Matrix fit = FitMatrix(new Size(src.Width, src.Height), new Size(ActualWidth, ActualHeight));
             double s = Clamp(fit.M11, MinZoom, MaxZoom);
-            if (s != fit.M11) fit = FitAtScale(new Size(src.Width, src.Height), new Size(ActualWidth, ActualHeight), s);
-            SetView(fit);
+            return s != fit.M11 ? FitAtScale(new Size(src.Width, src.Height), new Size(ActualWidth, ActualHeight), s) : fit;
         }
 
         /// <summary>Shows the figure at 1:1 from the top-left corner.</summary>
@@ -227,11 +232,13 @@ namespace ToolBelt.Wpf
 
         private void FitToViewSilently()
         {
-            // Called from OnRender: compute the fit without invalidating the visual we are drawing.
+            // Called from OnRender: compute the fit without invalidating the visual we are drawing, and tell listeners
+            // (overlays, cursor readouts) after the render pass rather than from inside it.
             ImageSource? src = Source;
             if (src is null || ActualWidth <= 0 || ActualHeight <= 0) return;
-            _view = FitMatrix(new Size(src.Width, src.Height), new Size(ActualWidth, ActualHeight));
+            _view = ClampedFit(src);
             _fitPending = false;
+            Dispatcher.BeginInvoke(new Action(() => ViewChanged?.Invoke(this, EventArgs.Empty)), System.Windows.Threading.DispatcherPriority.Render);
         }
 
         private void SetView(Matrix m)

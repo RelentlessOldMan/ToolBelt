@@ -165,12 +165,6 @@ namespace ToolBelt.WinForms
             if (!_userAdjusted) FitToView();
         }
 
-        protected override void OnMouseEnter(EventArgs e)
-        {
-            base.OnMouseEnter(e);
-            if (CanFocus) Focus(); // wheel messages go to the focused control
-        }
-
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
@@ -181,6 +175,9 @@ namespace ToolBelt.WinForms
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
+            // Focus on click, not on hover: stealing focus while the pointer merely crosses the plot would interrupt typing
+            // elsewhere. (Windows 10+ delivers the wheel to the window under the cursor anyway.)
+            if (CanFocus) Focus();
             if (e.Button == MouseButtons.Left) { _dragFrom = e.Location; Capture = true; }
         }
 

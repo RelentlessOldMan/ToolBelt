@@ -13,8 +13,9 @@ namespace ToolBelt.Wpf
     /// <c>&lt;ListBox tb:FileDropBehavior.Command="{Binding ImportCommand}" tb:FileDropBehavior.Extensions=".csv;.txt"/&gt;</c>.
     /// While dragging, the cursor shows Copy only when the drop holds at least one acceptable file and the command
     /// can execute them, otherwise None — so users see before releasing whether a drop will be taken. Setting the
-    /// command also sets <c>AllowDrop</c>; clearing it detaches everything. The tunnelling (Preview) drag events are
-    /// used, so controls with their own drag handling (a <c>TextBox</c> accepts dragged text) do not swallow files.
+    /// command also sets <c>AllowDrop</c>; clearing it detaches everything and restores the previous <c>AllowDrop</c>. The
+    /// tunnelling (Preview) drag events are used, so controls with their own drag handling (a <c>TextBox</c> accepts dragged
+    /// text) do not swallow files — and only drags carrying files are handled, so that text drag-and-drop keeps working.
     /// No dependency on an external behaviors package.
     /// </summary>
     public static class FileDropBehavior
@@ -70,14 +71,24 @@ namespace ToolBelt.Wpf
             return set;
         }
 
+        // AllowDrop as it was before the behavior turned it on, restored when the command is cleared.
+        private static readonly DependencyProperty PriorAllowDropProperty =
+            DependencyProperty.RegisterAttached("PriorAllowDrop", typeof(bool?), typeof(FileDropBehavior), new PropertyMetadata(null));
+
         private static void OnCommandChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             if (!(d is UIElement element)) return;
             element.PreviewDragEnter -= OnDragOver;
             element.PreviewDragOver -= OnDragOver;
             element.PreviewDrop -= OnDrop;
+            if (!(e.NewValue is ICommand) && element.GetValue(PriorAllowDropProperty) is bool prior)
+            {
+                element.AllowDrop = prior;
+                element.ClearValue(PriorAllowDropProperty);
+            }
             if (e.NewValue is ICommand)
             {
+                if (element.GetValue(PriorAllowDropProperty) is null) element.SetValue(PriorAllowDropProperty, element.AllowDrop);
                 element.AllowDrop = true;
                 element.PreviewDragEnter += OnDragOver;
                 element.PreviewDragOver += OnDragOver;
@@ -88,6 +99,7 @@ namespace ToolBelt.Wpf
         private static void OnDragOver(object sender, DragEventArgs e)
         {
             if (!(sender is DependencyObject d)) return;
+            if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;      // text and other drags: leave them to the control
             e.Effects = EffectsFor(e.Data, GetCommand(d), GetExtensions(d));
             e.Handled = true;
         }

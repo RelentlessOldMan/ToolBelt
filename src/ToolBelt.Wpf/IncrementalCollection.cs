@@ -73,8 +73,20 @@ namespace ToolBelt.Wpf
         {
             if (_inflight != null && !_inflight.IsCompleted) return _inflight;
             if (!HasMoreItems) return Task.FromResult(0);
-            _inflight = LoadCoreAsync(_generation, cancellationToken);
-            return _inflight;
+            // Publish the in-flight task before the loader runs: a loader that completes synchronously adds its items (and
+            // raises CollectionChanged) before LoadCoreAsync returns, and a handler calling LoadMoreAsync from there must get
+            // this load, not start a second one over the same offset.
+            var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _inflight = tcs.Task;
+            _ = Complete(LoadCoreAsync(_generation, cancellationToken), tcs);
+            return tcs.Task;
+        }
+
+        private static async Task Complete(Task<int> load, TaskCompletionSource<int> tcs)
+        {
+            try { tcs.TrySetResult(await load.ConfigureAwait(false)); }
+            catch (OperationCanceledException oce) { tcs.TrySetCanceled(oce.CancellationToken); }
+            catch (Exception ex) { tcs.TrySetException(ex); }
         }
 
         /// <summary>Discards everything (including any page in flight) and loads the first page again.</summary>
@@ -115,6 +127,10 @@ namespace ToolBelt.Wpf
             {
                 LastError = ex;
                 throw;
+            }
+            catch (Exception) when (generation != _generation)
+            {
+                return 0;                                            // a page nobody wants any more failed: drop it like its data
             }
             finally
             {
