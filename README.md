@@ -394,7 +394,7 @@ src/
       StreamWrappers.cs     CountingStream (bytes read/written) and TeeStream (duplicate reads or writes)
       TempFile.cs           disposable temp file & directory scopes
       ZipUtils.cs           zip create/extract/list/read; extract guarded against Zip-Slip
-      TarUtils.cs           tar/.tar.gz create/extract/list; traversal and link escapes rejected (net8)
+      TarUtils.cs           tar/.tar.gz create/extract/list; traversal rejected, links never created (net8)
       DirectoryUtils.cs     tree copy (overwrite/filter policies), delete w/ read-only + lock retry, never follows links
       ChecksumManifest.cs   SHA-256 tree manifest in sha256sum format: create/save/verify/compare directories
       FileWatcher.cs        debounced, coalescing FileSystemWatcher; wait-until-stable; rescans on overflow/restart/dir moves
@@ -407,7 +407,7 @@ src/
       ConfidenceInterval.cs  mean CI (Student-t, or large-sample z) / variance & SD (chi-square) / Wilson proportion
       DeterministicRandom.cs  seeded fixed-algorithm PRNG (xoshiro256**, stable across runtimes)
       Differentiation.cs    numerical derivative (uniform/uneven samples, function, Richardson)
-      Distributions.cs      normal/log-normal/exponential/uniform/Student-t/chi-square/F PDF/CDF/quantile (<1e-13 rel vs 40-digit refs)
+      Distributions.cs      normal/log-normal/exponential/uniform/Student-t/chi-square/F PDF/CDF/quantile + direct upper tails (<1e-13 rel vs 40-digit refs)
       EmpiricalDistribution.cs  empirical CDF step function (value<->percentile lookups)
       EngineeringNotation.cs  SI-prefix format + parse (yocto..yotta, round-trip)
       ExponentialMovingAverage.cs  EMA smoothing (alpha)
@@ -439,7 +439,7 @@ src/
       RootFinding.cs        bisection / Brent / Newton / secant (explicit convergence result)
       Rounding.cs           round to multiple / significant digits
       RunningStatistics.cs  Welford online mean/variance/stddev/min/max
-      SpecialFunctions.cs   gamma / log-gamma / erf / regularized incomplete gamma & beta
+      SpecialFunctions.cs   gamma / log-gamma / erf / erfc / regularized incomplete gamma (P and Q direct) & beta
       ToleranceCheck.cs     evaluate a series against limits (violations, worst deviation)
       Trend.cs              Mann-Kendall trend test + Sen's slope (robust)
       UnitConvert.cs        length/mass/time/angle/data + temperature conversions (+ parse)
