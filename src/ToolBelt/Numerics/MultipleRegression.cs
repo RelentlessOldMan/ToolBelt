@@ -128,8 +128,13 @@ namespace ToolBelt.Numerics
             var b = new double[n];
             for (int i = 0; i < n; i++) b[i] = y[i];
 
+            // Each column's own length: reflections are orthogonal, so |R_cc| compared with it measures how much of the column
+            // is independent of the earlier ones, whatever its units (a global threshold flags 1e-7-scale predictors next to 1e6).
+            var columnNorm = new double[p];
+            for (int c = 0; c < p; c++)
+                for (int i = 0; i < n; i++) columnNorm[c] = Hypot(columnNorm[c], a[i, c]);
+
             // Householder QR in place: R in the upper triangle, Qᵀy accumulated into b.
-            double maxDiag = 0;
             var rdiag = new double[p];
             for (int c = 0; c < p; c++)
             {
@@ -151,10 +156,9 @@ namespace ToolBelt.Numerics
                 sb = -sb / a[c, c];
                 for (int i = c; i < n; i++) b[i] += sb * a[i, c];
                 rdiag[c] = -norm;
-                maxDiag = Math.Max(maxDiag, Math.Abs(norm));
             }
             for (int c = 0; c < p; c++)
-                if (Math.Abs(rdiag[c]) <= 1e-12 * maxDiag)
+                if (Math.Abs(rdiag[c]) <= 1e-10 * columnNorm[c])
                     throw new InvalidOperationException("The predictors are collinear (or a column is constant alongside the intercept); coefficients are not identifiable.");
 
             // R (p×p): diagonal rdiag, strict upper triangle in a.

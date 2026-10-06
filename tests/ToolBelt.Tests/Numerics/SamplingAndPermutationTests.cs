@@ -104,7 +104,7 @@ namespace ToolBelt.Tests.Numerics
             var b = Enumerable.Range(0, 30).Select(i => (double)i).ToArray();
             var r = PermutationTest.TwoSample(a, b, new DeterministicRandom(5), permutations: 999);
             Check.False(r.IsExact);
-            Check.Close(1.0 / 1000, r.PValue, 1e-15);                                 // (0 + 1) / (999 + 1)
+            Check.Close(2.0 / 1000, r.PValue, 1e-15);                                 // two-sided = 2 × (0 + 1) / (999 + 1)
             double Median(System.Collections.Generic.IReadOnlyList<double> v) { var s = v.OrderBy(t => t).ToArray(); return s[s.Length / 2]; }
             var med = PermutationTest.TwoSample(a, b, new DeterministicRandom(5), 499, (x, y) => Median(x) - Median(y));
             Check.True(med.IsSignificant(0.01));

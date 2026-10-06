@@ -63,7 +63,8 @@ namespace ToolBelt.Numerics
         /// <summary>Adds a value. NaN is rejected (it would corrupt the marker ordering).</summary>
         public void Add(double value)
         {
-            if (double.IsNaN(value)) throw new ArgumentException("NaN cannot be added to a quantile estimate.", nameof(value));
+            // ±∞ would turn the marker interpolation into ∞ − ∞ = NaN and poison every later estimate.
+            if (double.IsNaN(value) || double.IsInfinity(value)) throw new ArgumentException("Only finite values can be added to a quantile estimate.", nameof(value));
             Count++;
             if (Count <= 5)
             {

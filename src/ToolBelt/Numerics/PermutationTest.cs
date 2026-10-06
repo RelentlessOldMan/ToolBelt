@@ -7,7 +7,7 @@ namespace ToolBelt.Numerics
     /// <summary>Which departure from the null hypothesis a test looks for.</summary>
     public enum Alternative
     {
-        /// <summary>Either direction: |statistic| at least as large as observed.</summary>
+        /// <summary>Either direction: twice the smaller one-sided p-value (works for statistics not centred on zero).</summary>
         TwoSided,
         /// <summary>Statistic at least as large as observed.</summary>
         Greater,
@@ -162,20 +162,26 @@ namespace ToolBelt.Numerics
 
         private static PermutationResult Result(double observed, List<double> nulls, bool exact, Alternative alternative)
         {
-            // A small tolerance so rearrangements equal to the observed value up to rounding count as "as extreme".
-            double tol = 1e-12 * Math.Max(1, Math.Abs(observed));
-            int extreme = 0;
+            // A tolerance relative to the statistic's own scale, so rearrangements equal to the observed value up to rounding
+            // count as "as extreme" — whatever the units (an absolute 1e-12 would call everything a tie for data near 1e-13).
+            double scale = Math.Abs(observed);
+            foreach (double s in nulls) scale = Math.Max(scale, Math.Abs(s));
+            double tol = 1e-12 * scale;
+            int greater = 0, less = 0;
             foreach (double s in nulls)
             {
-                bool hit = alternative switch
-                {
-                    Alternative.Greater => s >= observed - tol,
-                    Alternative.Less => s <= observed + tol,
-                    _ => Math.Abs(s) >= Math.Abs(observed) - tol,
-                };
-                if (hit) extreme++;
+                if (s >= observed - tol) greater++;
+                if (s <= observed + tol) less++;
             }
-            double p = exact ? (double)extreme / nulls.Count : (extreme + 1.0) / (nulls.Count + 1.0);
+            double Tail(int count) => exact ? (double)count / nulls.Count : (count + 1.0) / (nulls.Count + 1.0);
+            // Two-sided: twice the smaller tail. Equals the usual |S| ≥ |observed| rule for a null symmetric about zero (mean
+            // difference) but stays correct for statistics centred elsewhere (a variance ratio is centred on 1).
+            double p = alternative switch
+            {
+                Alternative.Greater => Tail(greater),
+                Alternative.Less => Tail(less),
+                _ => 2 * Math.Min(Tail(greater), Tail(less)),
+            };
             return new PermutationResult(observed, Math.Min(1, p), nulls.Count, exact, nulls.ToArray());
         }
 

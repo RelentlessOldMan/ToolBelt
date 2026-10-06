@@ -1,4 +1,4 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Numerics/Distributions.cs (accurate t / chi-square / F / normal tails).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -142,8 +142,8 @@ namespace ToolBelt.Numerics
             if (f == 0) return new TestResult(0, 0, d1, d2);
 
             // Each tail from its own incomplete-beta argument, so tiny p-values keep their precision.
-            double lower = RegularizedBetaI(d1 * f / (d1 * f + d2), d1 / 2, d2 / 2);
-            double upper = RegularizedBetaI(d2 / (d1 * f + d2), d2 / 2, d1 / 2);
+            double lower = Distributions.FCdf(f, d1, d2);
+            double upper = Distributions.FSurvival(f, d1, d2);
             double p = Math.Min(1, 2 * Math.Min(lower, upper));
             return new TestResult(f, p, d1, d2);
         }
@@ -308,7 +308,7 @@ namespace ToolBelt.Numerics
 
             double z = (Math.Abs(u1 - meanU) - 0.5) / sd; // continuity-corrected
             if (z < 0) z = 0;
-            double pValue = 2 * (1 - NormalCdf(z));
+            double pValue = 2 * Distributions.NormalSurvival(z);                // direct tail: tiny p-values keep their precision
             if (pValue > 1) pValue = 1;
             if (pValue < 0) pValue = 0;
             return new TestResult(u, pValue, double.NaN);
@@ -344,118 +344,47 @@ namespace ToolBelt.Numerics
             if (x.Count < min) throw new ArgumentException($"Need at least {min} value(s).", name);
         }
 
-        // Two-sided Student-t p-value: P(|T| > |t|) = I_{df/(df+t^2)}(df/2, 1/2).
+        // Two-sided Student-t p-value P(|T| > |t|), from the directly computed tail (no 1 − x cancellation).
         private static double TwoSidedTP(double t, double df)
-            => RegularizedBetaI(df / (df + t * t), df / 2.0, 0.5);
-
-        // Chi-square upper-tail p-value: Q(df/2, x/2).
-        private static double ChiSquareUpperP(double x, double df)
-            => x <= 0 ? 1.0 : 1.0 - RegularizedGammaP(df / 2.0, x / 2.0);
-
-        // Standard normal CDF via the regularized incomplete gamma (erf), accurate to ~1e-12.
-        private static double NormalCdf(double z)
         {
-            double p = RegularizedGammaP(0.5, z * z / 2.0);
-            return z >= 0 ? 0.5 * (1 + p) : 0.5 * (1 - p);
+            if (double.IsNaN(t)) return double.NaN;
+            if (double.IsInfinity(t)) return 0;
+            return Math.Min(1, 2 * Distributions.StudentTSurvival(Math.Abs(t), df));
         }
 
-        // Kolmogorov distribution tail Q_KS(λ) = 2 Σ (-1)^{j-1} e^{-2 j² λ²}.
+        // Chi-square upper-tail p-value Q(df/2, x/2), computed directly.
+        private static double ChiSquareUpperP(double x, double df) => x <= 0 ? 1.0 : Distributions.ChiSquareSurvival(x, df);
+
+        // Kolmogorov distribution tail Q_KS(λ) = 1 − K(λ). The alternating series 2Σ(−1)^(j−1)e^(−2j²λ²) converges fast
+        // only for larger λ; for small λ use the theta-function form K(λ) = √(2π)/λ · Σ e^(−(2j−1)²π²/(8λ²)).
         private static double KolmogorovQ(double lambda)
         {
+            if (double.IsNaN(lambda)) return double.NaN;
             if (lambda <= 0) return 1.0;
-            double sum = 0, sign = 1;
+            if (lambda < 1.18)
+            {
+                double y = Math.Exp(-Math.PI * Math.PI / (8 * lambda * lambda));
+                if (y == 0) return 1.0;
+                // Σ_{j≥1} y^((2j−1)²): exponents 1, 9, 25, 49, … (converges in a few terms for λ < 1.18).
+                double sum = 0;
+                for (int j = 1; j <= 50; j++)
+                {
+                    double term = Math.Pow(y, (2 * j - 1) * (2 * j - 1));
+                    sum += term;
+                    if (term <= sum * 1e-17) break;
+                }
+                double k = Math.Sqrt(2 * Math.PI) / lambda * sum;
+                return Math.Max(0, Math.Min(1, 1 - k));
+            }
+            double s = 0, sign = 1;
             for (int j = 1; j <= 100; j++)
             {
-                double term = Math.Exp(-2.0 * j * j * lambda * lambda);
-                sum += sign * term;
+                double termA = Math.Exp(-2.0 * j * j * lambda * lambda);
+                s += sign * termA;
                 sign = -sign;
-                if (term < 1e-14) break;
+                if (termA < 1e-17) break;
             }
-            double q = 2 * sum;
-            return q < 0 ? 0 : (q > 1 ? 1 : q);
-        }
-
-        // ---- special functions, duplicated privately (no leaf-to-leaf dependency; see SpecialFunctions.cs) ----
-
-        private const double Tiny = 1e-300;
-        private const double Eps = 1e-15;
-        private const int MaxIter = 300;
-
-        private static readonly double[] LanczosG =
-        {
-            0.99999999999980993, 676.5203681218851, -1259.1392167224028,
-            771.32342877765313, -176.61502916214059, 12.507343278686905,
-            -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
-        };
-
-        private static double LnGamma(double x)
-        {
-            double a = LanczosG[0];
-            double t = x + 6.5;
-            double xm1 = x - 1;
-            for (int i = 1; i < LanczosG.Length; i++) a += LanczosG[i] / (xm1 + i);
-            return 0.5 * Math.Log(2 * Math.PI) + (xm1 + 0.5) * Math.Log(t) - t + Math.Log(a);
-        }
-
-        private static double RegularizedGammaP(double a, double x)
-        {
-            if (x <= 0) return 0.0;
-            if (x < a + 1.0)
-            {
-                double ap = a, sum = 1.0 / a, del = 1.0 / a;
-                for (int n = 0; n < MaxIter; n++)
-                {
-                    ap += 1.0; del *= x / ap; sum += del;
-                    if (Math.Abs(del) < Math.Abs(sum) * Eps) break;
-                }
-                return sum * Math.Exp(-x + a * Math.Log(x) - LnGamma(a));
-            }
-            double b = x + 1.0 - a, c = 1.0 / Tiny, d = 1.0 / b, h = d;
-            for (int i = 1; i < MaxIter; i++)
-            {
-                double an = -i * (i - a);
-                b += 2.0;
-                d = an * d + b; if (Math.Abs(d) < Tiny) d = Tiny;
-                c = b + an / c; if (Math.Abs(c) < Tiny) c = Tiny;
-                d = 1.0 / d;
-                double del = d * c; h *= del;
-                if (Math.Abs(del - 1.0) < Eps) break;
-            }
-            return 1.0 - Math.Exp(-x + a * Math.Log(x) - LnGamma(a)) * h;
-        }
-
-        private static double RegularizedBetaI(double x, double a, double b)
-        {
-            if (x <= 0) return 0.0;
-            if (x >= 1) return 1.0;
-            double front = Math.Exp(LnGamma(a + b) - LnGamma(a) - LnGamma(b) + a * Math.Log(x) + b * Math.Log(1 - x));
-            if (x < (a + 1.0) / (a + b + 2.0))
-                return front * BetaCf(x, a, b) / a;
-            return 1.0 - front * BetaCf(1 - x, b, a) / b;
-        }
-
-        private static double BetaCf(double x, double a, double b)
-        {
-            double qab = a + b, qap = a + 1.0, qam = a - 1.0;
-            double c = 1.0, d = 1.0 - qab * x / qap;
-            if (Math.Abs(d) < Tiny) d = Tiny;
-            d = 1.0 / d;
-            double h = d;
-            for (int m = 1; m <= MaxIter; m++)
-            {
-                double m2 = 2.0 * m;
-                double aa = m * (b - m) * x / ((qam + m2) * (a + m2));
-                d = 1.0 + aa * d; if (Math.Abs(d) < Tiny) d = Tiny;
-                c = 1.0 + aa / c; if (Math.Abs(c) < Tiny) c = Tiny;
-                d = 1.0 / d; h *= d * c;
-                aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
-                d = 1.0 + aa * d; if (Math.Abs(d) < Tiny) d = Tiny;
-                c = 1.0 + aa / c; if (Math.Abs(c) < Tiny) c = Tiny;
-                d = 1.0 / d;
-                double del = d * c; h *= del;
-                if (Math.Abs(del - 1.0) < Eps) break;
-            }
-            return h;
+            return Math.Max(0, Math.Min(1, 2 * s));
         }
     }
 }

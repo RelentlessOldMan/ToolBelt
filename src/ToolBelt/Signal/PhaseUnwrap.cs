@@ -11,23 +11,30 @@ namespace ToolBelt.Signal
     public static class PhaseUnwrap
     {
         /// <summary>
-        /// Unwraps <paramref name="phase"/> (radians) so that successive differences never exceed
-        /// <paramref name="tolerance"/> in magnitude, adding whole turns of 2π where they would.
+        /// Unwraps <paramref name="phase"/> (radians): wherever a successive difference exceeds <paramref name="tolerance"/>
+        /// in magnitude, whole turns of 2π are added or removed (the fewest that bring it within the tolerance). With the
+        /// default tolerance π every resulting jump is at most π; a tolerance below π can't always be met by whole turns,
+        /// so jumps up to 2π − tolerance remain. Phases must be finite.
         /// </summary>
         public static double[] Unwrap(double[] phase, double tolerance = Math.PI)
         {
             if (phase is null) throw new ArgumentNullException(nameof(phase));
-            if (tolerance <= 0) throw new ArgumentOutOfRangeException(nameof(tolerance), tolerance, "Tolerance must be positive.");
+            if (!(tolerance > 0) || double.IsInfinity(tolerance)) throw new ArgumentOutOfRangeException(nameof(tolerance), tolerance, "Tolerance must be positive and finite.");
             if (phase.Length == 0) return Array.Empty<double>();
 
+            const double Turn = 2 * Math.PI;
             var result = new double[phase.Length];
             result[0] = phase[0];
             double correction = 0;
-            for (int i = 1; i < phase.Length; i++)
+            for (int i = 0; i < phase.Length; i++)
             {
+                if (double.IsNaN(phase[i]) || double.IsInfinity(phase[i]))
+                    throw new ArgumentException($"Phase[{i}] is {phase[i]}; phases must be finite.", nameof(phase));
+                if (i == 0) continue;
                 double delta = phase[i] - phase[i - 1];
-                while (delta > tolerance) { correction -= 2 * Math.PI; delta -= 2 * Math.PI; }
-                while (delta < -tolerance) { correction += 2 * Math.PI; delta += 2 * Math.PI; }
+                // Count the turns directly: a loop of `delta -= 2π` never ends when delta is huge.
+                if (delta > tolerance) correction -= Math.Ceiling((delta - tolerance) / Turn) * Turn;
+                else if (delta < -tolerance) correction += Math.Ceiling((-delta - tolerance) / Turn) * Turn;
                 result[i] = phase[i] + correction;
             }
             return result;

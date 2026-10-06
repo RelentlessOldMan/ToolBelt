@@ -41,6 +41,16 @@ namespace ToolBelt.Numerics
             return StandardNormalCdf((x - mean) / standardDeviation);
         }
 
+        /// <summary>
+        /// Upper tail P(X &gt; x), computed directly so tiny tail probabilities keep full relative precision (1 − Cdf rounds
+        /// them to 0 below about 1e-16). Use it for p-values. The other distributions have matching <c>…Survival</c> methods.
+        /// </summary>
+        public static double NormalSurvival(double x, double mean = 0, double standardDeviation = 1)
+        {
+            RequirePositive(standardDeviation, nameof(standardDeviation));
+            return StandardNormalCdf(-(x - mean) / standardDeviation);
+        }
+
         /// <summary>The inverse normal CDF (quantile) for a probability in (0, 1).</summary>
         public static double NormalQuantile(double p, double mean = 0, double standardDeviation = 1)
         {
@@ -126,6 +136,15 @@ namespace ToolBelt.Numerics
             return x >= 0 ? 0.5 + central : tail;
         }
 
+        /// <summary>Upper tail P(T &gt; x), computed directly (full precision for tiny tails).</summary>
+        public static double StudentTSurvival(double x, double degreesOfFreedom)
+        {
+            double v = RequireDf(degreesOfFreedom, nameof(degreesOfFreedom));
+            if (double.IsNaN(x)) return double.NaN;
+            var (tail, central) = TMasses(Math.Abs(x), v);
+            return x >= 0 ? tail : 0.5 + central;
+        }
+
         /// <summary>The t quantile, e.g. <c>StudentTQuantile(0.975, n − 1)</c> for a two-sided 95% interval.</summary>
         public static double StudentTQuantile(double p, double degreesOfFreedom)
         {
@@ -162,6 +181,16 @@ namespace ToolBelt.Numerics
             return p;
         }
 
+        /// <summary>Upper tail P(X &gt; x), computed directly (full precision for tiny tails).</summary>
+        public static double ChiSquareSurvival(double x, double degreesOfFreedom)
+        {
+            double k = RequireDf(degreesOfFreedom, nameof(degreesOfFreedom));
+            if (double.IsNaN(x)) return double.NaN;
+            if (x <= 0) return 1;
+            GammaPQ(k / 2, x / 2, out _, out double q);
+            return q;
+        }
+
         /// <summary>The chi-square quantile, e.g. the 95% critical value <c>ChiSquareQuantile(0.95, k)</c>.</summary>
         public static double ChiSquareQuantile(double p, double degreesOfFreedom)
         {
@@ -191,6 +220,15 @@ namespace ToolBelt.Numerics
             double d1 = RequireDf(numeratorDf, nameof(numeratorDf)), d2 = RequireDf(denominatorDf, nameof(denominatorDf));
             if (x <= 0) return 0;
             return FMasses(x, d1, d2).Lower;
+        }
+
+        /// <summary>Upper tail P(F &gt; x), computed directly (full precision for tiny tails).</summary>
+        public static double FSurvival(double x, double numeratorDf, double denominatorDf)
+        {
+            double d1 = RequireDf(numeratorDf, nameof(numeratorDf)), d2 = RequireDf(denominatorDf, nameof(denominatorDf));
+            if (double.IsNaN(x)) return double.NaN;
+            if (x <= 0) return 1;
+            return FMasses(x, d1, d2).Upper;
         }
 
         /// <summary>The F quantile, e.g. the critical value <c>FQuantile(0.95, d1, d2)</c>.</summary>

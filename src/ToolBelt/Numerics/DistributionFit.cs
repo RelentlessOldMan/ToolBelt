@@ -172,7 +172,11 @@ namespace ToolBelt.Numerics
                 dg = s2 / s0 - m * m + 1 / (k * k);
                 return m - 1 / k - meanLy;
             }
-            double lo = 1e-3, hi = 1e3, kk = 1.2 / Math.Sqrt(Math.Max(1e-12, ly.Select(l => (l - meanLy) * (l - meanLy)).Average())); // ≈ π/(√6·sd(ln x))
+            // Bracket the root of the shape equation; very tight data (CV ≲ 0.1%) has shape far above 1000.
+            double lo = 1e-3, hi = 1e3;
+            while (G(hi, out _) < 0 && hi < 1e12) { lo = hi; hi *= 10; }
+            while (G(lo, out _) > 0 && lo > 1e-12) { hi = lo; lo /= 10; }
+            double kk = 1.2 / Math.Sqrt(Math.Max(1e-12, ly.Select(l => (l - meanLy) * (l - meanLy)).Average())); // ≈ π/(√6·sd(ln x))
             kk = Math.Min(Math.Max(kk, lo * 2), hi / 2);
             for (int i = 0; i < 200; i++)
             {

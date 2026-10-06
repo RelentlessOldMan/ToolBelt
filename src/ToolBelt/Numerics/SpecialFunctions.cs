@@ -14,7 +14,8 @@ namespace ToolBelt.Numerics
     {
         private const double Tiny = 1e-300;
         private const double Epsilon = 1e-15;
-        private const int MaxIterations = 300;
+        // Series/continued-fraction terms needed grow like √a, so large shape parameters need far more than a few hundred.
+        private const int MaxIterations = 100_000;
 
         // Lanczos g = 7, n = 9 approximation coefficients.
         private static readonly double[] LanczosG =
@@ -60,8 +61,13 @@ namespace ToolBelt.Numerics
             return x < 0 ? -p : p;
         }
 
-        /// <summary>The complementary error function erfc(x) = 1 - erf(x).</summary>
-        public static double Erfc(double x) => 1.0 - Erf(x);
+        /// <summary>The complementary error function erfc(x) = 1 − erf(x), computed directly (no cancellation for large x).</summary>
+        public static double Erfc(double x)
+        {
+            if (double.IsNaN(x)) return double.NaN;
+            if (x < 0) return 1.0 + RegularizedGammaP(0.5, x * x);
+            return RegularizedGammaQ(0.5, x * x);
+        }
 
         /// <summary>
         /// The regularized lower incomplete gamma function P(a, x) = γ(a, x) / Γ(a), for a &gt; 0, x ≥ 0.
@@ -69,16 +75,34 @@ namespace ToolBelt.Numerics
         /// </summary>
         public static double RegularizedGammaP(double a, double x)
         {
+            GammaPQ(a, x, out double p, out _);
+            return p;
+        }
+
+        /// <summary>
+        /// The regularized upper incomplete gamma function Q(a, x) = 1 − P(a, x), computed directly so small upper tails
+        /// (chi-square p-values) keep full relative precision.
+        /// </summary>
+        public static double RegularizedGammaQ(double a, double x)
+        {
+            GammaPQ(a, x, out _, out double q);
+            return q;
+        }
+
+        // P and Q together, each from the branch that computes it directly; the other is its complement.
+        private static void GammaPQ(double a, double x, out double p, out double q)
+        {
             if (a <= 0) throw new ArgumentOutOfRangeException(nameof(a), a, "Must be positive.");
             if (x < 0) throw new ArgumentOutOfRangeException(nameof(x), x, "Must be non-negative.");
-            if (x == 0) return 0.0;
+            if (double.IsNaN(a) || double.IsNaN(x)) { p = q = double.NaN; return; }
+            if (x == 0) { p = 0; q = 1; return; }
+            if (double.IsPositiveInfinity(x)) { p = 1; q = 0; return; }
+            double prefix = Math.Exp(-x + a * Math.Log(x) - LnGamma(a));
 
             if (x < a + 1.0)
             {
-                // Power series.
-                double ap = a;
-                double sum = 1.0 / a;
-                double del = sum;
+                // Power series for P.
+                double ap = a, sum = 1.0 / a, del = sum;
                 for (int n = 0; n < MaxIterations; n++)
                 {
                     ap += 1.0;
@@ -86,33 +110,27 @@ namespace ToolBelt.Numerics
                     sum += del;
                     if (Math.Abs(del) < Math.Abs(sum) * Epsilon) break;
                 }
-                return sum * Math.Exp(-x + a * Math.Log(x) - LnGamma(a));
+                p = Math.Min(1.0, sum * prefix);
+                q = 1.0 - p;
+                return;
             }
-            else
-            {
-                // Lentz continued fraction for Q = 1 - P, then complement.
-                double b = x + 1.0 - a;
-                double c = 1.0 / Tiny;
-                double d = 1.0 / b;
-                double h = d;
-                for (int i = 1; i < MaxIterations; i++)
-                {
-                    double an = -i * (i - a);
-                    b += 2.0;
-                    d = an * d + b; if (Math.Abs(d) < Tiny) d = Tiny;
-                    c = b + an / c; if (Math.Abs(c) < Tiny) c = Tiny;
-                    d = 1.0 / d;
-                    double del = d * c;
-                    h *= del;
-                    if (Math.Abs(del - 1.0) < Epsilon) break;
-                }
-                double q = Math.Exp(-x + a * Math.Log(x) - LnGamma(a)) * h;
-                return 1.0 - q;
-            }
-        }
 
-        /// <summary>The regularized upper incomplete gamma function Q(a, x) = 1 - P(a, x).</summary>
-        public static double RegularizedGammaQ(double a, double x) => 1.0 - RegularizedGammaP(a, x);
+            // Lentz continued fraction for Q.
+            double b = x + 1.0 - a, c = 1.0 / Tiny, d = 1.0 / b, h = d;
+            for (int i = 1; i < MaxIterations; i++)
+            {
+                double an = -i * (i - a);
+                b += 2.0;
+                d = an * d + b; if (Math.Abs(d) < Tiny) d = Tiny;
+                c = b + an / c; if (Math.Abs(c) < Tiny) c = Tiny;
+                d = 1.0 / d;
+                double del = d * c;
+                h *= del;
+                if (Math.Abs(del - 1.0) < Epsilon) break;
+            }
+            q = Math.Min(1.0, prefix * h);
+            p = 1.0 - q;
+        }
 
         /// <summary>
         /// The regularized incomplete beta function I_x(a, b), for a, b &gt; 0 and x in [0, 1]. Ranges from 0

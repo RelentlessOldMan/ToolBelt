@@ -65,7 +65,7 @@ namespace ToolBelt.Numerics
             double total = 0;
             for (int i = 0; i < weights.Count; i++)
             {
-                if (weights[i] < 0) throw new ArgumentException("Weights must be non-negative.", nameof(weights));
+                if (!(weights[i] >= 0) || double.IsInfinity(weights[i])) throw new ArgumentException($"Weight {i} is {weights[i]}; weights must be finite and non-negative.", nameof(weights));
                 total += weights[i];
             }
             if (total <= 0) throw new ArgumentException("Weights must sum to a positive value.", nameof(weights));
@@ -106,6 +106,7 @@ namespace ToolBelt.Numerics
         {
             if (random is null) throw new ArgumentNullException(nameof(random));
             if (!(lambda >= 0) || double.IsInfinity(lambda)) throw new ArgumentOutOfRangeException(nameof(lambda), lambda, "Mean must be non-negative and finite.");
+            if (lambda > 1e9) throw new ArgumentOutOfRangeException(nameof(lambda), lambda, "Mean too large for an int count; use NextGaussian(lambda, √lambda) instead.");
             if (lambda == 0) return 0;
             if (lambda < 30)
             {
