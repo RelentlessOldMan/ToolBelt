@@ -116,7 +116,9 @@ namespace ToolBelt.Signal
             CheckFrequency(sampleRate, frequency);
             if (!(q > 0) || double.IsInfinity(q)) throw new ArgumentOutOfRangeException(nameof(q), q, "Q must be positive and finite.");
             double w0 = 2 * Math.PI * frequency / sampleRate;
-            return (Math.Cos(w0), Math.Sin(w0) / (2 * q));
+            double alpha = Math.Sin(w0) / (2 * q);
+            if (double.IsInfinity(alpha)) throw new ArgumentOutOfRangeException(nameof(q), q, "Q is too small to represent.");
+            return (Math.Cos(w0), alpha);
         }
 
         private static (double A, double Cos, double K) Shelf(double sampleRate, double frequency, double gainDb, double slope)
@@ -133,7 +135,7 @@ namespace ToolBelt.Signal
 
         private static double GainAmplitude(double gainDb)
         {
-            if (!IsFinite(gainDb)) throw new ArgumentOutOfRangeException(nameof(gainDb), gainDb, "Gain must be finite.");
+            if (!(Math.Abs(gainDb) <= 1000)) throw new ArgumentOutOfRangeException(nameof(gainDb), gainDb, "Gain must be within ±1000 dB.");
             return Math.Pow(10, gainDb / 40);
         }
 
@@ -192,9 +194,10 @@ namespace ToolBelt.Signal
 
         public IirFilter(params Biquad[] sections) : this((IEnumerable<Biquad>)sections) { }
 
-        public IReadOnlyList<Biquad> Sections => _sections;
+        public IReadOnlyList<Biquad> Sections => Array.AsReadOnly(_sections);
 
-        /// <summary>Filters one sample, carrying state from the previous call (direct form II transposed).</summary>
+        /// <summary>Filters one sample, carrying state from the previous call (direct form II transposed). A NaN input stays in
+        /// the state (every later output is NaN) until <see cref="Reset()"/>, as with any recursive filter.</summary>
         public double Process(double sample)
         {
             double x = sample;
@@ -222,6 +225,7 @@ namespace ToolBelt.Signal
         /// </summary>
         public void Reset(double value)
         {
+            if (!Biquad.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value), value, "Value must be finite.");
             var (z1, z2) = SteadyState();
             for (int s = 0; s < _sections.Length; s++) { _z1[s] = z1[s] * value; _z2[s] = z2[s] * value; }
         }
@@ -330,10 +334,10 @@ namespace ToolBelt.Signal
         /// <em>begins</em> (gain first reaches −attenuation), not a −3 dB point — the passband ends somewhat below it.
         /// </summary>
         public static IirFilter Chebyshev2LowPass(int order, double stopAttenuationDb, double stopEdge, double sampleRate)
-            => Design(Chebyshev2Prototype(order, stopAttenuationDb), Band.LowPass, sampleRate, stopEdge, 0);
+            => Design(Chebyshev2Prototype(order, stopAttenuationDb), Band.LowPass, sampleRate, stopEdge, 0, nameof(stopEdge));
 
         public static IirFilter Chebyshev2HighPass(int order, double stopAttenuationDb, double stopEdge, double sampleRate)
-            => Design(Chebyshev2Prototype(order, stopAttenuationDb), Band.HighPass, sampleRate, stopEdge, 0);
+            => Design(Chebyshev2Prototype(order, stopAttenuationDb), Band.HighPass, sampleRate, stopEdge, 0, nameof(stopEdge));
 
         /// <summary>Chebyshev type II band-pass; <paramref name="low"/>/<paramref name="high"/> are the stop-band edges.</summary>
         public static IirFilter Chebyshev2BandPass(int order, double stopAttenuationDb, double low, double high, double sampleRate)
@@ -555,8 +559,8 @@ namespace ToolBelt.Signal
             {
                 if (!(fs > 0) || double.IsInfinity(fs)) throw new ArgumentOutOfRangeException("sampleRate", fs, "Sample rate must be positive and finite.");
                 if (!(passRippleDb > 0) || double.IsInfinity(passRippleDb)) throw new ArgumentOutOfRangeException(nameof(passRippleDb), passRippleDb, "Passband ripple must be positive and finite.");
-                if (!(stopAttenuationDb > passRippleDb) || double.IsInfinity(stopAttenuationDb))
-                    throw new ArgumentOutOfRangeException(nameof(stopAttenuationDb), stopAttenuationDb, "Stop-band attenuation must be finite and greater than the passband ripple.");
+                if (!(stopAttenuationDb > passRippleDb && stopAttenuationDb <= 1000))
+                    throw new ArgumentOutOfRangeException(nameof(stopAttenuationDb), stopAttenuationDb, "Stop-band attenuation must be greater than the passband ripple and at most 1000 dB.");
                 return fs;
             }
         }
@@ -664,8 +668,8 @@ namespace ToolBelt.Signal
         private static (List<Complex> Z, List<Complex> P, double K) Chebyshev1Prototype(int order, double rippleDb)
         {
             CheckOrder(order);
-            if (!(rippleDb > 0) || double.IsInfinity(rippleDb)) throw new ArgumentOutOfRangeException(nameof(rippleDb), rippleDb, "Ripple must be positive and finite (dB).");
-            double eps = Math.Sqrt(Math.Pow(10, 0.1 * rippleDb) - 1);
+            if (!(rippleDb > 0 && rippleDb < 100)) throw new ArgumentOutOfRangeException(nameof(rippleDb), rippleDb, "Ripple must be in (0, 100) dB.");
+            double eps = Math.Sqrt(Pow10m1(0.1 * rippleDb));
             double mu = Asinh(1 / eps) / order;
             var p = new List<Complex>();
             for (int m = -order + 1; m < order; m += 2)
@@ -681,7 +685,7 @@ namespace ToolBelt.Signal
         {
             CheckOrder(order);
             if (!(stopAttenuationDb > 0 && stopAttenuationDb <= 1000)) throw new ArgumentOutOfRangeException(nameof(stopAttenuationDb), stopAttenuationDb, "Stop-band attenuation must be in (0, 1000] dB.");
-            double de = 1 / Math.Sqrt(Math.Pow(10, 0.1 * stopAttenuationDb) - 1);
+            double de = 1 / Math.Sqrt(Pow10m1(0.1 * stopAttenuationDb));
             double mu = Asinh(1 / de) / order;
             var z = new List<Complex>();
             var p = new List<Complex>();
@@ -700,14 +704,14 @@ namespace ToolBelt.Signal
             CheckOrder(order, 25);
             if (!(passRippleDb > 0 && passRippleDb < 100)) throw new ArgumentOutOfRangeException(nameof(passRippleDb), passRippleDb, "Passband ripple must be in (0, 100) dB.");
             if (!(stopAttenuationDb > passRippleDb && stopAttenuationDb <= 1000)) throw new ArgumentOutOfRangeException(nameof(stopAttenuationDb), stopAttenuationDb, "Stop-band attenuation must exceed the passband ripple (and be at most 1000 dB).");
-            double epsSq = Math.Pow(10, 0.1 * passRippleDb) - 1;
+            double epsSq = Pow10m1(0.1 * passRippleDb);
             if (order == 1)
             {
                 double pole = -Math.Sqrt(1 / epsSq);
                 return (new List<Complex>(), new List<Complex> { pole }, -pole);
             }
             double eps = Math.Sqrt(epsSq);
-            double ck1Sq = epsSq / (Math.Pow(10, 0.1 * stopAttenuationDb) - 1);
+            double ck1Sq = epsSq / Pow10m1(0.1 * stopAttenuationDb);
             double m = EllipticDegree(order, ck1Sq);
             double capK = EllipK(m);
 
@@ -991,29 +995,35 @@ namespace ToolBelt.Signal
             return (capK * 2 / Math.PI * Complex.Asin(wn)).Imaginary;
         }
 
-        private static IirFilter Design((List<Complex> Z, List<Complex> P, double K) prototype, Band band, double fs, double f1, double f2)
+        private static IirFilter Design((List<Complex> Z, List<Complex> P, double K) prototype, Band band, double sampleRate,
+            double f1, double f2, string edgeName = "cutoff")
         {
-            if (!(fs > 0) || double.IsInfinity(fs)) throw new ArgumentOutOfRangeException(nameof(fs), fs, "Sample rate must be positive and finite.");
+            if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
             bool twoEdges = band == Band.BandPass || band == Band.BandStop;
-            CheckEdge(f1, fs, twoEdges ? "low" : "cutoff");
+            CheckEdge(f1, sampleRate, twoEdges ? "low" : edgeName);
             if (twoEdges)
             {
-                CheckEdge(f2, fs, "high");
+                CheckEdge(f2, sampleRate, "high");
                 if (!(f1 < f2)) throw new ArgumentException("The low edge must be below the high edge.");
             }
 
+            // Work in normalised frequency (a sample rate of 2, as SciPy does): the z-plane result is identical, but the
+            // analog roots stay O(1) instead of scaling with the sample rate, whose products over 2N roots overflow.
+            const double fs = 2;
             var (z, p, k) = prototype;
-            double w1 = 2 * fs * Math.Tan(Math.PI * f1 / fs);           // pre-warp so the digital edges land exactly
-            double w2 = twoEdges ? 2 * fs * Math.Tan(Math.PI * f2 / fs) : 0;
+            Complex logK = Complex.Log(k);                              // the gain is carried as a logarithm for the same reason
+            double w1 = 2 * fs * Math.Tan(Math.PI * f1 / sampleRate);  // pre-warp so the digital edges land exactly
+            double w2 = twoEdges ? 2 * fs * Math.Tan(Math.PI * f2 / sampleRate) : 0;
             switch (band)
             {
-                case Band.LowPass: (z, p, k) = ToLowPass(z, p, k, w1); break;
-                case Band.HighPass: (z, p, k) = ToHighPass(z, p, k, w1); break;
-                case Band.BandPass: (z, p, k) = ToBandPass(z, p, k, Math.Sqrt(w1 * w2), w2 - w1); break;
-                default: (z, p, k) = ToBandStop(z, p, k, Math.Sqrt(w1 * w2), w2 - w1); break;
+                case Band.LowPass: (z, p, logK) = ToLowPass(z, p, logK, w1); break;
+                case Band.HighPass: (z, p, logK) = ToHighPass(z, p, logK, w1); break;
+                case Band.BandPass: (z, p, logK) = ToBandPass(z, p, logK, Math.Sqrt(w1 * w2), w2 - w1); break;
+                default: (z, p, logK) = ToBandStop(z, p, logK, Math.Sqrt(w1 * w2), w2 - w1); break;
             }
-            (z, p, k) = Bilinear(z, p, k, fs);
-            return new IirFilter(ToSections(z, p, k));
+            (z, p, logK) = Bilinear(z, p, logK, fs);
+            if (p.Any(x => !(x.Magnitude < 1))) throw new ArgumentException("The design is numerically unstable (a pole is not inside the unit circle); relax the specification.");
+            return new IirFilter(ToSections(z, p, logK));
         }
 
         private static void CheckEdge(double f, double fs, string name)
@@ -1021,34 +1031,32 @@ namespace ToolBelt.Signal
             if (!(f > 0 && f < fs / 2)) throw new ArgumentOutOfRangeException(name, f, "Edge frequencies must be between 0 and Nyquist (sampleRate / 2), exclusive.");
         }
 
-        private static (List<Complex>, List<Complex>, double) ToLowPass(List<Complex> z, List<Complex> p, double k, double wo)
-            => (z.Select(x => x * wo).ToList(), p.Select(x => x * wo).ToList(), k * Math.Pow(wo, p.Count - z.Count));
+        private static (List<Complex>, List<Complex>, Complex) ToLowPass(List<Complex> z, List<Complex> p, Complex logK, double wo)
+            => (z.Select(x => x * wo).ToList(), p.Select(x => x * wo).ToList(), logK + (p.Count - z.Count) * Math.Log(wo));
 
-        private static (List<Complex>, List<Complex>, double) ToHighPass(List<Complex> z, List<Complex> p, double k, double wo)
+        private static (List<Complex>, List<Complex>, Complex) ToHighPass(List<Complex> z, List<Complex> p, Complex logK, double wo)
         {
             int degree = p.Count - z.Count;
             var zh = z.Select(x => wo / x).ToList();
             zh.AddRange(Enumerable.Repeat(Complex.Zero, degree));
-            double kh = k * (Product(z.Select(x => -x)) / Product(p.Select(x => -x))).Real;
-            return (zh, p.Select(x => wo / x).ToList(), kh);
+            return (zh, p.Select(x => wo / x).ToList(), logK + LogProduct(z.Select(x => -x)) - LogProduct(p.Select(x => -x)));
         }
 
-        private static (List<Complex>, List<Complex>, double) ToBandPass(List<Complex> z, List<Complex> p, double k, double wo, double bw)
+        private static (List<Complex>, List<Complex>, Complex) ToBandPass(List<Complex> z, List<Complex> p, Complex logK, double wo, double bw)
         {
             int degree = p.Count - z.Count;
             var zb = SplitRoots(z.Select(x => x * bw / 2), wo);
             zb.AddRange(Enumerable.Repeat(Complex.Zero, degree));
-            return (zb, SplitRoots(p.Select(x => x * bw / 2), wo), k * Math.Pow(bw, degree));
+            return (zb, SplitRoots(p.Select(x => x * bw / 2), wo), logK + degree * Math.Log(bw));
         }
 
-        private static (List<Complex>, List<Complex>, double) ToBandStop(List<Complex> z, List<Complex> p, double k, double wo, double bw)
+        private static (List<Complex>, List<Complex>, Complex) ToBandStop(List<Complex> z, List<Complex> p, Complex logK, double wo, double bw)
         {
             int degree = p.Count - z.Count;
             var zb = SplitRoots(z.Select(x => bw / 2 / x), wo);
             for (int i = 0; i < degree; i++) zb.Add(new Complex(0, wo));
             for (int i = 0; i < degree; i++) zb.Add(new Complex(0, -wo));
-            double kb = k * (Product(z.Select(x => -x)) / Product(p.Select(x => -x))).Real;
-            return (zb, SplitRoots(p.Select(x => bw / 2 / x), wo), kb);
+            return (zb, SplitRoots(p.Select(x => bw / 2 / x), wo), logK + LogProduct(z.Select(x => -x)) - LogProduct(p.Select(x => -x)));
         }
 
         // Each scaled root r becomes the pair r ± sqrt(r² − wo²) (the low-pass → band frequency substitution).
@@ -1061,14 +1069,13 @@ namespace ToolBelt.Signal
             return result;
         }
 
-        private static (List<Complex>, List<Complex>, double) Bilinear(List<Complex> z, List<Complex> p, double k, double fs)
+        private static (List<Complex>, List<Complex>, Complex) Bilinear(List<Complex> z, List<Complex> p, Complex logK, double fs)
         {
             double fs2 = 2 * fs;
             int degree = p.Count - z.Count;
             var zz = z.Select(x => (fs2 + x) / (fs2 - x)).ToList();
             zz.AddRange(Enumerable.Repeat(new Complex(-1, 0), degree));    // analog zeros at infinity land at Nyquist
-            double kz = k * (Product(z.Select(x => fs2 - x)) / Product(p.Select(x => fs2 - x))).Real;
-            return (zz, p.Select(x => (fs2 + x) / (fs2 - x)).ToList(), kz);
+            return (zz, p.Select(x => (fs2 + x) / (fs2 - x)).ToList(), logK + LogProduct(z.Select(x => fs2 - x)) - LogProduct(p.Select(x => fs2 - x)));
         }
 
         private static Complex Product(IEnumerable<Complex> values)
@@ -1078,9 +1085,16 @@ namespace ToolBelt.Signal
             return r;
         }
 
+        private static Complex LogProduct(IEnumerable<Complex> values)
+        {
+            Complex r = Complex.Zero;
+            foreach (var v in values) r += Complex.Log(v);
+            return r;
+        }
+
         // Groups conjugate (or real) pole pairs into sections, the poles nearest the unit circle last (they have the
         // highest gain, so placing them late keeps intermediate signals small), each matched with the nearest zero pair.
-        private static List<Biquad> ToSections(List<Complex> zeros, List<Complex> poles, double gain)
+        private static List<Biquad> ToSections(List<Complex> zeros, List<Complex> poles, Complex logGain)
         {
             var poleGroups = Pairs(poles);
             var zeroGroups = Pairs(zeros);
@@ -1105,8 +1119,18 @@ namespace ToolBelt.Signal
                 var (_, a1, a2) = Quadratic(pg);
                 sections[i] = new Biquad(b0, b1, b2, a1, a2);
             }
-            var first = sections[0];
-            sections[0] = new Biquad(first.B0 * gain, first.B1 * gain, first.B2 * gain, first.A1, first.A2);
+            // The gain is real (conjugate roots), so its log's imaginary part is 0 or ±π. It all goes on the first section,
+            // as SciPy does, unless that would leave a comfortable range; then it is spread evenly over the sections.
+            double sign = Math.Cos(logGain.Imaginary) < 0 ? -1 : 1;
+            double log10Gain = logGain.Real / Math.Log(10);
+            int spread = Math.Abs(log10Gain) <= 150 ? 1 : sections.Length;
+            double each = Math.Pow(10, log10Gain / spread);
+            for (int i = 0; i < spread; i++)
+            {
+                var section = sections[i];
+                double g = i == 0 ? sign * each : each;
+                sections[i] = new Biquad(section.B0 * g, section.B1 * g, section.B2 * g, section.A1, section.A2);
+            }
             return sections.ToList();
         }
 
@@ -1119,6 +1143,8 @@ namespace ToolBelt.Signal
                 if (Math.Abs(r.Imaginary) <= 1e-10 * Math.Max(1, r.Magnitude)) reals.Add(r.Real);
                 else if (r.Imaginary > 0) groups.Add(new[] { r, Complex.Conjugate(r) });
             }
+            if (roots.Any(r => !Biquad.IsFinite(r.Real) || !Biquad.IsFinite(r.Imaginary)))
+                throw new ArgumentException("The design is numerically degenerate (a root is not finite); relax the specification.");
             reals.Sort();
             for (int i = 0; i < reals.Count; i += 2)
                 groups.Add(i + 1 < reals.Count ? new Complex[] { reals[i], reals[i + 1] } : new Complex[] { reals[i] });

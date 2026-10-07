@@ -28,7 +28,8 @@ namespace ToolBelt.Tests.Control
             var unlimited = new SlewRateLimiter(double.PositiveInfinity);
             unlimited.Update(0, 1);
             Check.Equal(1e9, unlimited.Update(1e9, 0.001));
-            Check.Equal(1e9, unlimited.Update(5, 0), "∞ rate × 0 s is no movement, not NaN");
+            Check.Equal(5.0, unlimited.Update(5, 0), "an unlimited rate follows even when no time passes (∞ × 0 is not NaN)");
+            Check.False(unlimited.IsLimiting);
         }
 
         public void SlewRateLimiter_MatchesNaiveClampDifferentially()

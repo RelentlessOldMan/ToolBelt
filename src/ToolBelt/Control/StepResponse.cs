@@ -41,7 +41,7 @@ namespace ToolBelt.Control
         /// <summary>How far the peak passes the final value, as a percentage of the step (0 when it never does).</summary>
         public double OvershootPercent { get; }
 
-        /// <summary>How far the response first moves the wrong way, as a percentage of the step (non-minimum-phase plants).</summary>
+        /// <summary>The largest excursion opposite the step direction, as a percentage of the step (non-minimum-phase plants).</summary>
         public double UndershootPercent { get; }
 
         public override string ToString() => string.Format(CultureInfo.InvariantCulture,
@@ -90,6 +90,7 @@ namespace ToolBelt.Control
             double y0 = initialValue ?? values[0], yf = finalValue ?? values[n - 1];
             if (!IsFinite(y0) || !IsFinite(yf)) throw new ArgumentException("Initial and final values must be finite.");
             double step = yf - y0;
+            if (double.IsInfinity(step)) throw new ArgumentException("The step from the initial to the final value is too large to represent.");
             if (step == 0) throw new ArgumentException("The initial and final values are equal: there is no step to analyse.");
             double t0 = times[0];
             double U(int i) => (values[i] - y0) / step;                // 0 at the start, 1 at the end, in the step's direction

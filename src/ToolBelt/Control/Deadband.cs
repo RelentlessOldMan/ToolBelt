@@ -12,12 +12,14 @@ namespace ToolBelt.Control
         /// <summary>
         /// Returns <paramref name="center"/> when |value − center| ≤ <paramref name="halfWidth"/>. Outside the band a
         /// <paramref name="continuous"/> deadband moves the value toward the centre by the half-width, so the output leaves
-        /// the centre smoothly (no jump at the band edge); otherwise the value passes through unchanged.
+        /// the centre smoothly (no jump at the band edge); otherwise the value passes through unchanged. NaN gives NaN.
         /// </summary>
         public static double Apply(double value, double halfWidth, double center = 0, bool continuous = true)
         {
+            if (double.IsNaN(center) || double.IsInfinity(center)) throw new ArgumentOutOfRangeException(nameof(center), center, "Centre must be finite.");
             if (!(halfWidth >= 0) || double.IsInfinity(halfWidth)) throw new ArgumentOutOfRangeException(nameof(halfWidth), halfWidth, "Half-width must be non-negative and finite.");
             double offset = value - center;
+            if (double.IsNaN(offset)) return double.NaN;
             if (Math.Abs(offset) <= halfWidth) return center;
             return continuous ? center + offset - Math.Sign(offset) * halfWidth : value;
         }
@@ -47,7 +49,7 @@ namespace ToolBelt.Control
         public bool Update(double input)
         {
             if (double.IsNaN(input)) return false;
-            if (HasValue && Math.Abs(input - Value) <= Threshold) return false;
+            if (HasValue && (input == Value || Math.Abs(input - Value) <= Threshold)) return false;     // == : ∞ − ∞ is NaN
             Value = input;
             HasValue = true;
             return true;
