@@ -700,6 +700,7 @@ tests/
       StepResponseTests.cs  (vs analytic second-order / first-order formulas)
       SignalConditioningTests.cs  (slew limiter, Schmitt trigger, deadband, first-order lag)
       KalmanFilter1DTests.cs
+      ControlReviewTests.cs (review regressions: reverse-acting anti-windup, non-finite inputs)
     Diagnostics/
       BenchmarkTests.cs
       MetricsRegistryTests.cs
@@ -749,6 +750,7 @@ tests/
     Signal/
       ConvolutionTests.cs
       FilterDesignTests.cs  (FilterReferenceData.cs from scripts/gen-filter-references.py, SciPy)
+      FilterReviewTests.cs  (review regressions: extreme-rate / high-order designs, tiny ripple)
       FftTests.cs
       FrequencyGridTests.cs
       GoertzelTests.cs

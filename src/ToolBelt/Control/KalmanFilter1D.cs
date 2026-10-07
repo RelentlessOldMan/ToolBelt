@@ -17,12 +17,11 @@ namespace ToolBelt.Control
         public KalmanFilter1D(double processNoise, double measurementNoise,
             double initialEstimate = 0, double initialErrorCovariance = 1)
         {
-            if (processNoise < 0) throw new ArgumentOutOfRangeException(nameof(processNoise), processNoise, "Process noise must be non-negative.");
-            if (measurementNoise <= 0) throw new ArgumentOutOfRangeException(nameof(measurementNoise), measurementNoise, "Measurement noise must be positive.");
+            if (!(processNoise >= 0) || double.IsInfinity(processNoise)) throw new ArgumentOutOfRangeException(nameof(processNoise), processNoise, "Process noise must be non-negative and finite.");
+            if (!(measurementNoise > 0) || double.IsInfinity(measurementNoise)) throw new ArgumentOutOfRangeException(nameof(measurementNoise), measurementNoise, "Measurement noise must be positive and finite.");
             _processNoise = processNoise;
             _measurementNoise = measurementNoise;
-            Estimate = initialEstimate;
-            ErrorCovariance = initialErrorCovariance;
+            Reset(initialEstimate, initialErrorCovariance);
         }
 
         /// <summary>The current best estimate of the state.</summary>
@@ -34,9 +33,11 @@ namespace ToolBelt.Control
         /// <summary>The Kalman gain applied by the most recent <see cref="Update"/>.</summary>
         public double LastGain { get; private set; }
 
-        /// <summary>Incorporates a new measurement and returns the updated estimate.</summary>
+        /// <summary>Incorporates a new measurement and returns the updated estimate. A non-finite measurement is rejected
+        /// (state untouched) rather than poisoning the estimate for good.</summary>
         public double Update(double measurement)
         {
+            if (double.IsNaN(measurement) || double.IsInfinity(measurement)) throw new ArgumentOutOfRangeException(nameof(measurement), measurement, "Measurement must be finite.");
             // Predict: covariance grows by the process noise.
             double predictedCovariance = ErrorCovariance + _processNoise;
 
@@ -46,6 +47,15 @@ namespace ToolBelt.Control
             ErrorCovariance = (1 - gain) * predictedCovariance;
             LastGain = gain;
             return Estimate;
+        }
+
+        /// <summary>Restarts from <paramref name="estimate"/> with error covariance <paramref name="errorCovariance"/>.</summary>
+        public void Reset(double estimate, double errorCovariance)
+        {
+            if (double.IsNaN(estimate) || double.IsInfinity(estimate)) throw new ArgumentOutOfRangeException(nameof(estimate), estimate, "Estimate must be finite.");
+            if (!(errorCovariance >= 0) || double.IsInfinity(errorCovariance)) throw new ArgumentOutOfRangeException(nameof(errorCovariance), errorCovariance, "Error covariance must be non-negative and finite.");
+            Estimate = estimate;
+            ErrorCovariance = errorCovariance;
         }
     }
 }

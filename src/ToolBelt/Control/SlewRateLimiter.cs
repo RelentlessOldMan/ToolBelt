@@ -44,9 +44,9 @@ namespace ToolBelt.Control
                 return Value;
             }
             double delta = target - Value;
-            double up = _maxRise * dt, down = _maxFall * dt;               // ∞ × 0 would be NaN: dt = 0 with ∞ rate
-            if (double.IsNaN(up)) up = 0;
-            if (double.IsNaN(down)) down = 0;
+            // An unlimited (∞) rate stays unlimited even for dt = 0, where ∞ × 0 would be NaN.
+            double up = double.IsPositiveInfinity(_maxRise) ? _maxRise : _maxRise * dt;
+            double down = double.IsPositiveInfinity(_maxFall) ? _maxFall : _maxFall * dt;
             IsLimiting = delta > up || delta < -down;
             Value = delta > up ? Value + up : delta < -down ? Value - down : target;
             return Value;

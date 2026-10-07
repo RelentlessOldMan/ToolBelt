@@ -93,6 +93,9 @@ namespace ToolBelt.Control
     {
         public PidGains(double kp, double integralTime, double derivativeTime)
         {
+            if (double.IsNaN(kp) || double.IsInfinity(kp)) throw new ArgumentOutOfRangeException(nameof(kp), kp, "Kp must be finite.");
+            if (!(integralTime > 0)) throw new ArgumentOutOfRangeException(nameof(integralTime), integralTime, "Integral time must be positive (+∞ for no integral action).");
+            if (!(derivativeTime >= 0) || double.IsInfinity(derivativeTime)) throw new ArgumentOutOfRangeException(nameof(derivativeTime), derivativeTime, "Derivative time must be non-negative and finite.");
             Kp = kp;
             IntegralTime = integralTime;
             DerivativeTime = derivativeTime;
@@ -106,7 +109,8 @@ namespace ToolBelt.Control
         /// <summary>Td; 0 for no derivative action.</summary>
         public double DerivativeTime { get; }
 
-        public double Ki => double.IsPositiveInfinity(IntegralTime) ? 0 : Kp / IntegralTime;
+        // IntegralTime is 0 only in default(PidGains), which has no gains at all.
+        public double Ki => double.IsPositiveInfinity(IntegralTime) || IntegralTime == 0 ? 0 : Kp / IntegralTime;
 
         public double Kd => Kp * DerivativeTime;
 

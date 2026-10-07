@@ -46,7 +46,7 @@ namespace ToolBelt.Signal
             _history = new double[_taps.Length];
         }
 
-        public IReadOnlyList<double> Taps => _taps;
+        public IReadOnlyList<double> Taps => Array.AsReadOnly(_taps);
 
         /// <summary>The group delay of a linear-phase design, (taps − 1) / 2 samples.</summary>
         public double DelaySamples => (_taps.Length - 1) / 2.0;
@@ -123,18 +123,18 @@ namespace ToolBelt.Signal
 
         /// <summary>Windowed-sinc low-pass with its −6 dB point at <paramref name="cutoff"/> Hz.</summary>
         public static FirFilter LowPass(int taps, double cutoff, double sampleRate, FirWindow window = FirWindow.Hamming, double kaiserBeta = 8.6)
-            => Design(taps, sampleRate, window, kaiserBeta, passZero: true, cutoff);
+            => Design(taps, sampleRate, window, kaiserBeta, passZero: true, (cutoff, nameof(cutoff)));
 
         /// <summary>Windowed-sinc high-pass. Needs an odd tap count (an even-length symmetric filter has a zero at Nyquist).</summary>
         public static FirFilter HighPass(int taps, double cutoff, double sampleRate, FirWindow window = FirWindow.Hamming, double kaiserBeta = 8.6)
-            => Design(taps, sampleRate, window, kaiserBeta, passZero: false, cutoff);
+            => Design(taps, sampleRate, window, kaiserBeta, passZero: false, (cutoff, nameof(cutoff)));
 
         public static FirFilter BandPass(int taps, double low, double high, double sampleRate, FirWindow window = FirWindow.Hamming, double kaiserBeta = 8.6)
-            => Design(taps, sampleRate, window, kaiserBeta, passZero: false, low, high);
+            => Design(taps, sampleRate, window, kaiserBeta, passZero: false, (low, nameof(low)), (high, nameof(high)));
 
         /// <summary>Windowed-sinc band-stop. Needs an odd tap count.</summary>
         public static FirFilter BandStop(int taps, double low, double high, double sampleRate, FirWindow window = FirWindow.Hamming, double kaiserBeta = 8.6)
-            => Design(taps, sampleRate, window, kaiserBeta, passZero: true, low, high);
+            => Design(taps, sampleRate, window, kaiserBeta, passZero: true, (low, nameof(low)), (high, nameof(high)));
 
         /// <summary>
         /// Kaiser's estimate of the tap count and β for <paramref name="attenuationDb"/> of stop-band rejection with a
@@ -148,23 +148,25 @@ namespace ToolBelt.Signal
             double a = attenuationDb;
             double beta = a > 50 ? 0.1102 * (a - 8.7) : a > 21 ? 0.5842 * Math.Pow(a - 21, 0.4) + 0.07886 * (a - 21) : 0;
             double width = transitionWidth / (sampleRate / 2);                      // fraction of Nyquist
-            int taps = (int)Math.Ceiling((a - 7.95) / 2.285 / (Math.PI * width) + 1);
-            return (taps, beta);
+            double taps = Math.Ceiling((a - 7.95) / 2.285 / (Math.PI * width) + 1);
+            if (!(taps <= int.MaxValue)) throw new ArgumentOutOfRangeException(nameof(transitionWidth), transitionWidth, "The transition band is too narrow: the filter would need more than int.MaxValue taps.");
+            return ((int)taps, beta);
         }
 
-        private static FirFilter Design(int taps, double fs, FirWindow window, double beta, bool passZero, params double[] edges)
+        private static FirFilter Design(int taps, double sampleRate, FirWindow window, double kaiserBeta, bool passZero, params (double Hz, string Name)[] edges)
         {
             if (taps < 1) throw new ArgumentOutOfRangeException(nameof(taps), taps, "At least one tap is required.");
-            if (!(fs > 0) || double.IsInfinity(fs)) throw new ArgumentOutOfRangeException(nameof(fs), fs, "Sample rate must be positive and finite.");
-            if (window == FirWindow.Kaiser && !(beta >= 0 && beta < 700)) throw new ArgumentOutOfRangeException(nameof(beta), beta, "Kaiser beta must be in [0, 700).");
+            if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
+            if (window == FirWindow.Kaiser && !(kaiserBeta >= 0 && kaiserBeta < 700)) throw new ArgumentOutOfRangeException(nameof(kaiserBeta), kaiserBeta, "Kaiser beta must be in [0, 700).");
             if (!Enum.IsDefined(typeof(FirWindow), window)) throw new ArgumentOutOfRangeException(nameof(window), window, "Unknown window.");
-            double nyquist = fs / 2;
+            double nyquist = sampleRate / 2;
             var normalized = new double[edges.Length];
             for (int i = 0; i < edges.Length; i++)
             {
-                if (!(edges[i] > 0 && edges[i] < nyquist)) throw new ArgumentOutOfRangeException(nameof(edges), edges[i], "Edge frequencies must be between 0 and Nyquist (sampleRate / 2), exclusive.");
-                if (i > 0 && !(edges[i] > edges[i - 1])) throw new ArgumentException("The low edge must be below the high edge.");
-                normalized[i] = edges[i] / nyquist;
+                var (hz, name) = edges[i];
+                if (!(hz > 0 && hz < nyquist)) throw new ArgumentOutOfRangeException(name, hz, "Edge frequencies must be between 0 and Nyquist (sampleRate / 2), exclusive.");
+                if (i > 0 && !(hz > edges[i - 1].Hz)) throw new ArgumentException("The low edge must be below the high edge.");
+                normalized[i] = hz / nyquist;
             }
 
             // Band edges in units of Nyquist, as (left, right) pairs: pass-zero designs start a band at 0, and a design
@@ -185,7 +187,7 @@ namespace ToolBelt.Signal
             {
                 double m = n - alpha, sum = 0;
                 for (int b = 0; b < bands.Count; b += 2) sum += bands[b + 1] * Sinc(bands[b + 1] * m) - bands[b] * Sinc(bands[b] * m);
-                h[n] = sum * Window(window, beta, n, taps);
+                h[n] = sum * Window(window, kaiserBeta, n, taps);
             }
 
             // Unit gain at the centre of the first passband (DC for pass-zero, Nyquist for a high-pass).
@@ -193,6 +195,8 @@ namespace ToolBelt.Signal
             double scaleFrequency = left == 0 ? 0 : right == 1 ? 1 : (left + right) / 2;
             double s = 0;
             for (int n = 0; n < taps; n++) s += h[n] * Math.Cos(Math.PI * (n - alpha) * scaleFrequency);
+            if (!(Math.Abs(s) > 0) || double.IsInfinity(s))
+                throw new ArgumentException("The window leaves no gain to normalise (all taps are zero): use more taps or another window.", nameof(taps));
             for (int n = 0; n < taps; n++) h[n] /= s;
             return new FirFilter(h);
         }
