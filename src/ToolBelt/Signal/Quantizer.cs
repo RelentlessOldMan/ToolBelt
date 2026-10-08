@@ -33,13 +33,15 @@ namespace ToolBelt.Signal
             _step = (max - min) / _levels;
         }
 
-        /// <summary>The integer code (0 .. 2ᴺ−1) for <paramref name="value"/>, clamped to range.</summary>
+        /// <summary>The integer code (0 .. 2ᴺ−1) for <paramref name="value"/>, clamped to range (±∞ included). NaN has no code.</summary>
         public int Code(double value)
         {
-            int code = (int)Math.Floor((value - _min) / _step);
-            if (code < 0) code = 0;
-            if (code > _levels - 1) code = _levels - 1;
-            return code;
+            if (double.IsNaN(value)) throw new ArgumentOutOfRangeException(nameof(value), value, "NaN has no quantizer code.");
+            // Clamp before the cast: an out-of-range double → int conversion is undefined (int.MinValue on x64 before .NET 9).
+            double code = Math.Floor((value - _min) / _step);
+            if (!(code > 0)) return 0;
+            if (code >= _levels - 1) return _levels - 1;
+            return (int)code;
         }
 
         /// <summary>The reconstructed (quantized) value for <paramref name="value"/>: the center of its code bin.</summary>

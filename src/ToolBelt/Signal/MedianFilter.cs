@@ -7,7 +7,7 @@ namespace ToolBelt.Signal
     /// <summary>
     /// Sliding-window median filter — rank-order smoothing that removes impulsive (spike) noise while
     /// preserving edges, where a linear smoother would blur them. At the ends the window shrinks to the
-    /// samples available.
+    /// samples available (MATLAB's <c>medfilt1</c> 'truncate'); an even count there takes the mean of the middle pair.
     /// </summary>
     public static class MedianFilter
     {
@@ -20,16 +20,17 @@ namespace ToolBelt.Signal
             int n = signal.Count;
             var result = new double[n];
             int half = windowSize / 2;
-            var window = new List<double>(windowSize);
+            var window = new List<double>(Math.Min(windowSize, n));        // a window never holds more than the record
 
             for (int i = 0; i < n; i++)
             {
                 window.Clear();
-                int lo = Math.Max(0, i - half);
-                int hi = Math.Min(n - 1, i + half);
+                int lo = (int)Math.Max(0, (long)i - half);
+                int hi = (int)Math.Min(n - 1, (long)i + half);
                 for (int j = lo; j <= hi; j++) window.Add(signal[j]);
                 window.Sort();
-                result[i] = window[window.Count / 2]; // odd count after shrink may be even at edges -> upper-middle
+                int mid = window.Count / 2;
+                result[i] = window.Count % 2 != 0 ? window[mid] : 0.5 * (window[mid - 1] + window[mid]);
             }
             return result;
         }

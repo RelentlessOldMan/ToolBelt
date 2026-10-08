@@ -20,8 +20,8 @@ namespace ToolBelt.Signal
         public EnvelopeFollower(double sampleRate, double attackSeconds, double releaseSeconds)
         {
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive.");
-            if (!(attackSeconds >= 0)) throw new ArgumentOutOfRangeException(nameof(attackSeconds), attackSeconds, "Must be non-negative.");
-            if (!(releaseSeconds >= 0)) throw new ArgumentOutOfRangeException(nameof(releaseSeconds), releaseSeconds, "Must be non-negative.");
+            if (!(attackSeconds >= 0) || double.IsInfinity(attackSeconds)) throw new ArgumentOutOfRangeException(nameof(attackSeconds), attackSeconds, "Must be non-negative and finite.");
+            if (!(releaseSeconds >= 0) || double.IsInfinity(releaseSeconds)) throw new ArgumentOutOfRangeException(nameof(releaseSeconds), releaseSeconds, "Must be non-negative and finite.");
             _attack = Coefficient(attackSeconds, sampleRate);
             _release = Coefficient(releaseSeconds, sampleRate);
         }
@@ -29,9 +29,10 @@ namespace ToolBelt.Signal
         /// <summary>The current envelope value.</summary>
         public double Value { get; private set; }
 
-        /// <summary>Feeds one sample and returns the updated envelope.</summary>
+        /// <summary>Feeds one sample and returns the updated envelope. The sample must be finite: one NaN or ∞ would stay in the state for good.</summary>
         public double Next(double sample)
         {
+            if (double.IsNaN(sample) || double.IsInfinity(sample)) throw new ArgumentOutOfRangeException(nameof(sample), sample, "Samples must be finite.");
             double level = Math.Abs(sample);
             double a = level > Value ? _attack : _release;
             Value = a * Value + (1 - a) * level;
@@ -39,7 +40,11 @@ namespace ToolBelt.Signal
         }
 
         /// <summary>Restarts from <paramref name="value"/>.</summary>
-        public void Reset(double value = 0) => Value = value;
+        public void Reset(double value = 0)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value)) throw new ArgumentOutOfRangeException(nameof(value), value, "The envelope must be finite.");
+            Value = value;
+        }
 
         /// <summary>The envelope of a whole array, starting from zero.</summary>
         public static double[] Process(double[] samples, double sampleRate, double attackSeconds, double releaseSeconds)

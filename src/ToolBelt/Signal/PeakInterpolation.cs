@@ -40,15 +40,17 @@ namespace ToolBelt.Signal
         /// <summary>The peak of the Gaussian through the three (positive) values: a parabola fitted to their logarithms.</summary>
         public static (double Offset, double Peak) Gaussian(double left, double center, double right)
         {
-            if (!(left > 0) || !(center > 0) || !(right > 0)) throw new ArgumentOutOfRangeException(nameof(center), "Gaussian interpolation needs positive values.");
+            if (!(left > 0)) throw new ArgumentOutOfRangeException(nameof(left), left, "Gaussian interpolation needs positive values.");
+            if (!(center > 0)) throw new ArgumentOutOfRangeException(nameof(center), center, "Gaussian interpolation needs positive values.");
+            if (!(right > 0)) throw new ArgumentOutOfRangeException(nameof(right), right, "Gaussian interpolation needs positive values.");
             var (delta, logPeak) = Parabolic(Math.Log(left), Math.Log(center), Math.Log(right));
             return (delta, Math.Exp(logPeak));
         }
 
         /// <summary>
         /// Refines the peak of a magnitude spectrum (bins 0 … fftLength/2): at <paramref name="bin"/>, or at the largest bin if
-        /// none is given. Returns the interpolated frequency, magnitude and fractional bin. A peak in the first or last bin is
-        /// returned uninterpolated.
+        /// none is given (NaN bins are skipped). Returns the interpolated frequency, magnitude and fractional bin. A peak in the
+        /// first or last bin, or a <paramref name="bin"/> that is not a local maximum, is returned uninterpolated.
         /// </summary>
         public static (double Frequency, double Magnitude, double Bin) SpectralPeak(IReadOnlyList<double> magnitude, double sampleRate,
             int fftLength, PeakMethod method = PeakMethod.Gaussian, int? bin = null)
@@ -61,7 +63,7 @@ namespace ToolBelt.Signal
             if (k < 0 || k >= magnitude.Count) throw new ArgumentOutOfRangeException(nameof(bin), bin, "Bin outside the spectrum.");
 
             double offset = 0, peak = magnitude[k];
-            if (k > 0 && k < magnitude.Count - 1)
+            if (k > 0 && k < magnitude.Count - 1 && magnitude[k] >= magnitude[k - 1] && magnitude[k] >= magnitude[k + 1])
             {
                 (offset, peak) = method == PeakMethod.Gaussian && magnitude[k - 1] > 0 && magnitude[k] > 0 && magnitude[k + 1] > 0
                     ? Gaussian(magnitude[k - 1], magnitude[k], magnitude[k + 1])
@@ -74,8 +76,9 @@ namespace ToolBelt.Signal
 
         private static int ArgMax(IReadOnlyList<double> v)
         {
-            int best = 0;
-            for (int i = 1; i < v.Count; i++) if (v[i] > v[best]) best = i;
+            int best = -1;
+            for (int i = 0; i < v.Count; i++) if (!double.IsNaN(v[i]) && (best < 0 || v[i] > v[best])) best = i;
+            if (best < 0) throw new ArgumentException("Spectrum is all NaN.", "magnitude");
             return best;
         }
     }

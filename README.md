@@ -767,6 +767,7 @@ tests/
       TimeDelayEstimateTests.cs
       WelchPsdTests.cs
       SignalExtrasTests.cs  (multitaper, peak interpolation, envelope, group delay, cycles)
+      SignalReviewTests.cs  (review regressions: high-order Savitzky-Golay, overflow clamps, NaN handling, GCC-PHAT scale)
       WindowTests.cs
       ZeroCrossingTests.cs
     Objects/

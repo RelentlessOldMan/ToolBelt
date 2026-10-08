@@ -12,9 +12,9 @@ namespace ToolBelt.Signal
     {
         /// <summary>
         /// Unwraps <paramref name="phase"/> (radians): wherever a successive difference exceeds <paramref name="tolerance"/>
-        /// in magnitude, whole turns of 2π are added or removed (the fewest that bring it within the tolerance). With the
-        /// default tolerance π every resulting jump is at most π; a tolerance below π can't always be met by whole turns,
-        /// so jumps up to 2π − tolerance remain. Phases must be finite.
+        /// in magnitude, whole turns of 2π are added or removed (the fewest that bring it within max(tolerance, π)). A
+        /// tolerance below π therefore acts like π, as in NumPy's <c>unwrap</c>: whole turns can't shrink a jump that is
+        /// already within π, only flip its sign and widen it. Phases must be finite.
         /// </summary>
         public static double[] Unwrap(double[] phase, double tolerance = Math.PI)
         {
@@ -33,8 +33,9 @@ namespace ToolBelt.Signal
                 if (i == 0) continue;
                 double delta = phase[i] - phase[i - 1];
                 // Count the turns directly: a loop of `delta -= 2π` never ends when delta is huge.
-                if (delta > tolerance) correction -= Math.Ceiling((delta - tolerance) / Turn) * Turn;
-                else if (delta < -tolerance) correction += Math.Ceiling((-delta - tolerance) / Turn) * Turn;
+                double reach = Math.Max(tolerance, Math.PI);
+                if (delta > tolerance) correction -= Math.Ceiling((delta - reach) / Turn) * Turn;
+                else if (delta < -tolerance) correction += Math.Ceiling((-delta - reach) / Turn) * Turn;
                 result[i] = phase[i] + correction;
             }
             return result;

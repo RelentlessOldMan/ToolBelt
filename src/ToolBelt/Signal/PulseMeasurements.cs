@@ -27,6 +27,7 @@ namespace ToolBelt.Signal
         public static double RiseTime(double[] samples, double sampleRate, double lowPct = 0.1, double highPct = 0.9)
         {
             ValidateRate(sampleRate);
+            ValidateReferences(lowPct, highPct);
             var (lo, hi) = StateLevels(samples);
             double amp = hi - lo;
             double lowRef = lo + lowPct * amp, highRef = lo + highPct * amp;
@@ -41,6 +42,7 @@ namespace ToolBelt.Signal
         public static double FallTime(double[] samples, double sampleRate, double lowPct = 0.1, double highPct = 0.9)
         {
             ValidateRate(sampleRate);
+            ValidateReferences(lowPct, highPct);
             var (lo, hi) = StateLevels(samples);
             double amp = hi - lo;
             double lowRef = lo + lowPct * amp, highRef = lo + highPct * amp;
@@ -99,7 +101,15 @@ namespace ToolBelt.Signal
 
         private static void ValidateRate(double sampleRate)
         {
-            if (sampleRate <= 0) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive.");
+            if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
+        }
+
+        // The reference levels are fractions of the amplitude (0.1, not 10), low below high.
+        private static void ValidateReferences(double lowPct, double highPct)
+        {
+            if (!(lowPct >= 0 && lowPct <= 1)) throw new ArgumentOutOfRangeException(nameof(lowPct), lowPct, "Reference levels are fractions of the amplitude, in [0, 1].");
+            if (!(highPct >= 0 && highPct <= 1)) throw new ArgumentOutOfRangeException(nameof(highPct), highPct, "Reference levels are fractions of the amplitude, in [0, 1].");
+            if (!(lowPct < highPct)) throw new ArgumentException("The low reference must be below the high reference.", nameof(lowPct));
         }
     }
 }

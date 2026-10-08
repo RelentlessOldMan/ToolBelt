@@ -60,7 +60,7 @@ namespace ToolBelt.Signal
         /// </summary>
         public static double[] InstantaneousFrequency(double[] samples, double sampleRate)
         {
-            if (sampleRate <= 0) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive.");
+            if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
             var phase = PhaseUnwrap.Unwrap(InstantaneousPhase(samples));
             if (phase.Length < 2) return Array.Empty<double>();
             var freq = new double[phase.Length - 1];

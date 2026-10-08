@@ -25,8 +25,9 @@ namespace ToolBelt.Signal
                     crossings.Add(i); // exact crossing at the sample
                     continue;
                 }
-                // Opposite signs (and b not exactly zero): interpolate the crossing between i and i+1.
-                if (b != 0 && Math.Sign(a) != Math.Sign(b))
+                // Opposite signs (and b not exactly zero): interpolate the crossing between i and i+1. A NaN on either side
+                // (a dropout) is no crossing; Math.Sign would throw on it.
+                if ((a < 0 && b > 0) || (a > 0 && b < 0))
                     crossings.Add(i + a / (a - b));
             }
 
