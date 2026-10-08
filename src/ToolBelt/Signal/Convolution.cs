@@ -28,8 +28,9 @@ namespace ToolBelt.Signal
         }
 
         /// <summary>
-        /// Full cross-correlation of <paramref name="a"/> and <paramref name="b"/>. Element <c>k</c> is the
-        /// overlap at lag <c>k - (b.Count - 1)</c>, so the center element is zero lag.
+        /// Full cross-correlation of <paramref name="a"/> and <paramref name="b"/> (NumPy's <c>correlate(a, b, 'full')</c>).
+        /// Element <c>k</c> is the overlap at lag <c>k - (b.Count - 1)</c>, so zero lag is element <c>b.Count - 1</c> (the
+        /// center element only when the lengths are equal).
         /// </summary>
         public static double[] CrossCorrelate(IReadOnlyList<double> a, IReadOnlyList<double> b)
         {

@@ -41,21 +41,24 @@ namespace ToolBelt.Signal
             return f;
         }
 
-        /// <summary>The one-sided bin whose center is closest to <paramref name="frequency"/> (Hz).</summary>
+        /// <summary>
+        /// The one-sided bin whose center is closest to <paramref name="frequency"/> (Hz); frequencies beyond either end
+        /// (±∞ included) give bin 0 or N/2.
+        /// </summary>
         public static int NearestBin(double frequency, int fftLength, double sampleRate)
         {
             ValidateArgs(fftLength, sampleRate);
-            int bin = (int)Math.Round(frequency * fftLength / sampleRate);
-            if (bin < 0) bin = 0;
+            if (double.IsNaN(frequency)) throw new ArgumentOutOfRangeException(nameof(frequency), frequency, "Frequency must not be NaN.");
+            double bin = Math.Round(frequency * fftLength / sampleRate);   // clamp as a double: the int cast overflows
             int max = fftLength / 2;
-            if (bin > max) bin = max;
-            return bin;
+            if (!(bin > 0)) return 0;
+            return bin >= max ? max : (int)bin;
         }
 
         private static void ValidateArgs(int fftLength, double sampleRate)
         {
             if (fftLength <= 0) throw new ArgumentOutOfRangeException(nameof(fftLength), fftLength, "FFT length must be positive.");
-            if (sampleRate <= 0) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive.");
+            if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
         }
     }
 }

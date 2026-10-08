@@ -2,7 +2,7 @@
 
   <!-- Shared by every project in the repo. The version is bumped once per release (see REVIEW-PLAN.md). -->
   <PropertyGroup>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>RelentlessOldMan</Authors>
   </PropertyGroup>
 

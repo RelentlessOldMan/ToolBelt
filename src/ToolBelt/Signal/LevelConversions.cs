@@ -35,19 +35,29 @@ namespace ToolBelt.Signal
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
             if (samples.Count == 0) throw new ArgumentException("At least one sample is required.", nameof(samples));
+            // Scale by the largest magnitude so the squares neither overflow (1e200²) nor underflow (1e-200²).
+            double scale = 0;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                double a = Math.Abs(samples[i]);
+                if (double.IsNaN(a)) return double.NaN;
+                if (a > scale) scale = a;
+            }
+            if (scale == 0 || double.IsInfinity(scale)) return scale;
             double sum = 0;
-            for (int i = 0; i < samples.Count; i++) sum += samples[i] * samples[i];
-            return Math.Sqrt(sum / samples.Count);
+            for (int i = 0; i < samples.Count; i++) { double r = samples[i] / scale; sum += r * r; }
+            return scale * Math.Sqrt(sum / samples.Count);
         }
 
         /// <summary>
         /// The RMS level relative to a full-scale amplitude, in dBFS (≤ 0 for signals within range).
-        /// A full-scale sine reads about −3.01 dBFS; a full-scale square wave reads 0.
+        /// A full-scale sine reads about −3.01 dBFS; a full-scale square wave reads 0; digital silence reads −∞.
         /// </summary>
         public static double DbFs(IReadOnlyList<double> samples, double fullScale = 1.0)
         {
-            if (fullScale <= 0) throw new ArgumentOutOfRangeException(nameof(fullScale), fullScale, "Full scale must be positive.");
-            return AmplitudeToDb(Rms(samples) / fullScale);
+            if (!(fullScale > 0) || double.IsInfinity(fullScale)) throw new ArgumentOutOfRangeException(nameof(fullScale), fullScale, "Full scale must be positive and finite.");
+            double rms = Rms(samples);
+            return rms == 0 ? double.NegativeInfinity : 20.0 * Math.Log10(rms / fullScale);
         }
     }
 }

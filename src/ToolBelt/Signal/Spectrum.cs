@@ -46,7 +46,7 @@ namespace ToolBelt.Signal
         /// </summary>
         public static double[] AmplitudeDb(Complex[] fft, double floor = 1e-12)
         {
-            if (floor <= 0) throw new ArgumentOutOfRangeException(nameof(floor), floor, "Floor must be positive.");
+            if (!(floor > 0)) throw new ArgumentOutOfRangeException(nameof(floor), floor, "Floor must be positive.");
             var amp = Amplitude(fft);
             for (int i = 0; i < amp.Length; i++)
                 amp[i] = 20.0 * Math.Log10(Math.Max(amp[i], floor));

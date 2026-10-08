@@ -13,21 +13,26 @@ namespace ToolBelt.Signal
         /// <summary>
         /// One-sided PSD (units of power per Hz) and its frequency axis. The signal is split into segments
         /// of <paramref name="segmentLength"/> samples overlapping by <paramref name="overlap"/> (0–1),
-        /// each tapered by <paramref name="window"/>, and the periodograms are averaged.
+        /// each tapered by <paramref name="window"/>, and the periodograms are averaged. Segments are not detrended and the
+        /// window is the symmetric one from <see cref="Window.Create"/>: this equals SciPy's
+        /// <c>welch(x, fs, window=get_window(w, n, fftbins=False), nperseg=n, noverlap=n − step, detrend=False)</c>,
+        /// not its defaults (a periodic window and constant detrending). Subtract the mean first if DC is not of interest.
         /// </summary>
         public static (double[] Frequencies, double[] Psd) Estimate(
             double[] samples, double sampleRate, int segmentLength,
             double overlap = 0.5, WindowType window = WindowType.Hann)
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
-            if (sampleRate <= 0) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive.");
+            if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
             if (segmentLength < 2) throw new ArgumentOutOfRangeException(nameof(segmentLength), segmentLength, "Segment length must be at least 2.");
             if (segmentLength > samples.Length) throw new ArgumentException("Segment longer than the signal.", nameof(segmentLength));
-            if (overlap < 0 || overlap >= 1) throw new ArgumentOutOfRangeException(nameof(overlap), overlap, "Overlap must be in [0, 1).");
+            if (!(overlap >= 0 && overlap < 1)) throw new ArgumentOutOfRangeException(nameof(overlap), overlap, "Overlap must be in [0, 1).");
 
             var w = Window.Create(window, segmentLength);
             double windowPower = 0;
             foreach (var v in w) windowPower += v * v;
+            if (windowPower == 0)
+                throw new ArgumentException($"A {window} window of {segmentLength} samples is all zeros; use a longer segment or another window.", nameof(segmentLength));
 
             int step = Math.Max(1, (int)Math.Round(segmentLength * (1 - overlap)));
             int bins = segmentLength / 2 + 1;

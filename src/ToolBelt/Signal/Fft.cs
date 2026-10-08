@@ -74,21 +74,23 @@ namespace ToolBelt.Signal
                 if (i < j) { var t = a[i]; a[i] = a[j]; a[j] = t; }
             }
 
+            // Twiddles e^(∓2πik/n), each from its own cos/sin: building them by repeated multiplication (w *= wlen) lets the
+            // rounding error grow with n, to about 1e-11 at 2²⁰.
+            var twiddle = new Complex[n >> 1];
+            double step = 2.0 * Math.PI / n * (inverse ? 1 : -1);
+            for (int k = 0; k < twiddle.Length; k++) twiddle[k] = new Complex(Math.Cos(step * k), Math.Sin(step * k));
+
             for (int len = 2; len <= n; len <<= 1)
             {
-                double ang = 2.0 * Math.PI / len * (inverse ? 1 : -1);
-                var wlen = new Complex(Math.Cos(ang), Math.Sin(ang));
+                int half = len >> 1, stride = n / len;
                 for (int i = 0; i < n; i += len)
                 {
-                    Complex w = Complex.One;
-                    int half = len >> 1;
                     for (int k = 0; k < half; k++)
                     {
                         Complex u = a[i + k];
-                        Complex v = a[i + k + half] * w;
+                        Complex v = a[i + k + half] * twiddle[k * stride];
                         a[i + k] = u + v;
                         a[i + k + half] = u - v;
-                        w *= wlen;
                     }
                 }
             }
@@ -109,6 +111,9 @@ namespace ToolBelt.Signal
                 chirp[k] = new Complex(Math.Cos(ang), Math.Sin(ang));
             }
 
+            // The convolution length is a power of two ≥ 2n − 1; past 2³⁰ it no longer fits an int (the doubling loop would
+            // wrap to 0 and spin forever).
+            if (2L * n - 1 > 1 << 30) throw new ArgumentException($"A length-{n} transform that is not a power of two is too long (Bluestein needs 2n − 1 ≤ 2^30); pad it to a power of two.");
             int m = 1;
             while (m < 2 * n - 1) m <<= 1;
 
