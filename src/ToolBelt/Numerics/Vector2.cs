@@ -60,9 +60,14 @@ namespace ToolBelt.Numerics
         public double DistanceTo(Vector2 other) => (this - other).Length;
         public double DistanceSquaredTo(Vector2 other) => (this - other).LengthSquared;
 
-        /// <summary>Returns a unit vector in the same direction. Throws for the zero vector.</summary>
+        /// <summary>
+        /// Returns a unit vector in the same direction. Throws for the zero vector. Infinite components dominate: (∞, 3)
+        /// normalizes to (1, 0) and (−∞, ∞) to (−√½, √½). A NaN component gives NaN.
+        /// </summary>
         public Vector2 Normalized()
         {
+            if (double.IsInfinity(X) || double.IsInfinity(Y))
+                return new Vector2(double.IsInfinity(X) ? Math.Sign(X) : 0, double.IsInfinity(Y) ? Math.Sign(Y) : 0).Normalized();
             // Scale first: dividing by an overflowed length gave (0, 0), and by an underflowed one threw.
             double scale = Math.Max(Math.Abs(X), Math.Abs(Y));
             if (scale == 0) throw new InvalidOperationException("Cannot normalize the zero vector.");
@@ -79,7 +84,16 @@ namespace ToolBelt.Numerics
         }
 
         /// <summary>Linear interpolation from <paramref name="a"/> to <paramref name="b"/> by <paramref name="t"/>.</summary>
-        public static Vector2 Lerp(Vector2 a, Vector2 b, double t) => a + (b - a) * t;
+        public static Vector2 Lerp(Vector2 a, Vector2 b, double t) => new Vector2(Lerp(a.X, b.X, t), Lerp(a.Y, b.Y, t));
+
+        private static double Lerp(double a, double b, double t)
+        {
+            double d = b - a;
+            // Finite ends of opposite sign can overflow b − a (−1e308 to 1e308): interpolate the halves instead.
+            if (double.IsInfinity(d) && !double.IsInfinity(a) && !double.IsInfinity(b))
+                return 2 * (0.5 * a + (0.5 * b - 0.5 * a) * t);
+            return a + d * t;
+        }
 
         public bool ApproximatelyEquals(Vector2 other, double tolerance = 1e-9)
             => Math.Abs(X - other.X) <= tolerance && Math.Abs(Y - other.Y) <= tolerance;

@@ -28,9 +28,10 @@ namespace ToolBelt.Numerics
         public double Min => _sorted[0];
         public double Max => _sorted[_sorted.Length - 1];
 
-        /// <summary>The fraction of samples less than or equal to <paramref name="value"/>, in [0, 1].</summary>
+        /// <summary>The fraction of samples less than or equal to <paramref name="value"/>, in [0, 1] (NaN for NaN).</summary>
         public double Cdf(double value)
         {
+            if (double.IsNaN(value)) return double.NaN; // compared false against everything, so it read as 0
             // Count of samples <= value via the index of the first element strictly greater.
             int lo = 0, hi = _sorted.Length;
             while (lo < hi)
@@ -52,7 +53,11 @@ namespace ToolBelt.Numerics
             int upper = (int)Math.Ceiling(position);
             if (lower == upper) return _sorted[lower];
             double frac = position - lower;
-            return _sorted[lower] * (1 - frac) + _sorted[upper] * frac;
+            double a = _sorted[lower], b = _sorted[upper];
+            // As Percentile: a·(1 − f) + b·f put 0.1 and 0.1 at 0.09999999999999999 and overflowed for ±1e308.
+            if (a == b) return a;
+            double d = b - a;
+            return double.IsInfinity(d) ? (1 - frac) * a + frac * b : a + frac * d;
         }
     }
 }

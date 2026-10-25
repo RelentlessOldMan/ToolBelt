@@ -28,7 +28,8 @@ namespace ToolBelt.Numerics
     /// <summary>
     /// Reports a measured value at the precision its uncertainty justifies: the uncertainty is rounded to one or two
     /// significant digits and the value to the same decimal place — so a report shows "12.346 ± 0.012" instead of fifteen
-    /// meaningless digits. Values and uncertainties of any magnitude are handled; very large or small ones are written
+    /// meaningless digits. Values and uncertainties of any magnitude are handled (rounding that would carry past
+    /// <see cref="double.MaxValue"/> throws <see cref="ArgumentOutOfRangeException"/>); very large or small ones are written
     /// with a shared exponent ("(1.234 ± 0.030)e-7"), down to subnormal uncertainties. An uncertainty below 10⁻¹⁷ of
     /// the value is finer than the value itself can be known and is rejected. Formatting is culture-invariant.
     /// </summary>
@@ -62,14 +63,25 @@ namespace ToolBelt.Numerics
             if (rule == UncertaintyRule.ParticleDataGroup && lead >= 950) exponent++;
             int decimals = digits - 1 - exponent;
             double u = RoundTo(uncertainty, decimals);
+            RequireInRange(u, nameof(uncertainty));
             // Rounding may carry into a new leading digit (0.0996 → 0.100; PDG's 950–999 → 0.10): keep `digits` digits of the result.
             int roundedExponent = (int)Math.Floor(Math.Log10(u) + 1e-12);
             if (roundedExponent > exponent)
             {
                 decimals = digits - 1 - roundedExponent;
                 u = RoundTo(uncertainty, decimals);
+                RequireInRange(u, nameof(uncertainty));
             }
-            return (RoundTo(value, decimals), u, decimals);
+            double rounded = RoundTo(value, decimals);
+            RequireInRange(rounded, nameof(value));
+            return (rounded, u, decimals);
+        }
+
+        // Rounding near double.MaxValue can carry past it (1.79e308 to the nearest 1e308 is 2e308).
+        private static void RequireInRange(double rounded, string paramName)
+        {
+            if (double.IsInfinity(rounded))
+                throw new ArgumentOutOfRangeException(paramName, "Rounded, this exceeds the double range.");
         }
 
         /// <summary>

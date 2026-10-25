@@ -10,14 +10,28 @@ namespace ToolBelt.Numerics
     public static class Interpolation
     {
         /// <summary>Linear interpolation: returns <c>a + (b - a) * t</c>. <paramref name="t"/> is not clamped.</summary>
-        public static double Lerp(double a, double b, double t) => a + (b - a) * t;
+        public static double Lerp(double a, double b, double t)
+        {
+            double d = b - a;
+            // Finite ends of opposite sign can overflow b − a (−1e308 to 1e308): interpolate the halves instead.
+            if (double.IsInfinity(d) && !double.IsInfinity(a) && !double.IsInfinity(b))
+                return 2 * (0.5 * a + (0.5 * b - 0.5 * a) * t);
+            return a + d * t;
+        }
 
         /// <summary>Linear interpolation with <paramref name="t"/> clamped to [0, 1].</summary>
         public static double LerpClamped(double a, double b, double t) => Lerp(a, b, Clamp(t, 0, 1));
 
         /// <summary>The inverse of <see cref="Lerp"/>: the <c>t</c> for which <c>Lerp(a, b, t) == value</c>. Returns 0 if a == b.</summary>
         public static double InverseLerp(double a, double b, double value)
-            => a == b ? 0.0 : (value - a) / (b - a);
+        {
+            if (a == b) return 0.0;
+            double num = value - a, den = b - a;
+            if ((double.IsInfinity(num) || double.IsInfinity(den))
+                && !double.IsInfinity(a) && !double.IsInfinity(b) && !double.IsInfinity(value))
+                return (0.5 * value - 0.5 * a) / (0.5 * b - 0.5 * a); // the differences overflowed; the ratio of halves does not
+            return num / den;
+        }
 
         /// <summary>Clamps <paramref name="value"/> to the inclusive range [<paramref name="min"/>, <paramref name="max"/>].</summary>
         public static double Clamp(double value, double min, double max)

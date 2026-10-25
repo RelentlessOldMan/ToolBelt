@@ -8,7 +8,8 @@ namespace ToolBelt.Numerics
     /// The classical Pythagorean means plus root-mean-square. Geometric and harmonic means require all
     /// values to be strictly positive (NaN is rejected); arithmetic mean and RMS accept any values. Each is
     /// computed so that it does not overflow or underflow when the mean itself is representable (1e308 values,
-    /// subnormals). For positive data the ordering HM ≤ GM ≤ AM ≤ RMS always holds.
+    /// subnormals). For positive data the ordering HM ≤ GM ≤ AM ≤ RMS holds up to rounding (equal values can come
+    /// out an ulp apart).
     /// </summary>
     public static class Means
     {
@@ -17,13 +18,20 @@ namespace ToolBelt.Numerics
         {
             Require(values);
             double sum = 0;
-            bool anyInfinite = false;
+            bool nan = false, posInf = false, negInf = false;
             for (int i = 0; i < values.Count; i++)
             {
-                sum += values[i];
-                if (double.IsInfinity(values[i])) anyInfinite = true;
+                double v = values[i];
+                if (double.IsNaN(v)) nan = true;
+                else if (double.IsPositiveInfinity(v)) posInf = true;
+                else if (double.IsNegativeInfinity(v)) negInf = true;
+                else sum += v;
             }
-            if (double.IsInfinity(sum) && !anyInfinite)
+            // Infinities decide the mean by themselves: summed in, an overflowed finite part (1e308 + 1e308) met −∞ as NaN.
+            if (nan || (posInf && negInf)) return double.NaN;
+            if (posInf) return double.PositiveInfinity;
+            if (negInf) return double.NegativeInfinity;
+            if (double.IsInfinity(sum))
             {
                 // The sum of finite values overflowed (two 1e308s); Σ(x/n) cannot.
                 sum = 0;

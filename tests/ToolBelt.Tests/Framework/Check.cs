@@ -39,7 +39,10 @@ namespace ToolBelt.Tests.Framework
         {
             if (double.IsNaN(expected) && double.IsNaN(actual))
                 return;
-            if (Math.Abs(expected - actual) > tolerance)
+            if (expected.Equals(actual))
+                return; // also equal infinities, whose difference is NaN
+            // Negated so a NaN on one side fails: NaN > tolerance is false.
+            if (!(Math.Abs(expected - actual) <= tolerance))
                 throw new CheckFailedException(
                     (message is null ? "" : message + " — ")
                     + $"expected {expected:R} ± {tolerance:R}, got {actual:R} (Δ={Math.Abs(expected - actual):R}).");

@@ -18,7 +18,7 @@ namespace ToolBelt.Numerics
             if (!(dx > 0) || double.IsInfinity(dx)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Spacing must be positive and finite.");
             double sum = 0;
             for (int i = 1; i < y.Count; i++)
-                sum += (y[i - 1] + y[i]) * 0.5 * dx;
+                sum += Panel(y[i - 1], y[i], dx);
             return sum;
         }
 
@@ -31,7 +31,7 @@ namespace ToolBelt.Numerics
             {
                 double h = x[i] - x[i - 1];
                 if (h < 0) throw new ArgumentException("x values must be ascending.", nameof(x));
-                sum += (y[i - 1] + y[i]) * 0.5 * h;
+                sum += Panel(y[i - 1], y[i], h);
             }
             return sum;
         }
@@ -50,13 +50,20 @@ namespace ToolBelt.Numerics
             int even = intervals - (intervals % 2); // largest even interval count
             double sum = 0;
             for (int i = 0; i < even; i += 2)
-                sum += (y[i] + 4 * y[i + 1] + y[i + 2]) * (dx / 3.0);
+            {
+                double s = y[i] + 4 * y[i + 1] + y[i + 2];
+                // Samples near double.MaxValue overflow the weighted sum: use eighths of it instead.
+                if (double.IsInfinity(s) && IsFinite(y[i]) && IsFinite(y[i + 1]) && IsFinite(y[i + 2]))
+                    sum += (0.125 * y[i] + 0.5 * y[i + 1] + 0.125 * y[i + 2]) * (dx / 3.0) * 8;
+                else
+                    sum += s * (dx / 3.0);
+            }
             if (even != intervals) // trailing odd interval
             {
                 int n = intervals;
                 sum += n >= 2
                     ? dx * (5.0 / 12 * y[n] + 8.0 / 12 * y[n - 1] - 1.0 / 12 * y[n - 2])
-                    : (y[n - 1] + y[n]) * 0.5 * dx;
+                    : Panel(y[n - 1], y[n], dx);
             }
             return sum;
         }
@@ -91,9 +98,19 @@ namespace ToolBelt.Numerics
             if (!(dx > 0) || double.IsInfinity(dx)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Spacing must be positive and finite.");
             var result = new double[y.Count];
             for (int i = 1; i < y.Count; i++)
-                result[i] = result[i - 1] + (y[i - 1] + y[i]) * 0.5 * dx;
+                result[i] = result[i - 1] + Panel(y[i - 1], y[i], dx);
             return result;
         }
+
+        // One trapezoid panel. Two samples near double.MaxValue overflow their sum: halve them first in that case only,
+        // so ordinary results are unchanged.
+        private static double Panel(double a, double b, double h)
+        {
+            double s = a + b;
+            return double.IsInfinity(s) && IsFinite(a) && IsFinite(b) ? (0.5 * a + 0.5 * b) * h : s * 0.5 * h;
+        }
+
+        private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
 
         private static double SimpsonPiece(double a, double b, double fa, double fb, double fm)
             => (b - a) / 6.0 * (fa + 4 * fm + fb);

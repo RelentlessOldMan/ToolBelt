@@ -36,14 +36,31 @@ namespace ToolBelt.Numerics
             var scratch = new List<(double, double)>(samples.Count);
             for (int r = 0; r < rows; r++)
             {
-                double y = rows == 1 ? (yMin + yMax) / 2 : yMin + (yMax - yMin) * r / (rows - 1);
+                double y = GridCoordinate(yMin, yMax, r, rows);
                 for (int c = 0; c < columns; c++)
                 {
-                    double x = columns == 1 ? (xMin + xMax) / 2 : xMin + (xMax - xMin) * c / (columns - 1);
+                    double x = GridCoordinate(xMin, xMax, c, columns);
                     grid[r, c] = Evaluate(samples, x, y, power, nearest, radius, scratch);
                 }
             }
             return grid;
+        }
+
+        // The i-th of n evenly spaced points from min to max (the midpoint when n is 1). A span, sum or span·i that
+        // overflows (−1e308 to 1e308, 1e308 + 1e308) is redone with halved ends and the fraction i/(n − 1) taken
+        // first; otherwise the plain form is kept.
+        private static double GridCoordinate(double min, double max, int i, int n)
+        {
+            if (n == 1)
+            {
+                double mid = (min + max) / 2;
+                return double.IsInfinity(mid) && !double.IsInfinity(min) && !double.IsInfinity(max) ? 0.5 * min + 0.5 * max : mid;
+            }
+            double plain = min + (max - min) * i / (n - 1);
+            // Not-finite, not just infinite: at i = 0 an overflowed span gave ∞ · 0 = NaN.
+            if ((double.IsNaN(plain) || double.IsInfinity(plain)) && !double.IsInfinity(min) && !double.IsInfinity(max))
+                return 2 * (0.5 * min + (0.5 * max - 0.5 * min) * ((double)i / (n - 1)));
+            return plain;
         }
 
         private static double Evaluate(IReadOnlyList<(double X, double Y, double Value)> samples, double x, double y,

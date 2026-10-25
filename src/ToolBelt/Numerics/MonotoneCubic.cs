@@ -16,6 +16,7 @@ namespace ToolBelt.Numerics
         private readonly double[] _x;
         private readonly double[] _y;
         private readonly double[] _m; // tangents
+        private readonly double _sx, _sy; // the stored x and y are the inputs times these (see RangeScale)
 
         public MonotoneCubic(IReadOnlyList<double> x, IReadOnlyList<double> y)
         {
@@ -35,6 +36,10 @@ namespace ToolBelt.Numerics
                 _x[i] = x[i];
                 _y[i] = y[i];
             }
+
+            _sx = RangeScale(_x);
+            _sy = RangeScale(_y);
+            for (int i = 0; i < n; i++) { _x[i] *= _sx; _y[i] *= _sy; }
 
             // Secant slopes between points.
             var delta = new double[n - 1];
@@ -75,8 +80,9 @@ namespace ToolBelt.Numerics
         public double Interpolate(double x)
         {
             int n = _x.Length;
-            if (x <= _x[0]) return _y[0];
-            if (x >= _x[n - 1]) return _y[n - 1];
+            x *= _sx;
+            if (x <= _x[0]) return _y[0] / _sy;
+            if (x >= _x[n - 1]) return _y[n - 1] / _sy;
 
             // Find the segment [lo, lo+1] containing x.
             int lo = 0, hi = n - 1;
@@ -94,7 +100,18 @@ namespace ToolBelt.Numerics
             double h10 = t3 - 2 * t2 + t;
             double h01 = -2 * t3 + 3 * t2;
             double h11 = t3 - t2;
-            return h00 * _y[lo] + h10 * h * _m[lo] + h01 * _y[lo + 1] + h11 * h * _m[lo + 1];
+            return (h00 * _y[lo] + h10 * h * _m[lo] + h01 * _y[lo + 1] + h11 * h * _m[lo + 1]) / _sy;
         }
+
+        // Coordinates beyond 2⁵⁰⁰ are stored scaled down by 2⁶⁰⁰ (a power of two, so exact): differences and slopes of
+        // points near ±double.MaxValue then cannot overflow. Ordinary data keeps a scale of 1 and is untouched.
+        private static double RangeScale(double[] v)
+        {
+            double max = 0;
+            foreach (double d in v) max = Math.Max(max, Math.Abs(d));
+            return max > Pow2(500) ? Pow2(-600) : 1.0;
+        }
+
+        private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
     }
 }

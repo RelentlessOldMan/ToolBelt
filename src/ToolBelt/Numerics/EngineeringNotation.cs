@@ -26,38 +26,23 @@ namespace ToolBelt.Numerics
             if (double.IsNaN(value) || double.IsInfinity(value))
                 return value.ToString(CultureInfo.InvariantCulture);
             if (value == 0) return "0";
-            if (significantDigits > 17) significantDigits = 17; // 10^400 overflowed RoundToSignificant to NaN
+            if (significantDigits > 17) significantDigits = 17; // all a double holds
 
-            int exponent = (int)(Math.Floor(Math.Log10(Math.Abs(value)) / 3.0) * 3);
+            // Rounded on the decimal digits, not by scaling with powers of ten: scaling rounded twice, so 999.9999999999999
+            // at 17 digits printed "1 k" and full-precision output did not round-trip.
+            Digits(Math.Abs(value), out string digits, out int decimalExponent);
+            digits = RoundDigits(digits, significantDigits, ref decimalExponent);
+            int exponent = FloorDiv(decimalExponent, 3) * 3;
             // Clamping to yocto/yotta printed "1E-06 y" and "1230000 Y"; out of range, plain E notation reads better.
             if (exponent > MaxExponent || exponent < -MaxExponent)
                 return value.ToString("G" + significantDigits, CultureInfo.InvariantCulture);
 
-            double scaled = ScaleDown(value, exponent);
-            // Rounding can push e.g. 999.95 up to 1000; renormalize one step if so.
-            double rounded = RoundToSignificant(scaled, significantDigits);
-            if (Math.Abs(rounded) >= 1000)
-            {
-                if (exponent == MaxExponent) return RoundToSignificant(value, significantDigits).ToString("G" + significantDigits, CultureInfo.InvariantCulture);
-                exponent += 3;
-                scaled = ScaleDown(value, exponent);
-                rounded = RoundToSignificant(scaled, significantDigits);
-            }
-
-            string number;
-            if (Math.Abs(rounded) >= 1 && Math.Abs(rounded) < 1e15)
-            {
-                // Fixed point: "G" switched to E notation whenever the integer digits exceeded the requested
-                // digits (120 at 2 digits became "1.2E+02"). Trailing zeros are trimmed as "G" did.
-                int integerDigits = 1;
-                for (double t = Math.Abs(rounded); t >= 10; t /= 10) integerDigits++;
-                number = rounded.ToString("F" + Math.Max(0, significantDigits - integerDigits), CultureInfo.InvariantCulture);
-                if (number.IndexOf('.') >= 0) number = number.TrimEnd('0').TrimEnd('.');
-            }
-            else
-            {
-                number = rounded.ToString("G" + significantDigits, CultureInfo.InvariantCulture); // far beyond yocto/yotta
-            }
+            // 1 to 3 digits before the point; fixed point always ("G" turned 120 at 2 digits into "1.2E+02").
+            int integerDigits = decimalExponent - exponent + 1;
+            string number = digits.Length <= integerDigits
+                ? digits + new string('0', integerDigits - digits.Length)
+                : digits.Substring(0, integerDigits) + "." + digits.Substring(integerDigits);
+            if (value < 0) number = "-" + number;
             string prefix = PrefixFor(exponent);
             return prefix.Length == 0 ? number : number + " " + prefix;
         }
@@ -75,8 +60,10 @@ namespace ToolBelt.Numerics
             if (string.IsNullOrWhiteSpace(text)) return false;
 
             string s = text.Trim();
-            // A plain number first, so Format's "NaN" / "Infinity" round-trip (the 'y' of "Infinity" is yocto).
-            if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value)) return true;
+            // A plain number first, so Format's "NaN" / "Infinity" round-trip (the 'y' of "Infinity" is yocto). A finite
+            // text that overflows ("1e400") is not a value; .NET Core parses it as infinity.
+            if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+                return !double.IsInfinity(value) || s.IndexOf("Infinity", StringComparison.OrdinalIgnoreCase) >= 0;
             char last = s[s.Length - 1];
             int exponent;
             if (char.IsLetter(last) || last == 'µ' || last == 'μ')
@@ -86,24 +73,72 @@ namespace ToolBelt.Numerics
             }
             else
             {
-                exponent = 0;
+                return false; // not a plain number and no prefix
             }
 
-            if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double mantissa))
+            // The prefix joins the mantissa's own exponent and the decimal is parsed once, correctly rounded: multiplying
+            // by 10^k rounded twice, and 1e306 k overflowed to infinity instead of failing.
+            long total = exponent;
+            int ePos = s.IndexOfAny(new[] { 'E', 'e' });
+            if (ePos >= 0)
+            {
+                if (!long.TryParse(s.Substring(ePos + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out long own))
+                    return false;
+                total += Math.Max(-100000, Math.Min(100000, own));
+                s = s.Substring(0, ePos);
+            }
+            if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double mantissa)
+                || double.IsNaN(mantissa) || double.IsInfinity(mantissa))
                 return false;
-            // Divide for negative prefixes: 10^9 is exact and 10^-9 is not, so 3 n parsed as 3.0000000000000004e-9.
-            value = exponent >= 0 ? mantissa * Pow10(exponent) : mantissa / Pow10(-exponent);
+            string text2 = s.Trim() + "E" + total.ToString(CultureInfo.InvariantCulture);
+            double parsed;
+            try
+            {
+                if (!double.TryParse(text2, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed)) return false;
+            }
+            catch (OverflowException) { return false; }
+            if (double.IsInfinity(parsed)) return false;
+            value = parsed;
             return true;
         }
 
-        private static double ScaleDown(double value, int exponent)
-            => exponent >= 0 ? value / Pow10(exponent) : value * Pow10(-exponent);
+        private static int FloorDiv(int a, int b) => a >= 0 ? a / b : -((-a + b - 1) / b);
 
-        private static double Pow10(int k)
+        // The significant digits of the shortest round-trip decimal for a positive finite value (no leading or trailing
+        // zeros) and the decimal exponent of the first one: 123.45 → "12345", 2.
+        private static void Digits(double value, out string digits, out int exponent)
         {
-            double p = 1;
-            for (int i = 0; i < k; i++) p *= 10; // exact for k ≤ 22
-            return p;
+            string s = value.ToString("R", CultureInfo.InvariantCulture);
+            if (double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) != value)
+                s = value.ToString("G17", CultureInfo.InvariantCulture); // .NET Framework's "R" can lose the last digit
+            int exp = 0, ePos = s.IndexOfAny(new[] { 'E', 'e' });
+            if (ePos >= 0)
+            {
+                exp = int.Parse(s.Substring(ePos + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+                s = s.Substring(0, ePos);
+            }
+            int dot = s.IndexOf('.');
+            string whole = dot < 0 ? s : s.Substring(0, dot);
+            string all = whole + (dot < 0 ? "" : s.Substring(dot + 1));
+            int lead = 0;
+            while (lead < all.Length && all[lead] == '0') lead++;
+            digits = all.Substring(lead).TrimEnd('0');
+            exponent = whole.Length + exp - lead - 1;
+        }
+
+        // Keeps the first `count` digits, rounding half away from zero; a carry out of all nines becomes "1" one decade up.
+        private static string RoundDigits(string digits, int count, ref int exponent)
+        {
+            if (digits.Length <= count) return digits;
+            char[] kept = digits.Substring(0, count).ToCharArray();
+            if (digits[count] >= '5')
+            {
+                int i = count - 1;
+                while (i >= 0 && kept[i] == '9') kept[i--] = '0';
+                if (i < 0) { exponent++; return "1"; }
+                kept[i]++;
+            }
+            return new string(kept).TrimEnd('0');
         }
 
         private static string PrefixFor(int exponent)
@@ -134,14 +169,6 @@ namespace ToolBelt.Numerics
                 case 'y': exponent = -24; return true;
                 default: exponent = 0; return false;
             }
-        }
-
-        private static double RoundToSignificant(double value, int significantDigits)
-        {
-            if (value == 0) return 0;
-            double magnitude = Math.Ceiling(Math.Log10(Math.Abs(value)));
-            double scale = Math.Pow(10, significantDigits - (int)magnitude);
-            return Math.Round(value * scale, MidpointRounding.AwayFromZero) / scale;
         }
     }
 }

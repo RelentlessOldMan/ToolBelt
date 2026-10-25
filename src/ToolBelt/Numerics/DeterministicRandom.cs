@@ -59,7 +59,7 @@ namespace ToolBelt.Numerics
                 throw new ArgumentOutOfRangeException(nameof(minValue), "minValue must not exceed maxValue.");
             long range = (long)maxValue - minValue;
             if (range <= 0) return minValue;
-            return minValue + (int)(NextUInt64() % (ulong)range);
+            return unchecked(minValue + (int)(NextUInt64() % (ulong)range)); // wraps back into [minValue, maxValue)
         }
 
         public override int Next(int maxValue)
@@ -78,7 +78,7 @@ namespace ToolBelt.Numerics
             {
                 ulong block = NextUInt64();
                 for (int b = 0; b < 8 && i < buffer.Length; b++, i++)
-                    buffer[i] = (byte)(block >> (8 * b));
+                    buffer[i] = unchecked((byte)(block >> (8 * b)));
             }
         }
 
@@ -90,7 +90,7 @@ namespace ToolBelt.Numerics
             {
                 ulong block = NextUInt64();
                 for (int b = 0; b < 8 && i < buffer.Length; b++, i++)
-                    buffer[i] = (byte)(block >> (8 * b));
+                    buffer[i] = unchecked((byte)(block >> (8 * b)));
             }
         }
 

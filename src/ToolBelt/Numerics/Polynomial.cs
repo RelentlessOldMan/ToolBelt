@@ -183,9 +183,10 @@ namespace ToolBelt.Numerics
         private double[] QuadraticRoots()
         {
             double a = _coefficients[2], b = _coefficients[1], c = _coefficients[0];
-            // Scale by a power of two (exact, roots unchanged) so b² cannot overflow: x² + 1e200x + 1 gave [−∞, −0].
-            double s = PowerOfTwoScale(Math.Max(Math.Abs(a), Math.Max(Math.Abs(b), Math.Abs(c))));
-            a *= s; b *= s; c *= s;
+            // Scale by a power of two (exact, roots unchanged) so the largest coefficient is in [1, 2): b² can then neither
+            // overflow (x² + 1e200x + 1 gave [−∞, −0]) nor underflow (−1e-320x² + 1e-320 gave [−0]).
+            int e = Exponent(Math.Max(Math.Abs(a), Math.Max(Math.Abs(b), Math.Abs(c))));
+            a = ScaleB(a, -e); b = ScaleB(b, -e); c = ScaleB(c, -e);
             double disc = b * b - 4 * a * c;
             if (disc < 0) return Array.Empty<double>();
             if (disc == 0) return new[] { -b / (2 * a) };
@@ -195,79 +196,146 @@ namespace ToolBelt.Numerics
             return r1 <= r2 ? new[] { r1, r2 } : new[] { r2, r1 };
         }
 
-        // 2^−e for the binary exponent e of a normal positive m, so m·2^−e is in [1, 2); 1 for a subnormal.
-        private static double PowerOfTwoScale(double m)
-        {
-            int e = (int)((BitConverter.DoubleToInt64Bits(m) >> 52) & 0x7FF) - 1023;
-            return e == -1023 ? 1 : Math.Pow(2, -e);
-        }
+        private const double Epsilon = 2.220446049250313e-16;
 
         private double[] CubicRoots()
         {
-            // Normalize to x³ + bx² + cx + d, then depress to t³ + pt + q via x = t - b/3.
+            // Monic x³ + bx² + cx + d.
             double b = _coefficients[2] / _coefficients[3];
             double c = _coefficients[1] / _coefficients[3];
             double d = _coefficients[0] / _coefficients[3];
-            double p = c - b * b / 3.0;
-            double q = 2 * b * b * b / 27.0 - b * c / 3.0 + d;
-            double shift = b / 3.0;
 
-            // "Zero" is judged against the size of the terms that formed p, q and the discriminant (their
-            // round-off), not an absolute constant: roots near 0.001 have a discriminant near 1e-20.
-            double pScale = Math.Abs(c) + b * b / 3.0;
-            double qScale = 2 * Math.Abs(b * b * b) / 27.0 + Math.Abs(b * c) / 3.0 + Math.Abs(d);
+            // Substitute x = σy with σ a power of two above every root's natural size (|b|, √|c|, ∛|d|): the cubic in y
+            // has coefficients of at most 1, so nothing below overflows (roots near 1e120 cubed did) and the tolerances
+            // are relative to a unit-sized problem. Scaling by a power of two is exact.
+            double size = Math.Max(Math.Abs(b), Math.Max(Math.Sqrt(Math.Abs(c)), Cbrt(Math.Abs(d))));
+            if (size == 0) return new[] { 0.0 }; // x³
+            int k = Exponent(size) + 1;
+            double B = ScaleB(b, -k), C = ScaleB(c, -2 * k), D = ScaleB(d, -3 * k);
+
+            // Depress to t³ + pt + q via y = t − B/3.
+            double p = C - B * B / 3.0;
+            double q = 2 * B * B * B / 27.0 - B * C / 3.0 + D;
+            double shift = B / 3.0;
+
+            // "Zero" is judged against the round-off of the discriminant: q and p carry errors of a few ε times the size
+            // of the terms that formed them, which moves q²/4 + p³/27 by about |q|·δq/2 + p²·δp/9. (A looser bound merged
+            // roots 1e-5 apart into one.)
+            double pScale = Math.Abs(C) + B * B / 3.0;
+            double qScale = 2 * Math.Abs(B * B * B) / 27.0 + Math.Abs(B * C) / 3.0 + Math.Abs(D);
             double discriminant = q * q / 4.0 + p * p * p / 27.0;
-            double discTol = 1e-12 * (qScale * qScale / 4.0 + pScale * pScale * pScale / 27.0);
+            double discTol = 32 * Epsilon * (Math.Abs(q) * qScale / 2.0 + p * p * pScale / 9.0);
             var roots = new List<double>();
 
             if (discriminant > discTol)
             {
                 double sqrtD = Math.Sqrt(discriminant);
                 double t = Cbrt(-q / 2 + sqrtD) + Cbrt(-q / 2 - sqrtD);
-                roots.Add(t - shift);
+                roots.Add(Polish(ScaleB(t - shift, k), b, c, d));
             }
             else if (discriminant < -discTol)
             {
-                // Three distinct real roots (trigonometric method).
+                // Three distinct real roots (trigonometric method). Only the largest is taken from it: a root much
+                // smaller than σ is lost in y (1 and 2 next to 1e110), so the other two come from deflating the cubic.
                 double m = 2 * Math.Sqrt(-p / 3.0);
                 double theta = Math.Acos(Clamp(3 * q / (p * m), -1, 1)) / 3.0;
-                for (int k = 0; k < 3; k++)
-                    roots.Add(m * Math.Cos(theta - 2 * Math.PI * k / 3.0) - shift);
+                double largest = 0;
+                for (int i = 0; i < 3; i++)
+                {
+                    double y = m * Math.Cos(theta - 2 * Math.PI * i / 3.0) - shift;
+                    if (Math.Abs(y) > Math.Abs(largest)) largest = y;
+                }
+                double x1 = Polish(ScaleB(largest, k), b, c, d);
+                roots.Add(x1);
+                AddDeflated(roots, x1, b, c, d, real: true);
             }
             else if (Math.Abs(p) <= 1e-8 * pScale)
             {
                 // p ≈ 0 and discriminant ≈ 0 ⇒ triple root at t = 0.
-                roots.Add(-shift);
+                roots.Add(ScaleB(-shift, k));
             }
             else
             {
-                // Discriminant ~0: a double root and a single root.
-                double t1 = 3 * q / p;          // the simple root
-                double t2 = -3 * q / (2 * p);   // the repeated root
-                roots.Add(t1 - shift);
-                roots.Add(t2 - shift);
-            }
-
-            // Polish each root with Newton on the monic cubic, keeping a step only if it shrinks the residual.
-            for (int r = 0; r < roots.Count; r++)
-            {
-                double x = roots[r];
-                for (int it = 0; it < 3; it++)
+                // Discriminant ~0: a double root and a single root (as far as y can tell).
+                double ySimple = 3 * q / p - shift;
+                double yDouble = -3 * q / (2 * p) - shift;
+                if (Math.Abs(ySimple) >= Math.Abs(yDouble))
                 {
-                    double f = ((x + b) * x + c) * x + d;
-                    double df = (3 * x + 2 * b) * x + c;
-                    if (f == 0 || df == 0) break;
-                    double next = x - f / df;
-                    double fn = ((next + b) * next + c) * next + d;
-                    if (!(Math.Abs(fn) < Math.Abs(f))) break;
-                    x = next;
+                    // The "double" root may be two roots too small for y to separate (1e-300x³ + x² − 1 has −1e300 and
+                    // ±1): deflate and let the quadratic decide.
+                    double x1 = Polish(ScaleB(ySimple, k), b, c, d);
+                    roots.Add(x1);
+                    AddDeflated(roots, x1, b, c, d, real: false);
                 }
-                roots[r] = x;
+                else
+                {
+                    // The repeated root dominates; the simple one is −d / r², which keeps it when it is tiny.
+                    double r = ScaleB(yDouble, k);
+                    roots.Add(r);
+                    roots.Add(Polish(-d / r / r, b, c, d));
+                }
             }
 
             roots.Sort();
             return roots.ToArray();
         }
+
+        // The two roots left after dividing the monic cubic by (x − x1): their product is −d/x1 and their sum
+        // (c − product)/x1, both free of cancellation when x1 is the largest root. When the roots are known to be
+        // real the discriminant is clamped at 0; otherwise a discriminant within round-off of 0 is a double root and a
+        // clearly negative one a complex pair.
+        private static void AddDeflated(List<double> roots, double x1, double b, double c, double d, bool real)
+        {
+            double product = -d / x1;
+            double half = -0.5 * ((c - product) / x1); // z² + 2·half·z + product = 0
+            double size = Math.Max(Math.Abs(half), Math.Sqrt(Math.Abs(product)));
+            if (size == 0) { roots.Add(0); return; }
+            if (double.IsNaN(size) || double.IsInfinity(size)) return;
+            int e = Exponent(size);
+            double h = ScaleB(half, -e), pr = ScaleB(product, -2 * e);
+            double disc = h * h - pr;
+            double tol = 32 * Epsilon * (h * h + Math.Abs(pr));
+            if (real) disc = Math.Max(disc, 0);
+            else if (disc < -tol) return;
+            else if (disc <= tol) { roots.Add(Polish(-half, b, c, d)); return; }
+            double z1 = ScaleB(-(h + (h >= 0 ? Math.Sqrt(disc) : -Math.Sqrt(disc))), e);
+            double z2 = z1 == 0 ? 0 : product / z1;
+            roots.Add(Polish(z1, b, c, d));
+            roots.Add(Polish(z2, b, c, d));
+        }
+
+        // Newton on the monic cubic, keeping a step only if it shrinks the residual; skipped where x³ overflows.
+        private static double Polish(double x, double b, double c, double d)
+        {
+            for (int it = 0; it < 3; it++)
+            {
+                double f = ((x + b) * x + c) * x + d;
+                double df = (3 * x + 2 * b) * x + c;
+                if (f == 0 || df == 0 || double.IsNaN(f) || double.IsInfinity(f) || double.IsNaN(df) || double.IsInfinity(df)) break;
+                double next = x - f / df;
+                double fn = ((next + b) * next + c) * next + d;
+                if (!(Math.Abs(fn) < Math.Abs(f))) break;
+                x = next;
+            }
+            return x;
+        }
+
+        // floor(log2 x) for a positive finite x, subnormals included.
+        private static int Exponent(double x)
+        {
+            int e = (int)((BitConverter.DoubleToInt64Bits(x) >> 52) & 0x7FF);
+            return e == 0 ? Exponent(x * 18446744073709551616.0) - 64 : e - 1023;
+        }
+
+        // x·2^k without overflowing the factor itself (2^k alone is out of range for |k| > 1023).
+        private static double ScaleB(double x, int k)
+        {
+            while (k > 1023) { x *= Pow2(1023); k -= 1023; }
+            while (k < -1022) { x *= Pow2(-1022); k += 1022; }
+            return x * Pow2(k);
+        }
+
+        private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
 
         private static double Hypot(double a, double b)
         {

@@ -58,7 +58,11 @@ namespace ToolBelt.Numerics
                 double h = (sorted.Count - 1) * _p;
                 int lo = (int)Math.Floor(h);
                 int hi = Math.Min(lo + 1, sorted.Count - 1);
-                return sorted[lo] + (h - lo) * (sorted[hi] - sorted[lo]);
+                double a = sorted[lo], b = sorted[hi];
+                if (a == b) return a;
+                double d = b - a;
+                // Values of opposite sign near double.MaxValue overflow b − a: interpolate the halves.
+                return double.IsInfinity(d) ? 2 * (0.5 * a + (h - lo) * (0.5 * b - 0.5 * a)) : a + (h - lo) * d;
             }
         }
 
@@ -113,11 +117,26 @@ namespace ToolBelt.Numerics
         }
 
         private double Parabolic(int i, int s)
-            => _q[i] + s / (_n[i + 1] - _n[i - 1]) *
+        {
+            double qp = _q[i] + s / (_n[i + 1] - _n[i - 1]) *
                ((_n[i] - _n[i - 1] + s) * (_q[i + 1] - _q[i]) / (_n[i + 1] - _n[i]) +
                 (_n[i + 1] - _n[i] - s) * (_q[i] - _q[i - 1]) / (_n[i] - _n[i - 1]));
+            if (!double.IsNaN(qp) && !double.IsInfinity(qp)) return qp;
+            // Markers near ±double.MaxValue overflow the height differences (and count × difference): redo it on halved
+            // heights with each count ratio formed first, which keeps every term within the halved marker span.
+            double a = _n[i] - _n[i - 1] + s, b = _n[i + 1] - _n[i] - s, span = _n[i + 1] - _n[i - 1];
+            double up = (0.5 * _q[i + 1] - 0.5 * _q[i]) / (_n[i + 1] - _n[i]);
+            double down = (0.5 * _q[i] - 0.5 * _q[i - 1]) / (_n[i] - _n[i - 1]);
+            return 2 * (0.5 * _q[i] + s * ((a / span) * up + (b / span) * down));
+        }
 
-        private double Linear(int i, int s) => _q[i] + s * (_q[i + s] - _q[i]) / (_n[i + s] - _n[i]);
+        private double Linear(int i, int s)
+        {
+            double q = _q[i] + s * (_q[i + s] - _q[i]) / (_n[i + s] - _n[i]);
+            return double.IsInfinity(q) || double.IsNaN(q)
+                ? 2 * (0.5 * _q[i] + s * (0.5 * _q[i + s] - 0.5 * _q[i]) / (_n[i + s] - _n[i])) // halved, as in Parabolic
+                : q;
+        }
 
         private double Extreme(bool max)
         {
@@ -134,7 +153,8 @@ namespace ToolBelt.Numerics
 
         public StreamingQuantiles(params double[] probabilities)
         {
-            if (probabilities is null || probabilities.Length == 0) throw new ArgumentException("At least one probability is required.", nameof(probabilities));
+            if (probabilities is null) throw new ArgumentNullException(nameof(probabilities));
+            if (probabilities.Length == 0) throw new ArgumentException("At least one probability is required.", nameof(probabilities));
             _trackers = new StreamingQuantile[probabilities.Length];
             for (int i = 0; i < probabilities.Length; i++) _trackers[i] = new StreamingQuantile(probabilities[i]);
         }

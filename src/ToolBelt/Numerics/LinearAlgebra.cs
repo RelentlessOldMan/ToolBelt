@@ -82,9 +82,18 @@ namespace ToolBelt.Numerics
             // Only an exactly zero pivot makes the determinant 0; a small one is a small (but real) determinant.
             if (!Decompose(a, out double[,] lu, out _, out int sign, exactZeroOnly: true))
                 return 0.0;
-            double det = sign;
-            for (int i = 0; i < n; i++) det *= lu[i, i];
-            return det;
+            // The running product kept as mantissa · 2^exponent: multiplied directly, 1e200 · 1e200 · 1e-200 · 1e-200
+            // overflowed to ∞ on the way to 1. Only the final scale saturates (to ±∞ or 0).
+            double mantissa = sign;
+            int exponent = 0;
+            for (int i = 0; i < n; i++)
+            {
+                mantissa *= lu[i, i];
+                int e = Exponent(Math.Abs(mantissa));
+                mantissa = ScaleB(mantissa, -e);
+                exponent += e;
+            }
+            return ScaleB(mantissa, exponent);
         }
 
         public static double[,] Inverse(double[,] a)
@@ -106,9 +115,10 @@ namespace ToolBelt.Numerics
             return inverse;
         }
 
-        // LU with partial pivoting. Returns false if the matrix is singular: a pivot at or below n·ε times the
-        // largest entry (relative, so a uniformly tiny but well-conditioned matrix is not "singular"), or exactly
-        // zero when exactZeroOnly. Non-finite entries throw.
+        // LU with partial pivoting. Returns false if the matrix is singular: a pivot at or below n·ε times the largest
+        // entry of its own original row, i.e. what is left once elimination has cancelled that row away (relative per
+        // row, so neither a uniformly tiny matrix nor diag(1e20, 1) is "singular"; one global scale rejected the
+        // latter), or exactly zero when exactZeroOnly. Non-finite entries throw.
         private static bool Decompose(double[,] a, out double[,] lu, out int[] pivot, out int sign, bool exactZeroOnly = false)
         {
             int n = a.GetLength(0);
@@ -117,16 +127,16 @@ namespace ToolBelt.Numerics
             for (int i = 0; i < n; i++) pivot[i] = i;
             sign = 1;
 
-            double maxAbs = 0;
+            var rowMax = new double[n]; // follows its row through the swaps
             for (int i = 0; i < n; i++)
                 for (int j = 0; j < n; j++)
                 {
                     double v = a[i, j];
                     if (double.IsNaN(v) || double.IsInfinity(v))
                         throw new ArgumentException($"Matrix entry [{i}, {j}] is not finite.", nameof(a));
-                    maxAbs = Math.Max(maxAbs, Math.Abs(v));
+                    rowMax[i] = Math.Max(rowMax[i], Math.Abs(v));
                 }
-            double threshold = exactZeroOnly ? 0 : n * 2.220446049250313e-16 * maxAbs;
+            double relative = exactZeroOnly ? 0 : n * 2.220446049250313e-16;
 
             for (int col = 0; col < n; col++)
             {
@@ -137,12 +147,13 @@ namespace ToolBelt.Numerics
                     double v = Math.Abs(lu[row, col]);
                     if (v > best) { best = v; max = row; }
                 }
-                if (!(best > threshold)) return false; // singular
+                if (!(best > relative * rowMax[max])) return false; // singular
 
                 if (max != col)
                 {
                     for (int j = 0; j < n; j++) (lu[col, j], lu[max, j]) = (lu[max, j], lu[col, j]);
                     (pivot[col], pivot[max]) = (pivot[max], pivot[col]);
+                    (rowMax[col], rowMax[max]) = (rowMax[max], rowMax[col]);
                     sign = -sign;
                 }
 
@@ -175,6 +186,23 @@ namespace ToolBelt.Numerics
             }
             return x;
         }
+
+        // floor(log2 x) for a positive finite x, subnormals included.
+        private static int Exponent(double x)
+        {
+            int e = (int)((BitConverter.DoubleToInt64Bits(x) >> 52) & 0x7FF);
+            return e == 0 ? Exponent(x * 18446744073709551616.0) - 64 : e - 1023;
+        }
+
+        // x·2^k without overflowing the factor itself (2^k alone is out of range for |k| > 1023).
+        private static double ScaleB(double x, int k)
+        {
+            while (k > 1023) { x *= Pow2(1023); k -= 1023; }
+            while (k < -1022) { x *= Pow2(-1022); k += 1022; }
+            return x * Pow2(k);
+        }
+
+        private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
 
         private static int RequireSquare(double[,] a)
         {

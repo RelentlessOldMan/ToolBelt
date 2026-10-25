@@ -6,7 +6,8 @@ namespace ToolBelt.Numerics
     /// <summary>
     /// A simple moving average over the most recent <c>windowSize</c> samples. Backed by a ring buffer
     /// and a compensated running sum, so each <see cref="Add"/> is amortised O(1); the sum is rebuilt from the
-    /// window once per lap, so round-off cannot accumulate. Infinities and NaN are counted rather than summed,
+    /// window once per lap, so round-off cannot accumulate. Huge finite samples whose sum would overflow
+    /// (1e308 + 1e308) are summed scaled down by 2⁻³², so the average stays finite. Infinities and NaN are counted rather than summed,
     /// so they affect the average only while they are inside the window. Before the window fills, the average is over
     /// however many samples have been seen. Not thread-safe.
     /// </summary>
@@ -18,6 +19,9 @@ namespace ToolBelt.Numerics
         private double _sum;
         private double _compensation; // Neumaier running error term
         private int _nan, _posInf, _negInf; // non-finite samples in the window (kept out of the sum)
+        private bool _scaled;     // the sum holds v·2⁻³² because the plain sum overflowed (huge finite samples)
+        private bool _overflowed; // set by Accumulate; the next consistent point rebuilds in scaled mode
+        private const double Down = 1.0 / 4294967296.0, Up = 4294967296.0; // 2⁻³², 2³²: exact, and room for 2³¹ samples
 
         public MovingAverage(int windowSize)
         {
@@ -41,7 +45,8 @@ namespace ToolBelt.Numerics
                 if (_nan > 0 || (_posInf > 0 && _negInf > 0)) return double.NaN;
                 if (_posInf > 0) return double.PositiveInfinity;
                 if (_negInf > 0) return double.NegativeInfinity;
-                return (_sum + _compensation) / _count;
+                double mean = (_sum + _compensation) / _count;
+                return _scaled ? mean * Up : mean;
             }
         }
 
@@ -63,7 +68,10 @@ namespace ToolBelt.Numerics
                 Include(old, -1);
             }
             _next = (_next + 1) % _buffer.Length;
-            if (_next == 0 && IsFull) Rebuild();
+            // Rebuild only here, where the buffer and count agree: once per lap (unscaled if it fits), or at once when
+            // the sum just overflowed.
+            if (_next == 0 && IsFull) Rebuild(scaled: false);
+            else if (_overflowed) Rebuild(scaled: true);
             return Average;
         }
 
@@ -75,6 +83,7 @@ namespace ToolBelt.Numerics
             _sum = 0;
             _compensation = 0;
             _nan = _posInf = _negInf = 0;
+            _scaled = _overflowed = false;
         }
 
         private void Include(double v, int sign)
@@ -87,18 +96,23 @@ namespace ToolBelt.Numerics
 
         private void Accumulate(double v)
         {
+            if (_scaled) v *= Down;
             double t = _sum + v;
+            if (double.IsInfinity(t)) _overflowed = true;
             if (Math.Abs(_sum) >= Math.Abs(v)) _compensation += (_sum - t) + v;
             else _compensation += (v - t) + _sum;
             _sum = t;
         }
 
-        private void Rebuild()
+        private void Rebuild(bool scaled)
         {
+            _scaled = scaled;
+            _overflowed = false;
             _sum = 0;
             _compensation = 0;
             _nan = _posInf = _negInf = 0;
             for (int i = 0; i < _count; i++) Include(_buffer[i], +1);
+            if (_overflowed && !scaled) Rebuild(scaled: true);
         }
     }
 }

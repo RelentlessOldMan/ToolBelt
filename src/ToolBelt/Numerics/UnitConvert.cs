@@ -58,7 +58,13 @@ namespace ToolBelt.Numerics
                 return FromKelvin(ToKelvin(value, fromUnit), toUnit);
             }
 
-            return value * (from.ToBase / to.ToBase); // ratio first: value · factor overflowed for 1e308 km
+            // Ratio first: value · factor overflowed for 1e308 km. The table's factors are short decimals, so their ratio
+            // is taken in decimal: in doubles 0.3048 / 0.0254 is 12.000000000000002 and 0.001 / 1e-6 is 999.9999999999999.
+            // Angles carry π and stay in doubles.
+            double ratio = from.Category == "angle"
+                ? from.ToBase / to.ToBase
+                : (double)((decimal)from.ToBase / (decimal)to.ToBase);
+            return value * ratio;
         }
 
         /// <summary>Parses a "value unit" string such as "5 km" or "3.2kg" into its number and unit. Returns false

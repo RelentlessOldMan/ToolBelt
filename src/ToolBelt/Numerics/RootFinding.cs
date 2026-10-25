@@ -133,11 +133,26 @@ namespace ToolBelt.Numerics
                 if (dfx == 0 || double.IsNaN(dfx))
                     return Failure(x, i, "Derivative vanished; Newton's method cannot proceed.");
                 double next = x - fx / dfx;
-                if (Math.Abs(next - x) < Tol(tolerance, next))
-                    return Success(next, i, f(next));
+                double t = Tol(tolerance, next);
+                if (Math.Abs(next - x) < t)
+                {
+                    // A tiny step only means |f / f'| is small, which a wrong or huge derivative also gives (x − 1 with
+                    // f' = 1e300 "converged" at 5). Accept it when a root is really there: a small residual, or f
+                    // changing sign within the tolerance either side.
+                    double fn = f(next);
+                    if (Math.Abs(fn) < tolerance || fn == 0 || ChangesSign(f, next, t))
+                        return Success(next, i, fn);
+                    return Failure(next, i, "Newton's step vanished but f has no root near it; check the derivative.");
+                }
                 x = next;
             }
             return Failure(x, maxIterations, "Maximum iterations reached without convergence.");
+        }
+
+        private static bool ChangesSign(Func<double, double> f, double x, double t)
+        {
+            double lo = f(x - t), hi = f(x + t);
+            return (lo <= 0 && hi >= 0) || (lo >= 0 && hi <= 0);
         }
 
         /// <summary>Secant method from two starting guesses.</summary>

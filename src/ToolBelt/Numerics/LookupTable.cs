@@ -47,9 +47,18 @@ namespace ToolBelt.Numerics
             _policy = policy;
         }
 
-        /// <summary>Interpolates the y value at <paramref name="x"/>, applying the extrapolation policy at the ends.</summary>
+        /// <summary>
+        /// Interpolates the y value at <paramref name="x"/>, applying the extrapolation policy at the ends. NaN is outside
+        /// every table: it throws under <see cref="Extrapolation.Throw"/> and returns NaN otherwise.
+        /// </summary>
         public double Interpolate(double x)
         {
+            if (double.IsNaN(x))
+            {
+                if (_policy == Extrapolation.Throw)
+                    throw new ArgumentOutOfRangeException(nameof(x), x, "Value is NaN, which is outside the table range.");
+                return double.NaN;
+            }
             int n = _x.Length;
             if (x < _x[0]) return Extrapolate(x, 0, 1, "below");
             if (x > _x[n - 1]) return Extrapolate(x, n - 2, n - 1, "above");
@@ -105,6 +114,17 @@ namespace ToolBelt.Numerics
         }
 
         private static double Lerp(double x0, double y0, double x1, double y1, double x)
-            => y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+        {
+            double dx = x1 - x0, dv = x - x0, dy = y1 - y0;
+            if (!double.IsInfinity(dx) && !double.IsInfinity(dv) && !double.IsInfinity(dy))
+            {
+                double r = y0 + dy * dv / dx;
+                // dy·dv can overflow when the result does not (a 1e300 rise over 1e10): divide first.
+                return double.IsInfinity(r) ? y0 + dy * (dv / dx) : r;
+            }
+            // A span overflowed (points at ±1e308): interpolate the halves, which cannot.
+            double t = (0.5 * x - 0.5 * x0) / (0.5 * x1 - 0.5 * x0);
+            return 2 * (0.5 * y0 + (0.5 * y1 - 0.5 * y0) * t);
+        }
     }
 }

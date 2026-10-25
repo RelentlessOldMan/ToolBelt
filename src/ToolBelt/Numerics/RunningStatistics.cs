@@ -9,7 +9,9 @@ namespace ToolBelt.Numerics
     /// numerically stable (no catastrophic cancellation from the naive sum-of-squares approach) and
     /// needs only O(1) memory. Tracks count, mean, variance, standard deviation, min, max, and sum.
     /// Statistics that are undefined for the current count return <see cref="double.NaN"/>. Only finite samples
-    /// are accepted: one NaN or infinity used to turn the mean and variance into NaN for good.
+    /// are accepted: one NaN or infinity used to turn the mean and variance into NaN for good. The mean stays finite for
+    /// any finite samples; the variance is +∞ once a squared deviation exceeds the double range (it stays +∞, since
+    /// the sum of squared deviations only grows).
     /// </summary>
     public sealed class RunningStatistics
     {
@@ -27,9 +29,19 @@ namespace ToolBelt.Numerics
                 throw new ArgumentException("Only finite values can be added to running statistics.", nameof(value));
             _count++;
             double delta = value - _mean;
-            _mean += delta / _count;
-            double delta2 = value - _mean;
-            _m2 += delta * delta2;
+            if (double.IsInfinity(delta))
+            {
+                // The samples span more than the double range (e.g. 1e308 then -1e308): step the mean with halved
+                // operands, which cannot overflow. The squared deviation then really exceeds the range.
+                _mean += (0.5 * value - 0.5 * _mean) / _count * 2;
+                _m2 = double.PositiveInfinity;
+            }
+            else
+            {
+                _mean += delta / _count;
+                double delta2 = value - _mean;
+                _m2 += delta * delta2;
+            }
 
             if (value < _min) _min = value;
             if (value > _max) _max = value;
@@ -46,7 +58,11 @@ namespace ToolBelt.Numerics
 
         public long Count => _count;
 
-        public double Sum => _sum;
+        /// <summary>
+        /// The sum of the samples. When the running total overflowed but the true sum is within range (1e308 + 1e308 −
+        /// 1e308) it is recovered from the mean; a sum truly beyond the double range is ±∞.
+        /// </summary>
+        public double Sum => double.IsInfinity(_sum) ? _mean * _count : _sum;
 
         public double Mean => _count > 0 ? _mean : double.NaN;
 

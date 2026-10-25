@@ -42,8 +42,11 @@ namespace ToolBelt.Numerics
         {
             if (dataMax == dataMin)
                 return newMin; // constant input: no spread to preserve
-            // Halved, so −1e308..1e308 does not overflow to ∞/∞ = NaN; halving is exact apart from subnormals.
-            double t = (0.5 * value - 0.5 * dataMin) / (0.5 * dataMax - 0.5 * dataMin);
+            double num = value - dataMin, den = dataMax - dataMin;
+            // −1e308..1e308 overflows to ∞/∞ = NaN: halve then. Only then, since halving a subnormal range ([0, ε]) loses it.
+            double t = double.IsInfinity(num) || double.IsInfinity(den)
+                ? (0.5 * value - 0.5 * dataMin) / (0.5 * dataMax - 0.5 * dataMin)
+                : num / den;
             double span = newMax - newMin;
             return double.IsInfinity(span) ? (1 - t) * newMin + t * newMax : newMin + t * span;
         }

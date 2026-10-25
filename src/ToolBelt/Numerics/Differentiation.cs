@@ -57,13 +57,15 @@ namespace ToolBelt.Numerics
         /// <summary>
         /// Central-difference derivative of <paramref name="f"/> at <paramref name="x"/>. The default step is
         /// 1e-5·max(1, |x|), scaled so x ± h differs from x at any magnitude (a fixed 1e-5 vanished at x = 1e12);
-        /// pass <paramref name="h"/> for an explicit absolute step.
+        /// pass <paramref name="h"/> for an explicit absolute step. A step below the spacing of doubles at x throws
+        /// <see cref="ArgumentOutOfRangeException"/>.
         /// </summary>
         public static double Derivative(Func<double, double> f, double x, double? h = null)
         {
             if (f is null) throw new ArgumentNullException(nameof(f));
             double step = StepFor(x, h, 1e-5);
             double xp = x + step, xm = x - step;
+            if (xp == xm) throw StepTooSmall(x, step); // 0/0 = NaN
             return (f(xp) - f(xm)) / (xp - xm); // the step actually taken, after rounding x ± h
         }
 
@@ -88,10 +90,20 @@ namespace ToolBelt.Numerics
 
         private static double Richardson(Func<double, double> f, double x, double h)
         {
-            double d1 = (f(x + h) - f(x - h)) / (2 * h);
-            double d2 = (f(x + h / 2) - f(x - h / 2)) / h;
-            return (4 * d2 - d1) / 3.0; // cancels the leading O(h^2) error term
+            // Differences over the steps actually taken: at x = 1e6 the nominal 2h = 2e-7 is not representable as a
+            // spacing, and dividing by it reported 1.0000000000000002 for f(x) = x (and 0 at x = 1e8).
+            double xp1 = x + h, xm1 = x - h, xp2 = x + h / 2, xm2 = x - h / 2;
+            double w1 = xp1 - xm1, w2 = xp2 - xm2;
+            if (w2 == 0 || w1 == w2) throw StepTooSmall(x, h);
+            double d1 = (f(xp1) - f(xm1)) / w1;
+            double d2 = (f(xp2) - f(xm2)) / w2;
+            double ratio = w1 / w2;
+            if (ratio == 2) return (4 * d2 - d1) / 3.0; // cancels the leading O(h^2) error term
+            return d2 + (d2 - d1) / (ratio * ratio - 1);  // the same extrapolation for steps that rounded unevenly
         }
+
+        private static ArgumentOutOfRangeException StepTooSmall(double x, double h)
+            => new ArgumentOutOfRangeException(nameof(h), h, $"Step is below the spacing of doubles at x = {x:R}; x ± h rounds back to x.");
 
         // Derivative at `at` of the quadratic through (x0,f0),(x1,f1),(x2,f2) — the Lagrange interpolant.
         private static double QuadraticDerivative(double at, double x0, double x1, double x2,

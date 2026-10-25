@@ -16,6 +16,7 @@ namespace ToolBelt.Numerics
     public sealed class AkimaSpline
     {
         private readonly double[] _x, _y, _t;
+        private readonly double _sx, _sy; // the stored x and y are the inputs times these (see RangeScale)
 
         public AkimaSpline(IReadOnlyList<double> x, IReadOnlyList<double> y, bool modified = false)
         {
@@ -34,6 +35,10 @@ namespace ToolBelt.Numerics
                     throw new ArgumentException($"Point {i} is not finite.");
                 if (i > 0 && !(_x[i] > _x[i - 1])) throw new ArgumentException("x must be strictly increasing.", nameof(x));
             }
+
+            _sx = RangeScale(_x);
+            _sy = RangeScale(_y);
+            for (int i = 0; i < n; i++) { _x[i] *= _sx; _y[i] *= _sy; }
 
             // Segment slopes m[0..n−2], stored with two extrapolated slopes on each side (offset 2).
             var m = new double[n + 3];
@@ -68,28 +73,50 @@ namespace ToolBelt.Numerics
         /// <summary>The interpolated value (clamped to the end values outside the data range).</summary>
         public double Interpolate(double x)
         {
-            if (x <= _x[0]) return _y[0];
-            if (x >= _x[_x.Length - 1]) return _y[_y.Length - 1];
+            x *= _sx;
+            if (x <= _x[0]) return _y[0] / _sy;
+            if (x >= _x[_x.Length - 1]) return _y[_y.Length - 1] / _sy;
             int i = Segment(x);
             double h = _x[i + 1] - _x[i], s = (x - _x[i]) / h;
             double h00 = (1 + 2 * s) * (1 - s) * (1 - s), h10 = s * (1 - s) * (1 - s);
             double h01 = s * s * (3 - 2 * s), h11 = s * s * (s - 1);
-            return h00 * _y[i] + h10 * h * _t[i] + h01 * _y[i + 1] + h11 * h * _t[i + 1];
+            return (h00 * _y[i] + h10 * h * _t[i] + h01 * _y[i + 1] + h11 * h * _t[i + 1]) / _sy;
         }
 
         /// <summary>The first derivative (0 outside the data range, matching the clamped values).</summary>
         public double Derivative(double x)
         {
+            x *= _sx;
             if (x < _x[0] || x > _x[_x.Length - 1]) return 0;
-            if (x == _x[_x.Length - 1]) return _t[_t.Length - 1];
+            if (x == _x[_x.Length - 1]) return _t[_t.Length - 1] * (_sx / _sy);
             int i = Segment(x);
             double h = _x[i + 1] - _x[i], s = (x - _x[i]) / h;
             double d00 = 6 * s * s - 6 * s, d10 = 3 * s * s - 4 * s + 1, d01 = -6 * s * s + 6 * s, d11 = 3 * s * s - 2 * s;
-            return (d00 * _y[i] + d01 * _y[i + 1]) / h + d10 * _t[i] + d11 * _t[i + 1];
+            return ((d00 * _y[i] + d01 * _y[i + 1]) / h + d10 * _t[i] + d11 * _t[i + 1]) * (_sx / _sy);
         }
 
         /// <summary>The slope the spline uses at each data point.</summary>
-        public IReadOnlyList<double> Slopes => Array.AsReadOnly(_t); // the bare array could be cast back and written
+        public IReadOnlyList<double> Slopes
+        {
+            get
+            {
+                if (_sx == _sy) return Array.AsReadOnly(_t); // the bare array could be cast back and written
+                var slopes = new double[_t.Length];
+                for (int i = 0; i < slopes.Length; i++) slopes[i] = _t[i] * (_sx / _sy);
+                return Array.AsReadOnly(slopes);
+            }
+        }
+
+        // Coordinates beyond 2⁵⁰⁰ are stored scaled down by 2⁶⁰⁰ (a power of two, so exact): differences and slopes of
+        // points near ±double.MaxValue then cannot overflow. Ordinary data keeps a scale of 1 and is untouched.
+        private static double RangeScale(double[] v)
+        {
+            double max = 0;
+            foreach (double d in v) max = Math.Max(max, Math.Abs(d));
+            return max > Pow2(500) ? Pow2(-600) : 1.0;
+        }
+
+        private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
 
         private int Segment(double x)
         {

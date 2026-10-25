@@ -57,7 +57,7 @@ namespace ToolBelt.Numerics
         /// <summary>The inclusive lower bound of bin <paramref name="index"/>.</summary>
         public double BinLowerBound(int index)
         {
-            if ((uint)index >= (uint)_bins.Length)
+            if (index < 0 || index >= _bins.Length)
                 throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be in [0, {_bins.Length}).");
             return LowerBound(index);
         }

@@ -44,7 +44,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 1 | 16 / 16 | re-queue (2 severe) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 1 | 31 / 31 | re-queue (7 severe) |
-| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 1 | 43 / 43 | re-queue (8 severe) |
+| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 2 | 28 / 71 | re-queue (5 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 1 | 33 / 33 | re-queue (8 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 1 | 19 / 19 | re-queue (3 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 1 | 27 / 27 | re-queue (5 severe) |
@@ -59,7 +59,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 1 | 21 / 21 | re-queue (1 severe) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
-After all 17: re-run the sections flagged by the re-review rule, worst first. **next**
+After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
+5, 14, 10, 15, 3, 8, 9, 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 5 (Charts)**
 
 ## Releases
 
@@ -85,6 +86,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.15.0 | 15 | Windows satellite | 35 | (see tag) |
 | v0.16.0 | 16 | WPF satellite | 21 | (see tag) |
 | v0.17.0 | 17 | WinForms satellite, tooling, docs | 24 | (see tag) |
+| v0.18.0 | 18 | Numerics core, second pass | 28 | (see tag) |
 
 ## Round log
 
@@ -918,3 +920,35 @@ green on the installed SDK 10.
   minimized is captured as Normal; `ControlExtensions` runs inline before a handle exists, as `InvokeRequired` does.
 - **Checked build:** not applicable (satellite and tooling).
 - **Re-queued:** yes (24 bugs, 1 severe).
+
+### Round 18 — 2026-10-25 — Numerics core, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 4 with 8 severe).
+The robustness lens focused on finite overflow at ±1e308, subnormals, checked arithmetic and round-trip formatting.
+**28 confirmed bugs**, each with a failing-first regression test in `NumericsCoreReview2Tests` (one of them is in the
+test framework).
+
+- **Severe:**
+  - `RootFinding.Newton` returned Converged on any tiny step; a wrong or huge derivative (x − 1 with f' = 1e300)
+    "converged" at 5. A tiny step now needs a small residual or a sign change within the tolerance.
+  - `LinearAlgebra` measured singularity against the whole matrix's largest entry, rejecting diag(1e20, 1). The
+    threshold is now per original row.
+  - Cubic `Polynomial.RealRoots` merged roots 1e-5 apart (tolerance far above round-off) and lost or overflowed roots
+    at extreme scales. Rewritten: power-of-two scaling, a round-off discriminant tolerance, deflation from the
+    largest root.
+  - `DeterministicRandom.NextBytes` / wide `Next` threw under checked arithmetic.
+  - `Check.Close` (test framework) passed when exactly one side was NaN (`NaN > tol` is false). It hid one wrong
+    result among the new tests; no older test was masked.
+- **Moderate:** finite-overflow NaN/∞ in `RunningStatistics`, `MovingAverage`, `WeightedAverage`, `ZScore`,
+  `Interpolation`, `Vector2.Lerp`, `LookupTable`, `MonotoneCubic`, `AkimaSpline`, `StreamingQuantile`,
+  `ScatteredInterpolation.ToGrid` (also ∞·0 = NaN at i = 0), `Integration`, `EmpiricalDistribution.Quantile`, each
+  fixed by a scaled or halved fallback taken only on overflow; `RoundToSignificantDigits` and `EngineeringNotation`
+  double rounding (now decimal-digit based; `TryParse` rejects overflow); `Differentiation` steps below the double
+  spacing and Richardson's nominal step; `Uncertainty` rounding to ∞; `Means.Arithmetic` with a true infinity.
+- **Minor:** `UnitConvert` ulp-off exact ratios (now decimal); `Determinant` intermediate overflow; subnormal
+  quadratics; `MinMaxScaler` subnormal range; `Vector2.Normalized` of infinite vectors; `LookupTable`/`Cdf` NaN;
+  `Histogram` negative index under checked arithmetic; `ZScore` negative sd; `StreamingQuantiles(null)`.
+- **Test fixed, not code:** one new test expected "(1.70 ± 0.50)e308"; the PDG rule gives "(1.7 ± 0.5)e308", the same
+  as at e8.
+- **Checked build:** numerics failures gone (DeterministicRandom ×3, Fraction); 8 remain in other sections (Net ×5,
+  Guards, ArrayPoolScope, Palette); nothing new.
+- **Re-queued:** yes (28 bugs, 5 severe).
