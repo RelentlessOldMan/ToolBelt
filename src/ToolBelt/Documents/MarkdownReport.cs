@@ -124,7 +124,7 @@ namespace ToolBelt.Documents
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
             var sb = new StringBuilder();
-            foreach (var line in text.Replace("\r\n", "\n").Split('\n'))
+            foreach (var line in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
                 sb.Append("> ").Append(line).Append('\n');
             Block(sb.ToString().TrimEnd('\n'));
             return this;
@@ -134,7 +134,7 @@ namespace ToolBelt.Documents
         public MarkdownReport Image(string altText, string url)
         {
             if (url is null) throw new ArgumentNullException(nameof(url));
-            Block($"![{Escape(altText ?? "")}]({url})");
+            Block($"![{Escape(altText ?? "")}]({Destination(url)})");
             return this;
         }
 
@@ -169,7 +169,7 @@ namespace ToolBelt.Documents
             return pad ? fence + " " + text + " " + fence : fence + text + fence;
         }
         /// <summary>Inline link.</summary>
-        public static string Link(string text, string url) => "[" + Escape(text) + "](" + (url ?? "") + ")";
+        public static string Link(string text, string url) => "[" + Escape(text) + "](" + Destination(url ?? "") + ")";
 
         /// <summary>The finished Markdown document.</summary>
         public override string ToString() => _sb.ToString().TrimEnd('\n') + "\n";
@@ -183,6 +183,30 @@ namespace ToolBelt.Documents
                 sb.Append(' ').Append(EscapeCell(value)).Append(' ').Append('|');
             }
             sb.Append('\n');
+        }
+
+        // A link or image destination: as is when CommonMark reads it back unchanged, else in angle brackets, which
+        // allow spaces and parentheses (a raw space or an unbalanced ')' would leave the whole link as literal text).
+        private static string Destination(string url)
+        {
+            bool plain = true;
+            int depth = 0;
+            foreach (char ch in url)
+            {
+                if (ch <= ' ' || ch == '<' || ch == '>' || ch == '\\' || ch == '\u007f') plain = false;
+                else if (ch == '(') depth++;
+                else if (ch == ')' && --depth < 0) plain = false;
+            }
+            if (plain && depth == 0) return url;
+            var sb = new StringBuilder("<");
+            foreach (char ch in url)
+            {
+                if (ch == '\n') sb.Append("%0A");
+                else if (ch == '\r') sb.Append("%0D");
+                else if (ch == '<' || ch == '>' || ch == '\\') sb.Append('\\').Append(ch);
+                else sb.Append(ch);
+            }
+            return sb.Append('>').ToString();
         }
 
         private static int LongestRun(string text, char ch)

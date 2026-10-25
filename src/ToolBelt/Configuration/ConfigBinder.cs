@@ -30,7 +30,10 @@ namespace ToolBelt.Configuration
     /// <item>Durations accept the human form ("1m 30s", "250ms", "2d") or a TimeSpan string with a colon
     /// ("00:05:00", "1.02:00:00"). A bare number is rejected as ambiguous (TimeSpan would read "30" as 30 days).</item>
     /// <item>Lists may be typed as arrays, <see cref="List{T}"/> or the list/collection/enumerable interfaces; their
-    /// indexes must run 0, 1, 2, ... without gaps.</item>
+    /// indexes must run 0, 1, 2, ... without gaps. A get-only list property is filled in place.</item>
+    /// <item>Numbers are invariant: "0,5" is an error, not 5.</item>
+    /// <item>A configured key is never dropped silently: a type the binder doesn't handle (a dictionary, a list of
+    /// objects, <see cref="Uri"/>), a read-only property, or a setter that throws is reported as an error.</item>
     /// </list>
     /// </summary>
     public static class ConfigBinder
@@ -65,21 +68,43 @@ namespace ToolBelt.Configuration
                 {
                     if (prop.CanWrite && values.TryGetValue(key, out string? raw))
                     {
-                        if (TryConvertScalar(raw, pt, out object? value)) prop.SetValue(obj, value);
+                        if (TryConvertScalar(raw, pt, out object? value)) TrySet(prop, obj, value, key, errors);
                         else errors.Add($"'{key}': cannot convert '{raw}' to {FriendlyName(pt)}.");
                     }
                 }
                 else if (TryGetElementType(pt, out Type elementType))
                 {
-                    if (!prop.CanWrite) continue;
                     object? sequence = BindSequence(pt, elementType, values, key, sep, errors);
-                    if (sequence != null) prop.SetValue(obj, sequence);
+                    if (sequence == null) continue;
+                    if (prop.CanWrite) { TrySet(prop, obj, sequence, key, errors); continue; }
+                    // A get-only list (List<string> Hosts { get; } = new()) is filled in place rather than skipped.
+                    if (prop.CanRead && TryGet(prop, obj, key, errors, out object? existing))
+                    {
+                        if (existing is System.Collections.IList list && !list.IsReadOnly && !list.IsFixedSize)
+                        {
+                            try
+                            {
+                                list.Clear();
+                                foreach (object? item in (System.Collections.IEnumerable)sequence) list.Add(item);
+                            }
+                            catch (Exception ex) when (!(ex is OutOfMemoryException)) { errors.Add($"'{key}': {ex.Message}"); }
+                        }
+                        else errors.Add($"'{key}': the property is read-only and holds no list that can be filled, so it cannot be bound.");
+                    }
                 }
-                else if (pt.IsClass && !path.Contains(pt) && HasSection(values, key + sep))
+                else if (!IsBindableClass(pt))
+                {
+                    // Configured but of a type the binder doesn't handle (Uri, a struct, a dictionary, a list of objects):
+                    // say so rather than drop the values.
+                    if (IsConfigured(values, key, sep))
+                        errors.Add($"'{key}': {FriendlyName(pt)} is not a supported setting type (scalars, lists of scalars and classes are).");
+                }
+                else if (!path.Contains(pt) && HasSection(values, key + sep))
                 {
                     // Only a section that is actually configured is bound: an untouched property keeps its default
                     // (an initializer's object, or null), and a type the binder can't construct is never instantiated.
-                    object? target = prop.CanRead ? prop.GetValue(obj) : null;
+                    object? target = null;
+                    if (prop.CanRead && !TryGet(prop, obj, key, errors, out target)) continue;
                     if (target == null)
                     {
                         if (!prop.CanWrite) continue;
@@ -88,16 +113,43 @@ namespace ToolBelt.Configuration
                             errors.Add($"'{key}': {FriendlyName(pt)} has no public parameterless constructor, so its section cannot be bound.");
                             continue;
                         }
-                        target = Activator.CreateInstance(pt)!;
+                        try { target = Activator.CreateInstance(pt)!; }
+                        catch (TargetInvocationException ex) { errors.Add($"'{key}': {(ex.InnerException ?? ex).Message}"); continue; }
                     }
                     // Guard against a cyclic type reference on the current path (would recurse forever).
                     path.Add(pt);
                     BindInto(target, pt, values, key, sep, path, errors);
                     path.Remove(pt);
-                    if (prop.CanWrite) prop.SetValue(obj, target);
+                    if (prop.CanWrite) TrySet(prop, obj, target, key, errors);
+                }
+                else if (values.TryGetValue(key, out string? whole) && !string.IsNullOrEmpty(whole))
+                {
+                    // A plain value for a class (Uri, Version, or a section such as "Server=localhost") has nothing to
+                    // bind into: say so rather than drop it.
+                    errors.Add($"'{key}': {FriendlyName(pt)} is not a supported setting type; a section takes nested keys ('{key}{sep}...').");
                 }
             }
         }
+
+        // A setter or getter that throws (a validating property) is a binding error for that key, not a crash.
+        private static void TrySet(PropertyInfo prop, object obj, object? value, string key, List<string> errors)
+        {
+            try { prop.SetValue(obj, value); }
+            catch (TargetInvocationException ex) { errors.Add($"'{key}': {(ex.InnerException ?? ex).Message}"); }
+        }
+
+        private static bool TryGet(PropertyInfo prop, object obj, string key, List<string> errors, out object? value)
+        {
+            try { value = prop.GetValue(obj); return true; }
+            catch (TargetInvocationException ex) { errors.Add($"'{key}': {(ex.InnerException ?? ex).Message}"); value = null; return false; }
+        }
+
+        // A class with properties to bind into: not a delegate or a collection (a dictionary or a list of objects).
+        private static bool IsBindableClass(Type type)
+            => type.IsClass && !typeof(Delegate).IsAssignableFrom(type) && !typeof(System.Collections.IEnumerable).IsAssignableFrom(type);
+
+        private static bool IsConfigured(Dictionary<string, string?> values, string key, string sep)
+            => (values.TryGetValue(key, out string? v) && !string.IsNullOrEmpty(v)) || HasSection(values, key + sep);
 
         private static bool HasSection(Dictionary<string, string?> values, string sectionPrefix)
         {
@@ -192,6 +244,22 @@ namespace ToolBelt.Configuration
             if (t == typeof(DateTime))
             {
                 if (DateTime.TryParse(s, inv, DateTimeStyles.RoundtripKind, out DateTime dt)) { value = dt; return true; }
+                return false;
+            }
+            // Floating point without AllowThousands: "0,5" (a decimal comma) is an error, not 5.
+            if (t == typeof(double))
+            {
+                if (double.TryParse(s, NumberStyles.Float, inv, out double d)) { value = d; return true; }
+                return false;
+            }
+            if (t == typeof(float))
+            {
+                if (float.TryParse(s, NumberStyles.Float, inv, out float fl)) { value = fl; return true; }
+                return false;
+            }
+            if (t == typeof(decimal))
+            {
+                if (decimal.TryParse(s, NumberStyles.Float, inv, out decimal m)) { value = m; return true; }
                 return false;
             }
             try

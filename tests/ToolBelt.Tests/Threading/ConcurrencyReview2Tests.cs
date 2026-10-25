@@ -149,12 +149,15 @@ namespace ToolBelt.Tests.Threading
             int result = await TaskRace.Hedged(async (n, ct) =>
             {
                 starts[n] = sw.ElapsedMilliseconds;
-                if (n == 0) { await Task.Delay(1500, ct); throw new InvalidOperationException(); }
+                if (n == 0) { await Task.Delay(1900, ct); throw new InvalidOperationException(); }
                 if (n == 1) { await Task.Delay(Timeout.Infinite, ct); return -1; }
                 return 2;
             }, TimeSpan.FromSeconds(1), maxAttempts: 3);
             Check.Equal(2, result);
-            Check.True(starts[2] < 2300, $"the third attempt started at {starts[2]} ms, not about 2000 ms");
+            // Measured from the second start, so a slow first start on a loaded machine doesn't count: about 1000 ms
+            // when the timer runs on, about 1900 ms if the failure at 1900 ms restarted it.
+            long gap = starts[2] - starts[1];
+            Check.True(gap < 1600, $"the third attempt started {gap} ms after the second, not about 1000 ms");
         }
 
         public async Task Hedged_InfiniteOrHugeDelayNeverHedges()

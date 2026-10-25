@@ -47,7 +47,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 2 | 28 / 71 | re-queue (5 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 2 | 28 / 61 | re-queue (5 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 1 | 19 / 19 | re-queue (3 severe) |
-| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 1 | 27 / 27 | re-queue (5 severe) |
+| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 2 | 20 / 47 | re-queue (20 bugs, 6 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 2 | 22 / 67 | re-queue (22 bugs, 2 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 2 | 11 / 39 | re-queue (11 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 2 | 25 / 65 | re-queue (1 severe) |
@@ -60,7 +60,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 7**
+5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 13**
 
 ## Releases
 
@@ -94,6 +94,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.23.0 | 23 | Statistics, second pass | 22 | (see tag) |
 | v0.24.0 | 24 | IO, second pass | 22 | (see tag) |
 | v0.25.0 | 25 | Collections, second pass | 11 | (see tag) |
+| v0.26.0 | 26 | Documents & config, second pass | 20 | (see tag) |
 
 ## Round log
 
@@ -1181,3 +1182,39 @@ overflows need multi-gigabyte arrays and were confirmed by the reviewers' runs a
 - **Unconfirmed:** `ReservoirSampler` skip precision after ~1e16 items.
 - **Checked build:** same 7 baseline failures, none new.
 - **Re-queued:** yes (11 bugs, 1 severe).
+
+### Round 26 — 2026-10-25 — Documents & config, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 7 with 5 severe).
+**20 confirmed bugs**, each with a failing-first regression test in `DocumentsConfigReview2Tests` (22 tests). Six severe.
+
+- **Severe — `ConfigBinder` decimal comma:** `double`/`float`/`decimal` went through `Convert.ChangeType`, which
+  allows thousands separators, so "0,5" bound as 5 and "2,50" as 250. Floating point now parses with
+  `NumberStyles.Float` (invariant); a comma is a binding error.
+- **Severe — `ConfigBinder` get-only list:** `List<string> Hosts { get; } = new()` was skipped and its items dropped.
+  It is now filled in place; a read-only property with nothing fillable is an error.
+- **Severe — `ConfigBinder` unsupported types:** configured values for `Uri`, structs, dictionaries and lists of
+  objects were silently ignored (a dictionary or `List<Endpoint>` was even created empty). Now an error naming the key.
+  Also: a throwing setter, getter or constructor is a binding error for its key instead of a raw `TargetInvocationException`.
+- **Severe — `SettingsStore.LoadFrom`:** a value the type rejects (a validating setter that throws) escaped, so the
+  app crashed on every launch. Any non-fatal deserialize failure now moves the file aside and uses defaults.
+- **Severe — `PdfWriter.Table`:** a row taller than the space under a repeated header was clipped, and a header
+  taller than a page swallowed every row. Rows now continue across pages; the header repeats only if a line still fits.
+- **Severe — `ReportTemplates.Comparison`:** with `flagPercent: 0` ("any change") a metric changing from a baseline of
+  0 was never flagged, and the verdict said nothing changed. (At a positive threshold it stays unflagged, as before.)
+- **PdfWriter:** five WinAnsi glyphs (macron, ±, µ, ·, ÷) had Arial/Times New Roman widths, not Adobe's, so text
+  overran the margin; huge column weights (1e308) wrote NaN into the content; unpaired surrogates went into
+  UTF-16 metadata strings (now U+FFFD); `Code` split a surrogate pair across lines.
+- **ReportBuilder (Markdown):** the slug dropped combining marks, other numbers and line breaks (TOC links to a
+  multi-line heading were dead, and the TOC entry itself broke across lines); metadata values, table and figure
+  captions and image alt text were not made single-line; lines indented four spaces or a tab became code blocks;
+  the table headers array was kept by reference.
+- **MarkdownReport:** a lone CR ended a quote; image and link destinations with spaces or unbalanced parentheses were
+  written raw (now in angle brackets).
+- **DocxWriter:** a lone CR was written raw instead of as `<w:br/>`; `default(DocxRun)` threw `NullReferenceException`.
+- **EnvironmentVariables.GetList(name, null)** threw `NullReferenceException`.
+- **Also:** `ConcurrencyReview2Tests.Hedged_AFailureDoesNotRestartTheHedgeTimer` flaked on one throttled core (300 ms
+  slack on an absolute time); it now measures from the second start with ~600 ms between right and wrong.
+- **Not fixed:** a heading with nothing GitHub keeps still gets the id "section" (an HTML id can't be empty);
+  `PdfWriter.Heading(size: 700)` leaves blank pages (pathological).
+- **Checked build:** same 7 baseline failures; the hedge flake above was the only new one.
+- **Re-queued:** yes (20 bugs, 6 severe).

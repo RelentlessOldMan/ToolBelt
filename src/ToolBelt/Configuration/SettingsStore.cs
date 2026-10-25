@@ -2,6 +2,7 @@
 #if !NETSTANDARD2_0
 using System;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -12,7 +13,7 @@ namespace ToolBelt.Configuration
     /// Per-user settings persisted as JSON: a typed object loaded at startup and saved on change, in the conventional
     /// per-user location (<c>%APPDATA%\Company\App\settings.json</c>, or <c>~/.config/…</c>) unless a path is given.
     /// It gets the boring-but-critical parts right: saves are atomic (temp file + rename); a missing file yields defaults;
-    /// a corrupt file is moved aside to <c>settings.json.corrupt-&lt;timestamp&gt;</c> and defaults are used (reported via
+    /// a corrupt file (or one holding a value the type rejects) is moved aside to <c>settings.json.corrupt-&lt;timestamp&gt;</c> and defaults are used (reported via
     /// <see cref="LoadWarning"/>) rather than crashing the app on every launch, and a file that can't be read at all
     /// (locked, no permission) also yields defaults with a warning, left in place; unknown properties from newer
     /// versions are ignored and missing ones keep their defaults; NaN and ±∞ in floating-point settings round-trip.
@@ -75,8 +76,11 @@ namespace ToolBelt.Configuration
                 T? value = JsonSerializer.Deserialize<T>(text, Options);
                 return new SettingsStore<T>(full, value ?? new T(), null);
             }
-            catch (Exception ex) when (ex is JsonException || ex is NotSupportedException)
+            catch (Exception ex) when (!(ex is OutOfMemoryException || ex is StackOverflowException))
             {
+                // Malformed JSON, but also a value the type itself rejects (a validating setter or constructor that
+                // throws): either way this file would crash every launch, so it is set aside like a corrupt one.
+                if (ex is TargetInvocationException && ex.InnerException != null) ex = ex.InnerException;
                 // Unique name (never overwrite an earlier preserved copy); if the move itself fails, still start with defaults.
                 string aside = full + ".corrupt-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture)
                                + "-" + Guid.NewGuid().ToString("N").Substring(0, 6);

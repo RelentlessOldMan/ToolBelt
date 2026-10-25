@@ -118,7 +118,9 @@ namespace ToolBelt.Documents
                     cells[c] = row != null && c < row.Count ? row[c] ?? "" : "";
                 normalized.Add(cells);
             }
-            return Add(new Block(Kind.Table) { Headers = headers, Rows = normalized, Caption = caption });
+            var head = new string[headers.Count];                         // copied, like the rows: later changes don't leak in
+            for (int c = 0; c < head.Length; c++) head[c] = headers[c] ?? "";
+            return Add(new Block(Kind.Table) { Headers = head, Rows = normalized, Caption = caption });
         }
 
         /// <summary>
@@ -253,7 +255,7 @@ namespace ToolBelt.Documents
             if (_metadata.Count > 0)
             {
                 var lines = new List<string>();
-                foreach (var kv in _metadata) lines.Add(MarkdownReport.Bold(kv.Key + ":") + " " + EscMd(kv.Value));
+                foreach (var kv in _metadata) lines.Add(MarkdownReport.Bold(OneLine(kv.Key) + ":") + " " + EscMdLine(kv.Value));
                 md.Raw(string.Join("  \n", lines)); // hard line breaks keep the block compact
             }
 
@@ -266,7 +268,7 @@ namespace ToolBelt.Documents
                     {
                         var sb = new StringBuilder("**Contents**\n\n");
                         foreach (var h in headings)
-                            sb.Append(new string(' ', (h.Level - 1) * 2)).Append("- [").Append(EscMd(h.Text)).Append("](#").Append(h.Id).Append(")\n");
+                            sb.Append(new string(' ', (h.Level - 1) * 2)).Append("- [").Append(EscMdLine(h.Text)).Append("](#").Append(h.Id).Append(")\n");
                         md.Raw(sb.ToString());
                         break;
                     }
@@ -277,17 +279,17 @@ namespace ToolBelt.Documents
                     case Kind.Table:
                         table++;
                         if (!string.IsNullOrEmpty(b.Caption))
-                            md.Raw(MarkdownReport.Bold("Table " + table.ToString(CultureInfo.InvariantCulture) + ": " + b.Caption));
+                            md.Raw(MarkdownReport.Bold("Table " + table.ToString(CultureInfo.InvariantCulture) + ": " + OneLine(b.Caption!)));
                         md.Table(b.Headers!, b.Rows!);
                         break;
                     case Kind.Figure:
                     {
                         figure++;
-                        string label = "Figure " + figure.ToString(CultureInfo.InvariantCulture) + ": " + b.Caption;
+                        string label = "Figure " + figure.ToString(CultureInfo.InvariantCulture) + ": " + OneLine(b.Caption!);
                         string uri = b.Png != null && b.Png.Length > 0
                             ? "data:image/png;base64," + Convert.ToBase64String(b.Png)
                             : "data:image/svg+xml;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(b.Svg!));
-                        md.Raw("![" + EscMd(label) + "](" + uri + ")\n\n" + MarkdownReport.Italic(label));
+                        md.Raw("![" + EscMdLine(label) + "](" + uri + ")\n\n" + MarkdownReport.Italic(label));
                         break;
                     }
                     case Kind.Code: md.CodeBlock(b.Text!, b.Language!); break;
@@ -456,12 +458,29 @@ namespace ToolBelt.Documents
         public static string Slug(string text)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
-            var sb = new StringBuilder(text.Length);
-            foreach (char ch in text.Trim().ToLowerInvariant())
+            // GitHub keeps letters, marks, numbers, connector punctuation and '-', and turns each space into '-'. A
+            // heading is one line, so a line break counts as the space it is rendered as.
+            string s = text.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Trim().ToLowerInvariant();
+            var sb = new StringBuilder(s.Length);
+            for (int i = 0; i < s.Length; i++)
             {
-                if (char.IsLetterOrDigit(ch) || ch == '_' || ch == '-') sb.Append(ch);
-                else if (ch == ' ') sb.Append('-');
+                int width = char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]) ? 2 : 1;
+                switch (CharUnicodeInfo.GetUnicodeCategory(s, i))
+                {
+                    case UnicodeCategory.UppercaseLetter: case UnicodeCategory.LowercaseLetter: case UnicodeCategory.TitlecaseLetter:
+                    case UnicodeCategory.ModifierLetter: case UnicodeCategory.OtherLetter:
+                    case UnicodeCategory.NonSpacingMark: case UnicodeCategory.SpacingCombiningMark: case UnicodeCategory.EnclosingMark:
+                    case UnicodeCategory.DecimalDigitNumber: case UnicodeCategory.LetterNumber: case UnicodeCategory.OtherNumber:
+                    case UnicodeCategory.ConnectorPunctuation:
+                        sb.Append(s, i, width);
+                        break;
+                    default:
+                        if (s[i] == ' ' || s[i] == '-') sb.Append('-');
+                        break;
+                }
+                i += width - 1;
             }
+            // An HTML id can't be empty, so a heading with nothing GitHub keeps (all punctuation) gets "section".
             return sb.Length == 0 ? "section" : sb.ToString();
         }
 
@@ -542,17 +561,20 @@ namespace ToolBelt.Documents
             return sb.ToString();
         }
 
-        // A heading is one line: line breaks become spaces.
-        private static string EscMdLine(string text) => EscMd(text.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' '));
+        // A heading, caption or metadata value is one line: line breaks become spaces.
+        private static string OneLine(string text) => text.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ');
+
+        private static string EscMdLine(string text) => EscMd(OneLine(text));
 
         // Block text: inline escapes, plus the line starts CommonMark would read as a list item ("- ", "+ ", "1. ") or a
-        // setext underline ("---", "===").
+        // setext underline ("---", "==="). Leading indentation is dropped, as Markdown shows it anyway: four spaces or a
+        // tab would otherwise turn the line into a code block.
         private static string EscMdBlock(string text)
         {
             string[] lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
             for (int i = 0; i < lines.Length; i++)
             {
-                string line = EscMd(lines[i]);
+                string line = EscMd(lines[i].TrimStart(' ', '\t'));
                 int s = 0;
                 while (s < line.Length && line[s] == ' ') s++;
                 if (s < line.Length && (line[s] == '-' || line[s] == '+' || line[s] == '='))

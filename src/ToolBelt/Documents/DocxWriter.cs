@@ -13,14 +13,17 @@ namespace ToolBelt.Documents
     {
         public DocxRun(string text, bool bold = false, bool italic = false, bool underline = false, bool code = false)
         {
-            Text = text ?? throw new ArgumentNullException(nameof(text));
+            _text = text ?? throw new ArgumentNullException(nameof(text));
             Bold = bold;
             Italic = italic;
             Underline = underline;
             Code = code;
         }
 
-        public string Text { get; }
+        private readonly string? _text;
+
+        /// <summary>The text; empty for <c>default(DocxRun)</c>.</summary>
+        public string Text => _text ?? "";
         public bool Bold { get; }
         public bool Italic { get; }
         public bool Underline { get; }
@@ -389,7 +392,7 @@ namespace ToolBelt.Documents
         private static string Text(string text)
         {
             var sb = new StringBuilder();
-            string[] lines = text.Replace("\r\n", "\n").Split('\n');
+            string[] lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');     // a lone CR breaks too
             for (int i = 0; i < lines.Length; i++)
             {
                 if (i > 0) sb.Append("<w:br/>");

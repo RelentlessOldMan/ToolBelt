@@ -103,7 +103,7 @@ namespace ToolBelt.Documents
         /// <summary>
         /// Two runs side by side: a table of A, B, change and percent change per metric, and a summary naming the largest
         /// relative change. Metrics whose |change %| reaches <paramref name="flagPercent"/> are flagged in a warning callout;
-        /// 0 flags any change at all. (Columns are spelled out rather than "Δ", which the PDF's base fonts can't show.)
+        /// 0 flags any change at all, including one from a baseline of 0 (which has no percent change). (Columns are spelled out rather than "Δ", which the PDF's base fonts can't show.)
         /// </summary>
         public static ReportBuilder Comparison(
             string title,
@@ -128,7 +128,9 @@ namespace ToolBelt.Documents
             {
                 double p = r.PercentChange;
                 if (!double.IsNaN(p) && (largest is null || Math.Abs(p) > Math.Abs(largest.PercentChange))) largest = r;
-                if (!double.IsNaN(p) && (flagPercent > 0 ? Math.Abs(p) >= flagPercent : p != 0))
+                // From a zero baseline there is no percent change, but a threshold of 0 still means "any change at all".
+                if (flagPercent == 0 && r.A == 0 && r.B != 0 && !double.IsNaN(r.B)) flagged.Add(r.Metric + " (from 0)");
+                else if (!double.IsNaN(p) && (flagPercent > 0 ? Math.Abs(p) >= flagPercent : p != 0))
                     flagged.Add(r.Metric + " (" + Signed(p, "0.##") + "%)");
             }
 

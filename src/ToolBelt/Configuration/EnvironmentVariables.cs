@@ -78,7 +78,7 @@ namespace ToolBelt.Configuration
         {
             string? v = Get(name);
             if (v == null) return Array.Empty<string>();
-            return v.Split(separators.Length > 0 ? separators : new[] { ',', ';' }).Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
+            return v.Split(separators != null && separators.Length > 0 ? separators : new[] { ',', ';' }).Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
         }
 
         /// <summary>

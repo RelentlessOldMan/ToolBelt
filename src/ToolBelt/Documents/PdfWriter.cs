@@ -169,9 +169,12 @@ namespace ToolBelt.Documents
             int perLine = (int)Math.Max(1, Math.Min(int.MaxValue, Math.Floor((UsableWidth - indent) / (s * 0.6))));
             foreach (var raw in Lines(text.Replace("\t", "    ")))
             {
-                for (int start = 0; start == 0 || start < raw.Length; start += perLine)
+                for (int start = 0, len; start == 0 || start < raw.Length; start += len)
                 {
-                    string piece = raw.Length == 0 ? "" : raw.Substring(start, Math.Min(perLine, raw.Length - start));
+                    len = Math.Min(perLine, raw.Length - start);
+                    // Never split a surrogate pair across lines (an emoji is one '?', not two).
+                    if (len > 1 && start + len < raw.Length && char.IsHighSurrogate(raw[start + len - 1]) && char.IsLowSurrogate(raw[start + len])) len--;
+                    string piece = raw.Length == 0 ? "" : raw.Substring(start, len);
                     EnsureRoom(s);
                     double baseline = _y - s;
                     _current.Content.Append("0.75 g ").Append(Num(_margin)).Append(' ').Append(Num(baseline - s * 0.3)).Append(" 2 ")
@@ -197,8 +200,8 @@ namespace ToolBelt.Documents
         /// <summary>
         /// A bordered table with a shaded bold header row that repeats at the top of each page the table continues on.
         /// Columns are sized to their content (shrunk proportionally if too wide) unless <paramref name="columnWeights"/>
-        /// gives relative widths that fill the text width. Cell text wraps; a row never splits across pages (a row taller
-        /// than a page is clipped at the bottom margin).
+        /// gives relative widths that fill the text width. Cell text wraps; a row moves to the next page whole when it fits there
+        /// (one taller than a page continues on the next, under the repeated header).
         /// </summary>
         public PdfWriter Table(IReadOnlyList<string> headers, IEnumerable<IReadOnlyList<string>> rows, IReadOnlyList<double>? columnWeights = null, double? fontSize = null)
         {
@@ -220,9 +223,11 @@ namespace ToolBelt.Documents
             var widths = new double[n];
             if (columnWeights != null)
             {
-                double sum = 0;
-                foreach (double w in columnWeights) sum += w;
-                for (int c = 0; c < n; c++) widths[c] = UsableWidth * columnWeights[c] / sum;
+                // Scaled by the largest first, so weights near double.MaxValue can't overflow the sum.
+                double max = 0, sum = 0;
+                foreach (double w in columnWeights) max = Math.Max(max, w);
+                foreach (double w in columnWeights) sum += w / max;
+                for (int c = 0; c < n; c++) widths[c] = UsableWidth * (columnWeights[c] / max) / sum;
             }
             else
             {
@@ -242,19 +247,23 @@ namespace ToolBelt.Documents
 
             var header = new string[n];
             for (int c = 0; c < n; c++) header[c] = headers[c] ?? "";
+            double headerHeight = RowHeight(header, widths, size, lead, pad, true), page = _pageHeight - 2 * _margin;
+            // The header repeats on each page the table continues on, unless it would leave no room for a line of a row.
+            string[]? repeat = headerHeight + lead + 2 * pad <= page ? header : null;
             // Keep the header with the first row: a header alone at the foot of a page would be orphaned (and squashed).
             double firstRow = data.Count > 0 ? RowHeight(data[0], widths, size, lead, pad, false) : 0;
-            if (_y - RowHeight(header, widths, size, lead, pad, true) - firstRow < _margin && _y < _pageHeight - _margin - 1) NewPage();
-            DrawRow(header, widths, size, lead, pad, isHeader: true);
+            if (_y - headerHeight - firstRow < _margin && _y < _pageHeight - _margin - 1 && headerHeight + firstRow <= page) NewPage();
+            DrawRow(header, widths, size, lead, pad, true, null);
             foreach (var cells in data)
             {
                 double h = RowHeight(cells, widths, size, lead, pad, false);
-                if (_y - h < _margin && _y < _pageHeight - _margin - 1)
+                // A row that would fit on a fresh page moves there whole; only a row taller than that is split.
+                if (_y - h < _margin && _y < _pageHeight - _margin - 1 && h + (repeat != null ? headerHeight : 0) <= page)
                 {
                     NewPage();
-                    DrawRow(header, widths, size, lead, pad, isHeader: true);
+                    if (repeat != null) DrawRow(repeat, widths, size, lead, pad, true, null);
                 }
-                DrawRow(cells, widths, size, lead, pad, isHeader: false);
+                DrawRow(cells, widths, size, lead, pad, false, repeat);
             }
             _y -= _leading * 0.6;
             return this;
@@ -569,9 +578,39 @@ namespace ToolBelt.Documents
             return lines;
         }
 
-        private void DrawRow(string[] cells, double[] widths, double size, double lead, double pad, bool isHeader)
+        // Draws a row; one too tall for the space left continues on the next page (after the repeated header, if any),
+        // so no cell text is lost.
+        private void DrawRow(string[] cells, double[] widths, double size, double lead, double pad, bool isHeader, string[]? repeatHeader)
         {
-            double h = RowHeight(cells, widths, size, lead, pad, isHeader);
+            var lines = new List<string>[cells.Length];
+            int total = 1;
+            for (int c = 0; c < cells.Length; c++)
+            {
+                lines[c] = CellLines(cells[c], widths[c], size, pad, isHeader);
+                total = Math.Max(total, lines[c].Count);
+            }
+            for (int done = 0; ;)
+            {
+                int fit = (int)Math.Max(0, Math.Floor((_y - _margin - 2 * pad) / lead + 1e-9));
+                bool atTop = _y >= _pageHeight - _margin - 1;
+                if (fit == 0 && !atTop)
+                {
+                    NewPage();
+                    if (repeatHeader != null) DrawRow(repeatHeader, widths, size, lead, pad, true, null);
+                    continue;
+                }
+                int take = Math.Min(total - done, Math.Max(1, fit));      // at least one line, even if the font outgrows the page
+                DrawRowSlice(lines, widths, size, lead, pad, isHeader, done, take);
+                done += take;
+                if (done >= total) return;
+                NewPage();
+                if (repeatHeader != null) DrawRow(repeatHeader, widths, size, lead, pad, true, null);
+            }
+        }
+
+        private void DrawRowSlice(List<string>[] lines, double[] widths, double size, double lead, double pad, bool isHeader, int first, int count)
+        {
+            double h = count * lead + 2 * pad;
             double top = _y, bottom = Math.Max(_margin, top - h), x = _margin;
             var sb = _current.Content;
             if (isHeader)
@@ -581,14 +620,14 @@ namespace ToolBelt.Documents
                 sb.Append("0.9 g ").Append(Num(x)).Append(' ').Append(Num(bottom)).Append(' ').Append(Num(total)).Append(' ').Append(Num(top - bottom)).Append(" re f 0 g\n");
             }
             sb.Append("0.5 w 0.5 G\n");
-            for (int c = 0; c < cells.Length; c++)
+            for (int c = 0; c < lines.Length; c++)
             {
                 sb.Append(Num(x)).Append(' ').Append(Num(bottom)).Append(' ').Append(Num(widths[c])).Append(' ').Append(Num(top - bottom)).Append(" re S\n");
                 double baseline = top - pad - size * 0.8;
-                foreach (string line in CellLines(cells[c], widths[c], size, pad, isHeader))
+                for (int i = first; i < first + count && i < lines[c].Count; i++)
                 {
-                    if (baseline < bottom + 1) break;                         // a row taller than the page is clipped
-                    EmitText(line, x + pad, baseline, size, isHeader);
+                    if (baseline < bottom + 1) break;                         // only a font taller than the page clips
+                    EmitText(lines[c][i], x + pad, baseline, size, isHeader);
                     baseline -= lead;
                 }
                 x += widths[c];
@@ -649,7 +688,18 @@ namespace ToolBelt.Documents
         private static string TextString(string s)
         {
             var sb = new StringBuilder("<FEFF");
-            foreach (char ch in s) sb.Append(((int)ch).ToString("X4", CultureInfo.InvariantCulture));
+            for (int i = 0; i < s.Length; i++)
+            {
+                char ch = s[i];
+                // A surrogate pair goes through as is; an unpaired half is invalid UTF-16, so it becomes U+FFFD.
+                if (char.IsHighSurrogate(ch) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+                {
+                    sb.Append(((int)ch).ToString("X4", CultureInfo.InvariantCulture)).Append(((int)s[++i]).ToString("X4", CultureInfo.InvariantCulture));
+                    continue;
+                }
+                if (char.IsSurrogate(ch)) ch = '�';
+                sb.Append(((int)ch).ToString("X4", CultureInfo.InvariantCulture));
+            }
             return sb.Append('>').ToString();
         }
 
@@ -795,8 +845,8 @@ namespace ToolBelt.Documents
             return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
         }
 
-        // Base-14 advance widths (1/1000 em) for Windows-1252 codes 0x20..0xFF. Taken from the metric-compatible Windows fonts
-        // (Arial = Helvetica, Times New Roman = Times); the ASCII range matches Adobe's Core 14 AFM files exactly.
+        // Base-14 advance widths (1/1000 em) for Windows-1252 codes 0x20..0xFF. Adobe's Core 14 AFM widths (macron, ±, µ, ·
+        // and ÷ were once taken from Arial / Times New Roman, which differ, so text with them overran the margin).
         private static readonly int[] HelveticaWidths =
         {
             278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,
@@ -805,9 +855,9 @@ namespace ToolBelt.Documents
             0, // 0x7F (DEL, never emitted)
             // 0x80-0xFF (Windows-1252; codes it leaves undefined are never emitted and read 0)
             556,0,222,556,333,1000,556,556,333,1000,667,333,1000,0,611,0,0,222,222,333,333,350,556,1000,333,1000,500,333,944,0,500,667,
-            278,333,556,556,556,556,260,556,333,737,370,556,584,333,737,552,400,549,333,333,333,576,537,333,333,333,365,556,834,834,834,611,
+            278,333,556,556,556,556,260,556,333,737,370,556,584,333,737,333,400,584,333,333,333,556,537,278,333,333,365,556,834,834,834,611,
             667,667,667,667,667,667,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,
-            556,556,556,556,556,556,889,500,556,556,556,556,278,278,278,278,556,556,556,556,556,556,556,549,611,556,556,556,556,500,556,500,
+            556,556,556,556,556,556,889,500,556,556,556,556,278,278,278,278,556,556,556,556,556,556,556,584,611,556,556,556,556,500,556,500,
         };
 
         private static readonly int[] HelveticaBoldWidths =
@@ -818,9 +868,9 @@ namespace ToolBelt.Documents
             0, // 0x7F (DEL, never emitted)
             // 0x80-0xFF (Windows-1252; codes it leaves undefined are never emitted and read 0)
             556,0,278,556,500,1000,556,556,333,1000,667,333,1000,0,611,0,0,278,278,500,500,350,556,1000,333,1000,556,333,944,0,500,667,
-            278,333,556,556,556,556,280,556,333,737,370,556,584,333,737,552,400,549,333,333,333,576,556,333,333,333,365,556,834,834,834,611,
+            278,333,556,556,556,556,280,556,333,737,370,556,584,333,737,333,400,584,333,333,333,611,556,278,333,333,365,556,834,834,834,611,
             722,722,722,722,722,722,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,
-            556,556,556,556,556,556,889,556,556,556,556,556,278,278,278,278,611,611,611,611,611,611,611,549,611,611,611,611,611,556,611,556,
+            556,556,556,556,556,556,889,556,556,556,556,556,278,278,278,278,611,611,611,611,611,611,611,584,611,611,611,611,611,556,611,556,
         };
 
         private static readonly int[] TimesWidths =
@@ -831,9 +881,9 @@ namespace ToolBelt.Documents
             0, // 0x7F (DEL, never emitted)
             // 0x80-0xFF (Windows-1252; codes it leaves undefined are never emitted and read 0)
             500,0,333,500,444,1000,500,500,333,1000,556,333,889,0,611,0,0,333,333,444,444,350,500,1000,333,980,389,333,722,0,444,722,
-            250,333,500,500,500,500,200,500,333,760,276,500,564,333,760,500,400,549,300,300,333,576,453,333,333,300,310,500,750,750,750,444,
+            250,333,500,500,500,500,200,500,333,760,276,500,564,333,760,333,400,564,300,300,333,500,453,250,333,300,310,500,750,750,750,444,
             722,722,722,722,722,722,889,667,611,611,611,611,333,333,333,333,722,722,722,722,722,722,722,564,722,722,722,722,722,722,556,500,
-            444,444,444,444,444,444,667,444,444,444,444,444,278,278,278,278,500,500,500,500,500,500,500,549,500,500,500,500,500,500,500,500,
+            444,444,444,444,444,444,667,444,444,444,444,444,278,278,278,278,500,500,500,500,500,500,500,564,500,500,500,500,500,500,500,500,
         };
 
         private static readonly int[] TimesBoldWidths =
@@ -844,9 +894,9 @@ namespace ToolBelt.Documents
             0, // 0x7F (DEL, never emitted)
             // 0x80-0xFF (Windows-1252; codes it leaves undefined are never emitted and read 0)
             500,0,333,500,500,1000,500,500,333,1000,556,333,1000,0,667,0,0,333,333,500,500,350,500,1000,333,1000,389,333,722,0,444,722,
-            250,333,500,500,500,500,220,500,333,747,300,500,570,333,747,500,400,549,300,300,333,576,540,333,333,300,330,500,750,750,750,500,
+            250,333,500,500,500,500,220,500,333,747,300,500,570,333,747,333,400,570,300,300,333,556,540,250,333,300,330,500,750,750,750,500,
             722,722,722,722,722,722,1000,722,667,667,667,667,389,389,389,389,722,722,778,778,778,778,778,570,778,722,722,722,722,722,611,556,
-            500,500,500,500,500,500,722,444,444,444,444,444,278,278,278,278,500,556,500,500,500,500,500,549,500,556,556,556,556,500,556,500,
+            500,500,500,500,500,500,722,444,444,444,444,444,278,278,278,278,500,556,500,500,500,500,500,570,500,556,556,556,556,500,556,500,
         };
 
 #if NETSTANDARD2_0
