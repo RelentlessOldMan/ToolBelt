@@ -810,6 +810,7 @@ tests/
       JsonTarSecretsTests.cs (JSON/JSONL, settings recovery, hostile tars, secrets tamper sweep)
       FileWatcherTests.cs     (deterministic coalescing rules + real file-system scenarios)
       IOReviewTests.cs      (review round 8 regressions: links in zip/tar, encodings, CSV/.env parsing, overflow-safe sizes)
+      IOReview2Tests.cs     (second-pass regressions: copy through junctions, hard links, truncated archives, watcher filters)
       CoverageGapTests.cs   (behaviour behind coverage holes found by a coverlet run)
     Numerics/
       AngleTests.cs

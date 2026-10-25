@@ -186,6 +186,14 @@ namespace ToolBelt.IO
                 if (atNew.Kind == FileChangeKind.Deleted && result.Kind == FileChangeKind.Created) result.Kind = FileChangeKind.Changed;
                 if (atNew.FirstSeen < result.FirstSeen) result.FirstSeen = atNew.FirstSeen;
                 _pending.Remove(newPath);
+                if (atNew.Kind == FileChangeKind.Renamed)
+                {
+                    // The file renamed there earlier is overwritten: report it gone under its original name, as OnDeleted does.
+                    string old = atNew.OldPath!;
+                    if (_pending.TryGetValue(old, out Entry? atOld) && atOld.Kind == FileChangeKind.Created)
+                    { atOld.Kind = FileChangeKind.Changed; atOld.LastActivity = now; } // a new file took the old name
+                    else Put(old, new Entry(FileChangeKind.Deleted, null, now, atNew.Order) { FirstSeen = atNew.FirstSeen });
+                }
             }
             Put(newPath, result);
         }
@@ -371,6 +379,7 @@ namespace ToolBelt.IO
         private int _flushing;
         private volatile bool _rescanRequested;
         private bool _disposed;
+        private readonly bool _matchAll;
 
         public FileWatcher(string directory, FileWatcherOptions? options = null)
         {
@@ -382,7 +391,11 @@ namespace ToolBelt.IO
             if (_options.StableFor is TimeSpan s && s <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(options), "StableFor must be positive.");
             Directory = full;
 
-            _watcher = new FileSystemWatcher(full, _options.Filter)
+            if (_options.Filter is null) throw new ArgumentException("Filter must not be null.", nameof(options));
+            _matchAll = _options.Filter.Length == 0 || _options.Filter == "*" || _options.Filter == "*.*";
+            // The OS watcher sees every name and the filter is applied here: its own filter also hid directory names, so a
+            // directory moved in or out of a filtered watch never triggered the rescan that finds the files inside.
+            _watcher = new FileSystemWatcher(full, "*")
             {
                 IncludeSubdirectories = _options.IncludeSubdirectories,
                 NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
@@ -514,6 +527,18 @@ namespace ToolBelt.IO
                 {
                     if (kind == FileChangeKind.Deleted && _snapshot != null && _snapshot.ContainsUnder(path)) { _rescanRequested = true; return; }
                     if (kind == FileChangeKind.Renamed && oldPath != null && _snapshot != null && _snapshot.ContainsUnder(oldPath)) { _rescanRequested = true; return; }
+                    if (!_matchAll)
+                    {
+                        bool newMatches = NameMatches(path);
+                        if (kind == FileChangeKind.Renamed)
+                        {
+                            bool oldMatches = oldPath != null && NameMatches(oldPath);
+                            if (!newMatches && !oldMatches) return;
+                            if (!oldMatches) { kind = FileChangeKind.Created; oldPath = null; }                  // renamed into the filter
+                            else if (!newMatches) { kind = FileChangeKind.Deleted; path = oldPath!; oldPath = null; } // renamed out of it
+                        }
+                        else if (!newMatches) return;
+                    }
                     // Neither a known file nor a pending one: an empty directory (or a filtered-out file) went away.
                     if (kind == FileChangeKind.Deleted && _snapshot != null && !_snapshot.Contains(path) && !_coalescer.IsPending(path)) return;
                     _coalescer.Add(new FileChange(kind, path, oldPath), DateTime.UtcNow);
@@ -523,6 +548,30 @@ namespace ToolBelt.IO
             {
                 RaiseError(ex);
             }
+        }
+
+        private bool NameMatches(string path) => Matches(Path.GetFileName(path), _options.Filter);
+
+        // Wildcard match ('*' any run, '?' one character), case-insensitive, with the BCL's DOS rules so it agrees with the
+        // snapshot's Directory.GetFiles: "*.*" is every file and a trailing '.' means "no extension".
+        private static bool Matches(string name, string pattern)
+        {
+            if (pattern == "*.*") return true;
+            if (pattern.Length > 1 && pattern[pattern.Length - 1] == '.')
+            {
+                if (name.IndexOf('.') >= 0) return false;
+                pattern = pattern.TrimEnd('.');
+            }
+            int n = 0, p = 0, star = -1, mark = 0;
+            while (n < name.Length)
+            {
+                if (p < pattern.Length && (pattern[p] == '?' || char.ToUpperInvariant(pattern[p]) == char.ToUpperInvariant(name[n]))) { n++; p++; }
+                else if (p < pattern.Length && pattern[p] == '*') { star = p++; mark = n; }
+                else if (star >= 0) { p = star + 1; n = ++mark; }
+                else return false;
+            }
+            while (p < pattern.Length && pattern[p] == '*') p++;
+            return p == pattern.Length;
         }
 
         private void OnTick()
@@ -609,6 +658,7 @@ namespace ToolBelt.IO
 
         private void RaiseError(Exception ex)
         {
+            if (_disposed) return;   // as Raise: no events after Dispose, even from an in-flight tick
             lock (_raiseGate)
             {
                 var previous = _raisingOn;

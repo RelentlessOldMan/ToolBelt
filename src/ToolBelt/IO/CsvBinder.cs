@@ -11,7 +11,8 @@ namespace ToolBelt.IO
     /// header of column names. Columns match public properties case-insensitively. Values convert with the
     /// invariant culture: numbers, bool, enums (by name or number), char, <see cref="Guid"/>, <see cref="TimeSpan"/>,
     /// <see cref="DateTime"/> and <see cref="DateTimeOffset"/> (round-trip "O" format, Kind and offset kept),
-    /// <see cref="Uri"/> and strings; an empty field is null for a nullable or reference-type property.
+    /// <see cref="Uri"/> and strings; an empty field is null for a nullable or reference-type property, except a string,
+    /// which gets "" (CSV cannot tell a null string from an empty one, so a null string reads back as "").
     /// <see cref="ToFields"/> writes values in the same forms, so a record round-trips. This mapping step is the single biggest reason people reach for a
     /// third-party CSV package, and it is very achievable BCL-only.
     /// </summary>
@@ -39,7 +40,8 @@ namespace ToolBelt.IO
             if (fields.Count != _header.Count)
                 throw new ArgumentException($"Expected {_header.Count} fields to match the header, got {fields.Count}.");
 
-            var record = new T();
+            // Boxed once: for a struct T, SetValue on `record` itself would set a fresh boxed copy each time and lose it.
+            object record = new T();
             for (int i = 0; i < _header.Count; i++)
             {
                 if (!_properties.TryGetValue(_header[i], out PropertyInfo? prop) || !prop.CanWrite)
@@ -48,7 +50,7 @@ namespace ToolBelt.IO
                     throw new FormatException($"Column '{_header[i]}': cannot convert '{fields[i]}' to {prop.PropertyType.Name}.");
                 prop.SetValue(record, value);
             }
-            return record;
+            return (T)record;
         }
 
         /// <summary>Extracts a row of fields from a record, in header order.</summary>
@@ -72,10 +74,27 @@ namespace ToolBelt.IO
             DateTime d => d.ToString("O", CultureInfo.InvariantCulture),
             DateTimeOffset d => d.ToString("O", CultureInfo.InvariantCulture),
             TimeSpan t => t.ToString("c", CultureInfo.InvariantCulture),
-            double d => d.ToString("R", CultureInfo.InvariantCulture),
-            float f => f.ToString("R", CultureInfo.InvariantCulture),
+            double d => FormatDouble(d),
+            float f => FormatSingle(f),
             _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty,
         };
+
+        // "R" can lose the last bit on .NET Framework (as CsvDialect.FormatNumber notes); G17 / G9 always round-trip.
+        private static string FormatDouble(double d)
+        {
+            string s = d.ToString("R", CultureInfo.InvariantCulture);
+            if (!double.IsNaN(d) && double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) != d)
+                s = d.ToString("G17", CultureInfo.InvariantCulture);
+            return s;
+        }
+
+        private static string FormatSingle(float f)
+        {
+            string s = f.ToString("R", CultureInfo.InvariantCulture);
+            if (!float.IsNaN(f) && float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) != f)
+                s = f.ToString("G9", CultureInfo.InvariantCulture);
+            return s;
+        }
 
         private static bool TryConvert(string text, Type type, out object? value)
         {

@@ -43,7 +43,7 @@ namespace ToolBelt.IO
                 foreach ((string path, bool isEmptyDirectory) in EnumerateNoLinks(root))
                 {
                     if (string.Equals(Path.GetFullPath(path), archiveFull, PathComparison)) continue;   // the archive being written
-                    string name = Path.GetRelativePath(root, path).Replace('\\', '/');
+                    string name = Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/');   // a backslash is a name character on Unix
                     if (isEmptyDirectory) name += "/";
                     if (filter != null && !filter(name)) continue;
                     if (isEmptyDirectory) writer.WriteEntry(new PaxTarEntry(TarEntryType.Directory, name));
@@ -78,6 +78,9 @@ namespace ToolBelt.IO
             TarEntry? entry;
             while ((entry = reader.GetNextEntry()) != null)
             {
+                // PAX/GNU metadata, devices and FIFOs are skipped before their names are checked: a PAX global header is
+                // named with an absolute path ("$TMPDIR/GlobalHead.%p.%n"), which failed the whole extraction.
+                if (!IsExtractable(entry.EntryType)) continue;
                 string target = SafeTarget(rootWithSep, entry.Name);
                 EnsureNoLinks(rootWithSep, target, entry.Name);
                 switch (entry.EntryType)
@@ -88,10 +91,13 @@ namespace ToolBelt.IO
                     case TarEntryType.RegularFile:
                     case TarEntryType.V7RegularFile:
                     case TarEntryType.ContiguousFile:
+                        // "x/.." is the destination itself, which cannot be opened as a file (UnauthorizedAccessException).
+                        // "..." too: Windows drops trailing dots, so it resolves to the destination with its separator.
+                        if (target.Length <= rootWithSep.Length)
+                            throw new InvalidDataException($"Archive entry '{entry.Name}' names the destination directory itself.");
                         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                         if (File.Exists(target) && !overwrite) throw new IOException($"Destination file already exists: {target}");
-                        using (var outFile = new FileStream(target, overwrite ? FileMode.Create : FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                            entry.DataStream?.CopyTo(outFile);
+                        WriteFile(target, entry.DataStream, entry.Length, overwrite);
                         break;
                     case TarEntryType.SymbolicLink:
                     case TarEntryType.HardLink:
@@ -102,7 +108,7 @@ namespace ToolBelt.IO
                     case TarEntryType.SparseFile:
                         throw new InvalidDataException($"Archive entry '{entry.Name}' is a sparse file, which is not supported.");
                     default:
-                        continue;                                           // PAX/GNU metadata, devices, FIFOs: skipped
+                        continue;
                 }
                 onEntry?.Invoke(entry.Name);
             }
@@ -117,9 +123,40 @@ namespace ToolBelt.IO
             using Stream input = UseGzip(archivePath, gzip) ? new GZipStream(fs, CompressionMode.Decompress) : (Stream)fs;
             using var reader = new TarReader(input);
             TarEntry? entry;
-            while ((entry = reader.GetNextEntry()) != null) names.Add(entry.Name);
+            while ((entry = reader.GetNextEntry()) != null)
+                if (IsExtractable(entry.EntryType)) names.Add(entry.Name);   // not PAX/GNU metadata headers
             return names;
         }
+
+        // Written beside the target and moved into place: a truncated archive then leaves the existing file as it was, and
+        // the move replaces the name, so an existing hard link at the target is broken rather than written through.
+        private static void WriteFile(string target, Stream? data, long length, bool overwrite)
+        {
+            string temp = Path.Combine(Path.GetDirectoryName(target)!, ".tar-" + Guid.NewGuid().ToString("N") + ".tmp");
+            try
+            {
+                using (var outFile = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    data?.CopyTo(outFile);
+                    // A truncated archive ends the entry's data early without an error (that comes at the next header).
+                    if (outFile.Length != length)
+                        throw new InvalidDataException($"Archive entry '{Path.GetFileName(target)}' is truncated: {outFile.Length} of {length} bytes.");
+                }
+                File.Move(temp, target, overwrite);
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+
+        // Files, directories and links: the entries ExtractToDirectory acts on (or refuses). Everything else is skipped.
+        private static bool IsExtractable(TarEntryType type)
+            => type == TarEntryType.Directory || type == TarEntryType.RegularFile || type == TarEntryType.V7RegularFile
+            || type == TarEntryType.ContiguousFile || type == TarEntryType.SymbolicLink || type == TarEntryType.HardLink
+            || type == TarEntryType.SparseFile;
 
         private static bool UseGzip(string path, bool? gzip)
             => gzip ?? (path.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase));
@@ -127,6 +164,9 @@ namespace ToolBelt.IO
         private static string SafeTarget(string rootWithSep, string entryName)
         {
             if (string.IsNullOrEmpty(entryName)) throw new InvalidDataException("Archive entry has no name.");
+            // On Windows "x.txt:hidden" is an alternate data stream of x.txt, data no directory listing shows.
+            if (entryName.IndexOf('\0') >= 0 || (Path.DirectorySeparatorChar == '\\' && entryName.IndexOf(':') >= 0))
+                throw new InvalidDataException($"Archive entry '{entryName.Replace('\0', '?')}' has a character not allowed in a file name.");
             string relative = entryName.Replace('\\', '/');
             if (relative.StartsWith("/", StringComparison.Ordinal) || Path.IsPathRooted(relative))
                 throw new InvalidDataException($"Archive entry '{entryName}' has an absolute path.");

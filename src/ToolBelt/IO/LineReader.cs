@@ -29,7 +29,8 @@ namespace ToolBelt.IO
     /// encoding (UTF-8 by default); offsets are byte positions, so they stay correct for multi-byte text.
     /// Lines are split on the raw CR and LF bytes, so the encoding must write those as single bytes (UTF-8, ASCII,
     /// Latin-1 and other single-byte code pages do; UTF-16 and UTF-32 throw <see cref="ArgumentException"/>).
-    /// A leading UTF-8 byte order mark is skipped (the first line's offset is then 3).
+    /// A leading UTF-8 byte order mark is skipped (the first line's offset is then 3). Reading starts at the stream's
+    /// current position, and offsets are positions in the stream (for a stream that cannot seek, counted from where reading began).
     /// </summary>
     public static class LineReader
     {
@@ -51,10 +52,17 @@ namespace ToolBelt.IO
         {
             var buffer = new byte[4096];
             var line = new List<byte>();
+            // Offsets are positions in the stream: a seekable stream already past a header starts there, not at 0.
             long position = 0;   // absolute byte index of the next byte to process
-            long lineStart = 0;  // byte offset where the current line began
+            if (stream.CanSeek)
+            {
+                try { position = stream.Position; }
+                catch (NotSupportedException) { }
+            }
+            long lineStart = position;  // byte offset where the current line began
             bool afterCarriageReturn = false;
-            int bomMatched = encoding.CodePage == 65001 ? 0 : -1;   // bytes of a UTF-8 BOM seen so far; -1 = not looking
+            // A BOM only counts at the start of the stream (mid-stream, EF BB BF is a zero-width no-break space).
+            int bomMatched = encoding.CodePage == 65001 && position == 0 ? 0 : -1;   // bytes of a UTF-8 BOM seen so far; -1 = not looking
             int read;
 
             while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)

@@ -108,16 +108,39 @@ namespace ToolBelt.IO
             string src = FullDirectory(source, nameof(source));
             string dst = FullDirectory(destination, nameof(destination));
             if (!Directory.Exists(src)) throw new DirectoryNotFoundException($"Source directory '{source}' does not exist.");
-            if (IsSameOrInside(dst, src))
+            // Through a link (a junction j → src makes j\c the same folder as src\c) the string check alone passed.
+            if (IsSameOrInside(dst, src) || IsSameOrInside(ResolveLinks(dst), ResolveLinks(src)))
                 throw new ArgumentException("The destination may not be the source or lie inside it.", nameof(destination));
 
             int copied = 0, skipped = 0, created = 0, errors = 0;
             long bytes = 0;
+
+            // The source's folders are listed before anything is written, so a destination that still lies inside the source
+            // by a route not caught above (a link that cannot be resolved here) is copied once, not nested forever.
+            var folders = new List<string>();
+            var unreadable = new HashSet<string>(StringComparer.Ordinal);
             var pending = new Stack<string>();
             pending.Push(src);
             while (pending.Count > 0)
             {
                 string dir = pending.Pop();
+                folders.Add(dir);
+                string[] dirs;
+                try { dirs = Directory.GetDirectories(dir); }
+                catch (Exception ex) when (IsIoError(ex)) { errors++; Report(options.OnError, dir, ex); unreadable.Add(dir); continue; }
+                for (int i = dirs.Length - 1; i >= 0; i--)
+                {
+                    if (IsLink(dirs[i])) continue;
+                    if (options.DirectoryFilter != null && !options.DirectoryFilter(Relative(src, dirs[i]))) continue;
+                    pending.Push(dirs[i]);
+                }
+            }
+
+            var failed = new HashSet<string>(StringComparer.Ordinal);   // source folders whose target could not be made
+            foreach (string dir in folders)
+            {
+                string? parent = dir.Length > src.Length ? Path.GetDirectoryName(dir) : null;
+                if (parent != null && failed.Contains(parent)) { failed.Add(dir); continue; }   // its subtree goes with it
                 string rel = Relative(src, dir);
                 string target = rel.Length == 0 ? dst : Path.Combine(dst, rel.Replace('/', Path.DirectorySeparatorChar));
                 try
@@ -127,10 +150,11 @@ namespace ToolBelt.IO
                         throw new IOException($"Destination '{target}' is a link; refusing to copy through it.");
                     if (!Directory.Exists(target)) { Directory.CreateDirectory(target); created++; }
                 }
-                catch (Exception ex) when (IsIoError(ex)) { errors++; Report(options.OnError, target, ex); continue; }
+                catch (Exception ex) when (IsIoError(ex)) { errors++; Report(options.OnError, target, ex); failed.Add(dir); continue; }
+                if (unreadable.Contains(dir)) continue;
 
-                string[] files, dirs;
-                try { files = Directory.GetFiles(dir); dirs = Directory.GetDirectories(dir); }
+                string[] files;
+                try { files = Directory.GetFiles(dir); }
                 catch (Exception ex) when (IsIoError(ex)) { errors++; Report(options.OnError, dir, ex); continue; }
 
                 foreach (string file in files)
@@ -151,21 +175,17 @@ namespace ToolBelt.IO
                                 _ => true,
                             };
                             if (!replace) { skipped++; continue; }
+                            // Removed, not overwritten: File.Copy over a hard link wrote through it to the other name,
+                            // which may be outside the destination.
                             ClearReadOnly(to);
+                            File.Delete(to);
                         }
-                        File.Copy(file, to, overwrite: true);
+                        File.Copy(file, to, overwrite: false);
                         if (options.PreserveTimestamps) File.SetLastWriteTimeUtc(to, File.GetLastWriteTimeUtc(file));
                         bytes += new FileInfo(to).Length;
                         copied++;
                     }
                     catch (Exception ex) when (IsIoError(ex)) { errors++; Report(options.OnError, file, ex); }
-                }
-
-                for (int i = dirs.Length - 1; i >= 0; i--)
-                {
-                    if (IsLink(dirs[i])) continue;
-                    if (options.DirectoryFilter != null && !options.DirectoryFilter(Relative(src, dirs[i]))) continue;
-                    pending.Push(dirs[i]);
                 }
             }
             return new CopyResult(copied, skipped, created, bytes, errors);
@@ -226,7 +246,10 @@ namespace ToolBelt.IO
             {
                 string dir = pending.Pop();
                 order.Add(dir);
-                foreach (string sub in Directory.GetDirectories(dir))
+                string[] subs;
+                try { subs = Directory.GetDirectories(dir); }
+                catch (DirectoryNotFoundException) { continue; }   // removed meanwhile: the delete's goal is met
+                foreach (string sub in subs)
                 {
                     if (IsLink(sub)) Retry(() => { ClearReadOnly(sub); Directory.Delete(sub, recursive: false); }, retries, delay);
                     else pending.Push(sub);
@@ -235,7 +258,10 @@ namespace ToolBelt.IO
             for (int i = order.Count - 1; i >= 0; i--)
             {
                 string dir = order[i];
-                foreach (string file in Directory.GetFiles(dir))
+                string[] files;
+                try { files = Directory.GetFiles(dir); }
+                catch (DirectoryNotFoundException) { files = Array.Empty<string>(); }   // removed meanwhile
+                foreach (string file in files)
                     Retry(() => { ClearReadOnly(file); File.Delete(file); }, retries, delay);
                 if (i > 0 || deleteRoot)
                     Retry(() => { ClearReadOnly(dir); Directory.Delete(dir, recursive: false); }, retries, delay);
@@ -345,6 +371,35 @@ namespace ToolBelt.IO
             string r = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             if (string.Equals(c, r, PathComparison)) return true;
             return c.StartsWith(r + Path.DirectorySeparatorChar, PathComparison);
+        }
+
+        // The path with every existing link along it replaced by its final target (net6+; older targets cannot read link
+        // targets without P/Invoke and return the path unchanged). The part that does not exist yet is kept as written.
+        private static string ResolveLinks(string full)
+        {
+#if NET6_0_OR_GREATER
+            string current = Path.GetPathRoot(full) ?? "";
+            string[] parts = full.Substring(current.Length).Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                string next = Path.Combine(current, parts[i]);
+                if (!Directory.Exists(next))
+                    return Path.Combine(current, string.Join(Path.DirectorySeparatorChar.ToString(), parts, i, parts.Length - i));
+                if (IsLink(next))
+                {
+                    try
+                    {
+                        FileSystemInfo? final = new DirectoryInfo(next).ResolveLinkTarget(returnFinalTarget: true);
+                        if (final != null) next = FullDirectory(final.FullName, nameof(full));
+                    }
+                    catch (Exception ex) when (IsIoError(ex)) { }   // unreadable link: compare by name
+                }
+                current = next;
+            }
+            return current;
+#else
+            return full;
+#endif
         }
 
         private static string FullDirectory(string path, string name)

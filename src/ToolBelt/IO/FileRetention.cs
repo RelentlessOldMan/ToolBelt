@@ -118,6 +118,14 @@ namespace ToolBelt.IO
         // Windows-style wildcard match ('*' any run, '?' one character), case-insensitive.
         private static bool Matches(string name, string pattern)
         {
+            // The BCL's DOS rules: "*.*" is every file (README too), and a trailing '.' means "no extension" ("*." is
+            // README). Matched literally, both dropped files the listing had returned.
+            if (pattern == "*.*") return true;
+            if (pattern.Length > 1 && pattern[pattern.Length - 1] == '.')
+            {
+                if (name.IndexOf('.') >= 0) return false;
+                pattern = pattern.TrimEnd('.');
+            }
             int n = 0, p = 0, star = -1, mark = 0;
             while (n < name.Length)
             {
@@ -142,12 +150,32 @@ namespace ToolBelt.IO
             if (!File.Exists(path)) return false;
             string Numbered(int n) => path + "." + n.ToString(CultureInfo.InvariantCulture);
             if (File.Exists(Numbered(keep))) File.Delete(Numbered(keep));
-            for (int n = keep - 1; n >= 1; n--)
+            // From the highest copy present, not from keep: probing every number made keep = int.MaxValue take hours.
+            for (int n = HighestNumbered(path, keep - 1); n >= 1; n--)
                 if (File.Exists(Numbered(n))) File.Move(Numbered(n), Numbered(n + 1));
             File.Move(path, Numbered(1));
             // Copies beyond `keep` left by an earlier, larger setting.
-            for (int n = keep + 1; File.Exists(Numbered(n)); n++) File.Delete(Numbered(n));
+            for (long n = (long)keep + 1; n <= int.MaxValue && File.Exists(Numbered((int)n)); n++) File.Delete(Numbered((int)n));
             return true;
+        }
+
+        // The highest n ≤ limit for which path.n exists, read from one directory listing.
+        private static int HighestNumbered(string path, int limit)
+        {
+            string full = Path.GetFullPath(path);
+            string prefix = Path.GetFileName(full) + ".";
+            StringComparison cmp = Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            int highest = 0;
+            foreach (string file in Directory.GetFiles(Path.GetDirectoryName(full)!))
+            {
+                string name = Path.GetFileName(file);
+                if (name.Length <= prefix.Length || !name.StartsWith(prefix, cmp)) continue;
+                string digits = name.Substring(prefix.Length);
+                if (digits[0] == '0' || !digits.All(c => c >= '0' && c <= '9')) continue;   // as Numbered writes it
+                if (int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out int n) && n <= limit && n > highest)
+                    highest = n;
+            }
+            return highest;
         }
 
         /// <summary>

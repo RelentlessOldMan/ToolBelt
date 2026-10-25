@@ -8,8 +8,8 @@ namespace ToolBelt.IO
     /// <summary>
     /// Parses <c>.env</c>-style configuration text into key/value pairs. Blank lines and <c>#</c> comment
     /// lines are ignored, an optional <c>export</c> prefix is stripped, and values may be single- or
-    /// double-quoted. Double-quoted values honor <c>\n</c>, <c>\t</c>, <c>\"</c>, and <c>\\</c> escapes;
-    /// single-quoted values are literal; a quoted value may be followed by a <c>#</c> comment. Unquoted values
+    /// double-quoted. Double-quoted values honor <c>\n</c>, <c>\t</c>, <c>\"</c>, and <c>\\</c> escapes
+    /// (any other backslash is kept as written); single-quoted values are literal; a quoted value may be followed by a <c>#</c> comment. Unquoted values
     /// are trimmed, and a <c>#</c> starts a comment only at the start of the value or after whitespace (so
     /// <c>URL=http://x/#frag</c> keeps its fragment). A leading byte order mark is ignored, and <c>export</c> may be
     /// followed by any whitespace. Later keys override earlier ones.
@@ -91,15 +91,16 @@ namespace ToolBelt.IO
                 if (c == '\\' && i + 1 < s.Length)
                 {
                     char next = s[++i];
-                    sb.Append(next switch
+                    switch (next)
                     {
-                        'n' => '\n',
-                        't' => '\t',
-                        'r' => '\r',
-                        '"' => '"',
-                        '\\' => '\\',
-                        _ => next,
-                    });
+                        case 'n': sb.Append('\n'); break;
+                        case 't': sb.Append('\t'); break;
+                        case 'r': sb.Append('\r'); break;
+                        case '"': sb.Append('"'); break;
+                        case '\\': sb.Append('\\'); break;
+                        // Not an escape: keep the backslash, so "C:\Users\bob" is not read as "C:Usersbob".
+                        default: sb.Append('\\').Append(next); break;
+                    }
                 }
                 else
                 {

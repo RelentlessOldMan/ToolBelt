@@ -103,6 +103,8 @@ namespace ToolBelt.IO
                     JsonSerializer.Serialize(fs, value, options ?? (indented ? Indented : Compact));
                     fs.Flush(flushToDisk: true);
                 }
+                // The move replaces the file with the temp's attributes; carry the target's over (Hidden was dropped).
+                if (File.Exists(full)) File.SetAttributes(temp, File.GetAttributes(full) & ~FileAttributes.ReadOnly);
                 File.Move(temp, full, overwrite: true);
             }
             finally

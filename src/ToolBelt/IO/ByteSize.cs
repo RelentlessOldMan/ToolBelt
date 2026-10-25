@@ -79,20 +79,20 @@ namespace ToolBelt.IO
             if (numberPart.IndexOf(',') >= 0 && !ThousandsGrouped(numberPart))
                 return false;
 
-            if (!double.TryParse(numberPart, NumberStyles.Float | NumberStyles.AllowThousands,
-                    CultureInfo.InvariantCulture, out double number))
+            // In decimal, not double: through a double, byte counts past 2^53 lost their low digits and long.MaxValue
+            // (which rounds up to 2^63) was rejected. Decimal holds every long and an EiB multiplier exactly.
+            if (!decimal.TryParse(numberPart, NumberStyles.Float | NumberStyles.AllowThousands,
+                    CultureInfo.InvariantCulture, out decimal number))
                 return false;
 
-            double multiplier = UnitMultiplier(unitPart);
+            decimal multiplier = UnitMultiplier(unitPart);
             if (multiplier < 0)
                 return false;
 
-            double scaled = Math.Round(number * multiplier, MidpointRounding.AwayFromZero);
-            // An out-of-range double -> long conversion is unchecked in C# and yields a garbage value
-            // (often long.MinValue). Reject instead of returning a wrong result. 2^63 is the first double
-            // above long.MaxValue; -2^63 == long.MinValue exactly and is allowed.
-            const double twoPow63 = 9223372036854775808.0;
-            if (double.IsNaN(scaled) || scaled >= twoPow63 || scaled < -twoPow63)
+            decimal scaled;
+            try { scaled = Math.Round(number * multiplier, MidpointRounding.AwayFromZero); }
+            catch (OverflowException) { return false; }
+            if (scaled > long.MaxValue || scaled < long.MinValue)
                 return false;
             bytes = (long)scaled;
             return true;
@@ -116,7 +116,7 @@ namespace ToolBelt.IO
         }
 
         // Returns the byte multiplier for a unit suffix, or -1 if unrecognized.
-        private static double UnitMultiplier(string unit)
+        private static decimal UnitMultiplier(string unit)
         {
             unit = unit.Trim().ToUpperInvariant();
             if (unit.Length == 0 || unit == "B")
@@ -139,7 +139,9 @@ namespace ToolBelt.IO
             if (exponent < 0)
                 return -1;
 
-            return Math.Pow(binary ? 1024d : 1000d, exponent + 1);
+            decimal multiplier = 1;
+            for (int k = 0; k <= exponent; k++) multiplier *= binary ? 1024m : 1000m;
+            return multiplier;
         }
     }
 }

@@ -20,6 +20,7 @@ namespace ToolBelt.IO
         {
             if (line is null)
                 throw new ArgumentNullException(nameof(line));
+            CheckDelimiter(delimiter);
 
             var fields = new List<string>();
             var field = new StringBuilder();
@@ -73,6 +74,7 @@ namespace ToolBelt.IO
         {
             if (fields is null)
                 throw new ArgumentNullException(nameof(fields));
+            CheckDelimiter(delimiter);
 
             var sb = new StringBuilder();
             bool first = true;
@@ -84,6 +86,13 @@ namespace ToolBelt.IO
                 sb.Append(QuoteIfNeeded(raw ?? string.Empty, delimiter));
             }
             return sb.ToString();
+        }
+
+        // A quote or line break as the delimiter cannot round-trip ("a\"b" and "c" joined on '"' read back as six fields).
+        private static void CheckDelimiter(char delimiter)
+        {
+            if (delimiter == '"' || delimiter == '\r' || delimiter == '\n')
+                throw new ArgumentException("The delimiter cannot be a quote or a line break.", nameof(delimiter));
         }
 
         private static string QuoteIfNeeded(string field, char delimiter)

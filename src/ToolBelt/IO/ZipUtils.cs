@@ -47,7 +47,7 @@ namespace ToolBelt.IO
                         if (string.Equals(full, zipFull, PathComparison)) continue;   // the archive being written
                         string entryName = full.Substring(root.Length)
                             .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                            .Replace('\\', '/');
+                            .Replace(Path.DirectorySeparatorChar, '/');   // only the separator: a backslash is a name character on Unix
                         if (filter != null && !filter(entryName)) continue;
 
                         ZipArchiveEntry entry = archive.CreateEntry(entryName, level);
@@ -106,9 +106,27 @@ namespace ToolBelt.IO
                 if (File.Exists(target) && !overwrite)
                     throw new IOException($"Destination file already exists: {target}");
 
-                using (Stream entryStream = entry.Open())
-                using (var output = new FileStream(target, overwrite ? FileMode.Create : FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                    entryStream.CopyTo(output);
+                // Written beside the target and moved into place: a corrupt entry then leaves the existing file as it was, and
+                // the move replaces the name, so an existing hard link at the target is broken rather than written through.
+                string temp = Path.Combine(Path.GetDirectoryName(target)!, ".zip-" + Guid.NewGuid().ToString("N") + ".tmp");
+                try
+                {
+                    using (Stream entryStream = entry.Open())
+                    using (var output = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                        entryStream.CopyTo(output);
+#if NET6_0_OR_GREATER
+                    File.Move(temp, target, overwrite);
+#else
+                    if (overwrite && File.Exists(target)) File.Delete(target);
+                    File.Move(temp, target);
+#endif
+                }
+                finally
+                {
+                    try { if (File.Exists(temp)) File.Delete(temp); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
                 onEntry?.Invoke(entry.FullName);
             }
         }
@@ -162,7 +180,9 @@ namespace ToolBelt.IO
             if (entry.Length > cap)
                 throw new InvalidDataException($"Zip entry '{entryName}' is {entry.Length} bytes, over the {cap}-byte limit.");
             using Stream entryStream = entry.Open();
-            using var ms = new MemoryStream((int)Math.Min(entry.Length, cap));
+            // Not pre-sized from entry.Length: the header is the archive's claim, and a 10-byte entry claiming 256 MB
+            // allocated 256 MB. The stream grows with what actually inflates.
+            using var ms = new MemoryStream((int)Math.Min(entry.Length, 81920));
             var buffer = new byte[81920];
             int read;
             while ((read = entryStream.Read(buffer, 0, buffer.Length)) > 0)
@@ -185,6 +205,10 @@ namespace ToolBelt.IO
         // Resolves an entry name against the root and verifies it stays inside — the Zip Slip guard.
         private static string SafeTarget(string root, string rootWithSeparator, string entryName)
         {
+            // NUL threw ArgumentException from the path APIs; on Windows "x.txt:hidden" wrote an alternate data stream of
+            // x.txt, data no directory listing shows.
+            if (entryName.IndexOf('\0') >= 0 || (Path.DirectorySeparatorChar == '\\' && entryName.IndexOf(':') >= 0))
+                throw new IOException($"Zip entry '{entryName.Replace('\0', '?')}' has a character not allowed in a file name.");
             string normalized = entryName.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
             string full = Path.GetFullPath(Path.Combine(root, normalized));
             if (!full.Equals(root, PathComparison) && !full.StartsWith(rootWithSeparator, PathComparison))
