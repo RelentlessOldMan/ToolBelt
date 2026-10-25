@@ -49,7 +49,8 @@ namespace ToolBelt.Binary
         /// <summary>
         /// Decodes a quoted-printable string back to the original bytes. Throws on a malformed escape or a character
         /// outside ASCII (encoded text is 7-bit; a literal 'é' has no single byte to stand for). Per RFC 2045, spaces
-        /// and tabs at the end of a line (transport padding) are dropped, including after a soft-break '='.
+        /// and tabs at the end of a line (transport padding) are dropped, including after a soft-break '='; a '=' at the
+        /// end of the input is a soft break with no line after it.
         /// </summary>
         public static byte[] Decode(string text)
         {
@@ -69,7 +70,7 @@ namespace ToolBelt.Binary
                         if (j + 1 < text.Length && text[j + 1] == '\n') { i = j + 1; continue; } // =\r\n
                         i = j; continue;                                                        // =\r (lenient)
                     }
-                    if (j == text.Length && j > i + 1) { i = j - 1; continue; }                // "=  " at the end
+                    if (j == text.Length) { i = j - 1; continue; }                              // "=" or "=  " at the end
                     // Otherwise an =XX hex escape.
                     if (i + 2 >= text.Length)
                         throw new FormatException("Truncated '=' escape in quoted-printable input.");
@@ -85,7 +86,9 @@ namespace ToolBelt.Binary
                     // Trailing whitespace before a line break (or the end) is transport padding, not data.
                     int j = SkipBlanks(text, i);
                     if (j == text.Length || text[j] == '\r' || text[j] == '\n') { i = j - 1; continue; }
-                    bytes.Add((byte)c);
+                    // Take the whole run: one blank at a time rescanned it, quadratic in its length.
+                    for (; i < j; i++) bytes.Add((byte)text[i]);
+                    i--;
                 }
                 else
                 {

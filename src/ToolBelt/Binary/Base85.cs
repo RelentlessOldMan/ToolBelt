@@ -19,7 +19,7 @@ namespace ToolBelt.Binary
                 if (data is null) throw new ArgumentNullException(nameof(data));
                 if (data.Length == 0) return string.Empty;
 
-                var sb = new StringBuilder(data.Length * 5 / 4 + 5);
+                var sb = new StringBuilder((int)Math.Min((long)data.Length * 5 / 4 + 5, 0x3FFFFFDF));   // int overflowed
                 int i = 0;
                 while (i < data.Length)
                 {
@@ -49,7 +49,7 @@ namespace ToolBelt.Binary
                 if (text is null) throw new ArgumentNullException(nameof(text));
                 if (text.Length == 0) return Array.Empty<byte>();
 
-                var bytes = new List<byte>(text.Length * 4 / 5 + 4);
+                var bytes = new List<byte>((int)((long)text.Length * 4 / 5 + 4));
                 int i = 0;
                 while (i < text.Length)
                 {

@@ -46,7 +46,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 2 | 22 / 53 | re-queue (22 bugs) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 2 | 28 / 71 | re-queue (5 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 2 | 28 / 61 | re-queue (5 severe) |
-| 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 1 | 19 / 19 | re-queue (3 severe) |
+| 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 2 | 10 / 29 | re-queue (10 bugs) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 2 | 20 / 47 | re-queue (20 bugs, 6 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 2 | 22 / 67 | re-queue (22 bugs, 2 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 2 | 11 / 39 | re-queue (11 bugs, 1 severe) |
@@ -60,7 +60,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 6**
+5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 12**
 
 ## Releases
 
@@ -96,6 +96,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.25.0 | 25 | Collections, second pass | 11 | (see tag) |
 | v0.26.0 | 26 | Documents & config, second pass | 20 | (see tag) |
 | v0.27.0 | 27 | Security, net, time, second pass | 17 | (see tag) |
+| v0.28.0 | 28 | Binary formats & images, second pass | 10 | (see tag) |
 
 ## Round log
 
@@ -1253,3 +1254,35 @@ Reviewers: one for correctness and one for robustness, fresh to the section (re-
   subset); a backward clock jump does not recompute `NextRun` (covered by the clock-change wording).
 - **Checked build:** same 7 baseline failures, none new.
 - **Re-queued:** yes (17 bugs).
+
+### Round 28 — 2026-10-25 — Binary formats & images, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 6 with 3 severe).
+**10 confirmed bugs** (one found by both reviewers), each with a failing-first regression test in
+`BinaryImagesReview2Tests` (11 tests), except the four marked "by inspection", which need inputs of hundreds of MB.
+None rated severe. The decoders survived 200k fuzzed PNGs, 200k BMPs and 300k random strings with only the
+documented exceptions.
+
+- **ImageBuffer.DrawLine:** an off-canvas endpoint cut the segment to the canvas and redrew between the rounded
+  ends, so pixels were lost or shifted (23% of random lines differed from the same line on a bigger canvas).
+  The on-canvas part of the exact Bresenham line is now plotted, column by column (or row by row).
+- **ImageBuffer:** the size check used int.MaxValue rather than the largest array, so just under it gave
+  `OutOfMemoryException`; `Blit` near int.MaxValue and `DrawLineClipped` with a huge rectangle overflowed in a
+  checked build.
+- **Bmp.Decode** (by inspection): a 32768 × 16385 image passed the size check and failed in `ImageBuffer` with
+  `ArgumentOutOfRangeException` instead of `InvalidDataException`.
+- **SvgUtils / SvgDocument escaping:** tab, LF and CR were written raw, which parsers turn into spaces in an
+  attribute and CR into LF in text; they are now character references.
+- **SvgDocument:** a negative width, height, corner radius, stroke width or font size was written out (SVG calls
+  it an error) and a NaN corner radius was dropped; now `ArgumentOutOfRangeException`, before anything is written.
+- **QuotedPrintable.Decode:** a run of blanks was rescanned for each blank (quadratic: seconds at 80k); a final
+  '=' threw while "= " was a soft break (RFC 2045, `quopri`); `QuotedPrintableTests` pinned the old throw and now
+  uses "abc=4".
+- **Base32 / CrockfordBase32 / Base85** (by inspection): capacity sums overflowed int for valid inputs of a few
+  hundred MB; computed in long.
+- **Luhn** (by inspection): the int sum overflowed past ~240M digits and gave a wrong answer; kept mod 10.
+- **Documented:** `Base58.Encode` is quadratic like `Decode`; for keys, hashes and IDs.
+- **Not fixed:** non-canonical trailing bits in Base32/Base64url/Crockford and over-long zero VarInts are accepted
+  (RFC "MAY"); PngReader accepts out-of-order PLTE/tRNS and a repeated IHDR; SvgDocument still leaves a half-written
+  element when a NaN coordinate throws mid-shape.
+- **Checked build:** same 7 baseline failures, none new.
+- **Re-queued:** yes (10 bugs).

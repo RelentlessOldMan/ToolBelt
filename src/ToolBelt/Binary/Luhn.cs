@@ -25,7 +25,7 @@ namespace ToolBelt.Binary
                     d *= 2;
                     if (d > 9) d -= 9;
                 }
-                sum += d;
+                sum = (sum + d) % 10;   // an int sum overflowed past ~240M digits
                 doubleIt = !doubleIt;
             }
             return sum % 10 == 0;
@@ -46,7 +46,7 @@ namespace ToolBelt.Binary
                     d *= 2;
                     if (d > 9) d -= 9;
                 }
-                sum += d;
+                sum = (sum + d) % 10;   // an int sum overflowed past ~240M digits
                 doubleIt = !doubleIt;
             }
             return (10 - sum % 10) % 10;

@@ -42,7 +42,8 @@ namespace ToolBelt.Visualization
             if (width < 1) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
             if (height < 1) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
             // width * height * 4 wrapped silently: 65536 × 16384 gave a zero-length buffer behind a "valid" image.
-            if ((long)width * height * 4 > int.MaxValue)
+            // The cap is the runtime's largest byte array: just under int.MaxValue threw OutOfMemoryException.
+            if ((long)width * height * 4 > 0x7FFFFFC7)
                 throw new ArgumentOutOfRangeException(nameof(width), $"A {width} × {height} image is too large.");
             Width = width;
             Height = height;
@@ -81,9 +82,12 @@ namespace ToolBelt.Visualization
         {
             if (x0 < 0 || x0 >= Width || y0 < 0 || y0 >= Height || x1 < 0 || x1 >= Width || y1 < 0 || y1 >= Height)
             {
-                // Cut to the canvas first: stepping a far off-canvas line pixel by pixel hung, and Math.Abs of an
-                // int.MinValue difference threw.
-                DrawLineClipped(x0, y0, x1, y1, color, 0, 0, Width - 1, Height - 1);
+                // Visit only the columns (or rows) that cross the canvas: stepping a far off-canvas line pixel by
+                // pixel hung, and Math.Abs of an int.MinValue difference threw. Cutting the segment to the canvas and
+                // redrawing between rounded ends lost or shifted pixels, so plot the very line drawn below instead.
+                long ldx = (long)x1 - x0, ldy = (long)y1 - y0;
+                if (Math.Abs(ldx) >= Math.Abs(ldy)) DrawMajor(x0, y0, ldx, ldy, Width, color, xMajor: true);
+                else DrawMajor(y0, x0, ldy, ldx, Height, color, xMajor: false);
                 return;
             }
             int dx = Math.Abs(x1 - x0), dy = -Math.Abs(y1 - y0);
@@ -96,6 +100,22 @@ namespace ToolBelt.Visualization
                 int e2 = 2 * err;
                 if (e2 >= dy) { err += dy; x0 += sx; }
                 if (e2 <= dx) { err += dx; y0 += sy; }
+            }
+        }
+
+        // The loop below lands, at step k along the major axis, on minor offset floor((2k·|minor| + |major|) / (2·|major|)).
+        // Decimal holds 2k·|minor| for any int endpoints, where long overflowed.
+        private void DrawMajor(long a0, long b0, long da, long db, int size, Rgba color, bool xMajor)
+        {
+            long lo = Math.Max(0, Math.Min(a0, a0 + da)), hi = Math.Min(size - 1, Math.Max(a0, a0 + da));
+            long major = Math.Abs(da), minor = Math.Abs(db);
+            for (long a = lo; a <= hi; a++)
+            {
+                long k = Math.Abs(a - a0);
+                long off = major == 0 ? 0 : (long)decimal.Floor((2m * k * minor + major) / (2m * major));
+                long b = db < 0 ? b0 - off : b0 + off;
+                if (xMajor) { if (b >= 0 && b < Height) Put((int)a, (int)b, color); }
+                else if (b >= 0 && b < Width) Put((int)b, (int)a, color);
             }
         }
 
@@ -115,9 +135,12 @@ namespace ToolBelt.Visualization
             if (!ClipEdge(-dx, x0 - left, ref t0, ref t1) || !ClipEdge(dx, right - x0, ref t0, ref t1)
                 || !ClipEdge(-dy, y0 - top, ref t0, ref t1) || !ClipEdge(dy, bottom - y0, ref t0, ref t1))
                 return;
-            DrawLine((int)Math.Round(x0 + t0 * dx), (int)Math.Round(y0 + t0 * dy),
-                     (int)Math.Round(x0 + t1 * dx), (int)Math.Round(y0 + t1 * dy), color);
+            // Clamp after rounding: floating-point error can put a clipped end just past the rectangle (and past int).
+            DrawLine(ToEdge(x0 + t0 * dx, left, right), ToEdge(y0 + t0 * dy, top, bottom),
+                     ToEdge(x0 + t1 * dx, left, right), ToEdge(y0 + t1 * dy, top, bottom), color);
         }
+
+        private static int ToEdge(double v, int lo, int hi) => (int)Math.Max(lo, Math.Min(hi, Math.Round(v)));
 
         private static bool ClipEdge(double p, double q, ref double t0, ref double t1)
         {
@@ -165,9 +188,12 @@ namespace ToolBelt.Visualization
                 source = new ImageBuffer(Width, Height);
                 Buffer.BlockCopy(_pixels, 0, source._pixels, 0, _pixels.Length);
             }
-            for (int sy = 0; sy < source.Height; sy++)
-                for (int sx = 0; sx < source.Width; sx++)
-                    PutClipped(destX + sx, destY + sy, source.GetPixel(sx, sy));
+            // Only the overlap is walked, in long: destX + sx overflowed for an offset near int.MaxValue.
+            long sx0 = Math.Max(0, -(long)destX), sx1 = Math.Min(source.Width, (long)Width - destX);
+            long sy0 = Math.Max(0, -(long)destY), sy1 = Math.Min(source.Height, (long)Height - destY);
+            for (long sy = sy0; sy < sy1; sy++)
+                for (long sx = sx0; sx < sx1; sx++)
+                    Put((int)(destX + sx), (int)(destY + sy), source.GetPixel((int)sx, (int)sy));
         }
 
         private void Put(int x, int y, Rgba color)

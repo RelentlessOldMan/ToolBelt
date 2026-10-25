@@ -10,7 +10,8 @@ namespace ToolBelt.Visualization
     /// A fluent builder for SVG vector graphics — the resolution-independent counterpart to the raster
     /// <see cref="ImageBuffer"/>. Emits well-formed SVG 1.1 with a <c>viewBox</c>; coordinates are always
     /// formatted with the invariant culture (so no comma-decimal surprises) and text is XML-escaped (characters
-    /// XML 1.0 forbids become U+FFFD). A NaN or infinite coordinate throws: SVG cannot represent it.
+    /// XML 1.0 forbids become U+FFFD). A NaN or infinite coordinate throws: SVG cannot represent it. So does a
+    /// negative width, height, radius, stroke width or font size, which SVG calls an error.
     /// </summary>
     public sealed class SvgDocument
     {
@@ -31,6 +32,10 @@ namespace ToolBelt.Visualization
         public SvgDocument Rectangle(double x, double y, double width, double height,
             string? fill = "black", string? stroke = null, double strokeWidth = 1, double cornerRadius = 0)
         {
+            NonNegative(width, nameof(width));
+            NonNegative(height, nameof(height));
+            NonNegative(cornerRadius, nameof(cornerRadius));   // a NaN radius was dropped silently
+            if (stroke != null) NonNegative(strokeWidth, nameof(strokeWidth));
             _body.Append("<rect x=\"").Append(F(x)).Append("\" y=\"").Append(F(y))
                  .Append("\" width=\"").Append(F(width)).Append("\" height=\"").Append(F(height)).Append('"');
             if (cornerRadius > 0) _body.Append(" rx=\"").Append(F(cornerRadius)).Append('"');
@@ -43,6 +48,7 @@ namespace ToolBelt.Visualization
         public SvgDocument Line(double x1, double y1, double x2, double y2, string stroke = "black", double strokeWidth = 1)
         {
             if (stroke is null) throw new ArgumentNullException(nameof(stroke));
+            NonNegative(strokeWidth, nameof(strokeWidth));
             _body.Append("<line x1=\"").Append(F(x1)).Append("\" y1=\"").Append(F(y1))
                  .Append("\" x2=\"").Append(F(x2)).Append("\" y2=\"").Append(F(y2))
                  .Append("\" stroke=\"").Append(EscapeAttr(stroke)).Append("\" stroke-width=\"").Append(F(strokeWidth))
@@ -54,6 +60,7 @@ namespace ToolBelt.Visualization
         public SvgDocument Circle(double cx, double cy, double radius,
             string? fill = "black", string? stroke = null, double strokeWidth = 1)
         {
+            if (stroke != null) NonNegative(strokeWidth, nameof(strokeWidth));
             if (!(radius >= 0)) throw new ArgumentOutOfRangeException(nameof(radius), radius, "Radius must be non-negative.");
             _body.Append("<circle cx=\"").Append(F(cx)).Append("\" cy=\"").Append(F(cy))
                  .Append("\" r=\"").Append(F(radius)).Append('"');
@@ -75,6 +82,7 @@ namespace ToolBelt.Visualization
         public SvgDocument Path(string data, string? fill = "black", string? stroke = null, double strokeWidth = 1)
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
+            if (stroke != null) NonNegative(strokeWidth, nameof(strokeWidth));
             _body.Append("<path d=\"").Append(EscapeAttr(data)).Append('"');
             AppendPaint(fill, stroke, strokeWidth);
             _body.Append("/>\n");
@@ -89,6 +97,7 @@ namespace ToolBelt.Visualization
             if (fill is null) throw new ArgumentNullException(nameof(fill));
             if (anchor is null) throw new ArgumentNullException(nameof(anchor));
             if (fontFamily is null) throw new ArgumentNullException(nameof(fontFamily));
+            NonNegative(fontSize, nameof(fontSize));
             _body.Append("<text x=\"").Append(F(x)).Append("\" y=\"").Append(F(y))
                  .Append("\" font-size=\"").Append(F(fontSize)).Append("\" font-family=\"").Append(EscapeAttr(fontFamily))
                  .Append("\" fill=\"").Append(EscapeAttr(fill)).Append("\" text-anchor=\"").Append(EscapeAttr(anchor))
@@ -122,6 +131,7 @@ namespace ToolBelt.Visualization
             string? fill, string? stroke, double strokeWidth)
         {
             if (points is null) throw new ArgumentNullException(nameof(points));
+            if (stroke != null || tag == "polyline") NonNegative(strokeWidth, nameof(strokeWidth));   // before anything is written
             var sb = new StringBuilder();
             bool first = true;
             foreach (var (x, y) in points)
@@ -143,6 +153,11 @@ namespace ToolBelt.Visualization
             _body.Append(" fill=\"").Append(fill is null ? "none" : EscapeAttr(fill)).Append('"');
             if (stroke != null)
                 _body.Append(" stroke=\"").Append(EscapeAttr(stroke)).Append("\" stroke-width=\"").Append(F(strokeWidth)).Append('"');
+        }
+
+        private static void NonNegative(double value, string name)
+        {
+            if (!(value >= 0)) throw new ArgumentOutOfRangeException(name, value, "Must be non-negative.");
         }
 
         // NaN/∞ used to be written as "NaN"/"Infinity" (an unrenderable document) and -0.0000001 as "-0".
@@ -170,6 +185,10 @@ namespace ToolBelt.Visualization
                     case '<': sb.Append("&lt;"); break;
                     case '>': sb.Append("&gt;"); break;
                     case '"' when attribute: sb.Append("&quot;"); break;
+                    // A parser turns these into spaces in an attribute, and CR (or CRLF) into LF in text (XML 1.0 3.3.3, 2.11).
+                    case '\t' when attribute: sb.Append("&#9;"); break;
+                    case '\n' when attribute: sb.Append("&#10;"); break;
+                    case '\r': sb.Append("&#13;"); break;
                     default: sb.Append(IsXmlIllegal(text, i) ? '\uFFFD' : ch); break;   // e.g. an ANSI escape in a label
                 }
             }

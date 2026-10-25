@@ -230,7 +230,7 @@ src/
     Binary/
       Base32.cs             RFC 4648 Base32 encode/decode
       Adler32.cs            Adler-32 checksum (batched + streaming)
-      Base58.cs             Base58 (Bitcoin alphabet, leading-zero preservation)
+      Base58.cs             Base58 (Bitcoin alphabet, leading-zero preservation; quadratic, for short values)
       Base64Url.cs          URL-safe base64 (RFC 4648 §5, unpadded)
       Base85.cs             Ascii85 encode/decode
       Bits.cs               popcount / leading-trailing-zeros / rotate (32 & 64-bit)
@@ -647,6 +647,7 @@ tests/
       Base64UrlTests.cs
       Base85Tests.cs
       BinaryImagesReviewTests.cs  (review regressions: VarInt overflow, strict Base32/Base64url/QP decoding, overflow-safe range checks, PNG/BMP sizes, SVG escaping)
+      BinaryImagesReview2Tests.cs (second-pass regressions: exact line clipping, XML whitespace escaping, QP soft breaks and blank runs, image size limits, negative SVG lengths)
       BitsTests.cs
       Crc16Tests.cs
       Crc32Tests.cs

@@ -174,6 +174,10 @@ namespace ToolBelt.Visualization
                     '>' => "&gt;",
                     '"' when attribute => "&quot;",
                     '\'' when attribute => "&#39;",
+                    // A parser turns these into spaces in an attribute, and CR (or CRLF) into LF in text (XML 1.0 3.3.3, 2.11).
+                    '\t' when attribute => "&#9;",
+                    '\n' when attribute => "&#10;",
+                    '\r' => "&#13;",
                     _ => IsXmlIllegal(text, i) ? "�" : null,   // e.g. ANSI escapes in a series name: XML 1.0 forbids them
                 };
                 if (rep is null)

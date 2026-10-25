@@ -59,7 +59,7 @@ namespace ToolBelt.Tests.Binary
 
         public void Decode_Malformed_Throws()
         {
-            Check.Throws<FormatException>(() => QuotedPrintable.Decode("abc="));   // truncated escape
+            Check.Throws<FormatException>(() => QuotedPrintable.Decode("abc=4"));  // truncated escape
             Check.Throws<FormatException>(() => QuotedPrintable.Decode("a=ZZb"));  // non-hex digits
         }
 

@@ -9,7 +9,8 @@ namespace ToolBelt.Binary
     /// <summary>
     /// Base58 encoding using the Bitcoin alphabet (no <c>0</c>, <c>O</c>, <c>I</c>, or <c>l</c>, to avoid
     /// visual ambiguity). Leading zero bytes are preserved as leading <c>'1'</c> characters. Uses
-    /// <see cref="BigInteger"/> for the base conversion.
+    /// <see cref="BigInteger"/> for the base conversion, which is quadratic in the length both ways (seconds at
+    /// tens of kilobytes): it suits keys, hashes and IDs, not bulk data.
     /// </summary>
     public static class Base58
     {
