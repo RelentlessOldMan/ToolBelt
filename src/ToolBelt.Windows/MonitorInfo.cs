@@ -46,7 +46,11 @@ namespace ToolBelt.Windows
             $"{DeviceName} {Bounds}{(IsPrimary ? " [primary]" : "")}";
     }
 
-    /// <summary>Enumerates attached display monitors via the Win32 <c>EnumDisplayMonitors</c> API.</summary>
+    /// <summary>
+    /// Enumerates attached display monitors via the Win32 <c>EnumDisplayMonitors</c> API. Bounds are physical pixels
+    /// (enumeration runs per-monitor-v2 aware), matching <see cref="DpiInfo"/> and <see cref="ScreenCapture"/> whatever
+    /// the calling process's DPI awareness.
+    /// </summary>
     public static class MonitorInfo
     {
         /// <summary>Returns every attached monitor. May be empty on a headless session with no display.</summary>
@@ -67,8 +71,16 @@ namespace ToolBelt.Windows
                 return true; // continue enumeration
             };
 
-            if (!EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, callback, IntPtr.Zero))
-                return Array.Empty<MonitorDetails>();
+            IntPtr previous = SetThreadDpiAwarenessContext(new IntPtr(-4));     // per-monitor v2: physical pixels
+            try
+            {
+                if (!EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, callback, IntPtr.Zero))
+                    return Array.Empty<MonitorDetails>();
+            }
+            finally
+            {
+                if (previous != IntPtr.Zero) SetThreadDpiAwarenessContext(previous);
+            }
             GC.KeepAlive(callback);
             return monitors;
         }
@@ -115,5 +127,8 @@ namespace ToolBelt.Windows
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFOEX lpmi);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
     }
 }

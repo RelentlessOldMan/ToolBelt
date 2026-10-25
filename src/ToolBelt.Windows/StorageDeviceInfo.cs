@@ -59,17 +59,41 @@ namespace ToolBelt.Windows
     /// </summary>
     public static class StorageDeviceInfo
     {
-        /// <summary>Describes the device behind the volume containing <paramref name="path"/> (a drive letter or any path on it).</summary>
+        /// <summary>
+        /// Describes the device behind the volume containing <paramref name="path"/> (a drive letter or any path on it,
+        /// including <c>\\?\C:\…</c> device paths; a folder that is a volume mount point describes the mounted volume).
+        /// </summary>
         public static StorageDevice Describe(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path is required.", nameof(path));
-            string root = Path.GetPathRoot(Path.GetFullPath(path)) ?? throw new ArgumentException("Path has no root.", nameof(path));
-            if (root.StartsWith(@"\\", StringComparison.Ordinal)) throw new ArgumentException("Network paths have no local storage device.", nameof(path));
+            string full = Path.GetFullPath(path);
+            // \\?\C:\x and \\.\C: are device-path spellings of a local drive.
+            if ((full.StartsWith(@"\\?\", StringComparison.Ordinal) || full.StartsWith(@"\\.\", StringComparison.Ordinal))
+                && full.Length >= 6 && full[5] == ':' && char.IsLetter(full[4]))
+            {
+                full = full.Substring(4);
+                if (full.Length == 2) full += @"\";
+            }
+            if (full.StartsWith(@"\\", StringComparison.Ordinal)) throw new ArgumentException("Network paths have no local storage device.", nameof(path));
+
+            // The volume that holds the path: its drive root, or the mount folder of a volume mounted inside another.
+            var mount = new StringBuilder(1024);
+            if (!GetVolumePathNameW(full, mount, mount.Capacity))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), $"Could not find the volume of {full}.");
+            string root = mount.ToString();
             string volume = root.TrimEnd('\\');
-            using SafeFileHandle h = CreateFile(@"\\.\" + volume, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+            string device = @"\\.\" + volume;
+            if (volume.Length > 2)
+            {
+                var guid = new StringBuilder(64);
+                if (!GetVolumeNameForVolumeMountPointW(volume + @"\", guid, guid.Capacity))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), $"Could not resolve the volume mounted at {volume}.");
+                device = guid.ToString().TrimEnd('\\');                          // \\?\Volume{…} opens the volume itself
+            }
+            using SafeFileHandle h = CreateFile(device, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
             if (h.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), $"Could not open volume {volume}.");
 
-            byte[] desc = Query(h, StorageDeviceProperty, 1024);
+            byte[] desc = Query(h, StorageDeviceProperty, 1024, out _);
             // STORAGE_DEVICE_DESCRIPTOR: Version, Size, DeviceType(1), DeviceTypeModifier(1), RemovableMedia(1), CommandQueueing(1),
             // VendorIdOffset, ProductIdOffset, ProductRevisionOffset, SerialNumberOffset, BusType ...
             bool removable = desc[10] != 0;
@@ -82,8 +106,8 @@ namespace ToolBelt.Windows
             bool? seek = null;
             try
             {
-                byte[] pen = Query(h, StorageDeviceSeekPenaltyProperty, 12);
-                seek = pen[8] != 0;                                              // DEVICE_SEEK_PENALTY_DESCRIPTOR.IncursSeekPenalty
+                byte[] pen = Query(h, StorageDeviceSeekPenaltyProperty, 12, out int returned);
+                if (returned >= 9) seek = pen[8] != 0;                           // DEVICE_SEEK_PENALTY_DESCRIPTOR.IncursSeekPenalty
             }
             catch (Win32Exception) { /* not reported by this device */ }
             return new StorageDevice(volume, bus, removable, vendor, product, serial, seek);
@@ -125,12 +149,12 @@ namespace ToolBelt.Windows
         public static bool IsNetworkDrive(string path)
             => !Path.GetFullPath(path ?? throw new ArgumentNullException(nameof(path))).StartsWith(@"\\", StringComparison.Ordinal) && GetUncPath(path) != null;
 
-        private static byte[] Query(SafeFileHandle h, int propertyId, int size)
+        private static byte[] Query(SafeFileHandle h, int propertyId, int size, out int returned)
         {
             var query = new byte[12];                                             // STORAGE_PROPERTY_QUERY: PropertyId, QueryType, AdditionalParameters
             BitConverter.GetBytes(propertyId).CopyTo(query, 0);
             var output = new byte[size];
-            if (!DeviceIoControl(h, IOCTL_STORAGE_QUERY_PROPERTY, query, query.Length, output, output.Length, out int returned, IntPtr.Zero) || returned < 8)
+            if (!DeviceIoControl(h, IOCTL_STORAGE_QUERY_PROPERTY, query, query.Length, output, output.Length, out returned, IntPtr.Zero) || returned < 8)
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "IOCTL_STORAGE_QUERY_PROPERTY failed.");
             return output;
         }
@@ -150,6 +174,12 @@ namespace ToolBelt.Windows
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool GetVolumePathNameW(string fileName, StringBuilder volumePathName, int length);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool GetVolumeNameForVolumeMountPointW(string mountPoint, StringBuilder volumeName, int length);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool DeviceIoControl(SafeFileHandle h, uint code, byte[] inBuffer, int inSize, byte[] outBuffer, int outSize, out int returned, IntPtr overlapped);

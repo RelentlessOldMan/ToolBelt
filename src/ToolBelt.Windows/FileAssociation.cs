@@ -9,9 +9,8 @@ namespace ToolBelt.Windows
     /// Looks up the program associated with a file extension via the Win32 <c>AssocQueryString</c> API.
     /// Read-only — it reports the current association without changing it. A method returns null only when
     /// the shell yields no value; note that for <i>unregistered</i> extensions Windows commonly supplies a
-    /// fallback (the "Open With" chooser for the executable, or a default property list) rather than failing,
-    /// so a non-null result does not by itself prove a real association. The extension may be given with or
-    /// without a leading dot.
+    /// fallback (the "Open With" chooser for the executable) rather than failing, so a non-null result does not
+    /// by itself prove a real association. The extension may be given with or without a leading dot.
     /// </summary>
     public static class FileAssociation
     {
@@ -50,7 +49,7 @@ namespace ToolBelt.Windows
         private const int ASSOCSTR_COMMAND = 1;
         private const int ASSOCSTR_EXECUTABLE = 2;
         private const int ASSOCSTR_FRIENDLYAPPNAME = 4;
-        private const int ASSOCSTR_PROGID = 11;
+        private const int ASSOCSTR_PROGID = 20;   // (11 is ASSOCSTR_INFOTIP, a property list)
 
         [DllImport("shlwapi.dll", CharSet = CharSet.Unicode, SetLastError = false)]
         private static extern int AssocQueryString(

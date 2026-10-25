@@ -32,12 +32,14 @@ namespace ToolBelt.Windows
     /// <summary>
     /// Creates and reads Windows shell shortcuts (<c>.lnk</c>) through the shell's <c>IShellLink</c> COM
     /// interface — no WScript / third-party dependency. <see cref="Create"/> writes a shortcut file;
-    /// <see cref="Read"/> parses one back into a <see cref="ShortcutInfo"/>.
+    /// <see cref="Read"/> parses one back into a <see cref="ShortcutInfo"/>. The shell stores at most 259 characters
+    /// of target path and 260 of each other field (longer values come back truncated or garbled), so
+    /// <see cref="Create"/> rejects anything longer.
     /// </summary>
     public static class ShortcutUtils
     {
-        private const int MaxPath = 260;
-        private const int InfoTipSize = 1024;
+        private const int MaxPath = 260;                // the shell's per-field limit (a target must also leave room for its NUL)
+        private const int ReadBuffer = 1024;
         private const uint SlgpRawPath = 0x4;
 
         /// <summary>Creates (or overwrites) a shortcut at <paramref name="shortcutPath"/> pointing at <paramref name="targetPath"/>.</summary>
@@ -48,6 +50,11 @@ namespace ToolBelt.Windows
         {
             if (shortcutPath is null) throw new ArgumentNullException(nameof(shortcutPath));
             if (targetPath is null) throw new ArgumentNullException(nameof(targetPath));
+            if (targetPath.Length >= MaxPath) throw TooLong(nameof(targetPath), MaxPath - 1);
+            if (arguments?.Length > MaxPath) throw TooLong(nameof(arguments), MaxPath);
+            if (workingDirectory?.Length > MaxPath) throw TooLong(nameof(workingDirectory), MaxPath);
+            if (description?.Length > MaxPath) throw TooLong(nameof(description), MaxPath);
+            if (iconPath?.Length > MaxPath) throw TooLong(nameof(iconPath), MaxPath);
 
             IShellLinkW link = NewShellLink();
             try
@@ -73,23 +80,24 @@ namespace ToolBelt.Windows
             {
                 ((IPersistFile)link).Load(shortcutPath, 0 /* STGM_READ */);
 
-                var buffer = new StringBuilder(MaxPath);
+                // Buffers larger than the stored limit: a MAX_PATH buffer silently cut a 260-character field short.
+                var buffer = new StringBuilder(ReadBuffer);
                 link.GetPath(buffer, buffer.Capacity, IntPtr.Zero, SlgpRawPath);
                 string target = buffer.ToString();
 
-                buffer = new StringBuilder(InfoTipSize);
+                buffer = new StringBuilder(ReadBuffer);
                 link.GetArguments(buffer, buffer.Capacity);
                 string args = buffer.ToString();
 
-                buffer = new StringBuilder(MaxPath);
+                buffer = new StringBuilder(ReadBuffer);
                 link.GetWorkingDirectory(buffer, buffer.Capacity);
                 string workDir = buffer.ToString();
 
-                buffer = new StringBuilder(InfoTipSize);
+                buffer = new StringBuilder(ReadBuffer);
                 link.GetDescription(buffer, buffer.Capacity);
                 string description = buffer.ToString();
 
-                buffer = new StringBuilder(MaxPath);
+                buffer = new StringBuilder(ReadBuffer);
                 link.GetIconLocation(buffer, buffer.Capacity, out int iconIndex);
                 string iconPath = buffer.ToString();
 
@@ -97,6 +105,9 @@ namespace ToolBelt.Windows
             }
             finally { Marshal.FinalReleaseComObject(link); }
         }
+
+        private static ArgumentException TooLong(string param, int max) =>
+            new ArgumentException($"A shortcut stores at most {max} characters here.", param);
 
         private static IShellLinkW NewShellLink()
         {

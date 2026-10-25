@@ -80,13 +80,18 @@ namespace ToolBelt.Windows
             return null;
         }
 
+        // InternalGetWindowText reads the stored title without sending WM_GETTEXT. GetWindowText sends that message to
+        // windows of this process, which blocks for as long as the owning thread isn't pumping (a deadlock when it is
+        // waiting on the caller).
         private static string ReadText(IntPtr hwnd)
         {
-            int len = GetWindowTextLength(hwnd);
-            if (len <= 0) return string.Empty;
-            var sb = new StringBuilder(len + 1);
-            GetWindowText(hwnd, sb, sb.Capacity);
-            return sb.ToString();
+            for (int capacity = 256; ; capacity *= 2)
+            {
+                var buffer = new char[capacity];
+                int len = InternalGetWindowText(hwnd, buffer, capacity);
+                if (len <= 0) return string.Empty;
+                if (len < capacity - 1 || capacity >= 1 << 16) return new string(buffer, 0, Math.Min(len, capacity));
+            }
         }
 
         private static string ReadClass(IntPtr hwnd)
@@ -110,10 +115,7 @@ namespace ToolBelt.Windows
         private static extern bool IsWindowVisible(IntPtr hWnd);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        private static extern int GetWindowTextLength(IntPtr hWnd);
+        private static extern int InternalGetWindowText(IntPtr hWnd, [Out] char[] lpString, int nMaxCount);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);

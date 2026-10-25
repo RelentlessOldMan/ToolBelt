@@ -55,7 +55,15 @@ namespace ToolBelt.Windows
                 IntPtr ptr = GlobalLock(handle);
                 if (ptr == IntPtr.Zero)
                     return null;
-                try { return Marshal.PtrToStringUni(ptr); }
+                try
+                {
+                    // Bounded by the block: text placed without a terminating NUL must not read past it.
+                    long chars = (long)GlobalSize(handle).ToUInt64() / 2;
+                    if (chars > int.MaxValue) throw new InvalidOperationException("The clipboard text is too large.");
+                    string text = Marshal.PtrToStringUni(ptr, (int)chars);
+                    int nul = text.IndexOf('\0');
+                    return nul >= 0 ? text.Substring(0, nul) : text;
+                }
                 finally { GlobalUnlock(handle); }
             }
             finally { CloseClipboard(); }
@@ -81,7 +89,7 @@ namespace ToolBelt.Windows
                 OpenOrThrow();
                 try
                 {
-                    EmptyClipboard();
+                    EmptyOrThrow();
                     if (SetClipboardData(CF_UNICODETEXT, hGlobal) == IntPtr.Zero)
                         throw new Win32Exception(Marshal.GetLastWin32Error(), "SetClipboardData failed.");
                     ownershipTransferred = true; // the clipboard now owns hGlobal; must NOT free it
@@ -98,8 +106,14 @@ namespace ToolBelt.Windows
         private static void ClearCore()
         {
             OpenOrThrow();
-            try { EmptyClipboard(); }
+            try { EmptyOrThrow(); }
             finally { CloseClipboard(); }
+        }
+
+        private static void EmptyOrThrow()
+        {
+            if (!EmptyClipboard())
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "EmptyClipboard failed.");
         }
 
         // ---------- file lists (CF_HDROP) ----------
@@ -179,7 +193,9 @@ namespace ToolBelt.Windows
                 if (p == IntPtr.Zero) return null;
                 try
                 {
-                    int size = (int)GlobalSize(h);
+                    ulong blockSize = GlobalSize(h).ToUInt64();
+                    if (blockSize > int.MaxValue) throw new InvalidOperationException("The clipboard image is too large.");
+                    int size = (int)blockSize;
                     var dib = new byte[size];
                     Marshal.Copy(p, dib, 0, size);
                     return DecodeDib(dib);
@@ -264,13 +280,14 @@ namespace ToolBelt.Windows
                     handles[i] = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)items[i].Bytes.Length);
                     if (handles[i] == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "GlobalAlloc failed.");
                     IntPtr target = GlobalLock(handles[i]);
+                    if (target == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "GlobalLock failed.");
                     try { Marshal.Copy(items[i].Bytes, 0, target, items[i].Bytes.Length); }
                     finally { GlobalUnlock(handles[i]); }
                 }
                 OpenOrThrow();
                 try
                 {
-                    EmptyClipboard();
+                    EmptyOrThrow();
                     for (int i = 0; i < items.Length; i++)
                     {
                         if (SetClipboardData(items[i].Format, handles[i]) == IntPtr.Zero)

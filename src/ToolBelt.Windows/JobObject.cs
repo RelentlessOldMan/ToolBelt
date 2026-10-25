@@ -9,7 +9,9 @@ namespace ToolBelt.Windows
     /// <summary>
     /// A Win32 job object that groups child processes so they can be managed and terminated together. With
     /// <c>killOnClose</c> (the default), every assigned process is terminated when this object is disposed
-    /// or the owning process exits — a reliable way to prevent orphaned children even on a hard crash.
+    /// or the owning process exits — a reliable way to prevent orphaned children even on a hard crash. A job that
+    /// is never disposed stays open until the process exits: no finalizer closes it, because a garbage collection
+    /// can run while its children are still wanted (after the last use of the object, not the end of its scope).
     /// Assign a process with <see cref="AssignProcess(System.Diagnostics.Process)"/> right after starting it. Limits —
     /// per-process or whole-job memory caps, a process-count cap and a hard CPU-rate cap — apply to everything in the job,
     /// and <see cref="QueryAccounting"/> reports CPU time and peak memory.
@@ -155,15 +157,6 @@ namespace ToolBelt.Windows
                 CloseHandle(_handle); // closing the last handle enforces kill-on-close
                 _handle = IntPtr.Zero;
             }
-            GC.SuppressFinalize(this);
-        }
-
-        // Backstop: if the caller forgets to Dispose, close the handle so it neither leaks nor (with
-        // kill-on-close) silently keeps the child processes alive past this object's lifetime.
-        ~JobObject()
-        {
-            if (_handle != IntPtr.Zero)
-                CloseHandle(_handle);
         }
 
         private const int JobObjectExtendedLimitInformation = 9, JobObjectBasicAccountingInformation = 1, JobObjectCpuRateControlInformation = 15;

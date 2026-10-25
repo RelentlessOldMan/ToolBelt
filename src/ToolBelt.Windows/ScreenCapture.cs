@@ -38,7 +38,10 @@ namespace ToolBelt.Windows
     /// <summary>
     /// Captures the screen (or a region) to a raw pixel buffer using GDI's <c>BitBlt</c> — no
     /// <c>System.Drawing</c> dependency, so the satellite stays package-free. Returns a
-    /// <see cref="ScreenImage"/> the caller can save or inspect however they like.
+    /// <see cref="ScreenImage"/> the caller can save or inspect however they like. Sizes and coordinates are
+    /// <b>physical pixels</b> (what <see cref="MonitorInfo"/> and <see cref="DpiInfo"/> report) whatever the calling
+    /// process's DPI awareness: each capture runs per-monitor-v2 aware, so a DPI-unaware app on a 200% display gets the
+    /// whole 3840×2160 screen rather than its top-left 1920×1080 quarter.
     /// </summary>
     public static class ScreenCapture
     {
@@ -56,33 +59,57 @@ namespace ToolBelt.Windows
         /// <summary>Captures the primary monitor.</summary>
         public static ScreenImage CapturePrimaryScreen()
         {
-            int w = GetSystemMetrics(SM_CXSCREEN);
-            int h = GetSystemMetrics(SM_CYSCREEN);
-            return Capture(0, 0, w, h);
+            IntPtr previous = EnterPhysicalPixels();
+            try
+            {
+                int w = GetSystemMetrics(SM_CXSCREEN);
+                int h = GetSystemMetrics(SM_CYSCREEN);
+                return Capture(0, 0, w, h);
+            }
+            finally { LeavePhysicalPixels(previous); }
         }
 
         /// <summary>Captures the full virtual desktop (the bounding box of all monitors).</summary>
         public static ScreenImage CaptureVirtualScreen()
         {
-            int x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-            int y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-            int w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-            int h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-            return Capture(x, y, w, h);
+            IntPtr previous = EnterPhysicalPixels();
+            try
+            {
+                int x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                int y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                int w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                int h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+                return Capture(x, y, w, h);
+            }
+            finally { LeavePhysicalPixels(previous); }
         }
 
-        /// <summary>Captures a rectangular region in virtual-screen coordinates.</summary>
+        /// <summary>Captures a rectangular region in virtual-screen coordinates (physical pixels).</summary>
         public static ScreenImage CaptureRegion(int x, int y, int width, int height)
         {
             if (width <= 0) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
             if (height <= 0) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
-            return Capture(x, y, width, height);
+            if ((long)width * height > int.MaxValue / 4) throw new ArgumentOutOfRangeException(nameof(width), width, "The region is too large for one image.");
+            IntPtr previous = EnterPhysicalPixels();
+            try { return Capture(x, y, width, height); }
+            finally { LeavePhysicalPixels(previous); }
+        }
+
+        // Per-monitor-v2 for the duration, so GetSystemMetrics and BitBlt agree on physical pixels. Returns the previous
+        // context (zero if the switch is unavailable, in which case the thread's own awareness is used).
+        private static IntPtr EnterPhysicalPixels() => SetThreadDpiAwarenessContext(new IntPtr(-4));
+
+        private static void LeavePhysicalPixels(IntPtr previous)
+        {
+            if (previous != IntPtr.Zero) SetThreadDpiAwarenessContext(previous);
         }
 
         private static ScreenImage Capture(int x, int y, int width, int height)
         {
             if (width <= 0 || height <= 0)
                 throw new InvalidOperationException("The screen reported a non-positive size (no usable desktop).");
+            if ((long)width * height > int.MaxValue / 4)
+                throw new InvalidOperationException("The screen is too large for one image.");
 
             IntPtr screenDc = GetDC(IntPtr.Zero);
             if (screenDc == IntPtr.Zero)
@@ -99,6 +126,8 @@ namespace ToolBelt.Windows
                 oldBmp = SelectObject(memDc, bmp);
                 if (!BitBlt(memDc, 0, 0, width, height, screenDc, x, y, SRCCOPY | CAPTUREBLT))
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "BitBlt failed.");
+                SelectObject(memDc, oldBmp);                                       // GetDIBits needs the bitmap deselected
+                oldBmp = IntPtr.Zero;
 
                 var header = new BITMAPINFOHEADER
                 {
@@ -142,6 +171,9 @@ namespace ToolBelt.Windows
 
         [DllImport("user32.dll")]
         private static extern int GetSystemMetrics(int nIndex);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern IntPtr GetDC(IntPtr hWnd);

@@ -55,8 +55,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 1 | 32 / 32 | re-queue (3 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 1 | 39 / 39 | re-queue (4 severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 1 | 44 / 44 | re-queue (7 severe) |
-| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 0 | – / 0 | **next** |
-| 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 0 | – / 0 | queued |
+| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 1 | 35 / 35 | re-queue (7 severe) |
+| 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 0 | – / 0 | **next** |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 0 | – / 0 | queued |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first.
@@ -82,6 +82,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.12.0 | 12 | Logging, diagnostics, CLI | 32 | (see tag) |
 | v0.13.0 | 13 | Security, net, time | 39 | (see tag) |
 | v0.14.0 | 14 | Objects, functional, grids, graphs, intervals | 44 | (see tag) |
+| v0.15.0 | 15 | Windows satellite | 35 | (see tag) |
 
 ## Round log
 
@@ -749,4 +750,73 @@ checked build (the existing Grids tests fail there), 1 by inspection.
   argument "key"; seven graph and interval drop-in headers claimed "fully self-contained" (by inspection).
 - **Checked build:** the 26 Grids failures are gone (see above); 16 failures remain in other sections, all present
   at v0.13.0, and the `PauseAndRaceTests` timing flake did not recur.
+- **Re-queued:** yes (7 severe).
+
+### Round 15 — 2026-10-25 — Windows satellite
+Reviewers: one for correctness and one for robustness (DPI virtualization, handle lifetimes, hostile names and
+sizes, cross-user and cross-thread behaviour). **35 confirmed bugs**: 20 with failing-first regression tests in
+`WindowsReviewTests` (19 tests; the shortcut test covers two bugs), 15 by inspection. Shell-link limits were measured
+first: arguments and description round-trip up to 260 characters and come back garbled beyond; the working directory
+and icon path come back silently truncated beyond 260; a target of 260 or more fails with `E_FAIL`.
+
+- **Severe:**
+  - `FileAssociation.GetProgId` used `ASSOCSTR` 11, which is the info-tip property list
+    (`prop:System.ItemTypeText;…`), not the ProgID (20). It never returned a ProgID.
+  - `ScreenCapture` in a DPI-unaware process (the .NET default without a manifest) captured the top-left quarter of
+    a 200% screen at 1920×1080. Each capture now runs per-monitor-v2 aware, so sizes and coordinates are physical
+    pixels, and the thread's awareness is restored afterwards.
+  - `ResourceSampler` normalised by `Environment.ProcessorCount`, which is the sampler's own affinity or job limit.
+    Pinned to one core, it reported one busy thread on a 12-core machine as 65% instead of about 8%. It now uses
+    `GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)`.
+  - `JobObject`'s finalizer closed the job handle, so a garbage collection after the object's last use killed every
+    kill-on-close child while it was still wanted. The finalizer is gone; an undisposed job stays open until process exit.
+  - `RegistryUtils.GetValue<uint>`/`<ulong>` returned the default for any DWORD/QWORD with the high bit set: .NET
+    reads them as negative int/long and `Convert` range-checks. They are now reinterpreted bit for bit.
+  - `RegistryUtils.GetValue<T>` parsed strings in the current culture: "1.5" read as 15 under de-DE. It now uses the
+    invariant culture.
+  - `WindowUtils.GetWindowTitle`/`TopLevelWindows` used `GetWindowText`, which sends `WM_GETTEXT` to windows of this
+    process and so hung whenever such a window's thread was blocked (a deadlock if it was waiting on the caller).
+    They now use `InternalGetWindowText`, which sends no message.
+- **Moderate:**
+  - `MonitorInfo` reported DPI-virtualized bounds in an unaware process, so they disagreed with `DpiInfo`. It now
+    enumerates per-monitor-v2 aware (physical pixels).
+  - `SingleInstanceApp`:
+    - the gate mutex was session-wide while the pipe was per user, so another account holding the name made every
+      launch a secondary with no primary to reach. The mutex name now includes the SID;
+    - handlers ran concurrently and out of order (one `Task.Run` per launch). Delivery is now a serial in-order queue;
+    - a message the primary would reject (over 1000 arguments, or a 32 KB string) retried until the 5 s timeout. It now
+      fails at once;
+    - an app id of about 175 characters or more overflowed the pipe-name limit, so every second launch waited 5 s and lost
+      its arguments. Ids are now limited to 100 characters;
+    - a second `Dispose` threw `ObjectDisposedException`.
+  - `SingleInstance.TryAcquire` threw `UnauthorizedAccessException` when the name belonged to an elevated or
+    other-user process. It now returns a non-owning instance.
+  - `ShortcutUtils`: values longer than the shell stores came back truncated or garbled. `Read` used `MAX_PATH`
+    buffers, which also cut a 260-character working directory or icon path. `Create` now rejects values longer than
+    the limits, and `Read` uses larger buffers.
+  - `EventLogWriter`: `log` and `source` were put into the HKLM path unchecked. `UnregisterSource("Application",
+    log: "")` would have deleted the whole Application log key, and a backslash reached nested keys. Both names are
+    now validated.
+  - `RunElevated.RestartCurrent` under `dotnet app.dll` relaunched the bare `dotnet` host. It now passes the entry
+    assembly. A raw argument string had no safe way to carry paths with spaces, so the new
+    `RunElevated.JoinArguments` quotes a list by the `CommandLineToArgvW` rules.
+  - `ClipboardUtils.GetText` read text until a NUL with no bound, past the end of an unterminated block. It is now
+    bounded by `GlobalSize` (by inspection).
+- **Minor:**
+  - With tests: `ShortcutUtils.Create` with a target of 260 or more characters threw an opaque `COMException`.
+    `StorageDeviceInfo.Describe` rejected `\\?\C:\…` and `\\.\C:` paths as network paths.
+  - By inspection:
+    - `SingleInstanceApp` could resend a delivered message after a failed acknowledgement. It leaked the identity
+      and process handles. It disposed the cancellation source while the listener might still be running.
+    - `RegistryUtils.DeleteKey` leaked a key handle.
+    - `EventLogWriter` had no finalizer, and its truncation could split a surrogate pair.
+    - `ClipboardUtils` ignored a failed `GlobalLock` in `SetData` and failed `EmptyClipboard` calls. `GetImage`
+      overflowed its `int` size cast.
+    - `StorageDeviceInfo` described the host volume for a mount-folder path. A short seek-penalty reply read as an SSD.
+    - `DriveAndVolumeInfo.FixedDrives` let one failing drive abort the whole enumeration.
+    - `ScreenCapture` computed the buffer size in `int` and called `GetDIBits` with the bitmap still selected.
+- **Existing test updated:** `WindowsWaveTests.SingleInstance_NoPrimaryListening_TimesOutQuickly` held the old
+  session-wide name. It now holds the per-user one.
+- **Checked build:** not applicable. The satellite's arithmetic is Win32 sizes, which this round now range-checks
+  explicitly.
 - **Re-queued:** yes (7 severe).

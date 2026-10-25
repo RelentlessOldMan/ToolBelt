@@ -46,7 +46,13 @@ namespace ToolBelt.Windows
         {
             if (message is null) throw new ArgumentNullException(nameof(message));
             if (eventId < 0 || eventId > 0xFFFF) throw new ArgumentOutOfRangeException(nameof(eventId), eventId, "Event ID must be 0–65535.");
-            string text = message.Length <= MaxMessageLength ? message : message.Substring(0, MaxMessageLength - 14) + " …[truncated]";
+            string text = message;
+            if (message.Length > MaxMessageLength)
+            {
+                int cut = MaxMessageLength - 14;
+                if (char.IsHighSurrogate(message[cut - 1])) cut--;               // don't split a surrogate pair
+                text = message.Substring(0, cut) + " …[truncated]";
+            }
             lock (_gate)
             {
                 if (_handle == IntPtr.Zero) throw new ObjectDisposedException(nameof(EventLogWriter));
@@ -62,8 +68,7 @@ namespace ToolBelt.Windows
         /// <summary>Whether <paramref name="source"/> is registered under <paramref name="log"/> (readable without admin rights).</summary>
         public static bool IsSourceRegistered(string source, string log = "Application")
         {
-            if (string.IsNullOrWhiteSpace(source)) throw new ArgumentException("Source is required.", nameof(source));
-            using RegistryKey? key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\EventLog\{log}\{source}");
+            using RegistryKey? key = Registry.LocalMachine.OpenSubKey(SourceKey(source, log));
             return key != null;
         }
 
@@ -73,8 +78,7 @@ namespace ToolBelt.Windows
         /// </summary>
         public static void RegisterSource(string source, string log = "Application")
         {
-            if (string.IsNullOrWhiteSpace(source)) throw new ArgumentException("Source is required.", nameof(source));
-            using RegistryKey key = Registry.LocalMachine.CreateSubKey($@"SYSTEM\CurrentControlSet\Services\EventLog\{log}\{source}", writable: true)
+            using RegistryKey key = Registry.LocalMachine.CreateSubKey(SourceKey(source, log), writable: true)
                 ?? throw new UnauthorizedAccessException("Could not create the event source registry key.");
             key.SetValue("EventMessageFile", GenericMessageFile, RegistryValueKind.ExpandString);
             key.SetValue("TypesSupported", 7, RegistryValueKind.DWord);
@@ -83,8 +87,18 @@ namespace ToolBelt.Windows
         /// <summary>Removes a registration made by <see cref="RegisterSource"/> (administrator rights required).</summary>
         public static void UnregisterSource(string source, string log = "Application")
         {
-            if (string.IsNullOrWhiteSpace(source)) throw new ArgumentException("Source is required.", nameof(source));
-            Registry.LocalMachine.DeleteSubKeyTree($@"SYSTEM\CurrentControlSet\Services\EventLog\{log}\{source}", throwOnMissingSubKey: false);
+            Registry.LocalMachine.DeleteSubKeyTree(SourceKey(source, log), throwOnMissingSubKey: false);
+        }
+
+        // Both names are single registry key names: an empty log or a backslash would address some other key
+        // (UnregisterSource("Application", log: "") deleted the whole Application log).
+        private static string SourceKey(string source, string log)
+        {
+            if (string.IsNullOrWhiteSpace(source) || source.IndexOf('\\') >= 0)
+                throw new ArgumentException("Source is required and may not contain a backslash.", nameof(source));
+            if (string.IsNullOrWhiteSpace(log) || log.IndexOf('\\') >= 0)
+                throw new ArgumentException("Log is required and may not contain a backslash.", nameof(log));
+            return $@"SYSTEM\CurrentControlSet\Services\EventLog\{log}\{source}";
         }
 
         public void Dispose()
@@ -95,6 +109,12 @@ namespace ToolBelt.Windows
                 DeregisterEventSource(_handle);
                 _handle = IntPtr.Zero;
             }
+            GC.SuppressFinalize(this);
+        }
+
+        ~EventLogWriter()
+        {
+            if (_handle != IntPtr.Zero) DeregisterEventSource(_handle);
         }
 
         [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]

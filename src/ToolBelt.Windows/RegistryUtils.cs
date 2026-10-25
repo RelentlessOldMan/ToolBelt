@@ -1,6 +1,7 @@
 // ToolBelt.Windows drop-in — Windows-only (net8.0-windows), self-contained (Microsoft.Win32 registry).
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Microsoft.Win32;
 
 namespace ToolBelt.Windows
@@ -13,7 +14,10 @@ namespace ToolBelt.Windows
     /// </summary>
     public static class RegistryUtils
     {
-        /// <summary>Reads a value, converting it to <typeparamref name="T"/>; returns <paramref name="defaultValue"/> if absent.</summary>
+        /// <summary>
+        /// Reads a value, converting it to <typeparamref name="T"/> (strings parse culture-invariantly; a DWORD or QWORD
+        /// reads as <c>uint</c>/<c>ulong</c> bit for bit); returns <paramref name="defaultValue"/> if absent or not convertible.
+        /// </summary>
         public static T? GetValue<T>(RegistryHive hive, string subKey, string name, T? defaultValue = default)
         {
             object? raw = GetValue(hive, subKey, name, null);
@@ -21,7 +25,10 @@ namespace ToolBelt.Windows
             if (raw is T typed) return typed;
             try
             {
-                return (T)Convert.ChangeType(raw, typeof(T));
+                // .NET returns REG_DWORD as int and REG_QWORD as long; reinterpret rather than range-check the high bit away.
+                if (typeof(T) == typeof(uint) && raw is int dword) return (T)(object)unchecked((uint)dword);
+                if (typeof(T) == typeof(ulong) && raw is long qword) return (T)(object)unchecked((ulong)qword);
+                return (T)Convert.ChangeType(raw, typeof(T), CultureInfo.InvariantCulture);
             }
             catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException)
             {
@@ -73,7 +80,8 @@ namespace ToolBelt.Windows
         {
             if (subKey is null) throw new ArgumentNullException(nameof(subKey));
             using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Default);
-            if (baseKey.OpenSubKey(subKey) is null) return false;
+            using (RegistryKey? existing = baseKey.OpenSubKey(subKey))
+                if (existing is null) return false;
             baseKey.DeleteSubKeyTree(subKey, throwOnMissingSubKey: false);
             return true;
         }

@@ -76,8 +76,15 @@ namespace ToolBelt.Windows
             {
                 if (drive.DriveType != DriveType.Fixed || !drive.IsReady)
                     continue;
-                var space = new DiskSpace(drive.TotalSize, drive.TotalFreeSpace, drive.AvailableFreeSpace);
-                result.Add(new FixedDrive(drive.Name, drive.VolumeLabel ?? "", drive.DriveFormat ?? "", space));
+                try
+                {
+                    var space = new DiskSpace(drive.TotalSize, drive.TotalFreeSpace, drive.AvailableFreeSpace);
+                    result.Add(new FixedDrive(drive.Name, drive.VolumeLabel ?? "", drive.DriveFormat ?? "", space));
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    // A drive that went away or denies access between the listing and the query: skip it, keep the rest.
+                }
             }
             return result;
         }

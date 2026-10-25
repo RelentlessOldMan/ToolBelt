@@ -1,6 +1,7 @@
-// ToolBelt.Windows drop-in — Windows-only (net8.0-windows), self-contained (System.Diagnostics).
+// ToolBelt.Windows drop-in — Windows-only (net8.0-windows), self-contained (System.Diagnostics, kernel32).
 using System;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using SystemProcess = System.Diagnostics.Process;
 
 namespace ToolBelt.Windows
@@ -51,7 +52,9 @@ namespace ToolBelt.Windows
         public ResourceSampler(SystemProcess process)
         {
             _process = process ?? throw new ArgumentNullException(nameof(process));
-            _cores = Math.Max(1, Environment.ProcessorCount);
+            // The machine's logical processors: Environment.ProcessorCount is only this process's affinity / job CPU limit,
+            // which overstates the target's share when the sampler itself runs pinned or in a job.
+            _cores = (int)Math.Max(1, GetActiveProcessorCount(ALL_PROCESSOR_GROUPS));
             _lastCpu = _process.TotalProcessorTime;
             _lastTicks = Stopwatch.GetTimestamp();
         }
@@ -94,5 +97,10 @@ namespace ToolBelt.Windows
 
         /// <summary>Blocks for <paramref name="interval"/> and returns a single reading for the current process.</summary>
         public static ResourceSample MeasureCurrent(TimeSpan interval) => Measure(SystemProcess.GetCurrentProcess(), interval);
+
+        private const ushort ALL_PROCESSOR_GROUPS = 0xFFFF;
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetActiveProcessorCount(ushort groupNumber);
     }
 }

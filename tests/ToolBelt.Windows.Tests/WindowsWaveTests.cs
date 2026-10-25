@@ -358,7 +358,8 @@ namespace ToolBelt.Windows.Tests
         public void SingleInstance_NoPrimaryListening_TimesOutQuickly()
         {
             string id = "ToolBeltTest." + Guid.NewGuid().ToString("N");
-            using var gate = SingleInstance.TryAcquire(@"Local\ToolBelt.SingleInstance." + id);   // holds the name but serves no pipe
+            string sid = System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value;
+            using var gate = SingleInstance.TryAcquire(@"Local\ToolBelt.SingleInstance." + id + "." + sid);   // holds the name but serves no pipe
             var sw = Stopwatch.StartNew();
             var r = Task.Run(() =>
             {

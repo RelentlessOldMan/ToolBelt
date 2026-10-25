@@ -38,8 +38,9 @@ namespace ToolBelt.Windows
     /// if (!app.IsPrimary) return;                 // args were delivered to the running instance
     /// app.SecondInstanceStarted += (s, e) => ui.Invoke(() => { Open(e.Args); SingleInstanceApp.BringToFront(mainHwnd); });
     /// </code>
-    /// <see cref="SecondInstanceStarted"/> is raised on a thread-pool thread; marshal to the UI thread. The pipe accepts
-    /// connections from the same user only.
+    /// <see cref="SecondInstanceStarted"/> is raised on a thread-pool thread, one launch at a time, in arrival order;
+    /// marshal to the UI thread. An exception thrown by a handler is dropped (it cannot reach the launch that caused it).
+    /// The instance name and the pipe are per user, so another account cannot block or receive this user's launches.
     /// </summary>
     public sealed class SingleInstanceApp : IDisposable
     {
@@ -65,7 +66,11 @@ namespace ToolBelt.Windows
 
         private readonly object _deliveryGate = new object();
         private readonly List<SecondInstanceEventArgs> _queued = new List<SecondInstanceEventArgs>();
+        private readonly Queue<(EventHandler<SecondInstanceEventArgs> Handlers, SecondInstanceEventArgs Args)> _pending =
+            new Queue<(EventHandler<SecondInstanceEventArgs>, SecondInstanceEventArgs)>();
+        private bool _draining;
         private EventHandler<SecondInstanceEventArgs>? _handlers;
+        private int _disposed;
 
         /// <summary>
         /// Raised in the primary for each later launch. Launches that arrive before the first handler is attached (while the
@@ -76,14 +81,12 @@ namespace ToolBelt.Windows
             add
             {
                 if (value is null) return;
-                List<SecondInstanceEventArgs> backlog;
                 lock (_deliveryGate)
                 {
                     _handlers += value;
-                    backlog = new List<SecondInstanceEventArgs>(_queued);
+                    foreach (var e in _queued) EnqueueLocked(value, e);
                     _queued.Clear();
                 }
-                if (backlog.Count > 0) _ = Task.Run(() => { foreach (var e in backlog) value(this, e); });
             }
             remove { lock (_deliveryGate) _handlers -= value; }
         }
@@ -97,11 +100,19 @@ namespace ToolBelt.Windows
         {
             if (string.IsNullOrWhiteSpace(appId) || appId.IndexOfAny(new[] { '\\', '/' }) >= 0)
                 throw new ArgumentException("App id is required and may not contain slashes.", nameof(appId));
+            // The pipe name (id + session + SID) must stay under Windows' 256-character limit.
+            if (appId.Length > MaxAppIdLength)
+                throw new ArgumentException($"App id may be at most {MaxAppIdLength} characters.", nameof(appId));
             if (args is null) throw new ArgumentNullException(nameof(args));
             // Per session and per user (SID), so another account cannot sit on the name.
-            string user = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName;
-            string pipe = "ToolBelt.SingleInstance." + appId + "." + System.Diagnostics.Process.GetCurrentProcess().SessionId + "." + user;
-            var gate = SingleInstance.TryAcquire(@"Local\ToolBelt.SingleInstance." + appId);
+            string user;
+            using (var identity = System.Security.Principal.WindowsIdentity.GetCurrent())
+                user = identity.User?.Value ?? Environment.UserName;
+            int session;
+            using (var self = System.Diagnostics.Process.GetCurrentProcess())
+                session = self.SessionId;
+            string pipe = "ToolBelt.SingleInstance." + appId + "." + session + "." + user;
+            var gate = SingleInstance.TryAcquire(@"Local\ToolBelt.SingleInstance." + appId + "." + user);
             if (gate.IsOwned) return new SingleInstanceApp(gate, pipe, primary: true, forwarded: false);
             bool forwarded = Forward(pipe, args, forwardTimeout ?? TimeSpan.FromSeconds(5));
             return new SingleInstanceApp(gate, pipe, primary: false, forwarded);
@@ -117,9 +128,20 @@ namespace ToolBelt.Windows
 
         private static bool Forward(string pipeName, IReadOnlyList<string> args, TimeSpan timeout)
         {
+            // Build (and size-check) the message once: one the primary would reject fails now, not after the timeout.
+            if (args.Count > MaxArgs) return false;
+            var message = new MemoryStream();
+            WriteInt32(message, Environment.ProcessId);
+            if (!TryWriteString(message, Environment.CurrentDirectory)) return false;
+            WriteInt32(message, args.Count);
+            foreach (string a in args)
+                if (!TryWriteString(message, a ?? "")) return false;
+            if (message.Length > MaxMessageBytes) return false;
+
             var deadline = DateTime.UtcNow + timeout;
             while (true)
             {
+                bool sent = false;
                 try
                 {
                     using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.CurrentUserOnly | PipeOptions.Asynchronous);
@@ -129,15 +151,10 @@ namespace ToolBelt.Windows
                     using var replyTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                     int primaryPid = ReadInt32Async(client, replyTimeout.Token).GetAwaiter().GetResult();
                     AllowSetForegroundWindow(primaryPid);                             // let the primary come to the front
-                    var message = new MemoryStream();
-                    WriteInt32(message, Environment.ProcessId);
-                    WriteString(message, Environment.CurrentDirectory);
-                    WriteInt32(message, args.Count);
-                    foreach (string a in args) WriteString(message, a ?? "");
-                    if (message.Length > MaxMessageBytes) return false;               // the primary would reject it anyway
                     message.Position = 0;
                     message.CopyTo(client);
                     client.Flush();
+                    sent = true;
                     var ack = new byte[1];
                     client.ReadExactlyAsync(ack, replyTimeout.Token).AsTask().GetAwaiter().GetResult();
                     return ack[0] == 1;
@@ -148,13 +165,14 @@ namespace ToolBelt.Windows
                 }
                 catch (Exception ex) when (ex is TimeoutException || ex is IOException || ex is OperationCanceledException)
                 {
-                    if (DateTime.UtcNow >= deadline) return false;
+                    // Once the message is out, the primary may have delivered it: resending could open the file twice.
+                    if (sent || DateTime.UtcNow >= deadline) return false;
                     Thread.Sleep(50);                                                 // primary still starting its listener
                 }
             }
         }
 
-        private const int MaxArgs = 1000, MaxStringBytes = 32 * 1024, MaxMessageBytes = 1024 * 1024;
+        private const int MaxArgs = 1000, MaxStringBytes = 32 * 1024, MaxMessageBytes = 1024 * 1024, MaxAppIdLength = 100;
 
         private async Task ListenAsync(CancellationToken ct)
         {
@@ -206,17 +224,39 @@ namespace ToolBelt.Windows
 
         private void Deliver(SecondInstanceEventArgs e)
         {
-            EventHandler<SecondInstanceEventArgs>? handlers;
             lock (_deliveryGate)
             {
-                handlers = _handlers;
-                if (handlers is null)
+                if (_handlers is null)
                 {
                     if (_queued.Count < 100) _queued.Add(e);                           // nobody subscribed yet: keep it
                     return;
                 }
+                EnqueueLocked(_handlers, e);
             }
-            _ = Task.Run(() => handlers(this, e));                                     // never let a slow handler block the next launch
+        }
+
+        // One drain loop at a time on the pool: a slow handler never blocks the listener, and launches stay in order.
+        private void EnqueueLocked(EventHandler<SecondInstanceEventArgs> handlers, SecondInstanceEventArgs e)
+        {
+            _pending.Enqueue((handlers, e));
+            if (_draining) return;
+            _draining = true;
+            _ = Task.Run(Drain);
+        }
+
+        private void Drain()
+        {
+            while (true)
+            {
+                (EventHandler<SecondInstanceEventArgs> Handlers, SecondInstanceEventArgs Args) next;
+                lock (_deliveryGate)
+                {
+                    if (_pending.Count == 0) { _draining = false; return; }
+                    next = _pending.Dequeue();
+                }
+                try { next.Handlers(this, next.Args); }
+                catch (Exception) { /* the launch that caused it is gone; keep delivering the rest */ }
+            }
         }
 
         // Wire format: little-endian int32; strings as an int32 byte count + UTF-8, bounded per string and per message so a
@@ -229,11 +269,13 @@ namespace ToolBelt.Windows
 
         private static void WriteInt32(Stream s, int value) => s.Write(BitConverter.GetBytes(value), 0, 4);
 
-        private static void WriteString(Stream s, string value)
+        private static bool TryWriteString(Stream s, string value)
         {
             byte[] bytes = Encoding.UTF8.GetBytes(value);
+            if (bytes.Length > MaxStringBytes) return false;
             WriteInt32(s, bytes.Length);
             s.Write(bytes, 0, bytes.Length);
+            return true;
         }
 
         private static async Task<int> ReadInt32Async(Stream s, CancellationToken ct)
@@ -259,9 +301,11 @@ namespace ToolBelt.Windows
         /// </summary>
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
             _cts.Cancel();
-            try { _listener?.Wait(TimeSpan.FromSeconds(5)); } catch (AggregateException) { }
-            _cts.Dispose();
+            bool stopped = true;
+            try { stopped = _listener?.Wait(TimeSpan.FromSeconds(5)) ?? true; } catch (AggregateException) { }
+            if (stopped) _cts.Dispose();                                               // a still-running listener holds its token
             _gate.Dispose();
         }
 

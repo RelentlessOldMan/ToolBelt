@@ -10,7 +10,8 @@ namespace ToolBelt.Windows
     /// callers get an instance with <see cref="IsOwned"/> false until the owner disposes. Prefix the name
     /// with <c>Global\</c> for a machine-wide gate or <c>Local\</c> (the default namespace) for one scoped
     /// to the current session. Dispose releases the mutex; if the owning process crashed, the next caller
-    /// transparently inherits ownership (the abandoned-mutex case).
+    /// transparently inherits ownership (the abandoned-mutex case). A gate held by a process this one may not open
+    /// (another user's, or an elevated one's) counts as held by someone else: <see cref="IsOwned"/> is false.
     ///
     /// <para>Ownership is per-thread and reentrant (the underlying Win32 mutex semantics): the thread that
     /// owns the gate can re-acquire it, so this type distinguishes separate <b>processes/threads</b> — its
@@ -18,10 +19,10 @@ namespace ToolBelt.Windows
     /// </summary>
     public sealed class SingleInstance : IDisposable
     {
-        private readonly Mutex _mutex;
+        private readonly Mutex? _mutex;
         private bool _disposed;
 
-        private SingleInstance(Mutex mutex, bool owned)
+        private SingleInstance(Mutex? mutex, bool owned)
         {
             _mutex = mutex;
             IsOwned = owned;
@@ -39,7 +40,9 @@ namespace ToolBelt.Windows
             if (name is null) throw new ArgumentNullException(nameof(name));
             if (name.Length == 0) throw new ArgumentException("Name must not be empty.", nameof(name));
 
-            var mutex = new Mutex(initiallyOwned: false, name);
+            Mutex mutex;
+            try { mutex = new Mutex(initiallyOwned: false, name); }
+            catch (UnauthorizedAccessException) { return new SingleInstance(null, owned: false); }   // exists, but not ours to open
             bool owned;
             try
             {
@@ -64,11 +67,11 @@ namespace ToolBelt.Windows
             _disposed = true;
             if (IsOwned)
             {
-                try { _mutex.ReleaseMutex(); }
+                try { _mutex!.ReleaseMutex(); }
                 catch (ApplicationException) { /* not held on this thread — ignore */ }
                 IsOwned = false;
             }
-            _mutex.Dispose();
+            _mutex?.Dispose();
         }
     }
 }

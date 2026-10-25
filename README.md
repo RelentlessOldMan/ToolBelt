@@ -583,17 +583,17 @@ src/
     SingleInstanceApp.cs    second launch forwards args + cwd to the primary (per-user pipe) + foreground handoff
     DriveAndVolumeInfo.cs   fixed-drive enumeration + free space for any path
     StorageDeviceInfo.cs    bus type (USB/NVMe/SATA/SD…), removable, SSD vs HDD, vendor/serial; mapped drive -> UNC path
-    MonitorInfo.cs          attached monitors: bounds / work area / primary (EnumDisplayMonitors)
+    MonitorInfo.cs          attached monitors: bounds / work area / primary in physical pixels (EnumDisplayMonitors)
     RegistryUtils.cs        hive+subkey read/write/delete/enumerate helpers (default view)
     Elevation.cs            elevation / Administrator role / mandatory integrity level
     JobObject.cs            job object grouping child processes (kill-on-close; memory / process-count / CPU-rate caps; accounting)
     WindowUtils.cs          enumerate top-level windows / foreground / find by title
     FileAssociation.cs      per-extension opener / friendly name / command / ProgID
-    ShortcutUtils.cs        create & read .lnk shortcuts via COM IShellLink
+    ShortcutUtils.cs        create & read .lnk shortcuts via COM IShellLink (fields up to the shell's 260-char limit)
     ClipboardUtils.cs       clipboard text, Explorer file lists (CF_HDROP) and images (CF_DIB) via raw Win32 on an STA thread
-    ScreenCapture.cs        capture screen/region to a raw BGRA buffer via GDI BitBlt (no System.Drawing)
+    ScreenCapture.cs        capture screen/region to a raw BGRA buffer via GDI BitBlt, physical pixels (no System.Drawing)
     ResourceSampler.cs      per-process CPU% (core-normalised) + working-set / private memory
-    RunElevated.cs          launch/relaunch a process elevated via ShellExecute "runas" (UAC)
+    RunElevated.cs          launch/relaunch a process elevated via ShellExecute "runas" (UAC); JoinArguments quotes args
     OsVersionInfo.cs        true OS version via RtlGetVersion (Win10/Win11 detection)
     MemoryStatus.cs         system physical / page-file memory + load % (GlobalMemoryStatusEx)
     IdleTime.cs             time since last user input (GetLastInputInfo)
@@ -980,6 +980,7 @@ tests/
     SingleInstanceTests.cs
     EventLogWriterTests.cs  (reads the event back with wevtutil)
     WindowsWaveTests.cs     (real job caps on PowerShell children, clipboard round-trips, pipe handoff; no machine-state changes)
+    WindowsReviewTests.cs   (round 15 review regressions: DPI, ProgID, registry, job lifetime, single instance, shortcuts, event log)
     DriveAndVolumeInfoTests.cs
     MonitorInfoTests.cs
     RegistryUtilsTests.cs
