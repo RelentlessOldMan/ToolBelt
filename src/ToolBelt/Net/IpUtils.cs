@@ -12,10 +12,15 @@ namespace ToolBelt.Net
     /// </summary>
     public static class IpUtils
     {
-        /// <summary>True for RFC 1918 IPv4 ranges (10/8, 172.16/12, 192.168/16) or IPv6 unique-local (fc00::/7).</summary>
+        /// <summary>
+        /// True for RFC 1918 IPv4 ranges (10/8, 172.16/12, 192.168/16) or IPv6 unique-local (fc00::/7). An IPv4-mapped
+        /// IPv6 address (<c>::ffff:10.0.0.1</c>, as a dual-mode socket reports IPv4 peers) is judged by its IPv4 address,
+        /// as <see cref="IsLoopback"/> does.
+        /// </summary>
         public static bool IsPrivate(IPAddress address)
         {
             if (address is null) throw new ArgumentNullException(nameof(address));
+            if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
             if (address.AddressFamily == AddressFamily.InterNetwork)
             {
                 byte[] b = address.GetAddressBytes();

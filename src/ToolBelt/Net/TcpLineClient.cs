@@ -16,7 +16,7 @@ namespace ToolBelt.Net
     /// <para>
     /// A read that times out throws <see cref="IOException"/> but loses nothing: the part of a line already received is
     /// kept, and the next <see cref="ReadLine"/> continues it. Lines end at LF, CR or CR LF, as with
-    /// <see cref="StreamReader.ReadLine"/>.
+    /// <see cref="StreamReader.ReadLine"/>. No byte order mark is sent, and one at the start of the peer's data is dropped.
     /// </para>
     /// </summary>
     public sealed class TcpLineClient : IDisposable
@@ -24,13 +24,15 @@ namespace ToolBelt.Net
         private readonly TcpClient _client;
         private readonly NetworkStream _stream;
         private readonly Decoder _decoder;
-        private readonly StreamWriter _writer;
+        private readonly Encoding _encoding;
         private readonly byte[] _bytes = new byte[4096];
         private readonly char[] _chars;
         private readonly StringBuilder _line = new StringBuilder();
         private int _charPos, _charLen;   // decoded but not yet consumed: _chars[_charPos.._charLen)
         private bool _skipLf;             // the last line ended at CR; drop an LF that follows it
         private bool _eof;
+        private bool _discarding;         // skipping the rest of a line that exceeded MaxLineLength
+        private bool _atStart = true;     // nothing decoded yet: a byte order mark from the peer is dropped
 
         /// <param name="host">The host to connect to.</param>
         /// <param name="port">The TCP port, 0-65535.</param>
@@ -74,7 +76,7 @@ namespace ToolBelt.Net
             _stream.WriteTimeout = writeMs;
             _decoder = encoding.GetDecoder();
             _chars = new char[encoding.GetMaxCharCount(_bytes.Length)];
-            _writer = new StreamWriter(_stream, encoding) { AutoFlush = true, NewLine = "\n" };
+            _encoding = encoding;
         }
 
         /// <summary>
@@ -105,13 +107,16 @@ namespace ToolBelt.Net
             if (line is null) throw new ArgumentNullException(nameof(line));
             if (line.IndexOfAny(new[] { '\r', '\n' }) >= 0)
                 throw new ArgumentException("The line must not contain CR or LF; it would be sent as more than one line.", nameof(line));
-            _writer.WriteLine(line);
+            // Encoded directly: a StreamWriter would send the encoding's byte order mark before the first line.
+            byte[] bytes = _encoding.GetBytes(line + "\n");
+            _stream.Write(bytes, 0, bytes.Length);
         }
 
         /// <summary>
         /// The next line (without its terminator), or null at end of stream. Throws <see cref="IOException"/> if the read
         /// timeout expires (the partial line is kept for the next call) and <see cref="InvalidDataException"/> if the
-        /// line exceeds <see cref="MaxLineLength"/>.
+        /// line exceeds <see cref="MaxLineLength"/> (that line is dropped up to its terminator; the next call returns the
+        /// line after it).
         /// </summary>
         public string? ReadLine()
         {
@@ -120,6 +125,11 @@ namespace ToolBelt.Net
                 while (_charPos < _charLen)
                 {
                     char c = _chars[_charPos++];
+                    if (_atStart)
+                    {
+                        _atStart = false;
+                        if (c == '\uFEFF') continue;
+                    }
                     if (_skipLf)
                     {
                         _skipLf = false;
@@ -128,14 +138,21 @@ namespace ToolBelt.Net
                     if (c == '\n' || c == '\r')
                     {
                         _skipLf = c == '\r';
+                        if (_discarding)
+                        {
+                            _discarding = false;   // the end of the overlong line: carry on with the next one
+                            continue;
+                        }
                         string result = _line.ToString();
                         _line.Clear();
                         return result;
                     }
+                    if (_discarding) continue;
                     if (_line.Length >= _maxLineLength)
                     {
+                        // Drop only this line: the rest of it is skipped up to its terminator, and later lines are kept.
                         _line.Clear();
-                        _charPos = _charLen = 0;
+                        _discarding = true;
                         throw new InvalidDataException($"A line longer than {_maxLineLength} characters was received.");
                     }
                     _line.Append(c);
@@ -156,7 +173,6 @@ namespace ToolBelt.Net
 
         public void Dispose()
         {
-            try { _writer.Dispose(); } catch { }
             _client.Dispose();
         }
 

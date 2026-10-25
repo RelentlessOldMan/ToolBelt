@@ -15,8 +15,13 @@ namespace ToolBelt.Net
     /// </summary>
     public readonly struct CidrRange
     {
-        /// <summary>The network (masked) address of the block.</summary>
-        public IPAddress Network { get; }
+        private readonly IPAddress? _network;
+
+        /// <summary>
+        /// The network (masked) address of the block. Throws <see cref="InvalidOperationException"/> on
+        /// <c>default(CidrRange)</c> (what a failed <see cref="TryParse"/> returns), as do the members that use it.
+        /// </summary>
+        public IPAddress Network => _network ?? throw new InvalidOperationException("This CidrRange is uninitialized (default).");
         public int PrefixLength { get; }
         public AddressFamily Family => Network.AddressFamily;
 
@@ -30,7 +35,7 @@ namespace ToolBelt.Net
                 throw new ArgumentOutOfRangeException(nameof(prefixLength), prefixLength, $"Prefix must be in [0, {bits}].");
 
             PrefixLength = prefixLength;
-            Network = new IPAddress(Mask(address.GetAddressBytes(), prefixLength));
+            _network = new IPAddress(Mask(address.GetAddressBytes(), prefixLength));
         }
 
         public static CidrRange Parse(string text)
@@ -48,8 +53,8 @@ namespace ToolBelt.Net
             if (slash < 0) return false;
             string host = text.Substring(0, slash).Trim();
             if (!IPAddress.TryParse(host, out IPAddress? addr) || addr is null) return false;
-            // IPAddress also accepts IPv4 shorthand ("10" = 0.0.0.10, "10.1" = 10.0.0.1, hex, octal); CIDR text means
-            // a dotted quad.
+            // IPAddress also accepts IPv4 shorthand ("10" = 0.0.0.10, "10.1" = 10.0.0.1, hex, octal "010" = 8); CIDR
+            // text means a decimal dotted quad.
             if (addr.AddressFamily == AddressFamily.InterNetwork && !IsDottedQuad(host)) return false;
             if (!int.TryParse(text.Substring(slash + 1).Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int prefix)) return false;
 
@@ -106,8 +111,9 @@ namespace ToolBelt.Net
                 yield return new IPAddress(FromUInt32((uint)(start + offset)));
         }
 
+        /// <summary>The block in CIDR notation, or an empty string for <c>default(CidrRange)</c>.</summary>
         public override string ToString()
-            => Network + "/" + PrefixLength.ToString(CultureInfo.InvariantCulture);
+            => _network is null ? "" : _network + "/" + PrefixLength.ToString(CultureInfo.InvariantCulture);
 
         // ---- helpers ----
 
@@ -117,7 +123,7 @@ namespace ToolBelt.Net
             if (parts.Length != 4) return false;
             foreach (string p in parts)
             {
-                if (p.Length == 0 || p.Length > 3) return false;
+                if (p.Length == 0 || p.Length > 3 || (p.Length > 1 && p[0] == '0')) return false;   // "010" is octal to IPAddress
                 foreach (char c in p) if (c < '0' || c > '9') return false;
             }
             return true;

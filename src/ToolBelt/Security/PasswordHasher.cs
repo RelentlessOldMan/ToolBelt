@@ -73,8 +73,12 @@ namespace ToolBelt.Security
             {
                 throw new FormatException("Encoded hash has an invalid salt or digest.", ex);
             }
-            if (salt.Length == 0 || hash.Length == 0)
-                throw new FormatException("Encoded hash has an empty salt or digest.");
+            if (salt.Length == 0)
+                throw new FormatException("Encoded hash has an empty salt.");
+            // Verify derives as many bytes as the digest holds: a forged digest of megabytes would cost thousands of
+            // PBKDF2 runs per login, past the MaxIterations cap. Hash only ever writes KeyLength bytes.
+            if (hash.Length != KeyLength)
+                throw new FormatException($"Encoded hash has a {hash.Length}-byte digest; expected {KeyLength}.");
             return (iterations, salt, hash);
         }
     }

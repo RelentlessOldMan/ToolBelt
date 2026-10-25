@@ -57,6 +57,7 @@ namespace ToolBelt.Time
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private Task? _loop;
         private int _skipped;
+        private int _loopThread;   // the managed thread id while the loop is inside RunDue, else 0
 
         /// <param name="onError">Receives exceptions from jobs, and the failure when a job's schedule has no later occurrence.</param>
         /// <param name="clock">The current time; default <see cref="DateTimeOffset.Now"/>.</param>
@@ -102,15 +103,31 @@ namespace ToolBelt.Time
             lock (_gate) return _jobs.Remove(job);
         }
 
+        /// <summary>
+        /// Starts the background loop. A job whose schedule has no occurrence gets a null <see cref="ScheduledJob.NextRun"/>
+        /// and the failure goes to <c>onError</c>; the other jobs still run.
+        /// </summary>
         public void Start()
         {
+            List<(ScheduledJob, Exception)>? failures = null;
             lock (_gate)
             {
                 if (_loop != null) throw new InvalidOperationException("The scheduler has already been started.");
                 DateTimeOffset now = _now();
-                foreach (var job in _jobs) job.NextRun = job.Schedule.GetNextOccurrence(now, _zone);
+                foreach (var job in _jobs)
+                {
+                    // One schedule with no occurrence (Feb 30) must not keep the others from running.
+                    try { job.NextRun = job.Schedule.GetNextOccurrence(now, _zone); }
+                    catch (Exception ex)
+                    {
+                        job.NextRun = null;
+                        (failures ??= new List<(ScheduledJob, Exception)>()).Add((job, ex));
+                    }
+                }
                 _loop = Task.Run(() => LoopAsync(_cts.Token));
             }
+            if (failures != null)
+                foreach (var (job, ex) in failures) Report(job, ex);   // outside the lock
         }
 
         /// <summary>
@@ -146,7 +163,7 @@ namespace ToolBelt.Time
                 }
             }
             if (failures != null)
-                foreach (var (job, ex) in failures) _onError?.Invoke(job, ex);   // outside the lock
+                foreach (var (job, ex) in failures) Report(job, ex);   // outside the lock
             return started;
         }
 
@@ -156,7 +173,7 @@ namespace ToolBelt.Time
             CurrentJob.Value = job;
             try { await job.Action(_cts.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) when (_cts.IsCancellationRequested) { }
-            catch (Exception ex) { _onError?.Invoke(job, ex); }
+            catch (Exception ex) { Report(job, ex); }
             finally
             {
                 lock (_gate)
@@ -167,11 +184,21 @@ namespace ToolBelt.Time
             }
         }
 
+        // An onError that throws must not stop the scheduler (or fault a job's task); its exception is dropped.
+        private void Report(ScheduledJob job, Exception ex)
+        {
+            try { _onError?.Invoke(job, ex); }
+            catch { }
+        }
+
         private async Task LoopAsync(CancellationToken ct)
         {
             while (!ct.IsCancellationRequested)
             {
-                RunDue();
+                // Marks the loop's own synchronous call, so a Dispose from onError inside it doesn't wait for the loop.
+                Volatile.Write(ref _loopThread, Environment.CurrentManagedThreadId);
+                try { RunDue(); }
+                finally { Volatile.Write(ref _loopThread, 0); }
                 TimeSpan wait;
                 lock (_gate)
                 {
@@ -188,11 +215,15 @@ namespace ToolBelt.Time
         }
 
         /// <summary>Stops scheduling, cancels the token passed to running jobs and waits for them to finish.</summary>
-        /// <remarks>Safe to call from inside a job (a "run once, then shut down" job): that job's own run is not waited for.</remarks>
+        /// <remarks>
+        /// Safe to call from inside a job (a "run once, then shut down" job): that job's own run is not waited for. Also
+        /// safe from <c>onError</c>, where the loop itself may be the caller.
+        /// </remarks>
         public async Task DisposeAsync()
         {
             _cts.Cancel();
-            if (_loop != null) { try { await _loop.ConfigureAwait(false); } catch (OperationCanceledException) { } }
+            bool fromLoop = Volatile.Read(ref _loopThread) == Environment.CurrentManagedThreadId;
+            if (_loop != null && !fromLoop) { try { await _loop.ConfigureAwait(false); } catch (OperationCanceledException) { } }
             Task[] pending;
             ScheduledJob? self = CurrentJob.Value;
             lock (_gate)

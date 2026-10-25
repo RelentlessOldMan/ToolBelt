@@ -97,6 +97,8 @@ namespace ToolBelt.Net
             if (options.MaxAttempts < 1) throw new ArgumentOutOfRangeException(nameof(options), options.MaxAttempts, "MaxAttempts must be at least 1.");
             if (options.ReadTimeout <= TimeSpan.Zero && options.ReadTimeout != Timeout.InfiniteTimeSpan)
                 throw new ArgumentOutOfRangeException(nameof(options), options.ReadTimeout, "ReadTimeout must be positive or Timeout.InfiniteTimeSpan.");
+            if (options.RetryBaseDelay < TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(options), options.RetryBaseDelay, "RetryBaseDelay must not be negative.");
             HttpClient client = options.Client ?? Shared.Value;
             string destination = Path.GetFullPath(destinationPath);
             string partial = destination + ".part";
@@ -111,7 +113,9 @@ namespace ToolBelt.Net
                     }
                     catch (Exception ex) when (attempt < options.MaxAttempts && IsTransient(ex, cancellationToken))
                     {
-                        await Task.Delay(TimeSpan.FromTicks(options.RetryBaseDelay.Ticks * attempt), cancellationToken).ConfigureAwait(false);
+                        // Capped at int.MaxValue ms (Task.Delay's limit on .NET Framework); the product cannot overflow either.
+                        double ms = Math.Min(options.RetryBaseDelay.TotalMilliseconds * attempt, int.MaxValue);
+                        await Task.Delay(TimeSpan.FromMilliseconds(ms), cancellationToken).ConfigureAwait(false);
                     }
                 }
             }
@@ -150,10 +154,17 @@ namespace ToolBelt.Net
                 // "bytes */N" with N == what we have: the partial file is already the whole file.
                 return Finish(destination, partial, options, existing, existing, resumed: true);
             }
-            if (status == 206 && existing > 0 && (range == null || range.From == existing))
+            if (status == 206 && existing > 0 && range == null)
+            {
+                // A single-range 206 must carry Content-Range (RFC 9110 15.3.7): without it there is no telling where
+                // the body starts, so appending could corrupt the file.
+                TryDelete(partial);
+                throw new HttpDownloadException($"Server answered the resume of {url} with 206 but no Content-Range; the partial file was deleted, so the next download starts over.");
+            }
+            if (status == 206 && existing > 0 && range!.From == existing)
             {
                 resumed = true;
-                total = range?.Length ?? (contentLength.HasValue ? existing + contentLength.Value : (long?)null);
+                total = range.Length ?? (contentLength.HasValue ? existing + contentLength.Value : (long?)null);
             }
             else if (status == 206 && range != null && range.From == 0)
             {
@@ -196,10 +207,14 @@ namespace ToolBelt.Net
 #endif
                     using var output = new FileStream(partial, existing > 0 ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None);
                     var buffer = new byte[81920];
+                    // CancelAfter takes at most int.MaxValue ms on .NET Framework (about 24.8 days); longer waits forever.
+                    TimeSpan readTimeout = options.ReadTimeout.TotalMilliseconds > int.MaxValue ? Timeout.InfiniteTimeSpan : options.ReadTimeout;
                     while (true)
                     {
-                        idle.CancelAfter(options.ReadTimeout);
+                        idle.CancelAfter(readTimeout);
                         int read = await input.ReadAsync(buffer, 0, buffer.Length, idle.Token).ConfigureAwait(false);
+                        // Only the wait for the server is timed: a slow disk or progress callback is not a stalled body.
+                        idle.CancelAfter(Timeout.InfiniteTimeSpan);
                         if (read == 0) break;
                         await output.WriteAsync(buffer, 0, read, ct).ConfigureAwait(false);
                         downloaded += read;

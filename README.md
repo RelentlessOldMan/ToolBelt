@@ -926,6 +926,7 @@ tests/
       HumanDurationTests.cs
       RelativeTimeTests.cs
       SecurityNetTimeReviewTests.cs (round 13 review regressions: cron DST and bounds, durations, CIDR, secrets, TCP lines, downloads)
+      SecurityNetTimeReview2Tests.cs (second-pass regressions: cron make-up at the gap edge, octal CIDR, TCP BOM and overlong lines, forged digests, scheduler errors)
       TimeOfDayRangeTests.cs
       UnixTimeTests.cs
     Visualization/

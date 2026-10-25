@@ -53,14 +53,14 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 2 | 25 / 65 | re-queue (1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 1 | 26 / 26 | re-queue (1 severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 1 | 32 / 32 | re-queue (3 severe) |
-| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 1 | 39 / 39 | re-queue (4 severe) |
+| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 2 | 17 / 56 | re-queue (17 bugs) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 2 | 19 / 63 | re-queue (4 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 2 | 26 / 61 | re-queue (1 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 1 | 21 / 21 | re-queue (1 severe) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 13**
+5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 6**
 
 ## Releases
 
@@ -95,6 +95,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.24.0 | 24 | IO, second pass | 22 | (see tag) |
 | v0.25.0 | 25 | Collections, second pass | 11 | (see tag) |
 | v0.26.0 | 26 | Documents & config, second pass | 20 | (see tag) |
+| v0.27.0 | 27 | Security, net, time, second pass | 17 | (see tag) |
 
 ## Round log
 
@@ -1218,3 +1219,37 @@ Reviewers: one for correctness and one for robustness, fresh to the section (re-
   `PdfWriter.Heading(size: 700)` leaves blank pages (pathological).
 - **Checked build:** same 7 baseline failures; the hedge flake above was the only new one.
 - **Re-queued:** yes (20 bugs, 6 severe).
+
+### Round 27 — 2026-10-25 — Security, net, time, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 13 with 4 severe).
+**17 confirmed bugs** (four found by both reviewers), each with a failing-first regression test in
+`SecurityNetTimeReview2Tests` (20 tests). None rated severe.
+
+- **CronSchedule (zone overload):** a search starting in the last minute before a spring-forward transition began
+  at the transition itself, so the make-up run for a skipped time was missed ("30 2 * * *" after 01:59:30 EST gave
+  the next day's 02:30). The gap is now checked at the start too.
+- **CronScheduler:** one job with no occurrence (Feb 30) made `Start` throw and no job ran (it now gets a null
+  `NextRun` and goes to `onError`); an `onError` that threw escaped `RunDue` and silently stopped the loop (now
+  dropped); `Dispose` from `onError` called by the loop deadlocked waiting for itself.
+- **CidrRange:** "010.0.0.0/8" was read as octal (8.0.0.0/8); a leading zero is now rejected. `default(CidrRange)`
+  threw `NullReferenceException` (now `InvalidOperationException`; `ToString` is empty).
+- **IpUtils.IsPrivate:** an IPv4-mapped address (`::ffff:10.0.0.1`, as dual-mode sockets report peers) was not
+  private, while `IsLoopback` already unwrapped it.
+- **TcpLineClient:** an encoding with a preamble (`Encoding.UTF8`) sent a byte order mark before the first line, and
+  a peer's BOM came back in the first line; an overlong line threw away the buffered lines after it, or returned its
+  own tail as the next line. Now only that line is dropped.
+- **HttpDownload:** a `ReadTimeout` over ~24.8/49.7 days threw from `CancelAfter` mid-download (now waits forever);
+  a negative `RetryBaseDelay` hung forever (-1 ms) or replaced the real error (now rejected up front; the product is
+  capped); the idle timer also ran through the disk write and `OnProgress`, so a slow callback looked like a
+  stalled server; a 206 without Content-Range was appended blindly (now an error, partial deleted).
+- **PasswordHasher:** a forged stored digest of any length set how many bytes PBKDF2 derived, bypassing the
+  `MaxIterations` work cap; the digest must now be 32 bytes.
+- **KeyDerivation:** `keyLength: int.MaxValue` threw `OverflowException`, and an undefined `KdfHash` ran as SHA-256;
+  both are now `ArgumentOutOfRangeException`.
+- **HumanDuration.Format:** a non-zero value under a millisecond gave "" or "-", which `Parse` rejects (now "0ms").
+- **SecretsFile.Set:** lone surrogates were silently replaced by U+FFFD when saved (values changed, keys merged);
+  now rejected.
+- **Not fixed:** `Iso8601Duration` rejects comma decimals and fractions on non-second components (documented
+  subset); a backward clock jump does not recompute `NextRun` (covered by the clock-change wording).
+- **Checked build:** same 7 baseline failures, none new.
+- **Re-queued:** yes (17 bugs).

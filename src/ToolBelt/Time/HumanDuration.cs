@@ -34,7 +34,8 @@ namespace ToolBelt.Time
             AppendTerm(sb, Math.Abs(value.Seconds), "s");
             AppendTerm(sb, Math.Abs(value.Milliseconds), "ms");
 
-            return sb.ToString();
+            // Under a millisecond truncates to zero: say so rather than return "" or "-", which Parse rejects.
+            return sb.Length == 0 || (sb.Length == 1 && sb[0] == '-') ? "0ms" : sb.ToString();
         }
 
         /// <summary>Parses the grammar produced by <see cref="Format"/>. Throws <see cref="FormatException"/> on bad input.</summary>

@@ -93,6 +93,14 @@ namespace ToolBelt.Time
             long limit = Math.Min(first + SearchTicks, DateTime.MaxValue.Ticks + 1);
             long t = first;
             TimeSpan offset = OffsetAt(timeZone, t);
+            if (!_frequent)
+            {
+                // The walk may start exactly at a spring-forward transition (after was in the minute before it): a
+                // fixed time in the gap still runs now.
+                TimeSpan before = OffsetAt(timeZone, first - TimeSpan.TicksPerMinute);
+                if (offset > before && GapMatches(first - TimeSpan.TicksPerMinute + before.Ticks, first + offset.Ticks, out long end))
+                    return new DateTimeOffset(new DateTime(end), offset);
+            }
             while (t < limit && t + offset.Ticks <= DateTime.MaxValue.Ticks)
             {
                 var wall = new DateTime(t + offset.Ticks);
@@ -116,14 +124,23 @@ namespace ToolBelt.Time
                 if (nextOffset > offset && !_frequent)
                 {
                     // Spring forward: the wall clock jumped over (wall, next wall). A fixed time in the gap runs now.
-                    long gapEnd = Math.Min(next + nextOffset.Ticks, DateTime.MaxValue.Ticks);
-                    for (long g = wall.Ticks + TimeSpan.TicksPerMinute; g < gapEnd; g += TimeSpan.TicksPerMinute)
-                        if (Matches(new DateTime(g))) return new DateTimeOffset(new DateTime(gapEnd), nextOffset);
+                    if (GapMatches(wall.Ticks, next + nextOffset.Ticks, out long gapEnd))
+                        return new DateTimeOffset(new DateTime(gapEnd), nextOffset);
                 }
                 t = next;
                 offset = nextOffset;
             }
             throw new InvalidOperationException(NotFound);
+        }
+
+        // True if a wall time strictly between lastWall and gapEnd (the wall times a spring-forward skipped) matches;
+        // gapEnd comes back clamped to the calendar.
+        private bool GapMatches(long lastWall, long gapEnd, out long end)
+        {
+            end = Math.Min(gapEnd, DateTime.MaxValue.Ticks);
+            for (long g = lastWall + TimeSpan.TicksPerMinute; g < end; g += TimeSpan.TicksPerMinute)
+                if (Matches(new DateTime(g))) return true;
+            return false;
         }
 
         private bool Matches(DateTime wall)

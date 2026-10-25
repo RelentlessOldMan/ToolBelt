@@ -51,7 +51,22 @@ namespace ToolBelt.Security
         {
             if (string.IsNullOrEmpty(key)) throw new ArgumentException("Key is required.", nameof(key));
             if (key.IndexOfAny(new[] { '=', '\r', '\n' }) >= 0) throw new ArgumentException("Keys may not contain '=' or line breaks.", nameof(key));
-            _values[key] = value ?? throw new ArgumentNullException(nameof(value));
+            if (value is null) throw new ArgumentNullException(nameof(value));
+            // Stored as UTF-8, which would turn a lone surrogate into U+FFFD: the value would come back changed, and
+            // two keys could merge into one.
+            if (HasLoneSurrogate(key)) throw new ArgumentException("The key contains an unpaired surrogate.", nameof(key));
+            if (HasLoneSurrogate(value)) throw new ArgumentException("The value contains an unpaired surrogate.", nameof(value));
+            _values[key] = value;
+        }
+
+        private static bool HasLoneSurrogate(string s)
+        {
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1])) i++;
+                else if (char.IsSurrogate(s[i])) return true;
+            }
+            return false;
         }
 
         public bool Remove(string key) => _values.Remove(key ?? throw new ArgumentNullException(nameof(key)));

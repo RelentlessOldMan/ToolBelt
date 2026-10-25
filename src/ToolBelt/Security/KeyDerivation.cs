@@ -36,11 +36,15 @@ namespace ToolBelt.Security
             if (salt is null) throw new ArgumentNullException(nameof(salt));
             if (iterations < 1) throw new ArgumentOutOfRangeException(nameof(iterations), iterations, "Iterations must be positive.");
             if (keyLength < 1) throw new ArgumentOutOfRangeException(nameof(keyLength), keyLength, "Key length must be positive.");
+            // The largest byte array the runtime allows; past it the block arithmetic below would overflow.
+            if (keyLength > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(keyLength), keyLength, "Key length is larger than an array can hold.");
+            if (hash != KdfHash.Sha256 && hash != KdfHash.Sha512)
+                throw new ArgumentOutOfRangeException(nameof(hash), hash, "Unknown KdfHash value.");
 
             using HMAC prf = hash == KdfHash.Sha512 ? new HMACSHA512(password) : (HMAC)new HMACSHA256(password);
             int hashLen = prf.HashSize / 8;
-            int blockCount = (keyLength + hashLen - 1) / hashLen;
-            var derived = new byte[blockCount * hashLen];
+            int blockCount = (int)(((long)keyLength + hashLen - 1) / hashLen);
+            var derived = new byte[keyLength];
 
             var saltPlusIndex = new byte[salt.Length + 4];
             Buffer.BlockCopy(salt, 0, saltPlusIndex, 0, salt.Length);
@@ -60,13 +64,10 @@ namespace ToolBelt.Security
                     u = prf.ComputeHash(u);
                     for (int k = 0; k < t.Length; k++) t[k] ^= u[k];
                 }
-                Buffer.BlockCopy(t, 0, derived, (block - 1) * hashLen, hashLen);
+                int offset = (block - 1) * hashLen;
+                Buffer.BlockCopy(t, 0, derived, offset, Math.Min(hashLen, keyLength - offset));
             }
-
-            if (derived.Length == keyLength) return derived;
-            var result = new byte[keyLength];
-            Buffer.BlockCopy(derived, 0, result, 0, keyLength);
-            return result;
+            return derived;
         }
     }
 }
