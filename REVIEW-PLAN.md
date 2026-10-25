@@ -41,8 +41,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 1 | 16 / 16 | re-queue (2 severe) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 1 | 31 / 31 | re-queue (7 severe) |
-| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 0 | – / 0 | **next** |
-| 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 0 | – / 0 | queued |
+| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 1 | 43 / 43 | re-queue (8 severe) |
+| 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 0 | – / 0 | **next** |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 0 | – / 0 | queued |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 0 | – / 0 | queued |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 0 | – / 0 | queued |
@@ -68,6 +68,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.1.0 | 1 | Filters & control | 16 | (see tag) |
 | v0.2.0 | 2 | Signal analysis | 24 | (see tag) |
 | v0.3.0 | 3 | Statistics | 31 | (see tag) |
+| v0.4.0 | 4 | Numerics core | 43 | (see tag) |
 
 ## Round log
 
@@ -221,3 +222,59 @@ and a pin for the newly documented tau-a.
 - **Hardening:** the run and trend rules were O(n·runLength). They are now one pass (200,000 points with a
   run length of 100,000 took over a minute).
 - **Re-queued:** yes (7 severe, 31 bugs).
+
+### Round 4 — 2026-10-24 — Numerics core
+
+Reviewers: one for correctness (30 findings) and one for robustness (31), about 45 distinct issues after overlap.
+**43 confirmed bugs** (each has a failing-first regression test in `NumericsCoreReviewTests`), 2 doc-only, 2
+hardening fixes, 0 rejected.
+
+- **Severe:**
+  - `Polynomial.Fit` solved the normal equations on raw powers. A quadratic at x ≈ 1e6 fitted with RMS residual
+    3.8 (numpy 2e-4), and x in [0, 1e-4] threw "singular". It now uses Householder QR on centred and scaled x.
+  - `Polynomial.CubicRoots` used absolute 1e-12 thresholds, so it dropped real roots of small-scale cubics (roots
+    0.001/0.002/0.003 came back as two). `QuadraticRoots` cancelled: x² − 1e8·x + 1 gave a small root 25% off.
+  - `MonotoneCubic` lacked the Fritsch–Carlson extremum rule and overshot the data it promises never to overshoot.
+  - `LinearAlgebra` used an absolute 1e-14 pivot threshold: det(diag(1e-20, 1e-20)) returned 0 and a well-conditioned
+    1e-15 diagonal was "singular".
+  - `ToleranceCheck` passed NaN samples and accepted NaN limits.
+  - `MovingAverage`'s running sum drifted for good (1e17 then 1s returned 0), and one ∞ made it NaN forever.
+  - `Integration.AdaptiveSimpson` had no evaluation cap: a NaN tolerance, an infinite bound or a large integrand ran
+    ~2⁵⁰ calls. It now validates its inputs, has a `maxEvaluations` budget, a round-off stop and throws on a
+    non-finite f.
+  - `Primes.Next` past the last long prime wrapped negative and never returned; trial division took 35 s for
+    `IsPrime(2⁶³ − 25)` and 54 s to factor (2³¹ − 1)². Now deterministic Miller-Rabin and Pollard–Brent (both
+    instant), `LargestLongPrime` and `MaxSieveLimit`.
+- **Moderate:**
+  - `RootFinding`: `Math.Sign(NaN)` threw from Bisection and Brent; a reversed bracket "converged" after one step;
+    absolute tolerances meant a root at 1.4e10 never converged and Newton's ±1e-7 step vanished at 3e10.
+  - `ZScore` gave −1s for constant data (0.1 ×3).
+  - `Rounding` / `EngineeringNotation`: 10^k overflowed (NaN for 1.2e-310); "G" format switched to scientific
+    (`Format(120, 2)` was "1.2E+02"); values past the Y prefix, ∞ and NaN didn't round-trip; 'μ' wasn't parsed.
+  - `LookupTable.InverseLookup` returned NaN on a flat run it accepts.
+  - `Means` overflowed or underflowed (AM of two 1e308s, RMS of 1e±200, harmonic of a subnormal).
+  - `Vector2.Length` overflowed and `Normalized` returned (0, 0) for (1e200, 1e200); on net48 NaN payloads broke
+    the Equals/GetHashCode contract.
+  - `ScatteredInterpolation` weights overflowed to ∞/∞.
+  - `RunningStatistics`, `ExponentialMovingAverage`, `MinMaxScaler`, `WeightedAverage`, `Histogram`,
+    `EmpiricalDistribution` and `Percentile` accepted NaN or ∞ silently (Histogram counted NaN as underflow; it now
+    has `NaNCount`). `MinMaxScaler` overflowed on a 1e308 span.
+  - `Fraction.ToDouble` overflowed to NaN for big numerators and denominators (now correctly rounded), `Parse`
+    accepted a zero denominator, and `default(Fraction)` was 0/0.
+  - `RandomUtils`: huge weights summed to ∞, `NextDouble(min, max)` could return max, Gaussian/exponential
+    parameters weren't validated.
+  - `Integration.Simpson` with an odd interval count closed with the trapezoid rule (O(h²)); it now uses SciPy's
+    end correction.
+- **Minor:** `Histogram` bin assignment disagreed with `BinLowerBound` at the edges and exposed its bins array;
+  `StreamingQuantile` jumped to the median at exactly five values; `Differentiation`'s fixed step failed at 1e12
+  and accepted duplicate x; `UnitConvert` C → C was not exact, 1e308 km → km overflowed, and `TryParse` accepted
+  "5 bananas"; `BaseConverter` accepted duplicate digits and lower-cased with the culture; `Polynomial()` (empty)
+  gave degree −1; internal arrays were exposed through casts; `Sieve(int.MaxValue)` threw OverflowException;
+  int-overflow and parameter-name exceptions in several validators; `AkimaSpline` / `Interpolation.Clamp` gaps.
+- **Doc-only:** `Angle.NormalizeDegrees(−0.0)` (now returns +0) and `Vector2.Angle`'s range at −0.
+- **Hardening:** `Uncertainty` with an uncertainty below the value's precision, or near the double range, now
+  throws or scales safely; `DeterministicRandom` overrides the .NET 6 `Random` members (`NextInt64`, `NextSingle`,
+  span `NextBytes`), which otherwise bypassed the seeded generator.
+- **Also fixed:** a round-3 leftover. v0.3.0's equal-totals check in `ChiSquareGoodnessOfFit` broke the MathChecks
+  cross-check, which fed it unequal totals; the test now scales expected to the observed total.
+- **Re-queued:** yes (8 severe, 43 bugs).

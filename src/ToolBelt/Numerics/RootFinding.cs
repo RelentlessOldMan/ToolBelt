@@ -24,28 +24,35 @@ namespace ToolBelt.Numerics
 
     /// <summary>
     /// One-dimensional root finding. Bisection and Brent's method require a bracket where the function
-    /// changes sign; Brent is the robust default. Newton and secant iterate from a starting guess. Every
-    /// method reports non-convergence explicitly rather than silently returning a meaningless value.
+    /// changes sign (either order); Brent is the robust default. Newton and secant iterate from a starting guess.
+    /// The tolerance on x is absolute plus a few ulps of the root, so a root of any magnitude can converge. Every
+    /// method reports non-convergence explicitly (including f returning NaN) rather than silently returning a
+    /// meaningless value.
     /// </summary>
     public static class RootFinding
     {
-        /// <summary>Bisection on a sign-changing bracket [a, b]. Always converges if bracketed.</summary>
+        /// <summary>Bisection on a sign-changing bracket [a, b]. Converges if bracketed and f is continuous.</summary>
         public static RootResult Bisection(Func<double, double> f, double a, double b, double tolerance = 1e-12, int maxIterations = 200)
         {
             if (f is null) throw new ArgumentNullException(nameof(f));
+            RequireTolerance(tolerance);
+            if (a > b) (a, b) = (b, a); // a reversed bracket made (b − a)/2 negative, so it "converged" at once
             double fa = f(a), fb = f(b);
+            if (double.IsNaN(fa) || double.IsNaN(fb)) return Failure(double.NaN, 0, NaNMessage);
             if (fa == 0) return Success(a, 0, 0);
             if (fb == 0) return Success(b, 0, 0);
-            if (Math.Sign(fa) == Math.Sign(fb))
+            if ((fa < 0) == (fb < 0))
                 return Failure(double.NaN, 0, "f(a) and f(b) must have opposite signs to bracket a root.");
 
             for (int i = 1; i <= maxIterations; i++)
             {
-                double m = (a + b) / 2;
+                double m = 0.5 * a + 0.5 * b;
                 double fm = f(m);
-                if (fm == 0 || (b - a) / 2 < tolerance)
+                if (double.IsNaN(fm)) return Failure(m, i, NaNMessage);
+                // m == a or b: the bracket is two adjacent doubles, as tight as it can get.
+                if (fm == 0 || 0.5 * (b - a) < Tol(tolerance, m) || m == a || m == b)
                     return Success(m, i, fm);
-                if (Math.Sign(fm) == Math.Sign(fa)) { a = m; fa = fm; }
+                if ((fm < 0) == (fa < 0)) { a = m; fa = fm; }
                 else { b = m; fb = fm; }
             }
             return Failure((a + b) / 2, maxIterations, "Maximum iterations reached without meeting the tolerance.");
@@ -55,10 +62,12 @@ namespace ToolBelt.Numerics
         public static RootResult Brent(Func<double, double> f, double a, double b, double tolerance = 1e-12, int maxIterations = 200)
         {
             if (f is null) throw new ArgumentNullException(nameof(f));
+            RequireTolerance(tolerance);
             double fa = f(a), fb = f(b);
+            if (double.IsNaN(fa) || double.IsNaN(fb)) return Failure(double.NaN, 0, NaNMessage);
             if (fa == 0) return Success(a, 0, 0);
             if (fb == 0) return Success(b, 0, 0);
-            if (Math.Sign(fa) == Math.Sign(fb))
+            if ((fa < 0) == (fb < 0))
                 return Failure(double.NaN, 0, "f(a) and f(b) must have opposite signs to bracket a root.");
 
             if (Math.Abs(fa) < Math.Abs(fb)) { (a, b) = (b, a); (fa, fb) = (fb, fa); }
@@ -68,7 +77,8 @@ namespace ToolBelt.Numerics
 
             for (int i = 1; i <= maxIterations; i++)
             {
-                if (fb == 0 || Math.Abs(b - a) < tolerance)
+                double tol = Tol(tolerance, b);
+                if (fb == 0 || Math.Abs(b - a) < tol)
                     return Success(b, i, fb);
 
                 double s;
@@ -84,21 +94,22 @@ namespace ToolBelt.Numerics
                     s = b - fb * (b - a) / (fb - fa); // secant
                 }
 
-                double lo = (3 * a + b) / 4;
+                double lo = 0.75 * a + 0.25 * b;
                 bool useBisection =
                     !Between(s, lo, b) ||
                     (mflag && Math.Abs(s - b) >= Math.Abs(b - c) / 2) ||
                     (!mflag && Math.Abs(s - b) >= Math.Abs(c - d) / 2) ||
-                    (mflag && Math.Abs(b - c) < tolerance) ||
-                    (!mflag && Math.Abs(c - d) < tolerance);
+                    (mflag && Math.Abs(b - c) < tol) ||
+                    (!mflag && Math.Abs(c - d) < tol);
 
-                if (useBisection) { s = (a + b) / 2; mflag = true; }
+                if (useBisection) { s = 0.5 * a + 0.5 * b; mflag = true; }
                 else mflag = false;
 
                 double fs = f(s);
+                if (double.IsNaN(fs)) return Failure(s, i, NaNMessage);
                 d = c;
                 c = b; fc = fb;
-                if (Math.Sign(fa) != Math.Sign(fs)) { b = s; fb = fs; }
+                if ((fa < 0) != (fs < 0)) { b = s; fb = fs; }
                 else { a = s; fa = fs; }
                 if (Math.Abs(fa) < Math.Abs(fb)) { (a, b) = (b, a); (fa, fb) = (fb, fa); }
             }
@@ -110,17 +121,19 @@ namespace ToolBelt.Numerics
             double tolerance = 1e-12, int maxIterations = 100)
         {
             if (f is null) throw new ArgumentNullException(nameof(f));
+            RequireTolerance(tolerance);
             double x = x0;
             for (int i = 1; i <= maxIterations; i++)
             {
                 double fx = f(x);
+                if (double.IsNaN(fx)) return Failure(x, i, NaNMessage);
                 if (Math.Abs(fx) < tolerance)
                     return Success(x, i, fx);
-                double dfx = derivative != null ? derivative(x) : (f(x + 1e-7) - f(x - 1e-7)) / 2e-7;
+                double dfx = derivative != null ? derivative(x) : NumericDerivative(f, x);
                 if (dfx == 0 || double.IsNaN(dfx))
                     return Failure(x, i, "Derivative vanished; Newton's method cannot proceed.");
                 double next = x - fx / dfx;
-                if (Math.Abs(next - x) < tolerance)
+                if (Math.Abs(next - x) < Tol(tolerance, next))
                     return Success(next, i, f(next));
                 x = next;
             }
@@ -132,20 +145,43 @@ namespace ToolBelt.Numerics
             double tolerance = 1e-12, int maxIterations = 100)
         {
             if (f is null) throw new ArgumentNullException(nameof(f));
+            RequireTolerance(tolerance);
             double f0 = f(x0), f1 = f(x1);
             for (int i = 1; i <= maxIterations; i++)
             {
+                if (double.IsNaN(f0) || double.IsNaN(f1)) return Failure(x1, i, NaNMessage);
                 if (Math.Abs(f1) < tolerance)
                     return Success(x1, i, f1);
                 if (f1 == f0)
                     return Failure(x1, i, "Secant step divided by zero (equal function values).");
                 double next = x1 - f1 * (x1 - x0) / (f1 - f0);
-                if (Math.Abs(next - x1) < tolerance)
+                if (Math.Abs(next - x1) < Tol(tolerance, next))
                     return Success(next, i, f(next));
                 x0 = x1; f0 = f1;
                 x1 = next; f1 = f(x1);
             }
             return Failure(x1, maxIterations, "Maximum iterations reached without convergence.");
+        }
+
+        private const string NaNMessage = "f returned NaN; the function is not defined there.";
+
+        // Absolute tolerance plus four ulps of the estimate (Brent's zeroin): an absolute 1e-12 alone is
+        // unreachable for a root near 1e10, whose spacing between doubles is 2e-6.
+        // NaN made every convergence test false (Bisection) or true (Brent "converged" at once).
+        private static void RequireTolerance(double tolerance)
+        {
+            if (!(tolerance >= 0) || double.IsInfinity(tolerance))
+                throw new ArgumentOutOfRangeException(nameof(tolerance), tolerance, "Tolerance must be non-negative and finite.");
+        }
+
+        private static double Tol(double tolerance, double x) => tolerance + 4 * 2.220446049250313e-16 * Math.Abs(x);
+
+        // Central difference with a step relative to |x|, so x ± h differs from x at any magnitude.
+        private static double NumericDerivative(Func<double, double> f, double x)
+        {
+            double h = 1e-7 * Math.Max(1, Math.Abs(x));
+            double xp = x + h, xm = x - h;
+            return (f(xp) - f(xm)) / (xp - xm);
         }
 
         private static bool Between(double s, double a, double b)

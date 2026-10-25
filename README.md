@@ -429,7 +429,7 @@ src/
       EmpiricalDistribution.cs  empirical CDF step function (value<->percentile lookups)
       EngineeringNotation.cs  SI-prefix format + parse (yocto..yotta, round-trip)
       ExponentialMovingAverage.cs  EMA smoothing (alpha)
-      Histogram.cs          fixed-bin histogram (under/overflow tracking)
+      Histogram.cs          fixed-bin histogram (under/overflow and NaN tracking)
       HypothesisTests.cs    t-test / chi-square / KS / Mann-Whitney U / F-test for variances; IsSignificant(alpha)
       StreamingQuantile.cs  one-pass constant-memory quantiles (P² algorithm) + multi-quantile tracker
       PermutationTest.cs    distribution-free two-sample / paired tests, exact when small, any statistic
@@ -452,7 +452,7 @@ src/
       MovingAverage.cs      streaming simple moving average (fixed window)
       Percentile.cs         percentile / median / quartiles (type-7 interpolation)
       Polynomial.cs         eval/derivative/integral, least-squares fit, real roots (deg <= 3)
-      Primes.cs             primality test / next-prime / factorize / sieve
+      Primes.cs             primality test (Miller-Rabin) / next-prime / factorize (Pollard rho) / sieve
       RandomUtils.cs        shuffle / sample-without-replacement / weighted / gaussian / exponential / Poisson (PTRS) / gamma
       RootFinding.cs        bisection / Brent / Newton / secant (explicit convergence result)
       Rounding.cs           round to multiple / significant digits
@@ -818,6 +818,7 @@ tests/
       DistributionReferenceTests.cs  (+ DistributionReferenceData.cs: 337 mpmath 40-digit reference values)
       InferenceAccuracyTests.cs      (worked examples + simulated coverage / false-positive rates)
       StatisticsReviewTests.cs       (review regressions: extreme tails, huge df, round-off variance, non-finite inputs, SPC)
+      NumericsCoreReviewTests.cs     (review regressions: QR fit, cancellation-free roots, extreme magnitudes, NaN rejection, fast primes)
       StreamingQuantileTests.cs
       SamplingAndPermutationTests.cs (Poisson/gamma sampling vs pmf/CDF; exact permutation p-values)
       RegressionAndFitTests.cs       (textbook SEs, interval coverage, MLE optimality, family recovery)

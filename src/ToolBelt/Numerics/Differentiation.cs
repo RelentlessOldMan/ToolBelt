@@ -17,7 +17,7 @@ namespace ToolBelt.Numerics
         {
             if (y is null) throw new ArgumentNullException(nameof(y));
             if (y.Count < 2) throw new ArgumentException("At least two samples are required.", nameof(y));
-            if (dx <= 0) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Spacing must be positive.");
+            if (!(dx > 0) || double.IsInfinity(dx)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Spacing must be positive and finite.");
 
             int n = y.Count;
             var d = new double[n];
@@ -33,7 +33,7 @@ namespace ToolBelt.Numerics
             return d;
         }
 
-        /// <summary>Derivative at each sample for arbitrary ascending x positions.</summary>
+        /// <summary>Derivative at each sample for strictly ascending x positions.</summary>
         public static double[] Sample(IReadOnlyList<double> x, IReadOnlyList<double> y)
         {
             if (x is null) throw new ArgumentNullException(nameof(x));
@@ -42,6 +42,9 @@ namespace ToolBelt.Numerics
             if (x.Count < 3) throw new ArgumentException("At least three samples are required for uneven spacing.", nameof(x));
 
             int n = x.Count;
+            for (int i = 1; i < n; i++)
+                if (!(x[i] > x[i - 1])) // a repeated x divided by zero and returned ±∞
+                    throw new ArgumentException($"x values must be strictly ascending (x[{i}] = {x[i]}, x[{i - 1}] = {x[i - 1]}).", nameof(x));
             var d = new double[n];
             // Each interior point uses its two neighbors; ends reuse the nearest triple.
             d[0] = QuadraticDerivative(x[0], x[0], x[1], x[2], y[0], y[1], y[2]);
@@ -51,19 +54,40 @@ namespace ToolBelt.Numerics
             return d;
         }
 
-        /// <summary>Central-difference derivative of <paramref name="f"/> at <paramref name="x"/>.</summary>
-        public static double Derivative(Func<double, double> f, double x, double h = 1e-5)
+        /// <summary>
+        /// Central-difference derivative of <paramref name="f"/> at <paramref name="x"/>. The default step is
+        /// 1e-5·max(1, |x|), scaled so x ± h differs from x at any magnitude (a fixed 1e-5 vanished at x = 1e12);
+        /// pass <paramref name="h"/> for an explicit absolute step.
+        /// </summary>
+        public static double Derivative(Func<double, double> f, double x, double? h = null)
         {
             if (f is null) throw new ArgumentNullException(nameof(f));
-            if (h <= 0) throw new ArgumentOutOfRangeException(nameof(h), h, "Step must be positive.");
-            return (f(x + h) - f(x - h)) / (2 * h);
+            double step = StepFor(x, h, 1e-5);
+            double xp = x + step, xm = x - step;
+            return (f(xp) - f(xm)) / (xp - xm); // the step actually taken, after rounding x ± h
         }
 
-        /// <summary>Richardson-extrapolated derivative of <paramref name="f"/> for higher accuracy.</summary>
-        public static double RichardsonDerivative(Func<double, double> f, double x, double h = 1e-2)
+        /// <summary>Richardson-extrapolated derivative of <paramref name="f"/> for higher accuracy. The default step
+        /// is 1e-2·max(1, |x|); pass <paramref name="h"/> for an explicit absolute step.</summary>
+        public static double RichardsonDerivative(Func<double, double> f, double x, double? h = null)
         {
             if (f is null) throw new ArgumentNullException(nameof(f));
-            if (h <= 0) throw new ArgumentOutOfRangeException(nameof(h), h, "Step must be positive.");
+            double hs = StepFor(x, h, 1e-2);
+            return Richardson(f, x, hs);
+        }
+
+        private static double StepFor(double x, double? h, double relative)
+        {
+            if (h is double given)
+            {
+                if (!(given > 0) || double.IsInfinity(given)) throw new ArgumentOutOfRangeException(nameof(h), given, "Step must be positive and finite.");
+                return given;
+            }
+            return relative * Math.Max(1, Math.Abs(x));
+        }
+
+        private static double Richardson(Func<double, double> f, double x, double h)
+        {
             double d1 = (f(x + h) - f(x - h)) / (2 * h);
             double d2 = (f(x + h / 2) - f(x - h / 2)) / h;
             return (4 * d2 - d1) / 3.0; // cancels the leading O(h^2) error term

@@ -8,7 +8,8 @@ namespace ToolBelt.Numerics
     /// Computes running summary statistics in a single pass using Welford's algorithm, which is
     /// numerically stable (no catastrophic cancellation from the naive sum-of-squares approach) and
     /// needs only O(1) memory. Tracks count, mean, variance, standard deviation, min, max, and sum.
-    /// Statistics that are undefined for the current count return <see cref="double.NaN"/>.
+    /// Statistics that are undefined for the current count return <see cref="double.NaN"/>. Only finite samples
+    /// are accepted: one NaN or infinity used to turn the mean and variance into NaN for good.
     /// </summary>
     public sealed class RunningStatistics
     {
@@ -22,6 +23,8 @@ namespace ToolBelt.Numerics
         /// <summary>Adds one sample.</summary>
         public void Push(double value)
         {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                throw new ArgumentException("Only finite values can be added to running statistics.", nameof(value));
             _count++;
             double delta = value - _mean;
             _mean += delta / _count;

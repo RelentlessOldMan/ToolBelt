@@ -7,7 +7,8 @@ namespace ToolBelt.Numerics
     /// <summary>
     /// A fixed-bin histogram over a half-open range <c>[min, max)</c> divided into equal-width bins.
     /// Values below <c>min</c> increment <see cref="Underflow"/>; values at or above <c>max</c> increment
-    /// <see cref="Overflow"/>; everything else falls into exactly one bin. Not thread-safe.
+    /// <see cref="Overflow"/>; NaN increments <see cref="NaNCount"/>; everything else falls into exactly one bin,
+    /// the one whose <see cref="BinLowerBound"/> is the largest not above it. Not thread-safe.
     /// </summary>
     public sealed class Histogram
     {
@@ -18,16 +19,23 @@ namespace ToolBelt.Numerics
 
         public Histogram(double min, double max, int binCount)
         {
-            if (double.IsNaN(min) || double.IsNaN(max) || min >= max)
-                throw new ArgumentException("Require min < max and neither NaN.", nameof(min));
+            if (double.IsNaN(min) || double.IsInfinity(min)) throw new ArgumentException("min must be finite.", nameof(min));
+            if (double.IsNaN(max) || double.IsInfinity(max)) throw new ArgumentException("max must be finite.", nameof(max));
+            if (min >= max) throw new ArgumentException("Require min < max.", nameof(min));
             if (binCount <= 0)
                 throw new ArgumentOutOfRangeException(nameof(binCount), binCount, "Bin count must be positive.");
 
             _min = min;
             _max = max;
             _bins = new long[binCount];
-            _binWidth = (max - min) / binCount;
+            Bins = Array.AsReadOnly(_bins); // the bare array could be cast back and written
+            _halfSpan = 0.5 * max - 0.5 * min; // halves: max − min overflows for a range like ±1e308
+            _binWidth = 2 * (_halfSpan / binCount);
+            // A range of a few subnormals has a half-span of 0, so no value could be placed in a bin.
+            if (!(_halfSpan > 0)) throw new ArgumentException($"The range [{min:R}, {max:R}) is too narrow to bin.", nameof(max));
         }
+
+        private readonly double _halfSpan;
 
         public int BinCount => _bins.Length;
 
@@ -37,10 +45,13 @@ namespace ToolBelt.Numerics
 
         public long Overflow { get; private set; }
 
-        /// <summary>Per-bin counts (index 0 is the bin starting at <c>min</c>).</summary>
-        public IReadOnlyList<long> Bins => _bins;
+        /// <summary>NaN values added (they belong to no bin and to neither tail).</summary>
+        public long NaNCount { get; private set; }
 
-        /// <summary>Total values added, including under/overflow.</summary>
+        /// <summary>Per-bin counts (index 0 is the bin starting at <c>min</c>).</summary>
+        public IReadOnlyList<long> Bins { get; }
+
+        /// <summary>Total values added, including under/overflow and NaN.</summary>
         public long Total { get; private set; }
 
         /// <summary>The inclusive lower bound of bin <paramref name="index"/>.</summary>
@@ -48,14 +59,27 @@ namespace ToolBelt.Numerics
         {
             if ((uint)index >= (uint)_bins.Length)
                 throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be in [0, {_bins.Length}).");
-            return _min + index * _binWidth;
+            return LowerBound(index);
+        }
+
+        // min + (index/n)·(max − min) in two half steps; every partial sum stays within [min, max].
+        private double LowerBound(int index)
+        {
+            if (index == 0) return _min;
+            double step = (double)index / _bins.Length * _halfSpan;
+            return _min + step + step;
         }
 
         /// <summary>Adds a value to the appropriate bin (or under/overflow).</summary>
         public void Add(double value)
         {
             Total++;
-            if (double.IsNaN(value) || value < _min)
+            if (double.IsNaN(value))
+            {
+                NaNCount++;
+                return;
+            }
+            if (value < _min)
             {
                 Underflow++;
                 return;
@@ -66,9 +90,11 @@ namespace ToolBelt.Numerics
                 return;
             }
 
-            int bin = (int)((value - _min) / _binWidth);
-            if (bin >= _bins.Length) // guard the top edge against floating-point drift
-                bin = _bins.Length - 1;
+            double estimate = (0.5 * value - 0.5 * _min) / _halfSpan * _bins.Length;
+            int bin = estimate >= _bins.Length ? _bins.Length - 1 : (estimate > 0 ? (int)estimate : 0);
+            // Agree exactly with BinLowerBound: the estimate above can be one bin off at an edge.
+            while (bin > 0 && value < LowerBound(bin)) bin--;
+            while (bin < _bins.Length - 1 && value >= LowerBound(bin + 1)) bin++;
             _bins[bin]++;
         }
 

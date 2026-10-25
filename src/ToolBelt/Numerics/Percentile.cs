@@ -7,7 +7,8 @@ namespace ToolBelt.Numerics
     /// <summary>
     /// Computes percentiles of a data set using linear interpolation between closest ranks (the
     /// inclusive "type 7" method used by NumPy and Excel's PERCENTILE.INC). The input is never mutated —
-    /// a sorted copy is taken internally.
+    /// a sorted copy is taken internally. NaN values are rejected (they sorted first and silently shifted
+    /// every rank); ±infinity is allowed.
     /// </summary>
     public static class Percentile
     {
@@ -21,7 +22,10 @@ namespace ToolBelt.Numerics
 
             var sorted = new double[data.Count];
             for (int i = 0; i < data.Count; i++)
+            {
                 sorted[i] = data[i];
+                if (double.IsNaN(sorted[i])) throw new ArgumentException($"Value [{i}] is NaN.", nameof(data));
+            }
             Array.Sort(sorted);
 
             if (sorted.Length == 1)
@@ -34,7 +38,10 @@ namespace ToolBelt.Numerics
                 return sorted[lo];
 
             double frac = rank - lo;
-            return sorted[lo] + frac * (sorted[hi] - sorted[lo]);
+            double a = sorted[lo], b = sorted[hi];
+            if (a == b) return a;                         // also ∞ and ∞, where b − a is NaN
+            double d = b - a;
+            return double.IsInfinity(d) ? (1 - frac) * a + frac * b : a + frac * d; // d overflows for ±1e308
         }
 
         /// <summary>The median (50th percentile).</summary>

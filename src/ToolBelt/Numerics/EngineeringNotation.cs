@@ -7,7 +7,10 @@ namespace ToolBelt.Numerics
     /// <summary>
     /// Formats a value with an SI prefix (yocto through yotta) at a chosen significant-figure count, and
     /// parses the same form back. Appears in every plot axis label, report table and console readout, and
-    /// is otherwise re-derived badly. Round-trips to the chosen precision.
+    /// is otherwise re-derived badly. Round-trips to the chosen precision (NaN and ±infinity format as
+    /// "NaN" / "Infinity" / "-Infinity" and parse back); values beyond the yocto–yotta range use E notation with
+    /// no prefix. More than 17 significant digits are treated as 17 (all a double holds). Parsing accepts the
+    /// micro sign (U+00B5), Greek mu (U+03BC) and ASCII 'u' for micro.
     /// </summary>
     public static class EngineeringNotation
     {
@@ -23,22 +26,38 @@ namespace ToolBelt.Numerics
             if (double.IsNaN(value) || double.IsInfinity(value))
                 return value.ToString(CultureInfo.InvariantCulture);
             if (value == 0) return "0";
+            if (significantDigits > 17) significantDigits = 17; // 10^400 overflowed RoundToSignificant to NaN
 
             int exponent = (int)(Math.Floor(Math.Log10(Math.Abs(value)) / 3.0) * 3);
-            if (exponent > MaxExponent) exponent = MaxExponent;
-            if (exponent < -MaxExponent) exponent = -MaxExponent;
+            // Clamping to yocto/yotta printed "1E-06 y" and "1230000 Y"; out of range, plain E notation reads better.
+            if (exponent > MaxExponent || exponent < -MaxExponent)
+                return value.ToString("G" + significantDigits, CultureInfo.InvariantCulture);
 
-            double scaled = value / Math.Pow(10, exponent);
+            double scaled = ScaleDown(value, exponent);
             // Rounding can push e.g. 999.95 up to 1000; renormalize one step if so.
             double rounded = RoundToSignificant(scaled, significantDigits);
-            if (Math.Abs(rounded) >= 1000 && exponent < MaxExponent)
+            if (Math.Abs(rounded) >= 1000)
             {
+                if (exponent == MaxExponent) return RoundToSignificant(value, significantDigits).ToString("G" + significantDigits, CultureInfo.InvariantCulture);
                 exponent += 3;
-                scaled = value / Math.Pow(10, exponent);
+                scaled = ScaleDown(value, exponent);
                 rounded = RoundToSignificant(scaled, significantDigits);
             }
 
-            string number = rounded.ToString("G" + significantDigits, CultureInfo.InvariantCulture);
+            string number;
+            if (Math.Abs(rounded) >= 1 && Math.Abs(rounded) < 1e15)
+            {
+                // Fixed point: "G" switched to E notation whenever the integer digits exceeded the requested
+                // digits (120 at 2 digits became "1.2E+02"). Trailing zeros are trimmed as "G" did.
+                int integerDigits = 1;
+                for (double t = Math.Abs(rounded); t >= 10; t /= 10) integerDigits++;
+                number = rounded.ToString("F" + Math.Max(0, significantDigits - integerDigits), CultureInfo.InvariantCulture);
+                if (number.IndexOf('.') >= 0) number = number.TrimEnd('0').TrimEnd('.');
+            }
+            else
+            {
+                number = rounded.ToString("G" + significantDigits, CultureInfo.InvariantCulture); // far beyond yocto/yotta
+            }
             string prefix = PrefixFor(exponent);
             return prefix.Length == 0 ? number : number + " " + prefix;
         }
@@ -56,9 +75,11 @@ namespace ToolBelt.Numerics
             if (string.IsNullOrWhiteSpace(text)) return false;
 
             string s = text.Trim();
+            // A plain number first, so Format's "NaN" / "Infinity" round-trip (the 'y' of "Infinity" is yocto).
+            if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value)) return true;
             char last = s[s.Length - 1];
             int exponent;
-            if (char.IsLetter(last) || last == 'µ')
+            if (char.IsLetter(last) || last == 'µ' || last == 'μ')
             {
                 if (!TryPrefixExponent(last, out exponent)) return false;
                 s = s.Substring(0, s.Length - 1).Trim();
@@ -70,8 +91,19 @@ namespace ToolBelt.Numerics
 
             if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double mantissa))
                 return false;
-            value = mantissa * Math.Pow(10, exponent);
+            // Divide for negative prefixes: 10^9 is exact and 10^-9 is not, so 3 n parsed as 3.0000000000000004e-9.
+            value = exponent >= 0 ? mantissa * Pow10(exponent) : mantissa / Pow10(-exponent);
             return true;
+        }
+
+        private static double ScaleDown(double value, int exponent)
+            => exponent >= 0 ? value / Pow10(exponent) : value * Pow10(-exponent);
+
+        private static double Pow10(int k)
+        {
+            double p = 1;
+            for (int i = 0; i < k; i++) p *= 10; // exact for k ≤ 22
+            return p;
         }
 
         private static string PrefixFor(int exponent)
@@ -93,7 +125,7 @@ namespace ToolBelt.Numerics
                 case 'Z': exponent = 21; return true;
                 case 'Y': exponent = 24; return true;
                 case 'm': exponent = -3; return true;
-                case 'µ': case 'u': exponent = -6; return true;  // accept ASCII 'u' for micro
+                case 'µ': case 'μ': case 'u': exponent = -6; return true;  // micro sign, Greek mu, ASCII 'u'
                 case 'n': exponent = -9; return true;
                 case 'p': exponent = -12; return true;
                 case 'f': exponent = -15; return true;

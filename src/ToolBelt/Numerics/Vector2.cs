@@ -37,7 +37,20 @@ namespace ToolBelt.Numerics
         }
 
         public double LengthSquared => X * X + Y * Y;
-        public double Length => Math.Sqrt(LengthSquared);
+
+        /// <summary>The Euclidean length, computed without overflow or underflow of the squares.</summary>
+        public double Length
+        {
+            get
+            {
+                double ax = Math.Abs(X), ay = Math.Abs(Y);
+                if (double.IsInfinity(ax) || double.IsInfinity(ay)) return double.PositiveInfinity;
+                double big = Math.Max(ax, ay), small = Math.Min(ax, ay);
+                if (big == 0 || double.IsNaN(big) || double.IsNaN(small)) return big + small; // 0, or NaN
+                double r = small / big;
+                return big * Math.Sqrt(1 + r * r);
+            }
+        }
 
         public double Dot(Vector2 other) => X * other.X + Y * other.Y;
 
@@ -50,13 +63,20 @@ namespace ToolBelt.Numerics
         /// <summary>Returns a unit vector in the same direction. Throws for the zero vector.</summary>
         public Vector2 Normalized()
         {
-            double len = Length;
-            if (len == 0) throw new InvalidOperationException("Cannot normalize the zero vector.");
-            return new Vector2(X / len, Y / len);
+            // Scale first: dividing by an overflowed length gave (0, 0), and by an underflowed one threw.
+            double scale = Math.Max(Math.Abs(X), Math.Abs(Y));
+            if (scale == 0) throw new InvalidOperationException("Cannot normalize the zero vector.");
+            var v = new Vector2(X / scale, Y / scale);
+            double len = v.Length;
+            return new Vector2(v.X / len, v.Y / len);
         }
 
         /// <summary>Angle of the vector from the positive X axis, in radians (-π, π].</summary>
-        public double Angle() => Math.Atan2(Y, X);
+        public double Angle()
+        {
+            double angle = Math.Atan2(Y, X);
+            return angle == -Math.PI ? Math.PI : angle; // Atan2(−0, −1) is −π; keep the documented half-open range
+        }
 
         /// <summary>Linear interpolation from <paramref name="a"/> to <paramref name="b"/> by <paramref name="t"/>.</summary>
         public static Vector2 Lerp(Vector2 a, Vector2 b, double t) => a + (b - a) * t;
@@ -71,8 +91,11 @@ namespace ToolBelt.Numerics
 
         public override int GetHashCode()
         {
-            unchecked { return X.GetHashCode() * 397 ^ Y.GetHashCode(); }
+            unchecked { return Hash(X) * 397 ^ Hash(Y); }
         }
+
+        // Equals treats every NaN as equal, and 0.0 as -0.0, but .NET Framework hashes their bits: canonicalise.
+        private static int Hash(double d) => double.IsNaN(d) ? 1 : (d == 0 ? 0 : d.GetHashCode());
 
         public override string ToString()
             => "(" + X.ToString(CultureInfo.InvariantCulture) + ", " + Y.ToString(CultureInfo.InvariantCulture) + ")";

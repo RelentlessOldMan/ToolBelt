@@ -8,7 +8,7 @@ namespace ToolBelt.Numerics
     /// Min-max feature scaling: linearly rescales values so the data's minimum maps to a target low and
     /// its maximum to a target high. Constant data (min == max) maps entirely to the target low, avoiding
     /// a divide-by-zero. Unlike <see cref="Interpolation.Remap"/>, the input range is derived from the
-    /// data itself.
+    /// data itself. Data must be finite; ranges as wide as ±<see cref="double.MaxValue"/> scale without overflow.
     /// </summary>
     public static class MinMaxScaler
     {
@@ -22,8 +22,11 @@ namespace ToolBelt.Numerics
             if (data.Count == 0) throw new ArgumentException("Data must not be empty.", nameof(data));
 
             double dataMin = data[0], dataMax = data[0];
-            for (int i = 1; i < data.Count; i++)
+            for (int i = 0; i < data.Count; i++)
             {
+                // NaN never compared, so it slipped past min/max and came out as NaN (or set the range if first).
+                if (double.IsNaN(data[i]) || double.IsInfinity(data[i]))
+                    throw new ArgumentException($"Value [{i}] is not finite.", nameof(data));
                 if (data[i] < dataMin) dataMin = data[i];
                 if (data[i] > dataMax) dataMax = data[i];
             }
@@ -39,7 +42,10 @@ namespace ToolBelt.Numerics
         {
             if (dataMax == dataMin)
                 return newMin; // constant input: no spread to preserve
-            return newMin + (value - dataMin) / (dataMax - dataMin) * (newMax - newMin);
+            // Halved, so −1e308..1e308 does not overflow to ∞/∞ = NaN; halving is exact apart from subnormals.
+            double t = (0.5 * value - 0.5 * dataMin) / (0.5 * dataMax - 0.5 * dataMin);
+            double span = newMax - newMin;
+            return double.IsInfinity(span) ? (1 - t) * newMin + t * newMax : newMin + t * span;
         }
     }
 }

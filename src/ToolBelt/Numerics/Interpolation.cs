@@ -22,6 +22,8 @@ namespace ToolBelt.Numerics
         /// <summary>Clamps <paramref name="value"/> to the inclusive range [<paramref name="min"/>, <paramref name="max"/>].</summary>
         public static double Clamp(double value, double min, double max)
         {
+            if (double.IsNaN(min)) throw new ArgumentOutOfRangeException(nameof(min), min, "Bound is NaN."); // was silently ignored
+            if (double.IsNaN(max)) throw new ArgumentOutOfRangeException(nameof(max), max, "Bound is NaN.");
             if (min > max)
                 throw new ArgumentException("min must not exceed max.", nameof(min));
             if (value < min) return min;

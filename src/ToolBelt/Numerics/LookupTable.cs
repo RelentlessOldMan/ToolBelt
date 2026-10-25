@@ -37,6 +37,8 @@ namespace ToolBelt.Numerics
             _y = new double[y.Count];
             for (int i = 0; i < x.Count; i++)
             {
+                if (double.IsNaN(x[i]) || double.IsInfinity(x[i])) throw new ArgumentException($"x[{i}] is not finite.", nameof(x));
+                if (double.IsNaN(y[i]) || double.IsInfinity(y[i])) throw new ArgumentException($"y[{i}] is not finite.", nameof(y));
                 if (i > 0 && x[i] <= x[i - 1])
                     throw new ArgumentException("x values must be strictly increasing.", nameof(x));
                 _x[i] = x[i];
@@ -56,7 +58,8 @@ namespace ToolBelt.Numerics
             return Lerp(_x[hi - 1], _y[hi - 1], _x[hi], _y[hi], x);
         }
 
-        /// <summary>Finds the x that maps to <paramref name="y"/>; requires the y values to be monotone.</summary>
+        /// <summary>Finds the x that maps to <paramref name="y"/>; requires the y values to be monotone. On a flat
+        /// run (equal y values) the first x of the run is returned.</summary>
         public double InverseLookup(double y)
         {
             bool increasing = _y[_y.Length - 1] > _y[0];
@@ -68,14 +71,14 @@ namespace ToolBelt.Numerics
 
             double first = _y[0], last = _y[_y.Length - 1];
             double lo = Math.Min(first, last), hiv = Math.Max(first, last);
-            if (y < lo || y > hiv)
+            if (!(y >= lo && y <= hiv)) // also rejects NaN, which fell through to the last x
                 throw new ArgumentOutOfRangeException(nameof(y), y, "Value is outside the table's y range.");
 
             for (int i = 1; i < _y.Length; i++)
             {
                 double a = _y[i - 1], b = _y[i];
                 if ((y >= Math.Min(a, b)) && (y <= Math.Max(a, b)))
-                    return Lerp(a, _x[i - 1], b, _x[i], y);
+                    return a == b ? _x[i - 1] : Lerp(a, _x[i - 1], b, _x[i], y); // flat: Lerp divided 0 by 0
             }
             return _x[_x.Length - 1];
         }

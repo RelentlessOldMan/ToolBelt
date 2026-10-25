@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using ToolBelt.Numerics;
 using ToolBelt.Tests.Framework;
 using MathNet.Numerics.Distributions;
@@ -71,6 +72,8 @@ namespace ToolBelt.MathChecks
                     expected[i] = Rng.NextDouble() * 50 + 5;
                     observed[i] = Math.Max(0, expected[i] + (Rng.NextDouble() - 0.5) * 20);
                 }
+                double scale = observed.Sum() / expected.Sum(); // the test requires equal totals (since v0.3.0)
+                for (int i = 0; i < k; i++) expected[i] *= scale;
                 var r = HypothesisTests.ChiSquareGoodnessOfFit(observed, expected);
                 Check.Close(1 - ChiSquared.CDF(r.DegreesOfFreedom, r.Statistic), r.PValue, 1e-9, $"trial {trial}");
             }

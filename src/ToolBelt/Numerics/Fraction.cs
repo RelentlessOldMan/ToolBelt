@@ -8,12 +8,15 @@ namespace ToolBelt.Numerics
     /// <summary>
     /// An immutable exact rational number, always stored in lowest terms with a non-negative denominator
     /// (the sign lives on the numerator). Arithmetic is exact via <see cref="BigInteger"/>; only
-    /// <see cref="ToDouble"/> is lossy.
+    /// <see cref="ToDouble"/> is lossy. <c>default(Fraction)</c> is zero (0/1).
     /// </summary>
     public readonly struct Fraction : IEquatable<Fraction>, IComparable<Fraction>
     {
         public BigInteger Numerator { get; }
-        public BigInteger Denominator { get; }
+        // Zero only in default(Fraction), which therefore reads as 0/1 instead of 0/0 (which made ToDouble NaN
+        // and Equals(Zero) false).
+        private readonly BigInteger _denominator;
+        public BigInteger Denominator => _denominator.IsZero ? BigInteger.One : _denominator;
 
         public static readonly Fraction Zero = new Fraction(BigInteger.Zero, BigInteger.One);
         public static readonly Fraction One = new Fraction(BigInteger.One, BigInteger.One);
@@ -37,7 +40,7 @@ namespace ToolBelt.Numerics
             }
 
             Numerator = numerator;
-            Denominator = denominator;
+            _denominator = denominator;
         }
 
         public static Fraction FromInteger(BigInteger value) => new Fraction(value, BigInteger.One);
@@ -70,7 +73,42 @@ namespace ToolBelt.Numerics
 
         public static Fraction operator -(Fraction a) => new Fraction(-a.Numerator, a.Denominator);
 
-        public double ToDouble() => (double)Numerator / (double)Denominator;
+        /// <summary>The nearest double (within an ulp), for operands of any size.</summary>
+        public double ToDouble()
+        {
+            BigInteger n = Numerator, d = Denominator;
+            BigInteger exact = BigInteger.One << 53;
+            if (BigInteger.Abs(n) <= exact && d <= exact) return (double)n / (double)d; // both exact: one rounding
+            if (n.IsZero) return 0.0;
+
+            // Converting each side first gave ∞/∞ = NaN past 1e308 and 0 for 10^308/(3·10^308): instead form a
+            // quotient of 62–63 bits, n·2^s / d, with a sticky bit for the remainder, and scale back by 2^−s. It goes
+            // through long, whose conversion rounds correctly; BigInteger's was an ulp off for −10^401/(7·10^400 + 1).
+            BigInteger an = BigInteger.Abs(n);
+            int s = 62 - (BitLength(an) - BitLength(d));
+            BigInteger q = s >= 0 ? BigInteger.DivRem(an << s, d, out BigInteger rem) : BigInteger.DivRem(an, d << -s, out rem);
+            if (!rem.IsZero) q |= BigInteger.One;
+            double result = ScaleByPowerOfTwo((long)q, -s);
+            return n.Sign < 0 ? -result : result;
+        }
+
+        private static int BitLength(BigInteger v)
+        {
+            byte[] bytes = v.ToByteArray(); // little-endian two's complement; v > 0 here
+            int top = bytes.Length - 1;
+            while (top > 0 && bytes[top] == 0) top--;
+            int bits = top * 8;
+            for (int b = bytes[top]; b != 0; b >>= 1) bits++;
+            return bits;
+        }
+
+        // x·2^e in steps that stay representable (2^e alone overflows or underflows for |e| > 1023).
+        private static double ScaleByPowerOfTwo(double x, int e)
+        {
+            while (e > 1000) { x *= Math.Pow(2, 1000); e -= 1000; if (double.IsInfinity(x)) return x; }
+            while (e < -1000) { x *= Math.Pow(2, -1000); e += 1000; if (x == 0) return x; }
+            return x * Math.Pow(2, e);
+        }
 
         public int CompareTo(Fraction other)
             => (Numerator * other.Denominator).CompareTo(other.Numerator * Denominator);
@@ -105,6 +143,7 @@ namespace ToolBelt.Numerics
             if (!BigInteger.TryParse(s.Substring(0, slash).Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var num) ||
                 !BigInteger.TryParse(s.Substring(slash + 1).Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var den))
                 throw new FormatException($"'{s}' is not a valid fraction.");
+            if (den.IsZero) throw new FormatException($"'{s}' has a zero denominator."); // was DivideByZeroException
             return new Fraction(num, den);
         }
 

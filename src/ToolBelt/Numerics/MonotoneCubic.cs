@@ -7,7 +7,8 @@ namespace ToolBelt.Numerics
     /// <summary>
     /// Monotone cubic (Fritsch-Carlson) interpolation: smooth like a spline but guaranteed not to overshoot
     /// between points, so it never invents a non-physical value — which matters a great deal for calibration
-    /// curves. The x values must be strictly increasing; inputs outside the range clamp to the endpoints.
+    /// curves. The points must be finite and the x values strictly increasing; inputs outside the range clamp to
+    /// the endpoints.
     /// Immutable.
     /// </summary>
     public sealed class MonotoneCubic
@@ -28,6 +29,8 @@ namespace ToolBelt.Numerics
             _y = new double[n];
             for (int i = 0; i < n; i++)
             {
+                if (double.IsNaN(x[i]) || double.IsInfinity(x[i])) throw new ArgumentException($"x[{i}] is not finite.", nameof(x));
+                if (double.IsNaN(y[i]) || double.IsInfinity(y[i])) throw new ArgumentException($"y[{i}] is not finite.", nameof(y));
                 if (i > 0 && x[i] <= x[i - 1]) throw new ArgumentException("x values must be strictly increasing.", nameof(x));
                 _x[i] = x[i];
                 _y[i] = y[i];
@@ -41,7 +44,10 @@ namespace ToolBelt.Numerics
             _m = new double[n];
             _m[0] = delta[0];
             _m[n - 1] = delta[n - 2];
-            for (int i = 1; i < n - 1; i++) _m[i] = (delta[i - 1] + delta[i]) / 2.0;
+            // At a local extremum (the secants change sign) the tangent must be flat, or the curve overshoots.
+            for (int i = 1; i < n - 1; i++)
+                _m[i] = delta[i - 1] == 0 || delta[i] == 0 || (delta[i - 1] < 0) != (delta[i] < 0)
+                    ? 0 : 0.5 * delta[i - 1] + 0.5 * delta[i];
 
             // Fritsch-Carlson adjustment to enforce monotonicity (no overshoot).
             for (int i = 0; i < n - 1; i++)

@@ -13,7 +13,7 @@ namespace ToolBelt.Numerics
         /// <summary>Normalizes to the range [0, 360).</summary>
         public static double NormalizeDegrees(double degrees)
         {
-            double d = degrees % 360.0;
+            double d = degrees % 360.0 + 0.0; // + 0.0 turns −0 (from −0 or −360) into +0
             if (d < 0) d += 360.0;
             return d == 360.0 ? 0.0 : d; // guard the -0-rounds-to-360 edge
         }

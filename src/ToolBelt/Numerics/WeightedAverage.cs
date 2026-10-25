@@ -6,7 +6,8 @@ namespace ToolBelt.Numerics
 {
     /// <summary>
     /// Computes a weighted arithmetic mean: <c>sum(value·weight) / sum(weight)</c>. Weights must be
-    /// non-negative and sum to a positive value, and align 1:1 with the values.
+    /// non-negative, finite, and sum to a positive value, and align 1:1 with the values. A value with weight 0 is
+    /// left out entirely (so it may be NaN or infinite).
     /// </summary>
     public static class WeightedAverage
     {
@@ -24,8 +25,9 @@ namespace ToolBelt.Numerics
             for (int i = 0; i < values.Count; i++)
             {
                 double w = weights[i];
-                if (w < 0 || double.IsNaN(w))
+                if (!(w >= 0) || double.IsInfinity(w)) // ∞ weight gave ∞/∞ = NaN
                     throw new ArgumentException($"Weight at index {i} is invalid ({w}).", nameof(weights));
+                if (w == 0) continue; // 0·∞ was NaN
                 weightedSum += values[i] * w;
                 totalWeight += w;
             }

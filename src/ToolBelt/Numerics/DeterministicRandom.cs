@@ -8,7 +8,10 @@ namespace ToolBelt.Numerics
     /// SplitMix64), so a given seed produces the same sequence on every platform and runtime version. The
     /// framework's <see cref="System.Random"/> is not guaranteed stable across .NET versions, which makes it
     /// unsuitable when reproducibility matters (recorded simulations, fuzz corpora, golden tests). Derives
-    /// from <see cref="Random"/> so it drops into any API expecting one. Not thread-safe.
+    /// from <see cref="Random"/> so it drops into any API expecting one; every overridable member is overridden
+    /// (on .NET 6+ that includes NextInt64, NextSingle and the span NextBytes), so no call reaches the framework's
+    /// own, version-dependent derivation. Members added to <see cref="Random"/> in future .NET versions are not
+    /// covered until overridden here. Not thread-safe.
     /// </summary>
     public sealed class DeterministicRandom : Random
     {
@@ -78,6 +81,39 @@ namespace ToolBelt.Numerics
                     buffer[i] = (byte)(block >> (8 * b));
             }
         }
+
+#if NET6_0_OR_GREATER
+        public override void NextBytes(Span<byte> buffer)
+        {
+            int i = 0;
+            while (i < buffer.Length)
+            {
+                ulong block = NextUInt64();
+                for (int b = 0; b < 8 && i < buffer.Length; b++, i++)
+                    buffer[i] = (byte)(block >> (8 * b));
+            }
+        }
+
+        public override long NextInt64() => NextInt64(0, long.MaxValue);
+
+        public override long NextInt64(long maxValue)
+        {
+            if (maxValue < 0) throw new ArgumentOutOfRangeException(nameof(maxValue), "maxValue must be non-negative.");
+            return NextInt64(0, maxValue);
+        }
+
+        /// <remarks>Modulo reduction, with the same negligible bias as <see cref="Next(int, int)"/>.</remarks>
+        public override long NextInt64(long minValue, long maxValue)
+        {
+            if (minValue > maxValue)
+                throw new ArgumentOutOfRangeException(nameof(minValue), "minValue must not exceed maxValue.");
+            ulong range = unchecked((ulong)maxValue - (ulong)minValue);
+            if (range == 0) return minValue;
+            return unchecked(minValue + (long)(NextUInt64() % range));
+        }
+
+        public override float NextSingle() => (NextUInt64() >> 40) * (1.0f / 16777216.0f); // 24 bits in [0, 1)
+#endif
 
         private static ulong Rotl(ulong x, int k) => (x << k) | (x >> (64 - k));
 

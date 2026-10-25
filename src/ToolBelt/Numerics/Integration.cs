@@ -15,7 +15,7 @@ namespace ToolBelt.Numerics
         public static double Trapezoid(IReadOnlyList<double> y, double dx)
         {
             RequireSamples(y);
-            if (dx <= 0) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Spacing must be positive.");
+            if (!(dx > 0) || double.IsInfinity(dx)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Spacing must be positive and finite.");
             double sum = 0;
             for (int i = 1; i < y.Count; i++)
                 sum += (y[i - 1] + y[i]) * 0.5 * dx;
@@ -38,12 +38,13 @@ namespace ToolBelt.Numerics
 
         /// <summary>
         /// Composite Simpson's rule over uniformly spaced samples. If the number of intervals is odd, the
-        /// final interval is handled with the trapezoid rule.
+        /// final interval uses the third-order end correction SciPy's <c>simpson</c> uses (exact for quadratics),
+        /// so accuracy stays O(h⁴); two samples fall back to the trapezoid rule.
         /// </summary>
         public static double Simpson(IReadOnlyList<double> y, double dx)
         {
             RequireSamples(y);
-            if (dx <= 0) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Spacing must be positive.");
+            if (!(dx > 0) || double.IsInfinity(dx)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Spacing must be positive and finite.");
 
             int intervals = y.Count - 1;
             int even = intervals - (intervals % 2); // largest even interval count
@@ -51,27 +52,43 @@ namespace ToolBelt.Numerics
             for (int i = 0; i < even; i += 2)
                 sum += (y[i] + 4 * y[i + 1] + y[i + 2]) * (dx / 3.0);
             if (even != intervals) // trailing odd interval
-                sum += (y[intervals - 1] + y[intervals]) * 0.5 * dx;
+            {
+                int n = intervals;
+                sum += n >= 2
+                    ? dx * (5.0 / 12 * y[n] + 8.0 / 12 * y[n - 1] - 1.0 / 12 * y[n - 2])
+                    : (y[n - 1] + y[n]) * 0.5 * dx;
+            }
             return sum;
         }
 
-        /// <summary>Adaptive Simpson integration of <paramref name="f"/> over [a, b] to the given tolerance.</summary>
-        public static double AdaptiveSimpson(Func<double, double> f, double a, double b, double tolerance = 1e-10)
+        /// <summary>
+        /// Adaptive Simpson integration of <paramref name="f"/> over [a, b] to the given absolute tolerance (or to
+        /// round-off, relative to the integral, when that is coarser). Throws <see cref="InvalidOperationException"/>
+        /// if f returns NaN or infinity (e.g. an endpoint singularity) or the tolerance is not met within
+        /// <paramref name="maxEvaluations"/> function evaluations.
+        /// </summary>
+        public static double AdaptiveSimpson(Func<double, double> f, double a, double b, double tolerance = 1e-10,
+            int maxEvaluations = 10_000_000)
         {
             if (f is null) throw new ArgumentNullException(nameof(f));
-            if (tolerance <= 0) throw new ArgumentOutOfRangeException(nameof(tolerance), tolerance, "Tolerance must be positive.");
+            if (!(tolerance > 0)) throw new ArgumentOutOfRangeException(nameof(tolerance), tolerance, "Tolerance must be positive.");
+            if (double.IsNaN(a) || double.IsInfinity(a)) throw new ArgumentOutOfRangeException(nameof(a), a, "Bound must be finite.");
+            if (double.IsNaN(b) || double.IsInfinity(b)) throw new ArgumentOutOfRangeException(nameof(b), b, "Bound must be finite.");
+            if (maxEvaluations < 3) throw new ArgumentOutOfRangeException(nameof(maxEvaluations), maxEvaluations, "Need at least 3 evaluations.");
             if (a == b) return 0;
 
-            double fa = f(a), fb = f(b), m = (a + b) / 2, fm = f(m);
+            int budget = maxEvaluations - 3;
+            double m = 0.5 * a + 0.5 * b;
+            double fa = Eval(f, a), fb = Eval(f, b), fm = Eval(f, m);
             double whole = SimpsonPiece(a, b, fa, fb, fm);
-            return Recurse(f, a, b, fa, fb, fm, whole, tolerance, 50);
+            return Recurse(f, a, b, fa, fb, fm, whole, tolerance, 50, ref budget);
         }
 
         /// <summary>Running integral of uniformly spaced samples (length matches input; first element is 0).</summary>
         public static double[] CumulativeTrapezoid(IReadOnlyList<double> y, double dx)
         {
             RequireSamples(y);
-            if (dx <= 0) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Spacing must be positive.");
+            if (!(dx > 0) || double.IsInfinity(dx)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Spacing must be positive and finite.");
             var result = new double[y.Count];
             for (int i = 1; i < y.Count; i++)
                 result[i] = result[i - 1] + (y[i - 1] + y[i]) * 0.5 * dx;
@@ -82,20 +99,33 @@ namespace ToolBelt.Numerics
             => (b - a) / 6.0 * (fa + 4 * fm + fb);
 
         private static double Recurse(Func<double, double> f, double a, double b,
-            double fa, double fb, double fm, double whole, double tol, int depth)
+            double fa, double fb, double fm, double whole, double tol, int depth, ref int budget)
         {
-            double lm = (a + b) / 2;
-            double left = (a + lm) / 2, right = (lm + b) / 2;
-            double fleft = f(left), fright = f(right);
+            if ((budget -= 2) < 0)
+                throw new InvalidOperationException("Adaptive Simpson did not reach the tolerance within the evaluation budget.");
+            double lm = 0.5 * a + 0.5 * b;
+            double left = 0.5 * a + 0.5 * lm, right = 0.5 * lm + 0.5 * b;
+            double fleft = Eval(f, left), fright = Eval(f, right);
             double leftArea = SimpsonPiece(a, lm, fa, fm, fleft);
             double rightArea = SimpsonPiece(lm, b, fm, fb, fright);
             double combined = leftArea + rightArea;
 
-            if (depth <= 0 || Math.Abs(combined - whole) <= 15 * tol)
+            // The absolute tolerance halves per split; once the difference is at round-off level relative to
+            // the piece, splitting further cannot help (a large integrand took millions of evaluations).
+            double diff = Math.Abs(combined - whole);
+            if (depth <= 0 || diff <= 15 * tol || diff <= 1e-14 * Math.Abs(combined))
                 return combined + (combined - whole) / 15.0; // Richardson correction
 
-            return Recurse(f, a, lm, fa, fm, fleft, leftArea, tol / 2, depth - 1)
-                 + Recurse(f, lm, b, fm, fb, fright, rightArea, tol / 2, depth - 1);
+            return Recurse(f, a, lm, fa, fm, fleft, leftArea, tol / 2, depth - 1, ref budget)
+                 + Recurse(f, lm, b, fm, fb, fright, rightArea, tol / 2, depth - 1, ref budget);
+        }
+
+        private static double Eval(Func<double, double> f, double x)
+        {
+            double v = f(x);
+            if (double.IsNaN(v) || double.IsInfinity(v))
+                throw new InvalidOperationException($"f({x.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}) is not finite; adaptive Simpson cannot integrate it.");
+            return v;
         }
 
         private static void RequireSamples(IReadOnlyList<double> y)

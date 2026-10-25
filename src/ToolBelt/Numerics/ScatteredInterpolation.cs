@@ -47,30 +47,47 @@ namespace ToolBelt.Numerics
         }
 
         private static double Evaluate(IReadOnlyList<(double X, double Y, double Value)> samples, double x, double y,
-            double power, int? nearest, double? radius, List<(double D2, double V)> scratch)
+            double power, int? nearest, double? radius, List<(double D, double V)> scratch)
         {
             scratch.Clear();
-            double r2 = radius is double rr ? rr * rr : double.PositiveInfinity;
+            double maxDistance = radius is double rr ? rr : double.PositiveInfinity;
+            double minDistance = double.PositiveInfinity;
             foreach (var s in samples)
             {
-                double dx = s.X - x, dy = s.Y - y, d2 = dx * dx + dy * dy;
-                if (d2 == 0) return s.Value; // exact at a sample (first one wins for duplicates)
-                if (d2 <= r2) scratch.Add((d2, s.Value));
+                // Distances, not squared distances: d² over- or underflowed (1e200 away, or 1e-160), and the
+                // weights 1/d^p then became ∞/∞ or 0/0.
+                double d = Hypot(s.X - x, s.Y - y);
+                if (d == 0) return s.Value; // exact at a sample (first one wins for duplicates)
+                if (d <= maxDistance)
+                {
+                    scratch.Add((d, s.Value));
+                    if (d < minDistance) minDistance = d;
+                }
             }
             if (scratch.Count == 0) return double.NaN;
             if (nearest is int k && k < scratch.Count)
             {
-                scratch.Sort((a, b) => a.D2.CompareTo(b.D2));
+                scratch.Sort((a, b) => a.D.CompareTo(b.D));
                 scratch.RemoveRange(k, scratch.Count - k);
             }
-            double num = 0, den = 0, half = power / 2;
-            foreach (var (d2, v) in scratch)
+            // Weights relative to the nearest sample, (dmin/d)^p in (0, 1]: same ratios, no overflow.
+            double num = 0, den = 0;
+            foreach (var (d, v) in scratch)
             {
-                double w = 1 / Math.Pow(d2, half);
+                double w = Math.Pow(minDistance / d, power);
                 num += w * v;
                 den += w;
             }
             return num / den;
+        }
+
+        private static double Hypot(double a, double b)
+        {
+            a = Math.Abs(a); b = Math.Abs(b);
+            if (a < b) { double t = a; a = b; b = t; }
+            if (a == 0 || double.IsInfinity(a)) return a;
+            double r = b / a;
+            return a * Math.Sqrt(1 + r * r);
         }
 
         private static void Validate(IReadOnlyList<(double X, double Y, double Value)> samples, double power, int? nearest, double? radius)

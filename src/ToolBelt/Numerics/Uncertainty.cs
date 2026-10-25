@@ -29,7 +29,8 @@ namespace ToolBelt.Numerics
     /// Reports a measured value at the precision its uncertainty justifies: the uncertainty is rounded to one or two
     /// significant digits and the value to the same decimal place — so a report shows "12.346 ± 0.012" instead of fifteen
     /// meaningless digits. Values and uncertainties of any magnitude are handled; very large or small ones are written
-    /// with a shared exponent ("(1.234 ± 0.030)e-7"). Formatting is culture-invariant.
+    /// with a shared exponent ("(1.234 ± 0.030)e-7"), down to subnormal uncertainties. An uncertainty below 10⁻¹⁷ of
+    /// the value is finer than the value itself can be known and is rejected. Formatting is culture-invariant.
     /// </summary>
     public static class Uncertainty
     {
@@ -41,10 +42,13 @@ namespace ToolBelt.Numerics
         {
             if (double.IsNaN(value) || double.IsInfinity(value)) throw new ArgumentOutOfRangeException(nameof(value), value, "Value must be finite.");
             if (!(uncertainty > 0) || double.IsInfinity(uncertainty)) throw new ArgumentOutOfRangeException(nameof(uncertainty), uncertainty, "Uncertainty must be positive and finite.");
+            // Rounding 1e300 to 1e-300's decimal place overflowed 10³⁰¹ and returned NaN.
+            if (uncertainty < Math.Abs(value) * 1e-17)
+                throw new ArgumentOutOfRangeException(nameof(uncertainty), uncertainty, "Uncertainty is below the value's own precision (10^-17 of it).");
 
             // Leading three digits of the uncertainty (100 ≤ lead < 1000) and its decimal exponent.
             int exponent = (int)Math.Floor(Math.Log10(uncertainty));
-            int lead = (int)Math.Floor(uncertainty / Math.Pow(10, exponent - 2) + 1e-9);
+            int lead = (int)Math.Floor(Shift10(uncertainty, 2 - exponent) + 1e-9); // 10^(exponent−2) is 0 for subnormals
             if (lead >= 1000) { lead /= 10; exponent++; }                     // log10 rounded down a hair
             if (lead < 100) { lead *= 10; exponent--; }                        // ...or up
 
@@ -80,9 +84,8 @@ namespace ToolBelt.Numerics
                 return Compose(v, u, Math.Max(decimals, 0), style, null);
 
             int e = (int)Math.Floor(Math.Log10(Math.Max(Math.Abs(v), u)));
-            double scale = Math.Pow(10, e);
             int d = Math.Max(decimals + e, 0);
-            return Compose(RoundTo(v / scale, d), RoundTo(u / scale, d), d, style, e);
+            return Compose(RoundTo(Shift10(v, -e), d), RoundTo(Shift10(u, -e), d), d, style, e);
         }
 
         private static string Compose(double v, double u, int decimals, UncertaintyStyle style, int? exponent)
@@ -106,8 +109,16 @@ namespace ToolBelt.Numerics
         private static double RoundTo(double x, int decimals)
         {
             if (decimals >= 0 && decimals <= 15) return Math.Round(x, decimals, MidpointRounding.AwayFromZero);
-            double f = Math.Pow(10, decimals);
-            return Math.Round(x * f, MidpointRounding.AwayFromZero) / f;
+            if (x == 0 || Math.Log10(Math.Abs(x)) + decimals >= 17) return x; // already coarser than that place
+            return Shift10(Math.Round(Shift10(x, decimals), MidpointRounding.AwayFromZero), -decimals);
+        }
+
+        // x·10^k in steps that stay in range: 10^k alone overflows (or underflows to 0) for |k| > 308.
+        private static double Shift10(double x, int k)
+        {
+            while (k > 300) { x *= 1e300; k -= 300; }
+            while (k < -300) { x /= 1e300; k += 300; }
+            return k >= 0 ? x * Math.Pow(10, k) : x / Math.Pow(10, -k);
         }
     }
 }

@@ -26,10 +26,12 @@ namespace ToolBelt.Numerics
             if (sample && data.Count < 2)
                 throw new ArgumentException("Sample standardization needs at least two values.", nameof(data));
 
-            double mean = 0;
+            // Mean about the first value: all-equal data gives exactly that mean and a zero spread (summing
+            // first left 0.1 ×3 an ulp off, so every score came out −1 instead of 0).
+            double shiftedSum = 0;
             for (int i = 0; i < data.Count; i++)
-                mean += data[i];
-            mean /= data.Count;
+                shiftedSum += data[i] - data[0];
+            double mean = data[0] + shiftedSum / data.Count;
 
             double sumSq = 0;
             for (int i = 0; i < data.Count; i++)

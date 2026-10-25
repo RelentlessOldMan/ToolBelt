@@ -79,8 +79,9 @@ namespace ToolBelt.Numerics
         {
             if (a is null) throw new ArgumentNullException(nameof(a));
             int n = RequireSquare(a);
-            if (!Decompose(a, out double[,] lu, out _, out int sign))
-                return 0.0; // singular
+            // Only an exactly zero pivot makes the determinant 0; a small one is a small (but real) determinant.
+            if (!Decompose(a, out double[,] lu, out _, out int sign, exactZeroOnly: true))
+                return 0.0;
             double det = sign;
             for (int i = 0; i < n; i++) det *= lu[i, i];
             return det;
@@ -105,14 +106,27 @@ namespace ToolBelt.Numerics
             return inverse;
         }
 
-        // LU with partial pivoting. Returns false if the matrix is singular.
-        private static bool Decompose(double[,] a, out double[,] lu, out int[] pivot, out int sign)
+        // LU with partial pivoting. Returns false if the matrix is singular: a pivot at or below n·ε times the
+        // largest entry (relative, so a uniformly tiny but well-conditioned matrix is not "singular"), or exactly
+        // zero when exactZeroOnly. Non-finite entries throw.
+        private static bool Decompose(double[,] a, out double[,] lu, out int[] pivot, out int sign, bool exactZeroOnly = false)
         {
             int n = a.GetLength(0);
             lu = (double[,])a.Clone();
             pivot = new int[n];
             for (int i = 0; i < n; i++) pivot[i] = i;
             sign = 1;
+
+            double maxAbs = 0;
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++)
+                {
+                    double v = a[i, j];
+                    if (double.IsNaN(v) || double.IsInfinity(v))
+                        throw new ArgumentException($"Matrix entry [{i}, {j}] is not finite.", nameof(a));
+                    maxAbs = Math.Max(maxAbs, Math.Abs(v));
+                }
+            double threshold = exactZeroOnly ? 0 : n * 2.220446049250313e-16 * maxAbs;
 
             for (int col = 0; col < n; col++)
             {
@@ -123,7 +137,7 @@ namespace ToolBelt.Numerics
                     double v = Math.Abs(lu[row, col]);
                     if (v > best) { best = v; max = row; }
                 }
-                if (best < 1e-14) return false; // singular
+                if (!(best > threshold)) return false; // singular
 
                 if (max != col)
                 {

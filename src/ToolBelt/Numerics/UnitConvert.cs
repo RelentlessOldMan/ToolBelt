@@ -48,13 +48,21 @@ namespace ToolBelt.Numerics
             if (from.Category != to.Category)
                 throw new ArgumentException($"Cannot convert '{fromUnit}' ({from.Category}) to '{toUnit}' ({to.Category}).");
 
-            if (from.Category == "temperature")
-                return FromKelvin(ToKelvin(value, fromUnit), toUnit);
+            if (fromUnit == toUnit) return value; // exact: the round trip through the base unit was not
 
-            return value * from.ToBase / to.ToBase;
+            if (from.Category == "temperature")
+            {
+                // Celsius ↔ Fahrenheit directly: via kelvin, 0.1 °C came back as 0.10000000000002274.
+                if (fromUnit == "C" && toUnit == "F") return value * 9.0 / 5.0 + 32;
+                if (fromUnit == "F" && toUnit == "C") return (value - 32) * 5.0 / 9.0;
+                return FromKelvin(ToKelvin(value, fromUnit), toUnit);
+            }
+
+            return value * (from.ToBase / to.ToBase); // ratio first: value · factor overflowed for 1e308 km
         }
 
-        /// <summary>Parses a "value unit" string such as "5 km" or "3.2kg" into its number and unit.</summary>
+        /// <summary>Parses a "value unit" string such as "5 km" or "3.2kg" into its number and unit. Returns false
+        /// unless the unit is one <see cref="Convert"/> knows (and so for a bare number or trailing junk).</summary>
         public static bool TryParse(string text, out double value, out string unit)
         {
             value = 0;
@@ -69,7 +77,10 @@ namespace ToolBelt.Numerics
             string numberPart = s.Substring(0, i);
             if (!double.TryParse(numberPart, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
                 return false;
-            unit = s.Substring(i).Trim();
+            // "5 bananas" and "3,5 kg" (unit ",5 kg") used to succeed and fail later in Convert.
+            string rest = s.Substring(i).Trim();
+            if (!Units.ContainsKey(rest)) { value = 0; return false; }
+            unit = rest;
             return true;
         }
 

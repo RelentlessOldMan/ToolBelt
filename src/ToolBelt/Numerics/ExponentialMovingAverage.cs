@@ -6,7 +6,8 @@ namespace ToolBelt.Numerics
     /// <summary>
     /// An exponential moving average: each new sample is blended as
     /// <c>value = alpha·sample + (1 - alpha)·value</c>. A higher <c>alpha</c> tracks recent samples more
-    /// closely; a lower one smooths more. The first sample seeds the average. Not thread-safe.
+    /// closely; a lower one smooths more. The first sample seeds the average. Only finite samples are accepted
+    /// (a NaN or infinity poisoned the average for good). Not thread-safe.
     /// </summary>
     public sealed class ExponentialMovingAverage
     {
@@ -33,6 +34,8 @@ namespace ToolBelt.Numerics
         /// <summary>Adds a sample and returns the updated average.</summary>
         public double Add(double sample)
         {
+            if (double.IsNaN(sample) || double.IsInfinity(sample))
+                throw new ArgumentException("Only finite samples can be averaged.", nameof(sample));
             if (Count == 0)
                 _value = sample;
             else

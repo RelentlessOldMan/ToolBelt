@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 namespace ToolBelt.Numerics
@@ -51,7 +52,16 @@ namespace ToolBelt.Numerics
         {
             if (radix < 2 || radix > 36)
                 throw new ArgumentOutOfRangeException(nameof(radix), radix, "Radix must be between 2 and 36.");
-            return FromBase(text is null ? null! : text.ToLowerInvariant(), StandardDigits.Substring(0, radix));
+            return FromBase(text is null ? null! : AsciiLower(text), StandardDigits.Substring(0, radix));
+        }
+
+        // Only A-Z: ToLowerInvariant maps the Kelvin sign (U+212A) to 'k', but only on .NET Core.
+        private static string AsciiLower(string text)
+        {
+            var chars = text.ToCharArray();
+            for (int i = 0; i < chars.Length; i++)
+                if (chars[i] >= 'A' && chars[i] <= 'Z') chars[i] = (char)(chars[i] + ('a' - 'A'));
+            return new string(chars);
         }
 
         /// <summary>Parses a string against an explicit digit alphabet (case-sensitive).</summary>
@@ -77,6 +87,10 @@ namespace ToolBelt.Numerics
         {
             if (alphabet is null) throw new ArgumentNullException(nameof(alphabet));
             if (alphabet.Length < 2) throw new ArgumentException("Alphabet must have at least 2 digits.", nameof(alphabet));
+            // A repeated digit made two values print the same and parse back to the first ("aab": 1 → "a" → 0).
+            var seen = new HashSet<char>();
+            foreach (char c in alphabet)
+                if (!seen.Add(c)) throw new ArgumentException($"Alphabet repeats the digit '{c}'.", nameof(alphabet));
         }
     }
 }

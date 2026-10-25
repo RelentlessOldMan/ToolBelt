@@ -30,7 +30,8 @@ namespace ToolBelt.Numerics
             {
                 _x[i] = x[i];
                 _y[i] = y[i];
-                if (double.IsNaN(_x[i]) || double.IsNaN(_y[i])) throw new ArgumentException("Points must not be NaN.");
+                if (double.IsNaN(_x[i]) || double.IsNaN(_y[i]) || double.IsInfinity(_x[i]) || double.IsInfinity(_y[i]))
+                    throw new ArgumentException($"Point {i} is not finite.");
                 if (i > 0 && !(_x[i] > _x[i - 1])) throw new ArgumentException("x must be strictly increasing.", nameof(x));
             }
 
@@ -88,7 +89,7 @@ namespace ToolBelt.Numerics
         }
 
         /// <summary>The slope the spline uses at each data point.</summary>
-        public IReadOnlyList<double> Slopes => _t;
+        public IReadOnlyList<double> Slopes => Array.AsReadOnly(_t); // the bare array could be cast back and written
 
         private int Segment(double x)
         {

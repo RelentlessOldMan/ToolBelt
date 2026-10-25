@@ -12,12 +12,26 @@ namespace ToolBelt.Numerics
     /// </summary>
     public static class RandomUtils
     {
-        /// <summary>A double in [min, max).</summary>
+        /// <summary>A double in [min, max) (exactly min when min == max). Both bounds must be finite.</summary>
         public static double NextDouble(this Random random, double min, double max)
         {
             if (random is null) throw new ArgumentNullException(nameof(random));
-            if (min > max) throw new ArgumentException("min must not exceed max.");
-            return min + random.NextDouble() * (max - min);
+            if (double.IsNaN(min) || double.IsInfinity(min)) throw new ArgumentOutOfRangeException(nameof(min), min, "Bound must be finite.");
+            if (double.IsNaN(max) || double.IsInfinity(max)) throw new ArgumentOutOfRangeException(nameof(max), max, "Bound must be finite.");
+            if (min > max) throw new ArgumentException("min must not exceed max.", nameof(min));
+            if (min == max) return min;
+            double u = random.NextDouble(), span = max - min;
+            double r = double.IsInfinity(span) ? (1 - u) * min + u * max : min + u * span; // span overflows for ±1e308
+            // min + u·span rounds up to max when u is near 1 (e.g. [1, 1 + 2ε) with u = 1 − ε); keep it half-open.
+            return r < max ? r : NextDown(max);
+        }
+
+        // The largest double below a finite x (Math.BitDecrement is not in netstandard2.0).
+        private static double NextDown(double x)
+        {
+            if (x == 0) return -double.Epsilon;
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            return BitConverter.Int64BitsToDouble(x > 0 ? bits - 1 : bits + 1);
         }
 
         /// <summary>Shuffles <paramref name="list"/> in place using the Fisher-Yates algorithm.</summary>
@@ -62,28 +76,42 @@ namespace ToolBelt.Numerics
             if (items.Count == 0) throw new ArgumentException("At least one item is required.", nameof(items));
             if (items.Count != weights.Count) throw new ArgumentException("items and weights must have the same length.");
 
-            double total = 0;
+            double total = 0, max = 0;
             for (int i = 0; i < weights.Count; i++)
             {
                 if (!(weights[i] >= 0) || double.IsInfinity(weights[i])) throw new ArgumentException($"Weight {i} is {weights[i]}; weights must be finite and non-negative.", nameof(weights));
                 total += weights[i];
+                if (weights[i] > max) max = weights[i];
             }
             if (total <= 0) throw new ArgumentException("Weights must sum to a positive value.", nameof(weights));
+            // Finite weights can still sum to ∞ (three of 1e308 always chose the last); then work in units of the largest.
+            double scale = 1;
+            if (double.IsInfinity(total))
+            {
+                scale = 1 / max;
+                total = 0;
+                for (int i = 0; i < weights.Count; i++) total += weights[i] * scale;
+            }
 
             double target = random.NextDouble() * total;
             double cumulative = 0;
             for (int i = 0; i < items.Count; i++)
             {
-                cumulative += weights[i];
+                cumulative += weights[i] * scale;
                 if (target < cumulative) return items[i];
             }
-            return items[items.Count - 1]; // floating-point guard
+            // Floating-point guard (target rounded up to the total): the last item that can be chosen, never a zero weight.
+            for (int i = items.Count - 1; ; i--)
+                if (weights[i] > 0) return items[i];
         }
 
         /// <summary>A normally distributed draw via the Box-Muller transform.</summary>
         public static double NextGaussian(this Random random, double mean = 0, double standardDeviation = 1)
         {
             if (random is null) throw new ArgumentNullException(nameof(random));
+            if (!(standardDeviation >= 0) || double.IsInfinity(standardDeviation))
+                throw new ArgumentOutOfRangeException(nameof(standardDeviation), standardDeviation, "Standard deviation must be non-negative and finite.");
+            if (double.IsNaN(mean) || double.IsInfinity(mean)) throw new ArgumentOutOfRangeException(nameof(mean), mean, "Mean must be finite.");
             double u1 = 1.0 - random.NextDouble(); // in (0, 1] to keep the log finite
             double u2 = random.NextDouble();
             double z = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
@@ -94,7 +122,7 @@ namespace ToolBelt.Numerics
         public static double NextExponential(this Random random, double rate = 1.0)
         {
             if (random is null) throw new ArgumentNullException(nameof(random));
-            if (rate <= 0) throw new ArgumentOutOfRangeException(nameof(rate), rate, "Rate must be positive.");
+            if (!(rate > 0) || double.IsInfinity(rate)) throw new ArgumentOutOfRangeException(nameof(rate), rate, "Rate must be positive and finite.");
             return -Math.Log(1.0 - random.NextDouble()) / rate;
         }
 

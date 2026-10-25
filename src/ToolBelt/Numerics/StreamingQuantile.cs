@@ -7,7 +7,7 @@ namespace ToolBelt.Numerics
     /// <summary>
     /// Estimates one quantile of a stream in a single pass with constant memory — the P² algorithm of Jain &amp; Chlamtac
     /// (1985), which keeps five markers whose heights are adjusted by piecewise-parabolic interpolation as values arrive.
-    /// For "the 99th percentile of a hundred million latencies" without storing them. Until five values have been seen
+    /// For "the 99th percentile of a hundred million latencies" without storing them. Through the first five values
     /// the exact (linearly interpolated) quantile of what has arrived is returned.
     /// <para>
     /// Accuracy is empirical, not a guaranteed bound: on smooth distributions with thousands of samples the estimate is
@@ -50,7 +50,9 @@ namespace ToolBelt.Numerics
             get
             {
                 if (Count == 0) return double.NaN;
-                if (Count >= 5) return _q[2];
+                // At exactly five the markers are just the sorted values, so the exact quantile is still known
+                // (q[2] is their median whatever p is: p = 0.99 jumped from 3.97 on 1..4 to 3 on 1..5).
+                if (Count > 5) return _q[2];
                 var sorted = new List<double>(_initial);
                 sorted.Sort();
                 double h = (sorted.Count - 1) * _p;
