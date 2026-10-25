@@ -42,7 +42,9 @@ namespace ToolBelt.Logging
     /// </summary>
     public sealed class RouterSink : ILogSink
     {
-        private readonly List<(Func<LogEvent, bool> Predicate, ILogSink Sink)> _routes = new List<(Func<LogEvent, bool>, ILogSink)>();
+        // Copy-on-write: a route added while an event was being routed threw "Collection was modified".
+        private (Func<LogEvent, bool> Predicate, ILogSink Sink)[] _routes = new (Func<LogEvent, bool>, ILogSink)[0];
+        private readonly object _gate = new object();
         private readonly bool _ownsSinks;
 
         public RouterSink(bool ownsSinks = false) => _ownsSinks = ownsSinks;
@@ -51,7 +53,13 @@ namespace ToolBelt.Logging
         {
             if (predicate is null) throw new ArgumentNullException(nameof(predicate));
             if (sink is null) throw new ArgumentNullException(nameof(sink));
-            _routes.Add((predicate, sink));
+            lock (_gate)
+            {
+                var routes = new (Func<LogEvent, bool>, ILogSink)[_routes.Length + 1];
+                Array.Copy(_routes, routes, _routes.Length);
+                routes[_routes.Length] = (predicate, sink);
+                System.Threading.Volatile.Write(ref _routes, routes);
+            }
             return this;
         }
 
@@ -61,7 +69,7 @@ namespace ToolBelt.Logging
         public void Emit(LogEvent logEvent)
         {
             List<Exception>? errors = null;
-            foreach (var route in _routes)
+            foreach (var route in System.Threading.Volatile.Read(ref _routes))
             {
                 try
                 {
@@ -81,7 +89,7 @@ namespace ToolBelt.Logging
         public void Dispose()
         {
             if (!_ownsSinks) return;
-            foreach (var route in _routes)
+            foreach (var route in System.Threading.Volatile.Read(ref _routes))
             {
                 try { route.Sink.Dispose(); } catch { /* best-effort */ }
             }
@@ -109,7 +117,7 @@ namespace ToolBelt.Logging
         private string _currentCategory = string.Empty;
         private string _currentMessage = string.Empty;
         private DateTimeOffset _windowStart;
-        private int _suppressed;
+        private long _suppressed;   // an int wrapped negative after 2^31 repeats and the summary vanished
         private LogEvent? _lastSuppressed;
 
         public RateLimitedSink(ILogSink inner, TimeSpan window, Func<DateTimeOffset>? clock = null, bool ownsInner = false)
@@ -135,7 +143,9 @@ namespace ToolBelt.Logging
                     _lastSuppressed = logEvent;
                     return;
                 }
-                FlushSummary(now);
+                Exception? summaryError = null;
+                try { FlushSummary(now); }
+                catch (Exception ex) { summaryError = ex; }                         // still write the new event
                 _inner.Emit(logEvent);
                 _hasCurrent = true;
                 _currentLevel = logEvent.Level;
@@ -144,19 +154,22 @@ namespace ToolBelt.Logging
                 _windowStart = now;
                 _suppressed = 0;
                 _lastSuppressed = null;
+                if (summaryError != null) ExceptionDispatchInfo.Capture(summaryError).Throw();
             }
         }
 
         private void FlushSummary(DateTimeOffset now)
         {
-            if (_suppressed > 0 && _lastSuppressed != null)
-            {
-                var summary = new LogEvent(now, _lastSuppressed.Level, _lastSuppressed.Category,
-                    _lastSuppressed.Message + $" (repeated {_suppressed} times)", _lastSuppressed.Exception);
-                _inner.Emit(summary);
-            }
+            long suppressed = _suppressed;
+            LogEvent? last = _lastSuppressed;
             _suppressed = 0;
             _lastSuppressed = null;
+            if (suppressed > 0 && last != null)
+            {
+                var summary = new LogEvent(now, last.Level, last.Category,
+                    last.Message + $" (repeated {suppressed} times)", last.Exception);
+                _inner.Emit(summary);
+            }
         }
 
         public void Dispose()

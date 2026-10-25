@@ -52,7 +52,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 2 | 11 / 39 | re-queue (11 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 2 | 25 / 65 | re-queue (1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 1 | 26 / 26 | re-queue (1 severe) |
-| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 1 | 32 / 32 | re-queue (3 severe) |
+| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 2 | 17 / 49 | re-queue (17 bugs, 1 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 2 | 17 / 56 | re-queue (17 bugs) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 2 | 19 / 63 | re-queue (4 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 2 | 26 / 61 | re-queue (1 severe) |
@@ -60,7 +60,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 12**
+5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1, 2, 11, 16, 17). **next: 1**
 
 ## Releases
 
@@ -97,6 +97,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.26.0 | 26 | Documents & config, second pass | 20 | (see tag) |
 | v0.27.0 | 27 | Security, net, time, second pass | 17 | (see tag) |
 | v0.28.0 | 28 | Binary formats & images, second pass | 10 | (see tag) |
+| v0.29.0 | 29 | Logging, diagnostics, CLI, second pass | 17 | (see tag) |
 
 ## Round log
 
@@ -1286,3 +1287,39 @@ documented exceptions.
   element when a NaN coordinate throws mid-shape.
 - **Checked build:** same 7 baseline failures, none new.
 - **Re-queued:** yes (10 bugs).
+
+### Round 29 — 2026-10-25 — Logging, diagnostics, CLI, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 12 with 3 severe).
+**17 confirmed bugs** (two found by both reviewers), each with a failing-first regression test in
+`LoggingReview2Tests` (17 tests, 16 failing on the old code; the other guards pruning), except the three marked
+"by inspection". One rated severe.
+
+- **AsyncLogSink (severe):** two blocking async sinks that log into each other (a cycle, or a chain whose inner
+  sink reports back) deadlocked: each consumer waited for space in the other's full queue. An event emitted into a
+  blocking async sink from another async sink's consumer is now written straight to the inner sink.
+- **ExceptionUtils.Describe:** the first stack frame came out as "at at" and the others weren't indented under
+  their exception; a `Data` value (or message) whose `ToString` threw took the report down (now a placeholder);
+  an indent per level made a 5000-deep chain 25M characters (capped at 32 levels).
+- **MetricsRegistry:** rounding put the mean of three 0.1s above Max and P95 of three equal samples below Min
+  (both clamped); two `double.MaxValue` samples gave an infinite mean; infinity is now rejected like NaN.
+  **Benchmark** (by inspection): the same mean and percentile formulas, clamped the same way.
+- **FirstChanceMonitor:** the re-entrancy guard was one static flag, so every other monitor was blind to
+  exceptions inside one monitor's reporter; it is now per monitor.
+- **SyslogSink:** a non-ASCII message was sent without the BOM RFC 5424 requires for UTF-8 (`Tcp_UsesOctetCountingFraming`
+  pinned the old bytes and now expects the BOM); a facility over 23 produced another facility's PRI or an invalid
+  header (now `ArgumentOutOfRangeException`); UDP resolved the host on every event (by inspection; now once a minute,
+  with the TCP back-off after a failed lookup).
+- **AnsiStyle:** a short reset `ESC[m` inside styled text ended the outer style; it is re-applied like `ESC[0m`.
+- **FileSink:** rotation probed every backup index up to `maxFiles`, so `maxFiles: int.MaxValue` hung; it now shifts
+  only the existing run of backups.
+- **RateLimitedSink:** a summary whose write threw lost the event that triggered it (and was retried each event);
+  the suppressed count was an int that wrapped (by inspection; now long).
+- **RouterSink:** `AddRoute` from inside a route's sink threw "Collection was modified"; routes are copy-on-write.
+- **ConsoleApp.RunAsync:** a broken stderr turned the exit code into an `IOException`.
+- **ConsoleSpinner:** an interval over int.MaxValue ms faulted the animation loop; now rejected.
+- **Not fixed:** spinner width counts UTF-16 units; U+2028 passes through the formatters; `ProgressBar` rounding;
+  `Data` formatted in the current culture; undefined `AnsiColor` values; a throwing exception `ToString` in the
+  formatters and `SyslogSink.Emit`; CR/LF injection in the Plain/Compact formats (by design); `AsyncLogSink.Dispose`
+  has no drain timeout.
+- **Checked build:** same 7 baseline failures, none new.
+- **Re-queued:** yes (17 bugs, 1 severe).

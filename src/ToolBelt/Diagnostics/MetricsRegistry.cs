@@ -60,11 +60,13 @@ namespace ToolBelt.Diagnostics
             lock (_gate) _gauges[name] = value;
         }
 
-        /// <summary>Records a timer/distribution sample (e.g. a duration in milliseconds). NaN is rejected.</summary>
+        /// <summary>Records a timer/distribution sample (e.g. a duration in milliseconds). NaN and infinity are rejected.</summary>
         public void Record(string name, double value)
         {
             if (name is null) throw new ArgumentNullException(nameof(name));
-            if (double.IsNaN(value)) throw new ArgumentOutOfRangeException(nameof(value), value, "A sample must not be NaN.");
+            // An infinite sample made the mean and percentiles NaN.
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                throw new ArgumentOutOfRangeException(nameof(value), value, "A sample must be finite.");
             lock (_gate)
             {
                 if (!_timers.TryGetValue(name, out var list)) { list = new List<double>(); _timers[name] = list; }
@@ -95,7 +97,16 @@ namespace ToolBelt.Diagnostics
             sorted.Sort();
             double sum = 0;
             for (int i = 0; i < sorted.Count; i++) sum += sorted[i];
-            return new TimerStats(sorted.Count, sorted[0], sorted[sorted.Count - 1], sum / sorted.Count,
+            double mean = sum / sorted.Count;
+            if (double.IsInfinity(mean))
+            {
+                mean = 0;                                                     // the sum overflowed: average scaled values
+                for (int i = 0; i < sorted.Count; i++) mean += sorted[i] / sorted.Count;
+            }
+            double min = sorted[0], max = sorted[sorted.Count - 1];
+            // Rounding put the mean of three 0.1s above the largest sample.
+            mean = Math.Max(min, Math.Min(max, mean));
+            return new TimerStats(sorted.Count, min, max, mean,
                 Quantile(sorted, 0.50), Quantile(sorted, 0.95), Quantile(sorted, 0.99));
         }
 
@@ -107,7 +118,8 @@ namespace ToolBelt.Diagnostics
             int hi = (int)Math.Ceiling(position);
             if (lo == hi) return sorted[lo];
             double frac = position - lo;
-            return sorted[lo] * (1 - frac) + sorted[hi] * frac;
+            // Clamped: rounding put P95 of three equal samples below them.
+            return Math.Max(sorted[lo], Math.Min(sorted[hi], sorted[lo] * (1 - frac) + sorted[hi] * frac));
         }
     }
 }

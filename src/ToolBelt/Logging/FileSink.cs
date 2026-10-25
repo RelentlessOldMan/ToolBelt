@@ -85,9 +85,12 @@ namespace ToolBelt.Logging
             string Rotated(int n) => _path + "." + n;
             try
             {
-                if (File.Exists(Rotated(_maxFiles))) File.Delete(Rotated(_maxFiles));
-                for (int k = _maxFiles - 1; k >= 1; k--)
-                    if (File.Exists(Rotated(k))) File.Move(Rotated(k), Rotated(k + 1));
+                // Shift only the run of backups up to the first gap: probing every index up to maxFiles hung a sink
+                // created with a large maxFiles.
+                int last = 0;
+                while (last < _maxFiles && File.Exists(Rotated(last + 1))) last++;
+                if (last == _maxFiles) File.Delete(Rotated(last--));
+                for (int k = last; k >= 1; k--) File.Move(Rotated(k), Rotated(k + 1));
                 if (File.Exists(_path)) File.Move(_path, Rotated(1));
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)

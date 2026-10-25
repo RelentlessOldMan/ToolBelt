@@ -94,7 +94,7 @@ namespace ToolBelt.Tests.Logging
             }
             Check.Equal(2, frames.Count);
             Check.True(frames[0].EndsWith(" a - first", StringComparison.Ordinal), frames[0]);
-            Check.True(frames[1].EndsWith(" b - second ünï", StringComparison.Ordinal), frames[1]);
+            Check.True(frames[1].EndsWith(" b - ﻿second ünï", StringComparison.Ordinal), frames[1]);   // RFC 5424 BOM
         }
 
         public async Task Tcp_ReconnectsAfterTheCollectorDropsTheConnection()

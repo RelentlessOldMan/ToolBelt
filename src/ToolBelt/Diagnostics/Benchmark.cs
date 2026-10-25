@@ -106,7 +106,7 @@ namespace ToolBelt.Diagnostics
 
             double sum = 0;
             for (int i = 0; i < n; i++) sum += sorted[i];
-            double mean = sum / n;
+            double mean = Math.Max(sorted[0], Math.Min(sorted[n - 1], sum / n));   // rounding could leave [min, max]
 
             double variance = 0;
             for (int i = 0; i < n; i++) { double d = sorted[i] - mean; variance += d * d; }
@@ -125,7 +125,7 @@ namespace ToolBelt.Diagnostics
             int hi = (int)Math.Ceiling(position);
             if (lo == hi) return sorted[lo];
             double frac = position - lo;
-            return sorted[lo] * (1 - frac) + sorted[hi] * frac;
+            return Math.Max(sorted[lo], Math.Min(sorted[hi], sorted[lo] * (1 - frac) + sorted[hi] * frac));
         }
 
         private static long AllocatedBytes()

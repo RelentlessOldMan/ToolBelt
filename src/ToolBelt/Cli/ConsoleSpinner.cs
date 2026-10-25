@@ -46,7 +46,9 @@ namespace ToolBelt.Cli
             _interactive = interactive ?? (writer is null && !Console.IsErrorRedirected);
             _frames = frames is { Length: > 0 } ? frames : Dots;
             TimeSpan period = interval ?? TimeSpan.FromMilliseconds(80);
-            if (period <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(interval), interval, "Interval must be positive.");
+            // Past int.MaxValue ms Task.Delay threw on the background loop and the spinner silently stopped.
+            if (period <= TimeSpan.Zero || period.TotalMilliseconds > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(interval), interval, "Interval must be positive and at most int.MaxValue ms.");
 
             if (_interactive)
             {

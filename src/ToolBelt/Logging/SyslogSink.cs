@@ -1,6 +1,7 @@
 // ToolBelt drop-in — also copy Logging/Log.cs.
 using System;
 using System.Globalization;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
@@ -45,6 +46,8 @@ namespace ToolBelt.Logging
         private readonly string _hostName, _appName, _procId;
         private readonly object _gate = new object();
         private UdpClient? _udp;
+        private IPEndPoint? _udpTarget;
+        private long _udpRefreshAt;       // Stopwatch timestamp after which the UDP host is resolved again
         private TcpClient? _tcp;
         private NetworkStream? _tcpStream;
         private bool _disposed;
@@ -62,7 +65,7 @@ namespace ToolBelt.Logging
             if (port < 1 || port > 65535) throw new ArgumentOutOfRangeException(nameof(port), port, "Port must be 1–65535.");
             _port = port;
             _transport = transport;
-            _facility = facility;
+            _facility = CheckFacility(facility, nameof(facility));
             _hostName = Token(Environment.MachineName, 255);
             _appName = Token(appName ?? AppDomain.CurrentDomain.FriendlyName, 48);
             _procId = Token(System.Diagnostics.Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture), 128);
@@ -109,14 +112,48 @@ namespace ToolBelt.Logging
 
         private void SendUdp(byte[] payload)
         {
-            _udp ??= new UdpClient();
+            // Resolved once a minute rather than per event (a slow or failing DNS lookup on every log call), with the
+            // TCP back-off after a failed lookup.
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (_udpTarget == null || now >= _udpRefreshAt)
+            {
+                if (now < _retryAtTimestamp) throw new SocketException((int)SocketError.TryAgain);
+                IPEndPoint target;
+                try { target = ResolveUdp(); }
+                catch
+                {
+                    _backoff = _backoff == TimeSpan.Zero ? MinBackoff : TimeSpan.FromTicks(Math.Min(_backoff.Ticks * 2, MaxBackoff.Ticks));
+                    _retryAtTimestamp = now + (long)(_backoff.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
+                    if (_udpTarget == null) throw;
+                    target = _udpTarget;                                              // keep the last good address
+                }
+                _backoff = TimeSpan.Zero;
+                if (_udp != null && _udpTarget != null && _udpTarget.AddressFamily != target.AddressFamily)
+                {
+                    _udp.Dispose();
+                    _udp = null;
+                }
+                _udpTarget = target;
+                _udpRefreshAt = now + 60 * System.Diagnostics.Stopwatch.Frequency;
+            }
+            _udp ??= new UdpClient(_udpTarget.AddressFamily);
             int length = payload.Length;
             if (length > UdpMaxBytes)
             {
                 length = UdpMaxBytes;
                 while (length > 0 && (payload[length] & 0xC0) == 0x80) length--;      // don't split a UTF-8 sequence
             }
-            _udp.Send(payload, length, _host, _port);
+            _udp.Send(payload, length, _udpTarget);
+        }
+
+        private IPEndPoint ResolveUdp()
+        {
+            if (IPAddress.TryParse(_host, out IPAddress? literal)) return new IPEndPoint(literal, _port);
+            IPAddress[] addresses = Dns.GetHostAddresses(_host);
+            if (addresses.Length == 0) throw new SocketException((int)SocketError.HostNotFound);
+            foreach (IPAddress a in addresses)                                    // IPv4 first, as UdpClient() sent before
+                if (a.AddressFamily == AddressFamily.InterNetwork) return new IPEndPoint(a, _port);
+            return new IPEndPoint(addresses[0], _port);
         }
 
         private void SendTcp(byte[] payload)
@@ -185,10 +222,13 @@ namespace ToolBelt.Logging
         public static string Format(LogEvent logEvent, SyslogFacility facility, string hostName, string appName, string procId)
         {
             if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));
-            int pri = (int)facility * 8 + Severity(logEvent.Level);
+            int pri = (int)CheckFacility(facility, nameof(facility)) * 8 + Severity(logEvent.Level);
             string timestamp = logEvent.Timestamp.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffffzzz", CultureInfo.InvariantCulture);
             string msgId = Token(logEvent.Category, 32);
             string message = logEvent.Exception == null ? logEvent.Message : logEvent.Message + " | " + logEvent.Exception;
+            // RFC 5424 6.4: a MSG in UTF-8 starts with a BOM; without it a collector may take the bytes as another charset.
+            foreach (char c in message)
+                if (c > 127) { message = "\uFEFF" + message; break; }
             return "<" + pri.ToString(CultureInfo.InvariantCulture) + ">1 " + timestamp + " " + Token(hostName, 255) + " " + Token(appName, 48)
                    + " " + Token(procId, 128) + " " + msgId + " - " + message;
         }
@@ -204,6 +244,14 @@ namespace ToolBelt.Logging
                 case LogLevel.Info: return 6;
                 default: return 7;
             }
+        }
+
+        // RFC 5424 facilities are 0-23; a larger value made a PRI another facility's (or past 191, an invalid header).
+        private static SyslogFacility CheckFacility(SyslogFacility facility, string name)
+        {
+            if ((int)facility < 0 || (int)facility > 23)
+                throw new ArgumentOutOfRangeException(name, facility, "Facility must be 0-23.");
+            return facility;
         }
 
         // RFC 5424 header fields: printable US-ASCII without spaces, length-limited; empty → "-" (NILVALUE).

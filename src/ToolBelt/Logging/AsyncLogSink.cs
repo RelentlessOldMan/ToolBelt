@@ -14,13 +14,16 @@ namespace ToolBelt.Logging
     /// An event emitted from inside the inner sink on the consumer thread (for example a first-chance exception
     /// monitor reporting the sink's own failure into the same logger) is written straight to the inner sink instead
     /// of queued, since the consumer cannot wait for space that only it can free; a second level of such re-entry is
-    /// dropped and counted in <see cref="DroppedCount"/>.
+    /// dropped and counted in <see cref="DroppedCount"/>. Likewise an event emitted into a blocking sink from another
+    /// async sink's consumer is written straight to the inner sink: two consumers each waiting for space in the
+    /// other's full queue would never wake.
     /// </summary>
     public sealed class AsyncLogSink : ILogSink
     {
         private readonly ConcurrentPipeline<LogEvent> _pipeline;
         private readonly ILogSink _inner;
         private readonly bool _ownsInner;
+        private readonly bool _blocks;
         private long _reentrantDropped;
         private int _disposed;
 
@@ -37,6 +40,7 @@ namespace ToolBelt.Logging
         {
             _inner = inner ?? throw new ArgumentNullException(nameof(inner));
             _ownsInner = ownsInner;
+            _blocks = overflowPolicy == PipelineOverflowPolicy.Block;
             _pipeline = new ConcurrentPipeline<LogEvent>(
                 (logEvent, _) => { Consume(logEvent); return Task.CompletedTask; },
                 capacity, overflowPolicy, onError);
@@ -47,9 +51,16 @@ namespace ToolBelt.Logging
 
         public void Emit(LogEvent logEvent)
         {
-            if (t_consuming != this)
+            AsyncLogSink? consuming = t_consuming;
+            if (consuming != this && (consuming == null || !_blocks))
             {
                 _pipeline.TryEnqueue(logEvent);
+                return;
+            }
+            if (consuming != this)
+            {
+                // Another sink's consumer (a cycle, or a chain of sinks): waiting here for space could deadlock.
+                _inner.Emit(logEvent);
                 return;
             }
             // Re-entered from the inner sink on our own consumer thread: queueing could wait forever for space.

@@ -53,7 +53,9 @@ namespace ToolBelt.Diagnostics
         private readonly object _ignoredGate = new object();
         private int _attached;
 
-        [ThreadStatic] private static bool _inCallback;
+        // The monitors whose callback is running on this thread. One static flag made every other monitor blind to
+        // exceptions thrown (or observed) inside one monitor's reporter.
+        [ThreadStatic] private static List<FirstChanceMonitor>? t_inCallback;
 
         private sealed class Signature
         {
@@ -114,8 +116,10 @@ namespace ToolBelt.Diagnostics
         /// <summary>Processes one exception as if it had just been thrown (the event handler calls this).</summary>
         public void Observe(Exception exception)
         {
-            if (exception is null || _inCallback) return;
-            _inCallback = true;
+            if (exception is null) return;
+            var active = t_inCallback ??= new List<FirstChanceMonitor>();
+            if (active.Contains(this)) return;
+            active.Add(this);
             try
             {
                 if (IsIgnored(exception.GetType())) return;
@@ -147,7 +151,7 @@ namespace ToolBelt.Diagnostics
             }
             finally
             {
-                _inCallback = false;
+                active.Remove(this);
             }
         }
 

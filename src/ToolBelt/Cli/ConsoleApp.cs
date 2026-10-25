@@ -85,22 +85,22 @@ namespace ToolBelt.Cli
             }
             catch (Exception ex) when (cts.IsCancellationRequested && IsCancellation(ex))
             {
-                err.WriteLine("Cancelled.");
+                TryWrite(err, "Cancelled.");
                 return ExitCodes.Interrupted;
             }
             catch (ExitException ex)
             {
-                if (!string.IsNullOrEmpty(ex.Message)) err.WriteLine(ex.Message);
+                if (!string.IsNullOrEmpty(ex.Message)) TryWrite(err, ex.Message);
                 return ex.ExitCode;
             }
             catch (ArgumentException ex)
             {
-                err.WriteLine("error: " + ex.Message);
+                TryWrite(err, "error: " + ex.Message);
                 return ExitCodes.Usage;
             }
             catch (Exception ex)
             {
-                err.WriteLine(verbose ? "error: " + ex : $"error: {ex.Message} ({ex.GetType().Name})");
+                TryWrite(err, verbose ? "error: " + ex : $"error: {ex.Message} ({ex.GetType().Name})");
                 return ExitCodes.Software;
             }
             finally
@@ -109,7 +109,14 @@ namespace ToolBelt.Cli
             }
         }
 
-        private static bool IsCancellation(Exception ex)
+        // A closed or broken stderr (a pipe whose reader exited) threw out of RunAsync and the exit code was lost.
+        private static void TryWrite(TextWriter err, string line)
+        {
+            try { err.WriteLine(line); }
+            catch (Exception ex) when (ex is IOException || ex is ObjectDisposedException) { }
+        }
+
+                private static bool IsCancellation(Exception ex)
         {
             if (ex is OperationCanceledException) return true;
             if (ex is AggregateException agg)

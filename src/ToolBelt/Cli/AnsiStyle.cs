@@ -84,7 +84,9 @@ namespace ToolBelt.Cli
             if (!Enabled || text.Length == 0) return text;
             // Re-apply our style after any reset inside the text, so nesting styles doesn't cut the outer one short.
             string open = "\u001b[" + code + "m";
-            return new StringBuilder(open).Append(text.Replace(Reset, Reset + open)).Append(Reset).ToString();
+            // ESC[m is a reset too (the parameter defaults to 0).
+            return new StringBuilder(open).Append(text.Replace(Reset, Reset + open).Replace("\u001b[m", "\u001b[m" + open))
+                .Append(Reset).ToString();
         }
 
         private static int ForegroundCode(AnsiColor c) => (int)c < 8 ? 30 + (int)c : 90 + (int)c - 8;
