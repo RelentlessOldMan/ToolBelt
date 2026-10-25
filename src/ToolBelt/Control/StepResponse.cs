@@ -61,6 +61,8 @@ namespace ToolBelt.Control
         {
             if (values is null) throw new ArgumentNullException(nameof(values));
             if (!(sampleInterval > 0) || double.IsInfinity(sampleInterval)) throw new ArgumentOutOfRangeException(nameof(sampleInterval), sampleInterval, "Sample interval must be positive and finite.");
+            if (values.Count > 1 && double.IsInfinity((values.Count - 1) * sampleInterval))
+                throw new ArgumentOutOfRangeException(nameof(sampleInterval), sampleInterval, "The record's duration is too large to represent.");
             var times = new double[values.Count];
             for (int i = 0; i < times.Length; i++) times[i] = i * sampleInterval;
             return Analyze(times, values, finalValue, initialValue, settlingBand, riseLow, riseHigh);
@@ -93,7 +95,7 @@ namespace ToolBelt.Control
             if (double.IsInfinity(step)) throw new ArgumentException("The step from the initial to the final value is too large to represent.");
             if (step == 0) throw new ArgumentException("The initial and final values are equal: there is no step to analyse.");
             double t0 = times[0];
-            double U(int i) => (values[i] - y0) / step;                // 0 at the start, 1 at the end, in the step's direction
+            double U(int i) => Normalized(values[i], y0, step);         // 0 at the start, 1 at the end, in the step's direction
 
             // Rise: first upward crossing of the low level, then of the high level after it.
             double tLow = FirstCrossing(times, U, riseLow, 0), rise = double.NaN;
@@ -142,6 +144,13 @@ namespace ToolBelt.Control
                     }
                 return double.NaN;
             }
+        }
+
+        // (v − y0) / step; v − y0 overflowed for a representable step from −1e308 to 0 when v was 1e308.
+        private static double Normalized(double v, double y0, double step)
+        {
+            double d = v - y0;
+            return double.IsInfinity(d) ? v / step - y0 / step : d / step;
         }
 
         private static int IndexAtOrAfter(IReadOnlyList<double> times, double t)

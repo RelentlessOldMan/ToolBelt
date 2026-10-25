@@ -59,12 +59,15 @@ namespace ToolBelt.Control
 
             // Conditional integration: skip the integral step when it would drive further into saturation. The direction
             // is that of the integral's contribution, ki·error, so reverse-acting (negative) gains unwind too.
-            double tentative = proportional + _ki * (_integral + error * dt) + derivative;
+            double integral = _integral + error * dt;
+            double tentative = proportional + _ki * integral + derivative;
             double push = _ki * error;
             bool windupHigh = tentative > _max && push > 0;
             bool windupLow = tentative < _min && push < 0;
-            if (!windupHigh && !windupLow)
-                _integral += error * dt;
+            // Finite inputs can still overflow error·dt or the sum; an infinite integral (or one with ki = 0, where it is
+            // unused, and 0·∞ made every later output NaN) was kept for good.
+            if (!windupHigh && !windupLow && _ki != 0 && !double.IsInfinity(integral))
+                _integral = integral;
 
             double output = proportional + _ki * _integral + derivative;
 

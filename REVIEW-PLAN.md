@@ -41,7 +41,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 
 | #  | Section | Scope (src) | ~Lines | Prior | Passes | Bugs (last / total) | Status |
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
-| 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 1 | 16 / 16 | re-queue (2 severe) |
+| 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 2 | 9 / 25 | re-queue (9 bugs) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 2 | 22 / 53 | re-queue (22 bugs) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 2 | 28 / 71 | re-queue (5 severe) |
@@ -60,7 +60,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1, 2, 11, 16, 17). **next: 1**
+5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2, 11, 16, 17). **next: 2**
 
 ## Releases
 
@@ -98,6 +98,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.27.0 | 27 | Security, net, time, second pass | 17 | (see tag) |
 | v0.28.0 | 28 | Binary formats & images, second pass | 10 | (see tag) |
 | v0.29.0 | 29 | Logging, diagnostics, CLI, second pass | 17 | (see tag) |
+| v0.30.0 | 30 | Filters & control, second pass | 9 | (see tag) |
 
 ## Round log
 
@@ -1323,3 +1324,37 @@ Reviewers: one for correctness and one for robustness, fresh to the section (re-
   has no drain timeout.
 - **Checked build:** same 7 baseline failures, none new.
 - **Re-queued:** yes (17 bugs, 1 severe).
+
+### Round 30 — 2026-10-25 — Filters & control, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 1 with 2 severe).
+The correctness reviewer matched 1,512 grid and 2,997 random IIR designs, every FIR design, filtering, order
+estimates and the tuning tables against SciPy and the published references; no math errors. **9 confirmed bugs**
+(three found by both reviewers), none severe, each with a failing-first regression test in
+`FiltersControlReview2Tests` (14 tests, all failing on the old code).
+
+- **IirFilter steady state:** `Reset(value)` and `FiltFilt` treated any section with |1 + a1 + a2| < 1e-14 as a
+  pole at z = 1 and started it (and every later section) from zero. Cutoffs near 1e-8·fs fall under that with all
+  poles inside the circle, so a high-pass or band-pass output 3 for a settled constant 3, and a 1e-5 Hz low-pass
+  at 1 kHz output ~0 instead of 1. Only a non-finite gain now stops it; a zero numerator gives gain 0.
+- **SchmittTrigger:** equal thresholds toggled on every sample at the threshold; it now turns off only below it.
+- **PidController:** an overflowing error·dt put ∞ into the integral for good (NaN output with kp = 0), and with
+  ki = 0 the unused integral still accumulated so 0·∞ made every later output NaN. The integral only commits when
+  ki ≠ 0 and the new value is finite.
+- **FirstOrderLag / KalmanFilter1D:** `input − Value`, `P + R` and `measurement − estimate` overflowed for far-apart
+  finite values (∞ or NaN, kept for good); both now interpolate and clamp, and the Kalman gain and covariance
+  are computed without overflow.
+- **StepResponse.Analyze / FopdtModel.FitStep:** normalising a representable step from −1e308 overflowed (overshoot
+  ∞, settling NaN); now split when the difference overflows.
+- **Biquad.Peaking / LowShelf / HighShelf:** a tiny Q or slope overflowed into a plain `ArgumentException`
+  ("Coefficients must be finite"); now `ArgumentOutOfRangeException` naming q or slope.
+- **Parameter names:** `FitStep` with a tiny input step blamed "gain" (now inputStep); `FirstOrderLag.FromCutoff(1e-320)`
+  blamed "timeConstant" (now cutoffHz); `StepResponse.Analyze` with a huge interval blamed "values" (now sampleInterval);
+  SIMC/lambda with an extreme model blamed "kp" (now model).
+- **ZieglerNichols / CohenCoon:** an extreme dead time silently returned Ti = ∞ (no integral action); now rejected
+  naming model.
+- **Not fixed:** rise time from the first 10% crossing rather than the last before 90% (unverified against MATLAB);
+  `ToSections` zero pairing could in theory give a one-pole section two zeros (never seen in 4,500 designs);
+  denormal slowdown; `Response` accuracy at extreme frequencies; the stability check uses zpk rather than the
+  quantized coefficients; NaN frequency in `Response`/`GroupDelay`; `FiltFilt` of an empty signal with pad 0 throws.
+- **Checked build:** same 7 baseline failures, none new.
+- **Re-queued:** yes (9 bugs).

@@ -66,12 +66,18 @@ namespace ToolBelt.Control
             double tau = 1.5 * (t2 - t1);
             if (!(tau > 0)) throw new ArgumentException("The response rises too abruptly to fit (63.2% is reached in the same sample as 28.3%); sample faster.");
             double theta = Math.Max(0, t2 - tau);
+            if (double.IsInfinity(change / inputStep))
+                throw new ArgumentOutOfRangeException(nameof(inputStep), inputStep, "The input step is too small for this output change: the gain overflows.");
             return new FopdtModel(change / inputStep, tau, theta);
         }
 
         private static double Crossing(IReadOnlyList<double> t, IReadOnlyList<double> y, double y0, double change, double level)
         {
-            double U(int i) => (y[i] - y0) / change;
+            double U(int i)
+            {
+                double d = y[i] - y0;                                             // overflowed for a representable change
+                return double.IsInfinity(d) ? y[i] / change - y0 / change : d / change;
+            }
             for (int i = 1; i < y.Count; i++)
                 if (U(i) >= level)
                 {
@@ -133,21 +139,21 @@ namespace ToolBelt.Control
         {
             double tc = Knob(closedLoopTimeConstant ?? model.DeadTime, model, nameof(closedLoopTimeConstant));
             double kp = model.TimeConstant / (model.Gain * (tc + model.DeadTime));
-            return new PidGains(kp, Math.Min(model.TimeConstant, 4 * (tc + model.DeadTime)), 0);
+            return Gains(kp, Math.Min(model.TimeConstant, 4 * (tc + model.DeadTime)), 0);
         }
 
         /// <summary>Lambda (IMC) PI tuning: Kp = τ / (K(λ + θ)), Ti = τ. λ is the desired closed-loop time constant (default τ: no faster than open loop).</summary>
         public static PidGains Lambda(FopdtModel model, double? lambda = null)
         {
             double l = Knob(lambda ?? model.TimeConstant, model, nameof(lambda));
-            return new PidGains(model.TimeConstant / (model.Gain * (l + model.DeadTime)), model.TimeConstant, 0);
+            return Gains(model.TimeConstant / (model.Gain * (l + model.DeadTime)), model.TimeConstant, 0);
         }
 
         /// <summary>Ziegler–Nichols open-loop (reaction curve): PID Kp = 1.2τ/(Kθ), Ti = 2θ, Td = θ/2; PI Kp = 0.9τ/(Kθ), Ti = 3.33θ. Needs θ &gt; 0.</summary>
         public static PidGains ZieglerNichols(FopdtModel model, bool includeDerivative = true)
         {
             double theta = RequireDeadTime(model), ratio = model.TimeConstant / (model.Gain * theta);
-            return includeDerivative ? new PidGains(1.2 * ratio, 2 * theta, 0.5 * theta) : new PidGains(0.9 * ratio, theta / 0.3, 0);
+            return includeDerivative ? Gains(1.2 * ratio, 2 * theta, 0.5 * theta) : Gains(0.9 * ratio, theta / 0.3, 0);
         }
 
         /// <summary>Cohen–Coon: like Ziegler–Nichols but corrected for larger dead-time ratios. Needs θ &gt; 0.</summary>
@@ -155,8 +161,8 @@ namespace ToolBelt.Control
         {
             double theta = RequireDeadTime(model), tau = model.TimeConstant, r = theta / tau, k = model.Gain;
             if (includeDerivative)
-                return new PidGains(tau / (k * theta) * (4.0 / 3 + r / 4), theta * (32 + 6 * r) / (13 + 8 * r), 4 * theta / (11 + 2 * r));
-            return new PidGains(tau / (k * theta) * (0.9 + r / 12), theta * (30 + 3 * r) / (9 + 20 * r), 0);
+                return Gains(tau / (k * theta) * (4.0 / 3 + r / 4), theta * (32 + 6 * r) / (13 + 8 * r), 4 * theta / (11 + 2 * r));
+            return Gains(tau / (k * theta) * (0.9 + r / 12), theta * (30 + 3 * r) / (9 + 20 * r), 0);
         }
 
         /// <summary>
@@ -170,6 +176,16 @@ namespace ToolBelt.Control
             return includeDerivative
                 ? new PidGains(0.6 * ultimateGain, ultimatePeriod / 2, ultimatePeriod / 8)
                 : new PidGains(0.45 * ultimateGain, ultimatePeriod / 1.2, 0);
+        }
+
+        // An extreme model overflowed a gain (reported as a "kp" the caller never passed) or the integral time (∞, which
+        // silently meant "no integral action").
+        private static PidGains Gains(double kp, double integralTime, double derivativeTime)
+        {
+            if (double.IsNaN(kp) || double.IsInfinity(kp) || !(integralTime > 0) || double.IsInfinity(integralTime)
+                || double.IsNaN(derivativeTime) || double.IsInfinity(derivativeTime))
+                throw new ArgumentOutOfRangeException("model", "The model's values are too extreme: the tuned gains overflow.");
+            return new PidGains(kp, integralTime, derivativeTime);
         }
 
         private static double Knob(double value, FopdtModel model, string name)

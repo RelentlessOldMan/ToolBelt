@@ -67,6 +67,9 @@ namespace ToolBelt.Signal
         {
             var (cos, alpha) = Prewarp(sampleRate, frequency, q);
             double a = GainAmplitude(gainDb);
+            // A tiny Q with an extreme gain overflowed here and came out of the constructor as a plain ArgumentException.
+            if (double.IsInfinity(alpha * a) || double.IsInfinity(alpha / a))
+                throw new ArgumentOutOfRangeException(nameof(q), q, "Q is too small for this gain.");
             return Normalize(1 + alpha * a, -2 * cos, 1 - alpha * a, 1 + alpha / a, -2 * cos, 1 - alpha / a);
         }
 
@@ -128,6 +131,7 @@ namespace ToolBelt.Signal
             if (!(slope > 0) || double.IsInfinity(slope)) throw new ArgumentOutOfRangeException(nameof(slope), slope, "Slope must be positive and finite.");
             double w0 = 2 * Math.PI * frequency / sampleRate;
             double inner = (a + 1 / a) * (1 / slope - 1) + 2;
+            if (double.IsInfinity(inner)) throw new ArgumentOutOfRangeException(nameof(slope), slope, "Slope is too small to represent.");
             if (inner < 0) throw new ArgumentOutOfRangeException(nameof(slope), slope, "Slope too steep for this gain (the shelf would not be monotonic).");
             double alpha = Math.Sin(w0) / 2 * Math.Sqrt(inner);
             return (a, Math.Cos(w0), 2 * Math.Sqrt(a) * alpha);
@@ -627,10 +631,12 @@ namespace ToolBelt.Signal
             for (int s = 0; s < _sections.Length; s++)
             {
                 var q = _sections[s];
-                double denominator = 1 + q.A1 + q.A2;
+                double denominator = 1 + q.A1 + q.A2, numerator = q.B0 + q.B1 + q.B2;
                 // A pole at z = 1 has no steady state; leave that section (and everything after it) starting from zero.
-                if (Math.Abs(denominator) < 1e-14) break;
-                double gain = (q.B0 + q.B1 + q.B2) / denominator;
+                // Only an exact zero counts: an absolute threshold (1e-14) caught cutoffs near 1e-8·fs whose poles are all
+                // inside the circle (design rejects |p| ≥ 1), and a high-pass's DC gain there is exactly 0.
+                double gain = numerator == 0 ? 0 : numerator / denominator;
+                if (double.IsNaN(gain) || double.IsInfinity(gain)) break;
                 z2[s] = scale * (q.B2 - q.A2 * gain);
                 z1[s] = scale * (q.B1 - q.A1 * gain) + z2[s];
                 scale *= gain;

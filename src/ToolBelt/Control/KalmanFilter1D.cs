@@ -42,9 +42,14 @@ namespace ToolBelt.Control
             double predictedCovariance = ErrorCovariance + _processNoise;
 
             // Update: blend the prediction with the measurement by the Kalman gain.
-            double gain = predictedCovariance / (predictedCovariance + _measurementNoise);
-            Estimate += gain * (measurement - Estimate);
-            ErrorCovariance = (1 - gain) * predictedCovariance;
+            // Written so nothing overflows for finite inputs: P + Q, P + R and measurement − estimate each could, and an
+            // infinite or NaN value then stayed in the state for good.
+            double gain = predictedCovariance >= _measurementNoise
+                ? 1 / (1 + _measurementNoise / predictedCovariance)
+                : predictedCovariance / _measurementNoise / (1 + predictedCovariance / _measurementNoise);
+            double estimate = (1 - gain) * Estimate + gain * measurement;
+            Estimate = Math.Max(Math.Min(Estimate, measurement), Math.Min(Math.Max(Estimate, measurement), estimate));
+            ErrorCovariance = gain * _measurementNoise;                       // = (1 − K)·P, without 0·∞
             LastGain = gain;
             return Estimate;
         }

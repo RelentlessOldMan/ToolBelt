@@ -7,7 +7,8 @@ namespace ToolBelt.Control
     /// <summary>
     /// A comparator with hysteresis: turns on when the input reaches the high threshold and only turns off again when it
     /// falls to the low threshold, so a noisy signal hovering near one level doesn't chatter on and off. The thermostat,
-    /// level-switch and alarm-with-deadband building block. Not thread-safe.
+    /// level-switch and alarm-with-deadband building block. Equal thresholds make a plain comparator (on at or above it,
+    /// off below it). Not thread-safe.
     /// </summary>
     public sealed class SchmittTrigger
     {
@@ -32,7 +33,8 @@ namespace ToolBelt.Control
         /// <summary>Feeds one input sample and returns the (possibly switched) state. NaN leaves the state alone.</summary>
         public bool Update(double input)
         {
-            bool next = State ? !(input <= Low) : input >= High;
+            // With equal thresholds, turn off only below it: "off at ≤ T, on at ≥ T" toggled on every sample at T.
+            bool next = State ? !(Low == High ? input < Low : input <= Low) : input >= High;
             Changed = next != State;
             State = next;
             return State;

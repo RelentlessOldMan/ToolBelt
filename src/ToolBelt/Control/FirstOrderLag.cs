@@ -21,7 +21,9 @@ namespace ToolBelt.Control
         public static FirstOrderLag FromCutoff(double cutoffHz)
         {
             if (!(cutoffHz > 0) || double.IsInfinity(cutoffHz)) throw new ArgumentOutOfRangeException(nameof(cutoffHz), cutoffHz, "Cutoff must be positive and finite.");
-            return new FirstOrderLag(1 / (2 * Math.PI * cutoffHz));
+            double tau = 1 / (2 * Math.PI * cutoffHz);
+            if (double.IsInfinity(tau)) throw new ArgumentOutOfRangeException(nameof(cutoffHz), cutoffHz, "Cutoff is too small to represent.");
+            return new FirstOrderLag(tau);
         }
 
         public double TimeConstant { get; }
@@ -42,7 +44,9 @@ namespace ToolBelt.Control
                 return Value;
             }
             double alpha = TimeConstant == 0 ? 1 : -Expm1(-dt / TimeConstant);   // 1 − e^(−dt/τ), accurate for tiny dt
-            Value += alpha * (input - Value);
+            // input − Value overflowed for far-apart finite values (∞, or NaN with dt = 0); interpolating can't.
+            double next = (1 - alpha) * Value + alpha * input;
+            Value = Math.Max(Math.Min(Value, input), Math.Min(Math.Max(Value, input), next));
             return Value;
         }
 

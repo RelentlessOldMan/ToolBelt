@@ -706,6 +706,7 @@ tests/
       SignalConditioningTests.cs  (slew limiter, Schmitt trigger, deadband, first-order lag)
       KalmanFilter1DTests.cs
       ControlReviewTests.cs (review regressions: reverse-acting anti-windup, non-finite inputs)
+      FiltersControlReview2Tests.cs (second-pass regressions: IIR steady state at tiny cutoffs, equal Schmitt thresholds, overflow in PID / lag / Kalman / step analysis, parameter names)
     Diagnostics/
       BenchmarkTests.cs
       MetricsRegistryTests.cs
