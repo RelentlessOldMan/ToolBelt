@@ -71,19 +71,34 @@ namespace ToolBelt.Wpf
     /// <summary>
     /// For binding an enum to toggle/radio buttons: <see cref="Convert"/> returns true when the bound value
     /// equals the <c>ConverterParameter</c>; <see cref="ConvertBack"/> returns that parameter when the
-    /// control is checked, or <see cref="Binding.DoNothing"/> otherwise.
+    /// control is checked, or <see cref="Binding.DoNothing"/> otherwise. The parameter may be the enum value itself
+    /// (<c>{x:Static}</c>) or its name as a string (<c>ConverterParameter=Red</c>, as plain XAML passes it).
     /// </summary>
     public sealed class EnumToBooleanConverter : IValueConverter
     {
         public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-            => value is not null && value.Equals(parameter);
+        {
+            if (value is null) return false;
+            if (parameter is string name && value is Enum)
+                return Enum.TryParse(value.GetType(), name, false, out object? parsed) && value.Equals(parsed);
+            return value.Equals(parameter);
+        }
 
         public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-            => value is bool b && b ? parameter : Binding.DoNothing;
+        {
+            if (!(value is bool b && b) || parameter is null) return Binding.DoNothing;
+            if (parameter is string name && targetType != null)
+            {
+                Type enumType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+                if (enumType.IsEnum)
+                    return Enum.TryParse(enumType, name, false, out object? parsed) ? parsed : Binding.DoNothing;
+            }
+            return parameter;
+        }
     }
 
     /// <summary>
-    /// Maps a count to a <see cref="Visibility"/>: a positive <see cref="int"/>, or a non-empty collection /
+    /// Maps a count to a <see cref="Visibility"/>: a positive number (any numeric type), or a non-empty collection /
     /// sequence, becomes Visible; null, zero, or an empty collection becomes Collapsed (or Hidden via
     /// <see cref="UseHidden"/>). <see cref="Invert"/> swaps the sense — handy for "show this when the list is
     /// empty" placeholders. One-way: <see cref="ConvertBack"/> returns <see cref="Binding.DoNothing"/>.
@@ -99,6 +114,16 @@ namespace ToolBelt.Wpf
             {
                 null => false,
                 int n => n > 0,
+                long n => n > 0,
+                uint n => n > 0,
+                ulong n => n > 0,
+                short n => n > 0,
+                ushort n => n > 0,
+                byte n => n > 0,
+                sbyte n => n > 0,
+                double n => n > 0,
+                float n => n > 0,
+                decimal n => n > 0,
                 ICollection c => c.Count > 0,
                 IEnumerable e => HasAny(e),
                 _ => true,

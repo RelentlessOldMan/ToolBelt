@@ -113,7 +113,11 @@ namespace ToolBelt.Wpf
                     ?? throw new InvalidOperationException("The page loader returned null.");
                 if (generation != _generation) return 0; // reset while we were loading: drop the stale page
 
-                foreach (T item in page) Add(item);
+                foreach (T item in page)
+                {
+                    Add(item);
+                    if (generation != _generation) return 0; // a CollectionChanged handler reset the list: drop the rest
+                }
                 LastError = null;
                 if (page.Count < PageSize) HasMoreItems = false;
                 return page.Count;

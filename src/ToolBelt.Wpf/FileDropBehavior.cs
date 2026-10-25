@@ -33,19 +33,20 @@ namespace ToolBelt.Wpf
         public static void SetExtensions(DependencyObject element, string? value) => element.SetValue(ExtensionsProperty, value);
 
         /// <summary>
-        /// The dropped file paths that pass the <paramref name="extensions"/> filter (case-insensitive). With a filter,
-        /// folders are excluded; without one, everything in the drop is returned. Empty when the drop holds no files.
+        /// The dropped file paths that pass the <paramref name="extensions"/> filter (case-insensitive; "*.*" or "*"
+        /// accepts every file). With a filter, folders are excluded — even one whose name ends in a listed extension;
+        /// without one, everything in the drop is returned. Empty when the drop holds no files.
         /// </summary>
         public static string[] GetFiles(IDataObject data, string? extensions)
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
             if (!data.GetDataPresent(DataFormats.FileDrop) || !(data.GetData(DataFormats.FileDrop) is string[] paths))
                 return Array.Empty<string>();
-            var accepted = ParseExtensions(extensions);
-            if (accepted.Count == 0) return paths;
+            var accepted = ParseExtensions(extensions, out bool anyFile);
+            if (accepted.Count == 0 && !anyFile) return paths;
             var result = new List<string>();
             foreach (string p in paths)
-                if (p != null && accepted.Contains(Path.GetExtension(p))) result.Add(p);
+                if (p != null && (anyFile || accepted.Contains(Path.GetExtension(p))) && !Directory.Exists(p)) result.Add(p);
             return result.ToArray();
         }
 
@@ -57,13 +58,15 @@ namespace ToolBelt.Wpf
             return files.Length > 0 && command.CanExecute(files) ? DragDropEffects.Copy : DragDropEffects.None;
         }
 
-        private static HashSet<string> ParseExtensions(string? extensions)
+        private static HashSet<string> ParseExtensions(string? extensions, out bool anyFile)
         {
             var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            anyFile = false;
             if (string.IsNullOrWhiteSpace(extensions)) return set;
             foreach (string raw in extensions!.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 string e = raw.Trim();
+                if (e == "*" || e == "*.*" || e == ".*") { anyFile = true; continue; }
                 if (e.StartsWith("*", StringComparison.Ordinal)) e = e.Substring(1);
                 if (e.Length == 0) continue;
                 set.Add(e.StartsWith(".", StringComparison.Ordinal) ? e : "." + e);

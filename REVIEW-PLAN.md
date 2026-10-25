@@ -56,8 +56,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 1 | 39 / 39 | re-queue (4 severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 1 | 44 / 44 | re-queue (7 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 1 | 35 / 35 | re-queue (7 severe) |
-| 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 0 | – / 0 | **next** |
-| 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 0 | – / 0 | queued |
+| 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 1 | 21 / 21 | re-queue (1 severe) |
+| 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 0 | – / 0 | **next** |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first.
 
@@ -83,6 +83,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.13.0 | 13 | Security, net, time | 39 | (see tag) |
 | v0.14.0 | 14 | Objects, functional, grids, graphs, intervals | 44 | (see tag) |
 | v0.15.0 | 15 | Windows satellite | 35 | (see tag) |
+| v0.16.0 | 16 | WPF satellite | 21 | (see tag) |
 
 ## Round log
 
@@ -820,3 +821,49 @@ and icon path come back silently truncated beyond 260; a target of 260 or more f
 - **Checked build:** not applicable. The satellite's arithmetic is Win32 sizes, which this round now range-checks
   explicitly.
 - **Re-queued:** yes (7 severe).
+
+### Round 16 — 2026-10-25 — WPF satellite
+Reviewers: one for correctness and one for robustness (threading and dispatcher context, re-entrancy from
+`CollectionChanged`, hostile property values, XAML-shaped inputs). **21 confirmed bugs**: 20 with failing-first
+regression tests in `WpfReviewTests`, 1 by inspection. One finding was rejected: `BindingFailureListener` keeps every
+failure, as its doc says, and `Clear` exists.
+
+- **Severe:**
+  - `AsyncRelayCommand` awaited with `ConfigureAwait(false)`, so the end-of-run `CanExecuteChanged` was raised on a
+    pool thread whenever the task really went asynchronous. A bound `Button` then threw a cross-thread exception
+    and stayed disabled. It now resumes on the caller's context.
+- **Moderate:**
+  - `NumericInputBehavior`:
+    - `DecimalPlaces` above 15 made `Math.Round` throw on coercion, focus loss and stepping. Rounding is now capped at
+      15 digits (more are still displayed);
+    - a `Step` of 0, a negative or `NaN` crashed the Up/Down keys and the wheel. `StepBy` now ignores it.
+  - `IncrementalCollection`: a `CollectionChanged` handler that called `ResetAsync` mid-page let the stale page's
+    remaining items be appended to the new list. The load now stops as soon as the generation changes.
+  - `RegexValidationRule` and `RuleBuilder.Matches`: a match past the one-second timeout threw
+    `RegexMatchTimeoutException` out of validation. It now counts as invalid. An invalid `Pattern` threw only on
+    the first validation; the setter now rejects it.
+  - `EnumToBooleanConverter`: a plain XAML `ConverterParameter=Red` is a string, so it never matched, and
+    `ConvertBack` wrote the string back to the enum property. String parameters are now parsed as the enum.
+  - `PlotPresenter`: every `Source` change refitted the figure, discarding the user's zoom and pan on each frame of
+    a live plot. The doc said fitting happens when the source "first becomes known". Only a first source or one of a
+    different size now refits.
+- **Minor:**
+  - `AsyncRelayCommand`: a throwing `CanExecuteChanged` handler left `IsExecuting` stuck at true.
+  - `NumericInputBehavior`:
+    - a 400-digit paste was accepted and coerced to "∞";
+    - `StepValue("5", -1, 0.5)` with no decimals returned "5": 4.5 rounded back. A sub-unit step now moves one unit;
+    - "50000" was accepted for the range [−100, −10] although even "−50000" is out of range.
+  - `CountToVisibilityConverter` showed `0L`, `0.0`, `0u` and other non-`int` zero counts as Visible.
+  - `FileDropBehavior`: a folder named `x.csv` passed the `.csv` filter, although the doc says folders are excluded.
+    `"*.*"` became `".*"`, which matched nothing; `"*.*"` and `"*"` now accept every file.
+  - `PlotPresenter`:
+    - a non-positive or `NaN` `WheelFactor` crashed `OnMouseWheel`; the setter now rejects it;
+    - a huge wheel delta could overflow the power (by inspection);
+    - `ZoomAbout` with `minZoom` 0 could produce a scale WPF cannot invert (below about 5e-8, where
+      `Matrix.HasInverse` treats the determinant as zero), so panning and `ViewToContent` threw. Such a zoom now
+      leaves the view unchanged.
+  - `ThemeManager.Apply`:
+    - set `Requested` before resolving the dictionary, so a failed apply of an unregistered theme left it wrong;
+    - with one dictionary registered for both themes, it never updated `Effective` or raised `ThemeChanged`.
+- **Checked build:** not applicable (satellite).
+- **Re-queued:** yes (21 bugs, 1 severe).

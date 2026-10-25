@@ -13,7 +13,7 @@ namespace ToolBelt.Wpf
         public double Minimum { get; set; } = double.NegativeInfinity;
         public double Maximum { get; set; } = double.PositiveInfinity;
 
-        /// <summary>Digits allowed after the decimal separator; 0 means whole numbers only.</summary>
+        /// <summary>Digits allowed after the decimal separator; 0 means whole numbers only (values round to at most 15).</summary>
         public int DecimalPlaces { get; set; }
 
         /// <summary>Supplies the decimal separator and negative sign; defaults to the current culture.</summary>
@@ -104,14 +104,17 @@ namespace ToolBelt.Wpf
 
             // A value already past a limit can only move further away as more digits are typed.
             double v = ParseLoose(text, nf);
-            if (!negative && rules.Maximum >= 0 && v > rules.Maximum) return false;
+            if (double.IsInfinity(v)) return false; // more digits than a double holds
+            // A positive value above a negative maximum is still reachable by typing a sign in front, unless even its
+            // negation is below the minimum.
+            if (!negative && v > rules.Maximum && (rules.Maximum >= 0 || -v < rules.Minimum)) return false;
             if (negative && rules.Minimum <= 0 && v < rules.Minimum) return false;
             return true;
         }
 
         /// <summary>
         /// Parses, clamps to [Minimum, Maximum], rounds to <see cref="NumericInputRules.DecimalPlaces"/> and formats.
-        /// Returns null when the text holds no number (empty, a lone sign, ...).
+        /// Returns null when the text holds no number (empty, a lone sign, a value too large for a double, ...).
         /// </summary>
         public static string? Coerce(string text, NumericInputRules rules)
         {
@@ -119,32 +122,45 @@ namespace ToolBelt.Wpf
             if (rules is null) throw new ArgumentNullException(nameof(rules));
             if (!double.TryParse(AsciiMinus(text, rules.Format), NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, rules.Format, out double v))
                 return null;
-            return Format(Clamp(Math.Round(v, Math.Max(0, rules.DecimalPlaces), MidpointRounding.AwayFromZero), rules), rules);
+            if (double.IsInfinity(v) || double.IsNaN(v)) return null;
+            return Format(Clamp(Round(v, rules), rules), rules);
         }
 
         /// <summary>
         /// Adds <paramref name="direction"/> × <paramref name="step"/> to the value in <paramref name="text"/> (an empty or
-        /// unparsable box starts from 0, or the nearest limit if 0 is out of range), clamps and formats.
+        /// unparsable box starts from 0, or the nearest limit if 0 is out of range), clamps and formats. A step smaller
+        /// than the displayed precision still moves the value by one unit of the last decimal place.
         /// </summary>
         public static string StepValue(string text, int direction, double step, NumericInputRules rules)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
             if (rules is null) throw new ArgumentNullException(nameof(rules));
             if (!(step > 0) || double.IsInfinity(step)) throw new ArgumentOutOfRangeException(nameof(step), step, "Step must be positive.");
-            double v = double.TryParse(AsciiMinus(text, rules.Format), NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, rules.Format, out double parsed)
-                ? parsed + Math.Sign(direction) * step
-                : 0;
-            v = Math.Round(v, Math.Max(0, rules.DecimalPlaces), MidpointRounding.AwayFromZero);
+            double v = 0;
+            if (double.TryParse(AsciiMinus(text, rules.Format), NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, rules.Format, out double parsed)
+                && !double.IsInfinity(parsed) && !double.IsNaN(parsed))
+            {
+                int sign = Math.Sign(direction);
+                double start = Round(parsed, rules);
+                v = Round(parsed + sign * step, rules);
+                // A step under half a display unit would round straight back (5 − 0.5 → 4.5 → 5): move one unit instead.
+                if (sign != 0 && v == start) v = Round(start + sign * Math.Pow(10, -RoundingDigits(rules)), rules);
+            }
             return Format(Clamp(v, rules), rules);
         }
 
         // ---------- driving a TextBox ----------
 
-        /// <summary>Steps the box's value up (+1) or down (−1) by its <c>Step</c>, selecting the result.</summary>
+        /// <summary>
+        /// Steps the box's value up (+1) or down (−1) by its <c>Step</c>, selecting the result. A <c>Step</c> that is not a
+        /// positive finite number does nothing (the arrow keys and wheel call this, so a bad binding must not crash input).
+        /// </summary>
         public static void StepBy(TextBox box, int direction)
         {
             if (box is null) throw new ArgumentNullException(nameof(box));
-            box.Text = StepValue(box.Text ?? "", direction, GetStep(box), RulesFor(box));
+            double step = GetStep(box);
+            if (!(step > 0) || double.IsInfinity(step)) return;
+            box.Text = StepValue(box.Text ?? "", direction, step, RulesFor(box));
             box.CaretIndex = box.Text.Length;
         }
 
@@ -248,6 +264,11 @@ namespace ToolBelt.Wpf
         {
             if (sender is TextBox box) Normalize(box);
         }
+
+        // Math.Round takes at most 15 digits; more decimal places are still displayed (as zeros).
+        private static int RoundingDigits(NumericInputRules r) => Math.Min(15, Math.Max(0, r.DecimalPlaces));
+
+        private static double Round(double v, NumericInputRules r) => Math.Round(v, RoundingDigits(r), MidpointRounding.AwayFromZero);
 
         private static double Clamp(double v, NumericInputRules r) => v < r.Minimum ? r.Minimum : (v > r.Maximum ? r.Maximum : v);
 

@@ -11,7 +11,8 @@ namespace ToolBelt.Wpf
     /// disabled and the operation cannot re-enter. Await <see cref="ExecuteAsync"/> directly in tests or
     /// callers; the <see cref="ICommand.Execute(object)"/> entry point is fire-and-forget (async void), the
     /// standard shape for binding. As with <see cref="RelayCommand"/>, raise
-    /// <see cref="RaiseCanExecuteChanged"/> yourself — no dispatcher dependency.
+    /// <see cref="RaiseCanExecuteChanged"/> yourself — no dispatcher dependency. The command resumes on the caller's
+    /// context, so the end-of-run <see cref="CanExecuteChanged"/> is raised on the UI thread that started it.
     ///
     /// <para>Intended for use on a single UI thread: the re-entrancy guard is not synchronised, so concurrent
     /// invocations from different threads are not protected. An unhandled exception from the task is not
@@ -36,7 +37,7 @@ namespace ToolBelt.Wpf
 
         public bool CanExecute(object? parameter) => !_isExecuting && (_canExecute?.Invoke() ?? true);
 
-        async void ICommand.Execute(object? parameter) => await ExecuteAsync().ConfigureAwait(false);
+        async void ICommand.Execute(object? parameter) => await ExecuteAsync();
 
         /// <summary>Runs the command if it can execute; no-ops if it is already running or disabled.</summary>
         public async Task ExecuteAsync()
@@ -44,10 +45,10 @@ namespace ToolBelt.Wpf
             if (!CanExecute(null))
                 return;
             _isExecuting = true;
-            RaiseCanExecuteChanged();
             try
             {
-                await _execute().ConfigureAwait(false);
+                RaiseCanExecuteChanged();
+                await _execute();   // no ConfigureAwait(false): the finally below must raise CanExecuteChanged on the UI thread
             }
             finally
             {

@@ -11,7 +11,8 @@ namespace ToolBelt.Wpf
     /// Displays a figure — any <see cref="ImageSource"/>: a <see cref="BitmapSource"/> for raster plots, a
     /// <see cref="DrawingImage"/> for vector content — with zoom and pan: the mouse wheel zooms about the cursor, a
     /// left-button drag pans, a double-click fits the figure to the view. The figure is fitted automatically when the
-    /// source or the control's size first becomes known. With <see cref="Smooth"/> off (the default) bitmaps are
+    /// source or the control's size first becomes known, and when a source of a different size replaces it; a
+    /// same-size source (a live plot's next frame) keeps the current zoom and pan. With <see cref="Smooth"/> off (the default) bitmaps are
     /// scaled nearest-neighbour, so individual cells of a heat map or waterfall stay crisp when zoomed.
     /// <para>
     /// Template-free (a <see cref="FrameworkElement"/> that draws itself), so it needs no theme resources. The view is
@@ -25,7 +26,8 @@ namespace ToolBelt.Wpf
     {
         public static readonly DependencyProperty SourceProperty = DependencyProperty.Register(
             nameof(Source), typeof(ImageSource), typeof(PlotPresenter),
-            new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, (d, e) => ((PlotPresenter)d)._fitPending = true));
+            new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender,
+                (d, e) => ((PlotPresenter)d).OnSourceChanged((ImageSource?)e.OldValue, (ImageSource?)e.NewValue)));
 
         public static readonly DependencyProperty SmoothProperty = DependencyProperty.Register(
             nameof(Smooth), typeof(bool), typeof(PlotPresenter),
@@ -38,6 +40,7 @@ namespace ToolBelt.Wpf
         private Matrix _view = Matrix.Identity;
         private bool _fitPending = true;
         private Point? _dragFrom;
+        private double _wheelFactor = 1.2;
 
         public PlotPresenter()
         {
@@ -69,8 +72,14 @@ namespace ToolBelt.Wpf
         public double MinZoom { get; set; } = 0.02;
         public double MaxZoom { get; set; } = 64;
 
-        /// <summary>Zoom multiplier per mouse-wheel notch.</summary>
-        public double WheelFactor { get; set; } = 1.2;
+        /// <summary>Zoom multiplier per mouse-wheel notch: a positive finite number (below 1 reverses the wheel).</summary>
+        public double WheelFactor
+        {
+            get => _wheelFactor;
+            set => _wheelFactor = value > 0 && !double.IsInfinity(value)
+                ? value
+                : throw new ArgumentOutOfRangeException(nameof(value), value, "WheelFactor must be a positive finite number.");
+        }
 
         /// <summary>Figure → control coordinates.</summary>
         public Matrix ViewTransform => _view;
@@ -130,7 +139,8 @@ namespace ToolBelt.Wpf
         /// <summary>
         /// The view after zooming <paramref name="view"/> by <paramref name="factor"/> about <paramref name="viewPoint"/>,
         /// with the resulting scale clamped to [<paramref name="minZoom"/>, <paramref name="maxZoom"/>]. The figure point
-        /// under <paramref name="viewPoint"/> stays under it.
+        /// under <paramref name="viewPoint"/> stays under it. A zoom that would leave the view non-invertible (WPF treats
+        /// a scale below about 5e-8 as singular) returns <paramref name="view"/> unchanged.
         /// </summary>
         public static Matrix ZoomAbout(Matrix view, Point viewPoint, double factor, double minZoom = 0, double maxZoom = double.MaxValue)
         {
@@ -138,9 +148,10 @@ namespace ToolBelt.Wpf
             double current = view.M11;
             double target = Clamp(current * factor, minZoom, maxZoom);
             double f = target / current;
+            if (double.IsNaN(f) || double.IsInfinity(f)) return view;
             Matrix m = view;
             m.ScaleAt(f, f, viewPoint.X, viewPoint.Y);
-            return m;
+            return m.HasInverse ? m : view;   // ViewToContent and panning invert the view
         }
 
         /// <summary>The uniform scale-and-centre transform that fits <paramref name="content"/> inside <paramref name="viewport"/>.</summary>
@@ -194,11 +205,19 @@ namespace ToolBelt.Wpf
             if (_fitPending) FitToView();
         }
 
+        // A new figure of the same size (a live plot's next frame) keeps the user's zoom and pan; a first or resized one is fitted.
+        private void OnSourceChanged(ImageSource? old, ImageSource? now)
+        {
+            if (old is null || now is null || old.Width != now.Width || old.Height != now.Height) _fitPending = true;
+        }
+
         protected override void OnMouseWheel(MouseWheelEventArgs e)
         {
             base.OnMouseWheel(e);
             if (Source is null || e.Delta == 0) return;
-            ZoomAt(e.GetPosition(this), Math.Pow(WheelFactor, e.Delta / 120.0));
+            double factor = Math.Pow(WheelFactor, e.Delta / 120.0);
+            if (!(factor > 0) || double.IsInfinity(factor)) return;   // a huge delta can overflow or underflow the power
+            ZoomAt(e.GetPosition(this), factor);
             e.Handled = true;
         }
 

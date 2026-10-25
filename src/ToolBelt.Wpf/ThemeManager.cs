@@ -102,10 +102,16 @@ namespace ToolBelt.Wpf
         public void Apply(AppTheme theme)
         {
             ThrowIfDisposed();
-            Requested = theme;
             AppTheme effective = theme == AppTheme.System ? GetSystemTheme() : theme;
-            ResourceDictionary dictionary = Resolve(effective);
-            if (ReferenceEquals(dictionary, _applied)) return;
+            ResourceDictionary dictionary = Resolve(effective);   // throws for an unregistered theme: change nothing first
+            Requested = theme;
+            if (ReferenceEquals(dictionary, _applied))
+            {
+                if (Effective == effective) return;
+                Effective = effective;                            // one dictionary registered for both themes
+                ThemeChanged?.Invoke(this, effective);
+                return;
+            }
 
             var merged = _target.MergedDictionaries;
             int index = _applied is null ? -1 : merged.IndexOf(_applied);

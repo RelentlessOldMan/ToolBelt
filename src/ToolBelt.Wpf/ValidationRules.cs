@@ -141,11 +141,15 @@ namespace ToolBelt.Wpf
         public RuleBuilder<T> MaxLength(int length, string? message = null)
             => Must(v => v is not string s || s.Length <= length, message ?? $"{_property} must be at most {length} characters.");
 
-        /// <summary>The string matches <paramref name="pattern"/> (whole value; null/empty passes).</summary>
+        /// <summary>
+        /// The string matches <paramref name="pattern"/> (whole value; null/empty passes). A match that runs past the
+        /// one-second timeout counts as a failure.
+        /// </summary>
         public RuleBuilder<T> Matches(string pattern, string? message = null)
         {
+            if (pattern is null) throw new ArgumentNullException(nameof(pattern));
             var regex = new Regex("^(?:" + pattern + ")$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
-            return Must(v => v is not string s || s.Length == 0 || regex.IsMatch(s), message ?? $"{_property} has an invalid format.");
+            return Must(v => v is not string s || s.Length == 0 || RegexValidationRule.SafeIsMatch(regex, s), message ?? $"{_property} has an invalid format.");
         }
 
         /// <summary>Re-validate this property whenever <paramref name="otherProperties"/> change (cross-field rules).</summary>
@@ -218,7 +222,10 @@ namespace ToolBelt.Wpf
         }
     }
 
-    /// <summary>Binding rule: the text matches a regular expression (whole value).</summary>
+    /// <summary>
+    /// Binding rule: the text matches a regular expression (whole value). An invalid <see cref="Pattern"/> is rejected
+    /// when set; a match that runs past the one-second timeout counts as invalid.
+    /// </summary>
     public sealed class RegexValidationRule : ValidationRule
     {
         private Regex? _regex;
@@ -227,7 +234,15 @@ namespace ToolBelt.Wpf
         public string Pattern
         {
             get => _pattern;
-            set { _pattern = value ?? throw new ArgumentNullException(nameof(value)); _regex = null; }
+            set
+            {
+                if (value is null) throw new ArgumentNullException(nameof(value));
+                Regex regex;
+                try { regex = Build(value); }
+                catch (ArgumentException ex) { throw new ArgumentException("Invalid regular expression: " + ex.Message, nameof(value), ex); }
+                _pattern = value;
+                _regex = regex;
+            }
         }
 
         public string Message { get; set; } = "Invalid format.";
@@ -237,8 +252,17 @@ namespace ToolBelt.Wpf
         {
             string text = Convert.ToString(value, cultureInfo) ?? "";
             if (text.Length == 0 && AllowEmpty) return ValidationResult.ValidResult;
-            _regex ??= new Regex("^(?:" + _pattern + ")$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
-            return _regex.IsMatch(text) ? ValidationResult.ValidResult : new ValidationResult(false, Message);
+            _regex ??= Build(_pattern);
+            return SafeIsMatch(_regex, text) ? ValidationResult.ValidResult : new ValidationResult(false, Message);
+        }
+
+        private static Regex Build(string pattern) => new Regex("^(?:" + pattern + ")$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+
+        // A runaway pattern must not throw out of validation (a binding would surface it as a crash): treat it as no match.
+        internal static bool SafeIsMatch(Regex regex, string text)
+        {
+            try { return regex.IsMatch(text); }
+            catch (RegexMatchTimeoutException) { return false; }
         }
     }
 }

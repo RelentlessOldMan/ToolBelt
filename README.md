@@ -609,7 +609,7 @@ src/
     ValidationObservableObject.cs  INotifyDataErrorInfo + INotifyPropertyChanged validation base
     ValidationRules.cs      fluent rule sets (Required/Range/Length/Matches/Must/DependsOn) + RuleValidatedObject + XAML rules
     BindingDiagnostics.cs   BindingFailureListener (surface or throw on binding errors) + pass-through DebugConverter
-    ValueConverters.cs      common IValueConverters (bool/visibility/null/enum/count)
+    ValueConverters.cs      common IValueConverters (bool/visibility/null/enum by value or name/count)
     MultiValueConverters.cs IMultiValueConverters (boolean AND / OR for MultiBinding)
     BindingProxy.cs         Freezable DataContext bridge for out-of-tree bindings
     Messenger.cs            thread-safe WEAK-reference pub/sub (recipient-keyed, no forgotten-unsubscribe leak)
@@ -1014,6 +1014,7 @@ tests/
     GlobalHotkeysTests.cs
     ThemeManagerTests.cs
     PlotPresenterTests.cs
+    WpfReviewTests.cs       (round 16 review regressions: command threading, numeric input, paging reset, regex timeouts, converters)
   ToolBelt.WinForms.Tests/  WinForms UI satellite tests (net8.0-windows)
     ControlExtensionsTests.cs
     ControlTreeExtensionsTests.cs
