@@ -57,10 +57,13 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 2 | 19 / 63 | re-queue (4 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 2 | 26 / 61 | re-queue (1 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 2 | 17 / 38 | re-queue (17 bugs) |
-| 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
+| 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 2 | 12 / 36 | re-queue (12 bugs) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17). **next: 17**
+5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
+
+Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
+7, 4, 5, 14, 2, 8, 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 7**
 
 ## Releases
 
@@ -102,6 +105,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.31.0 | 31 | Signal analysis, second pass | 23 | (see tag) |
 | v0.32.0 | 32 | Text & small types, second pass | 12 | (see tag) |
 | v0.33.0 | 33 | WPF satellite, second pass | 17 | (see tag) |
+| v0.34.0 | 34 | WinForms + tooling + docs, second pass | 12 | (see tag) |
 
 ## Round log
 
@@ -1477,3 +1481,40 @@ failing-first regression test in `WpfReview2Tests` (17 tests, all failing on the
   case-sensitive.
 - **Verify:** all green (WPF 134).
 - **Re-queued:** yes (17 bugs).
+
+### Round 34 — 2026-10-25 — WinForms + tooling + docs, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 17 with 1 severe).
+None of round 17's 24 fixes had regressed. **12 confirmed bugs**, none severe, plus 2 doc fixes and a hygiene fix, each
+bug with a failing-first regression test in `WinFormsReview2Tests` (12 tests, all failing on the old code).
+
+- **DataGridViewExtensions.SaveCsv:** an invalid delimiter was rejected only after the StreamWriter had truncated the
+  file (round 17 fixed the same for a null grid).
+- **PlotPictureBox:** `ZoomAt`/`ZoomAbout` took a NaN or infinite point (and an infinite zoom), and the next paint threw
+  in WM_PAINT; `PanBy(3e38)` twice gave an infinite offset. Far from the origin (offsets past ~2^31, e.g. deep zoom)
+  GDI+ threw OverflowException on every paint; it now draws only the whole source pixels in view, and fills their
+  blocks when each spans millions of view pixels. `Paint` handlers ran before the image was drawn, so the overlays the
+  class doc suggests were hidden. ResetView ignored MinZoom/MaxZoom, and a zoom-in on a view above a lowered MaxZoom
+  zoomed out; ResetView now clamps, a clamp never reverses the zoom direction, and the doc says MinZoom wins.
+- **ControlExtensions:** for a control with no handle (a ShowDialog form closed but not disposed), InvokeRequired is
+  false, so a worker ran the action itself and created child windows on the worker thread. On a non-STA thread the
+  synchronous helpers now throw InvalidOperationException and BeginInvokeIfRequired drops the action.
+- **MenuItemsBuilder.Item / ToolStripBuilder.Button (ICommand):** `Item("&Save", cmd, "Ctrl+S")` compiled but passed
+  "Ctrl+S" as the command parameter with no shortcut (and `Button(text, cmd, image)` passed the image); the optional
+  arguments now come in the Action overload's order, with `parameter` last. **Breaking** for positional parameters.
+- **MenuBuilder.FindItem:** "File/" matched a separator (empty text); separators are never matched.
+- **MenuShortcut:** TryParse took non-ASCII digits ("Ctrl+٣" gave Keys 0x20663); Parse(null) threw FormatException. The
+  doc's "exactly what ShortcutKeys accepts" now names the mouse buttons it deliberately rejects. Check's doc said the
+  callback runs after each click; it also runs when Checked is set.
+- **TestRunner / scripts/test.ps1:** a filter matching nothing printed ALL GREEN and exited 0, so a typo passed. The
+  runner exits 3 (`TestRunner.NoMatch`) and test.ps1 fails only when no suite matched.
+- **Hygiene:** `scripts/__pycache__/*.pyc` was committed; removed and ignored.
+- **Rejected:** "packaging contradicts design law 2" — the law's "never packaged" is about third-party satellites
+  (MathChecks), not the src projects.
+- **Not fixed:** a lost mouse capture mid-drag is not handled (OnMouseCaptureChanged; not reproduced with real
+  input); WaitCursorScope's counter is not exception-safe if the UseWaitCursor setter throws (not reproduced);
+  CommandBinding sets Enabled on the thread raising CanExecuteChanged (undocumented); EnsureOnScreen can leave 1 px of
+  caption visible; TryParse takes "Ctrl+Ctrl+S" and rejects "Ctrl+-"; a null command orphans a menu item before the
+  throw; the nupkgs carry placeholder metadata (description, license); under coverage, ChartsReview2Tests'
+  wide-dash annotation test hit its time budget once.
+- **Verify:** all green (WinForms 82). Checked build skipped (core unchanged).
+- **Re-queued:** yes (12 bugs). This completes the second pass; the third pass starts with section 7.

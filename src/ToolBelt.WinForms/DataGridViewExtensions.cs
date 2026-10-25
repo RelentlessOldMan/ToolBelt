@@ -146,6 +146,7 @@ namespace ToolBelt.WinForms
         {
             if (grid is null) throw new ArgumentNullException(nameof(grid)); // before opening: the open truncates the file
             if (path is null) throw new ArgumentNullException(nameof(path));
+            if (delimiter == '"' || delimiter == '\r' || delimiter == '\n') throw new ArgumentException("Invalid delimiter.", nameof(delimiter));
             using var writer = new StreamWriter(path, false, encoding ?? new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             grid.ToCsv(writer, includeHeaders, true, delimiter);
         }

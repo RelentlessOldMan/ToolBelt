@@ -54,10 +54,13 @@ namespace ToolBelt.WinForms
 
         public double Zoom { get; private set; } = 1;
         public PointF Offset { get; private set; }
-        /// <summary>The smallest zoom the wheel or <see cref="ZoomAt"/> reaches; positive and finite.</summary>
+        /// <summary>
+        /// The smallest zoom the wheel, <see cref="ZoomAt"/>, <see cref="FitToView"/> and <see cref="ResetView"/> reach;
+        /// positive and finite. Above <see cref="MaxZoom"/> it wins. Changing a limit applies from the next zoom.
+        /// </summary>
         public double MinZoom { get => _minZoom; set => _minZoom = PositiveFinite(value); }
 
-        /// <summary>The largest zoom the wheel or <see cref="ZoomAt"/> reaches; positive and finite.</summary>
+        /// <summary>The largest zoom the wheel, <see cref="ZoomAt"/>, <see cref="FitToView"/> and <see cref="ResetView"/> reach; positive and finite.</summary>
         public double MaxZoom { get => _maxZoom; set => _maxZoom = PositiveFinite(value); }
 
         /// <summary>Zoom per wheel notch; positive and finite (above 1 zooms in on wheel-up).</summary>
@@ -78,6 +81,8 @@ namespace ToolBelt.WinForms
         /// <summary>Zooms by <paramref name="factor"/> keeping <paramref name="viewPoint"/> fixed.</summary>
         public void ZoomAt(PointF viewPoint, double factor)
         {
+            if (!float.IsFinite(viewPoint.X) || !float.IsFinite(viewPoint.Y))
+                throw new ArgumentOutOfRangeException(nameof(viewPoint), viewPoint, "Must be finite.");
             var (zoom, offset) = ZoomAbout(Zoom, Offset, viewPoint, factor, MinZoom, MaxZoom);
             _userAdjusted = true;
             SetView(zoom, offset);
@@ -87,8 +92,11 @@ namespace ToolBelt.WinForms
         {
             if (!float.IsFinite(dx)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Must be finite.");
             if (!float.IsFinite(dy)) throw new ArgumentOutOfRangeException(nameof(dy), dy, "Must be finite.");
+            var offset = new PointF(Offset.X + dx, Offset.Y + dy);
+            if (!float.IsFinite(offset.X)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "The offset would overflow.");
+            if (!float.IsFinite(offset.Y)) throw new ArgumentOutOfRangeException(nameof(dy), dy, "The offset would overflow.");
             _userAdjusted = true;
-            SetView(Zoom, new PointF(Offset.X + dx, Offset.Y + dy));
+            SetView(Zoom, offset);
         }
 
         /// <summary>Fits the image to the control, centred, preserving aspect ratio (and resumes auto-fit on resize).</summary>
@@ -103,25 +111,29 @@ namespace ToolBelt.WinForms
             SetView(clamped, offset);
         }
 
-        /// <summary>1:1 at the top-left corner.</summary>
+        /// <summary>1:1 at the top-left corner (or the nearest zoom the limits allow).</summary>
         public void ResetView()
         {
             _userAdjusted = true;
-            SetView(1, PointF.Empty);
+            SetView(Math.Max(MinZoom, Math.Min(MaxZoom, 1)), PointF.Empty);
         }
 
         // ---------- pure view math ----------
 
         /// <summary>
         /// The (zoom, offset) after zooming by <paramref name="factor"/> about <paramref name="at"/>, clamped to [min, max].
-        /// A zoom that would leave (0, ∞) — e.g. underflow with <paramref name="minZoom"/> 0 — leaves the view unchanged.
+        /// A zoom that would leave (0, ∞) — e.g. underflow with <paramref name="minZoom"/> 0 — leaves the view unchanged, and
+        /// so does a clamp that would reverse the direction (zooming in on a view already above <paramref name="maxZoom"/>).
         /// </summary>
         public static (double Zoom, PointF Offset) ZoomAbout(double zoom, PointF offset, PointF at, double factor, double minZoom = 0, double maxZoom = double.MaxValue)
         {
-            if (!(zoom > 0)) throw new ArgumentOutOfRangeException(nameof(zoom), zoom, "Zoom must be positive.");
+            if (!(zoom > 0) || double.IsInfinity(zoom)) throw new ArgumentOutOfRangeException(nameof(zoom), zoom, "Zoom must be positive and finite.");
+            if (!float.IsFinite(offset.X) || !float.IsFinite(offset.Y)) throw new ArgumentOutOfRangeException(nameof(offset), offset, "Must be finite.");
+            if (!float.IsFinite(at.X) || !float.IsFinite(at.Y)) throw new ArgumentOutOfRangeException(nameof(at), at, "Must be finite.");
             if (!(factor > 0) || double.IsInfinity(factor)) throw new ArgumentOutOfRangeException(nameof(factor), factor, "Factor must be positive.");
             double target = Math.Max(minZoom, Math.Min(maxZoom, zoom * factor));
             if (!(target > 0) || double.IsInfinity(target)) return (zoom, offset);
+            if (factor > 1 ? target < zoom : target > zoom) return (zoom, offset);
             double f = target / zoom;
             // The content point under `at` must stay under it: at = c·z + o = c·z' + o'.
             var o = new PointF((float)(at.X - (at.X - offset.X) * f), (float)(at.Y - (at.Y - offset.Y) * f));
@@ -183,13 +195,57 @@ namespace ToolBelt.WinForms
 
         protected override void OnPaint(PaintEventArgs e)
         {
+            // The image first, then the Paint event, so handlers draw overlays (via ContentToView) on top of it.
+            if (_image is not null) DrawImage(e, _image);
             base.OnPaint(e);
-            if (_image is null) return;
+        }
+
+        private void DrawImage(PaintEventArgs e, Image image)
+        {
             Graphics g = e.Graphics;
             g.InterpolationMode = _smooth ? InterpolationMode.HighQualityBicubic : InterpolationMode.NearestNeighbor;
             g.PixelOffsetMode = _smooth ? PixelOffsetMode.HighQuality : PixelOffsetMode.Half; // Half: no half-pixel shift
-            g.DrawImage(_image, new RectangleF(Offset.X, Offset.Y, (float)(_image.Width * Zoom), (float)(_image.Height * Zoom)));
+            double x = Offset.X, y = Offset.Y, w = image.Width * Zoom, h = image.Height * Zoom;
+            if (Math.Max(Math.Max(Math.Abs(x), Math.Abs(y)), Math.Max(Math.Abs(x + w), Math.Abs(y + h))) <= SafeCoordinate)
+            {
+                g.DrawImage(image, new RectangleF((float)x, (float)y, (float)w, (float)h));
+                return;
+            }
+            // Far off the origin (deep zoom, long pan) GDI+ overflows on the full destination rectangle: draw only the
+            // whole source pixels in view.
+            Rectangle clip = e.ClipRectangle;
+            double z = Zoom;
+            int c0 = SourceIndex(Math.Floor((clip.Left - x) / z), image.Width), c1 = SourceIndex(Math.Ceiling((clip.Right - x) / z), image.Width);
+            int r0 = SourceIndex(Math.Floor((clip.Top - y) / z), image.Height), r1 = SourceIndex(Math.Ceiling((clip.Bottom - y) / z), image.Height);
+            if (c1 <= c0 || r1 <= r0) return;
+            double dx = x + c0 * z, dy = y + r0 * z, dr = x + c1 * z, db = y + r1 * z;
+            if (Math.Max(Math.Max(Math.Abs(dx), Math.Abs(dy)), Math.Max(Math.Abs(dr), Math.Abs(db))) <= SafeCoordinate)
+            {
+                g.DrawImage(image, new RectangleF((float)dx, (float)dy, (float)(dr - dx), (float)(db - dy)),
+                    new RectangleF(c0, r0, c1 - c0, r1 - r0), GraphicsUnit.Pixel);
+                return;
+            }
+            // Each source pixel spans millions of view pixels, so only a few are in view: fill their blocks.
+            using var pixels = new Bitmap(c1 - c0, r1 - r0, PixelFormat.Format32bppArgb);
+            using (var pg = Graphics.FromImage(pixels))
+            {
+                pg.CompositingMode = CompositingMode.SourceCopy;
+                pg.DrawImage(image, new Rectangle(0, 0, c1 - c0, r1 - r0), c0, r0, c1 - c0, r1 - r0, GraphicsUnit.Pixel);
+            }
+            for (int j = 0; j < r1 - r0; j++)
+                for (int i = 0; i < c1 - c0; i++)
+                {
+                    double l = Math.Max(x + (c0 + i) * z, clip.Left), t = Math.Max(y + (r0 + j) * z, clip.Top);
+                    double r = Math.Min(x + (c0 + i + 1) * z, clip.Right), b = Math.Min(y + (r0 + j + 1) * z, clip.Bottom);
+                    if (!(r > l && b > t)) continue;
+                    using var brush = new SolidBrush(pixels.GetPixel(i, j));
+                    g.FillRectangle(brush, (float)l, (float)t, (float)(r - l), (float)(b - t));
+                }
         }
+
+        private static int SourceIndex(double index, int size) => (int)Math.Max(0, Math.Min(size, index));
+
+        private const double SafeCoordinate = 1 << 22;
 
         protected override void OnResize(EventArgs e)
         {

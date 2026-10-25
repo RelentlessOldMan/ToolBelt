@@ -10,9 +10,10 @@ using System.Windows.Input;
 namespace ToolBelt.WinForms
 {
     /// <summary>
-    /// Parses and formats menu shortcuts such as <c>"Ctrl+Shift+S"</c> or <c>"F5"</c>. Accepts exactly what a menu item's
-    /// <see cref="ToolStripMenuItem.ShortcutKeys"/> accepts (<see cref="ToolStripManager.IsValidShortcut"/>): a key with
-    /// Ctrl or Alt, or a function key, Insert or Delete on its own or with any modifiers.
+    /// Parses and formats menu shortcuts such as <c>"Ctrl+Shift+S"</c> or <c>"F5"</c>. Accepts what a menu item's
+    /// <see cref="ToolStripMenuItem.ShortcutKeys"/> accepts (<see cref="ToolStripManager.IsValidShortcut"/>) — a key with
+    /// Ctrl or Alt, or a function key, Insert or Delete on its own or with any modifiers — except mouse buttons
+    /// (LButton, RButton, MButton, XButton1/2), which WinForms takes but no keyboard can press.
     /// </summary>
     public static class MenuShortcut
     {
@@ -22,6 +23,7 @@ namespace ToolBelt.WinForms
         /// </summary>
         public static Keys Parse(string text)
         {
+            if (text is null) throw new ArgumentNullException(nameof(text));
             if (!TryParse(text, out Keys keys)) throw new FormatException($"'{text}' is not a valid shortcut.");
             return keys;
         }
@@ -46,7 +48,7 @@ namespace ToolBelt.WinForms
             }
             string k = parts[parts.Length - 1].Trim();
             Keys key = Keys.None;
-            if (k.Length == 1 && char.IsDigit(k[0])) key = Keys.D0 + (k[0] - '0');
+            if (k.Length == 1 && k[0] >= '0' && k[0] <= '9') key = Keys.D0 + (k[0] - '0');
             else if (k.Equals("Del", StringComparison.OrdinalIgnoreCase)) key = Keys.Delete;
             else if (k.Equals("Esc", StringComparison.OrdinalIgnoreCase)) key = Keys.Escape;
             else
@@ -131,8 +133,11 @@ namespace ToolBelt.WinForms
             return this;
         }
 
-        /// <summary>An item bound to <paramref name="command"/>: clicking executes it, and Enabled tracks CanExecute.</summary>
-        public MenuItemsBuilder Item(string text, ICommand command, object? parameter = null, string? shortcut = null, Image? image = null, string? name = null)
+        /// <summary>
+        /// An item bound to <paramref name="command"/>: clicking executes it with <paramref name="parameter"/>, and Enabled
+        /// tracks CanExecute. The optional arguments come in the same order as the <see cref="Action"/> overload's.
+        /// </summary>
+        public MenuItemsBuilder Item(string text, ICommand command, string? shortcut = null, Image? image = null, string? name = null, object? parameter = null)
         {
             var item = Create(text, shortcut, image, name);
             CommandBinding.Bind(item, command, parameter);
@@ -140,7 +145,7 @@ namespace ToolBelt.WinForms
             return this;
         }
 
-        /// <summary>A check item; <paramref name="onChanged"/> receives the new state after each click.</summary>
+        /// <summary>A check item; <paramref name="onChanged"/> receives the new state after each change (a click, or setting Checked).</summary>
         public MenuItemsBuilder Check(string text, bool isChecked, Action<bool> onChanged, string? shortcut = null, string? name = null)
         {
             if (onChanged is null) throw new ArgumentNullException(nameof(onChanged));
@@ -224,6 +229,7 @@ namespace ToolBelt.WinForms
 
         /// <summary>
         /// Finds an item by its path of texts, ignoring mnemonics and case, e.g. <c>"File/Recent/report.csv"</c>; null if absent.
+        /// Separators are never matched, and an item whose text contains "/" cannot be named.
         /// </summary>
         public static ToolStripItem? FindItem(ToolStrip strip, string path)
         {
@@ -235,7 +241,7 @@ namespace ToolBelt.WinForms
             {
                 found = null;
                 foreach (ToolStripItem candidate in items)
-                    if (string.Equals(PlainText(candidate.Text ?? ""), segment.Trim(), StringComparison.OrdinalIgnoreCase)) { found = candidate; break; }
+                    if (candidate is not ToolStripSeparator && string.Equals(PlainText(candidate.Text ?? ""), segment.Trim(), StringComparison.OrdinalIgnoreCase)) { found = candidate; break; }
                 if (found is null) return null;
                 items = found is ToolStripDropDownItem dd ? dd.DropDownItems : new ToolStripItemCollection(strip, Array.Empty<ToolStripItem>());
             }
@@ -277,7 +283,11 @@ namespace ToolBelt.WinForms
             return this;
         }
 
-        public ToolStripBuilder Button(string text, ICommand command, object? parameter = null, Image? image = null, string? toolTip = null, string? name = null)
+        /// <summary>
+        /// A button bound to <paramref name="command"/> (executed with <paramref name="parameter"/>; Enabled tracks
+        /// CanExecute). The optional arguments come in the same order as the <see cref="Action"/> overload's.
+        /// </summary>
+        public ToolStripBuilder Button(string text, ICommand command, Image? image = null, string? toolTip = null, string? name = null, object? parameter = null)
         {
             var b = CreateButton(text, image, toolTip, name);
             CommandBinding.Bind(b, command, parameter);

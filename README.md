@@ -1050,6 +1050,7 @@ tests/
     MenuBuilderTests.cs
     PlotPictureBoxTests.cs
     WinFormsReviewTests.cs  (round 17 review regressions: off-screen placement, disposed controls, view limits, cursor scopes, command leaks, shortcuts)
+    WinFormsReview2Tests.cs (round 34 review regressions: CSV truncation, deep-zoom painting, handle-less marshalling, shortcuts, empty filters)
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
                             fits, root-finding, statistics)
@@ -1087,7 +1088,7 @@ scripts\build.ps1
 scripts\test.ps1
 
 # Filter / verbose / list
-scripts\test.ps1 --filter Guard --verbose
+scripts\test.ps1 --filter Guard --verbose   # fails if no suite has a matching test
 scripts\test.ps1 --list
 scripts\test.ps1 -Configuration Release
 ```

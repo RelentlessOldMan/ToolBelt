@@ -23,6 +23,8 @@ Thumbs.db
 .DS_Store
 
 # Misc temp
+__pycache__/
+*.pyc
 *.tmp
 commit-msg.tmp
 

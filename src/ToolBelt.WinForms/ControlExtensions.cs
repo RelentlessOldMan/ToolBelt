@@ -1,5 +1,6 @@
 // ToolBelt.WinForms drop-in — Windows-only (net8.0-windows), self-contained (BCL + WinForms).
 using System;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace ToolBelt.WinForms
@@ -13,6 +14,10 @@ namespace ToolBelt.WinForms
     /// A disposed control is never touched: the synchronous helpers throw <see cref="ObjectDisposedException"/>, and
     /// <see cref="BeginInvokeIfRequired"/> drops the action (also when the handle is destroyed while it posts), so a
     /// worker reporting progress to a form the user just closed does not crash.
+    /// A control with no window handle called from a thread that cannot be a UI thread (not STA — e.g. a thread-pool
+    /// worker) is treated the same way: the handle is gone (a dialog closed but not yet disposed) or not yet created, so
+    /// there is no thread to marshal to, and running the action there would create windows on the worker. The synchronous
+    /// helpers throw <see cref="InvalidOperationException"/>; <see cref="BeginInvokeIfRequired"/> drops the action.
     /// </summary>
     public static class ControlExtensions
     {
@@ -24,6 +29,8 @@ namespace ToolBelt.WinForms
             ThrowIfDisposed(control);
             if (control.InvokeRequired)
                 control.Invoke(action);
+            else if (NoUiThread(control))
+                throw NoHandle(control);
             else
                 action();
         }
@@ -36,6 +43,7 @@ namespace ToolBelt.WinForms
             ThrowIfDisposed(control);
             if (control.InvokeRequired)
                 return (T)control.Invoke(func);
+            if (NoUiThread(control)) throw NoHandle(control);
             return func();
         }
 
@@ -57,9 +65,17 @@ namespace ToolBelt.WinForms
                     // The handle went away between the check and the post: the control is gone, so is the work.
                 }
             }
-            else
+            else if (!NoUiThread(control))
                 action();
         }
+
+        // InvokeRequired is false when no handle exists in the parent chain; on a non-STA thread that cannot mean "this is
+        // the UI thread", so there is nowhere safe to run the delegate.
+        private static bool NoUiThread(Control control)
+            => !control.IsHandleCreated && Thread.CurrentThread.GetApartmentState() != ApartmentState.STA;
+
+        private static InvalidOperationException NoHandle(Control control)
+            => new InvalidOperationException($"{control.GetType().Name} has no window handle (closed, or not yet shown), so there is no UI thread to marshal to.");
 
         private static void ThrowIfDisposed(Control control)
         {

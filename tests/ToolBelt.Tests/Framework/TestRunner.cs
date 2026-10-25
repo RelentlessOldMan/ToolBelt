@@ -60,10 +60,14 @@ namespace ToolBelt.Tests.Framework
     /// <summary>
     /// Discovers and runs tests by reflection. A test is any public, parameterless, void- or
     /// <see cref="Task"/>-returning instance method on a public non-abstract class whose name ends in
-    /// "Tests". A fresh instance is constructed per method. Exit code 0 means every test passed.
+    /// "Tests". A fresh instance is constructed per method. Exit code 0 means every test passed; 3 means a filter
+    /// matched no tests (so a mistyped filter does not look like a pass).
     /// </summary>
     public static class TestRunner
     {
+        /// <summary>The exit code when a filter selects no tests.</summary>
+        public const int NoMatch = 3;
+
         public static int Run(Assembly assembly, string[] args)
         {
             var options = RunnerOptions.Parse(args);
@@ -75,6 +79,12 @@ namespace ToolBelt.Tests.Framework
                     Console.WriteLine(t.DisplayName);
                 Console.WriteLine($"\n{tests.Count} test(s).");
                 return 0;
+            }
+
+            if (options.Filter is not null && tests.Count == 0)
+            {
+                Console.WriteLine($"No tests match the filter '{options.Filter}'.");
+                return NoMatch;
             }
 
             int passed = 0, failed = 0, skipped = 0;

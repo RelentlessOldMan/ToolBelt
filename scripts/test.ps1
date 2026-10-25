@@ -4,6 +4,8 @@
 # other argument is forwarded to the runner untouched (e.g. --filter Guard --verbose, --list, -v). A `--` separator is
 # accepted and ignored. Arguments are parsed by hand, not by a param() block: PowerShell would otherwise bind a runner
 # argument to -Configuration by position or to its own -Verbose/-Debug switches.
+# Each runner exits 3 when a filter matches none of its tests; that is fine for one suite (the filter names tests in
+# another), but a filter that matches nothing in any suite fails the run, so a typo does not pass as green.
 $Configuration = "Debug"
 $RunnerArgs = @()
 for ($i = 0; $i -lt $args.Count; $i++) {
@@ -25,6 +27,8 @@ $exe = "$repoRoot\tests\ToolBelt.Tests\bin\$Configuration\net8.0\ToolBelt.Tests.
 Write-Host "Running $exe" -ForegroundColor Cyan
 & $exe @RunnerArgs
 $mainExit = $LASTEXITCODE
+$matched = $mainExit -ne 3
+if ($mainExit -eq 3) { $mainExit = 0 }
 
 # Windows-only satellites (net8.0-windows): platform + WPF + WinForms. Only meaningful on Windows; skip elsewhere.
 if ($IsWindows -or $env:OS -eq "Windows_NT") {
@@ -38,8 +42,15 @@ if ($IsWindows -or $env:OS -eq "Windows_NT") {
         $exe = "$repoRoot\tests\$name\bin\$Configuration\net8.0-windows\$name.exe"
         Write-Host "Running $exe" -ForegroundColor Cyan
         & $exe @RunnerArgs
+        if ($LASTEXITCODE -eq 3) { continue }
+        $matched = $true
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
+}
+
+if (-not $matched) {
+    Write-Host "No test in any suite matches the filter." -ForegroundColor Red
+    exit 1
 }
 
 exit $mainExit
