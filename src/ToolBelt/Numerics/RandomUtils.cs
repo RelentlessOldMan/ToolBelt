@@ -74,7 +74,7 @@ namespace ToolBelt.Numerics
             if (items is null) throw new ArgumentNullException(nameof(items));
             if (weights is null) throw new ArgumentNullException(nameof(weights));
             if (items.Count == 0) throw new ArgumentException("At least one item is required.", nameof(items));
-            if (items.Count != weights.Count) throw new ArgumentException("items and weights must have the same length.");
+            if (items.Count != weights.Count) throw new ArgumentException("items and weights must have the same length.", nameof(weights));
 
             double total = 0, max = 0;
             for (int i = 0; i < weights.Count; i++)

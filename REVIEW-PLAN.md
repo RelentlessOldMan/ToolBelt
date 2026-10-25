@@ -44,7 +44,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 2 | 9 / 25 | re-queue (9 bugs) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 2 | 23 / 47 | re-queue (23 bugs, 2 severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 2 | 22 / 53 | re-queue (22 bugs) |
-| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 2 | 28 / 71 | re-queue (5 severe) |
+| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 3 | 24 / 95 | re-queue (24 bugs, 2 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 2 | 28 / 61 | re-queue (5 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 2 | 10 / 29 | re-queue (10 bugs) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 3 | 17 / 64 | re-queue (17 bugs, 2 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4, 5, 14, 2, 8, 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 4**
+7 (done, round 35), 4 (done, round 36), 5, 14, 2, 8, 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 5**
 
 ## Releases
 
@@ -107,6 +107,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.33.0 | 33 | WPF satellite, second pass | 17 | (see tag) |
 | v0.34.0 | 34 | WinForms + tooling + docs, second pass | 12 | (see tag) |
 | v0.35.0 | 35 | Documents & config, third pass | 17 | (see tag) |
+| v0.36.0 | 36 | Numerics core, third pass | 24 | (see tag) |
 
 ## Round log
 
@@ -1551,3 +1552,39 @@ fail on the old code, the duration one only on .NET Framework).
   ReportTemplates, and SettingsStore's empty-file/invalid-UTF-8 handling (not reproduced or by design).
 - **Verify:** all green (core 2793). Checked build: the same 7 baseline failures.
 - **Re-queued:** yes (17 bugs, 2 severe).
+
+### Round 36 — 2026-10-25 — Numerics core, third pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 18 with 28 bugs, 5
+severe). **24 confirmed bugs, 2 severe**, each with a regression test in `NumericsCoreReview3Tests` (17 tests, all
+failing on the old code).
+
+- **LinearAlgebra (severe):** elimination overflowed on rows near double.MaxValue (Solve of {{1e308, −1e308}, {1e308,
+  1e308}} gave [0, 0], a determinant of 2e306 came out ∞). Rows beyond 2⁹⁶⁰ or below 2⁻⁹⁶⁰ are scaled by a power of
+  two first. Also: a pivot near MaxValue overflowed the determinant's running mantissa; a column-scaled matrix
+  ({{1e-20, 1e20}, {2e-20, 3e20}}, determinant 1) was called singular (a pivot is negligible only against both its row
+  and its column now); the non-square ArgumentException has ParamName "a".
+- **Polynomial (severe):** CubicRoots divided by a tiny leading coefficient and overflowed (1e-10x³ + 1e300 gave [−0],
+  not −2.15e103; 1e-320x³ + x² − 1 lost ±1). x is scaled down just enough to keep the monic coefficients finite. Fit
+  overflowed for y near MaxValue (a constant 1e308 fitted as ∞); y is scaled by a power of two.
+- **RootFinding:** Newton and Secant reported convergence on a small residual alone (1e-15·(x − 5) "converged" at 0,
+  e^−x at 28); the step must vanish, or f change sign nearby. Brent with tolerance 0 never stopped on a bracket of two
+  adjacent doubles.
+- **Splines:** MonotoneCubic and Akima flushed small values beside huge ones to 0 (a fixed 2⁻⁶⁰⁰ scale; now just
+  enough, and the given y is returned at the knots); a 1e9 rise over 1e-300 overflowed to NaN (tiny ranges are now
+  scaled up); Akima's weighted mean overflowed for steep slopes.
+- **RunningStatistics:** the sum of squared deviations underflowed (1e-200 and 2e-200 had a deviation of 0) and
+  overflowed (deviation 1e200 gave ∞). It is kept as a mantissa and a power of two.
+- **Interpolation, LookupTable, Percentile:** SmoothStep(−1e308, 1e308, x) was NaN; LookupTable lost precision at
+  1e-200 (dy·dv underflowed) and gave NaN extrapolating a flat end to ±∞; Percentile of [−∞, +∞] was NaN.
+- **Overflow near MaxValue:** Differentiation.Sample (uniform differences and uneven spacing products), Simpson's
+  trailing odd interval, the inverse-distance weighted sum, and C↔F conversion of 9e307.
+- **Smaller:** EngineeringNotation.TryParse("1e400") returned false with value ∞ (now 0); on .NET Framework, Rounding
+  and EngineeringNotation fell back to G17 rather than the shortest round-trip digits; Trapezoid accepted a NaN x;
+  inverse-distance accepted infinite coordinates; ParamName fixes in WeightedChoice, ToleranceCheck, LookupTable,
+  ToGrid ("columns"), and StreamingQuantiles' indexer throws ArgumentOutOfRangeException.
+- **Not fixed:** Fraction.ToDouble double-rounds in the subnormal range; Uncertainty.Format shows binary digits past
+  15 decimals on .NET 8; a tiny Histogram range makes Add slow (bounded); .NET Framework's own Parse inaccuracy;
+  MinMaxScaler.ToRange(−∞, ∞) and NaN polynomial coefficients are left as they are.
+- **Verify:** all green (core 2810). One Windows test failed once in a verify run and passed on two reruns (unrelated
+  to Numerics). Checked build: the same 7 baseline failures.
+- **Re-queued:** yes (24 bugs, 2 severe).

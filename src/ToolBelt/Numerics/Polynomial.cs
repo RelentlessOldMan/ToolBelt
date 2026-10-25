@@ -86,13 +86,19 @@ namespace ToolBelt.Numerics
             double shift = 0.5 * lo + 0.5 * hi, scale = 0.5 * hi - 0.5 * lo;
             if (scale == 0) scale = 1; // all x equal: only degree 0 is determined, and the rank check reports the rest
 
+            // y is scaled by a power of two (exactly) so its largest magnitude is in [1, 2): the reflections' dot products
+            // overflowed for y near double.MaxValue (a constant 1e308 fitted as ∞).
+            double yMax = 0;
+            for (int k = 0; k < n; k++) yMax = Math.Max(yMax, Math.Abs(y[k]));
+            int ey = yMax > 0 ? Exponent(yMax) : 0;
+
             var a = new double[n, m];
             var b = new double[n];
             for (int k = 0; k < n; k++)
             {
                 double u = (x[k] - shift) / scale, up = 1;
                 for (int j = 0; j < m; j++) { a[k, j] = up; up *= u; }
-                b[k] = y[k];
+                b[k] = ScaleB(y[k], -ey);
             }
 
             // Householder QR: reduce a to upper-triangular R, applying the same reflections to b.
@@ -143,6 +149,7 @@ namespace ToolBelt.Numerics
                 for (int k = len; k >= 1; k--) coeffs[k] = coeffs[k] * p0 + coeffs[k - 1] * p1;
                 coeffs[0] = coeffs[0] * p0 + cu[j];
             }
+            for (int j = 0; j < m; j++) coeffs[j] = ScaleB(coeffs[j], ey);
             return new Polynomial(coeffs);
         }
 
@@ -200,10 +207,25 @@ namespace ToolBelt.Numerics
 
         private double[] CubicRoots()
         {
-            // Monic x³ + bx² + cx + d.
-            double b = _coefficients[2] / _coefficients[3];
-            double c = _coefficients[1] / _coefficients[3];
-            double d = _coefficients[0] / _coefficients[3];
+            // Monic x³ + bx² + cx + d, in x / 2^ks: dividing by a tiny leading coefficient overflowed (1e-10x³ + 1e300
+            // gave [−0], not −2.15e103), so x is first scaled down just enough to keep b, c and d finite. ks is 0 for
+            // ordinary coefficients, which divide directly.
+            int ks = MonicShift();
+            double b, c, d;
+            if (ks == 0)
+            {
+                b = _coefficients[2] / _coefficients[3];
+                c = _coefficients[1] / _coefficients[3];
+                d = _coefficients[0] / _coefficients[3];
+            }
+            else
+            {
+                int e3 = Exponent(Math.Abs(_coefficients[3]));
+                double m3 = ScaleB(_coefficients[3], -e3);
+                b = ScaleB(_coefficients[2], -e3 - ks) / m3;
+                c = ScaleB(_coefficients[1], -e3 - 2 * ks) / m3;
+                d = ScaleB(_coefficients[0], -e3 - 3 * ks) / m3;
+            }
 
             // Substitute x = σy with σ a power of two above every root's natural size (|b|, √|c|, ∛|d|): the cubic in y
             // has coefficients of at most 1, so nothing below overflows (roots near 1e120 cubed did) and the tolerances
@@ -276,8 +298,23 @@ namespace ToolBelt.Numerics
                 }
             }
 
+            if (ks != 0)
+                for (int i = 0; i < roots.Count; i++) roots[i] = ScaleB(roots[i], ks); // a root beyond the range is ±∞
             roots.Sort();
             return roots.ToArray();
+        }
+
+        // The least ks ≥ 0 that keeps every |c_i / c_3| / 2^((3 − i)·ks) below 2^1023, so the monic coefficients are finite.
+        private int MonicShift()
+        {
+            int e3 = Exponent(Math.Abs(_coefficients[3])), ks = 0;
+            for (int i = 0; i < 3; i++)
+            {
+                if (_coefficients[i] == 0) continue;
+                int excess = Exponent(Math.Abs(_coefficients[i])) + 1 - e3 - 1023; // |c_i / c_3| < 2^(excess + 1023)
+                if (excess > 0) ks = Math.Max(ks, (excess + 2 - i) / (3 - i));
+            }
+            return ks;
         }
 
         // The two roots left after dividing the monic cubic by (x − x1): their product is −d/x1 and their sum

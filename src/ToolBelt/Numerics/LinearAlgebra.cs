@@ -70,9 +70,11 @@ namespace ToolBelt.Numerics
             if (b is null) throw new ArgumentNullException(nameof(b));
             int n = RequireSquare(a);
             if (b.Length != n) throw new ArgumentException("Right-hand side length must match the matrix size.");
-            if (!Decompose(a, out double[,] lu, out int[] pivot, out _))
+            if (!Decompose(a, out double[,] lu, out int[] pivot, out _, out int[] shift))
                 throw new InvalidOperationException("Matrix is singular; the system has no unique solution.");
-            return SolveDecomposed(lu, pivot, b);
+            var scaled = new double[n];
+            for (int i = 0; i < n; i++) scaled[i] = ScaleB(b[i], -shift[i]); // the rows were scaled by 2^−shift
+            return SolveDecomposed(lu, pivot, scaled);
         }
 
         public static double Determinant(double[,] a)
@@ -80,15 +82,20 @@ namespace ToolBelt.Numerics
             if (a is null) throw new ArgumentNullException(nameof(a));
             int n = RequireSquare(a);
             // Only an exactly zero pivot makes the determinant 0; a small one is a small (but real) determinant.
-            if (!Decompose(a, out double[,] lu, out _, out int sign, exactZeroOnly: true))
+            if (!Decompose(a, out double[,] lu, out _, out int sign, out int[] shift, exactZeroOnly: true))
                 return 0.0;
             // The running product kept as mantissa · 2^exponent: multiplied directly, 1e200 · 1e200 · 1e-200 · 1e-200
-            // overflowed to ∞ on the way to 1. Only the final scale saturates (to ±∞ or 0).
+            // overflowed to ∞ on the way to 1. Only the final scale saturates (to ±∞ or 0). Each pivot is split too:
+            // a mantissa in [1, 2) times a pivot of 1.5e308 overflowed before it was rescaled.
             double mantissa = sign;
             int exponent = 0;
+            foreach (int s in shift) exponent += s; // det A = det(row-scaled A) · 2^Σshift
             for (int i = 0; i < n; i++)
             {
-                mantissa *= lu[i, i];
+                double pivot = lu[i, i];
+                int pe = Exponent(Math.Abs(pivot));
+                mantissa *= ScaleB(pivot, -pe);
+                exponent += pe;
                 int e = Exponent(Math.Abs(mantissa));
                 mantissa = ScaleB(mantissa, -e);
                 exponent += e;
@@ -100,7 +107,7 @@ namespace ToolBelt.Numerics
         {
             if (a is null) throw new ArgumentNullException(nameof(a));
             int n = RequireSquare(a);
-            if (!Decompose(a, out double[,] lu, out int[] pivot, out _))
+            if (!Decompose(a, out double[,] lu, out int[] pivot, out _, out int[] shift))
                 throw new InvalidOperationException("Matrix is singular and cannot be inverted.");
 
             var inverse = new double[n, n];
@@ -108,7 +115,7 @@ namespace ToolBelt.Numerics
             for (int col = 0; col < n; col++)
             {
                 Array.Clear(e, 0, n);
-                e[col] = 1;
+                e[col] = ScaleB(1, -shift[col]); // A⁻¹ = (DA)⁻¹·D for the row scaling D
                 double[] x = SolveDecomposed(lu, pivot, e);
                 for (int row = 0; row < n; row++) inverse[row, col] = x[row];
             }
@@ -118,8 +125,11 @@ namespace ToolBelt.Numerics
         // LU with partial pivoting. Returns false if the matrix is singular: a pivot at or below n·ε times the largest
         // entry of its own original row, i.e. what is left once elimination has cancelled that row away (relative per
         // row, so neither a uniformly tiny matrix nor diag(1e20, 1) is "singular"; one global scale rejected the
-        // latter), or exactly zero when exactZeroOnly. Non-finite entries throw.
-        private static bool Decompose(double[,] a, out double[,] lu, out int[] pivot, out int sign, bool exactZeroOnly = false)
+        // latter), or exactly zero when exactZeroOnly. Non-finite entries throw. A row whose largest entry is beyond 2⁹⁶⁰
+        // or below 2⁻⁹⁶⁰ is first scaled by 2^−shift[row] (exactly) to bring it nearer 1: elimination overflowed on rows
+        // near double.MaxValue (1e308 − (−1e308)) and lost subnormal ones.
+        private static bool Decompose(double[,] a, out double[,] lu, out int[] pivot, out int sign, out int[] shift,
+            bool exactZeroOnly = false)
         {
             int n = a.GetLength(0);
             lu = (double[,])a.Clone();
@@ -136,6 +146,20 @@ namespace ToolBelt.Numerics
                         throw new ArgumentException($"Matrix entry [{i}, {j}] is not finite.", nameof(a));
                     rowMax[i] = Math.Max(rowMax[i], Math.Abs(v));
                 }
+            shift = new int[n];
+            for (int i = 0; i < n; i++)
+            {
+                if (rowMax[i] == 0) continue;
+                int e = Exponent(rowMax[i]);
+                if (e >= 960) shift[i] = e - 959;   // largest entry into [2⁹⁵⁹, 2⁹⁶⁰): room for elimination to grow
+                else if (e < -960) shift[i] = e;    // largest entry into [1, 2)
+                else continue;
+                for (int j = 0; j < n; j++) lu[i, j] = ScaleB(lu[i, j], -shift[i]);
+                rowMax[i] = ScaleB(rowMax[i], -shift[i]);
+            }
+            var colMax = new double[n];
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++) colMax[j] = Math.Max(colMax[j], Math.Abs(lu[i, j]));
             double relative = exactZeroOnly ? 0 : n * 2.220446049250313e-16;
 
             for (int col = 0; col < n; col++)
@@ -147,7 +171,9 @@ namespace ToolBelt.Numerics
                     double v = Math.Abs(lu[row, col]);
                     if (v > best) { best = v; max = row; }
                 }
-                if (!(best > relative * rowMax[max])) return false; // singular
+                // Singular only when the pivot is negligible against both its row and its column: columns in mixed units
+                // ({{1e-20, 1e20}, {2e-20, 3e20}}, determinant 1) are not singular.
+                if (!(best > relative * rowMax[max]) && !(best > relative * colMax[col])) return false;
 
                 if (max != col)
                 {
@@ -207,7 +233,7 @@ namespace ToolBelt.Numerics
         private static int RequireSquare(double[,] a)
         {
             int rows = a.GetLength(0), cols = a.GetLength(1);
-            if (rows != cols || rows == 0) throw new ArgumentException("Matrix must be square and non-empty.");
+            if (rows != cols || rows == 0) throw new ArgumentException("Matrix must be square and non-empty.", nameof(a));
             return rows;
         }
     }

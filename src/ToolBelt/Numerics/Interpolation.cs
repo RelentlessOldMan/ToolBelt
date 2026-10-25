@@ -57,7 +57,7 @@ namespace ToolBelt.Numerics
         {
             if (edge0 == edge1)
                 throw new ArgumentException("edge0 and edge1 must differ.", nameof(edge1));
-            double t = Clamp((x - edge0) / (edge1 - edge0), 0, 1);
+            double t = Clamp(InverseLerp(edge0, edge1, x), 0, 1);   // edge1 − edge0 overflows for ±1e308
             return t * t * (3 - 2 * t);
         }
     }

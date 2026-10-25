@@ -30,7 +30,7 @@ namespace ToolBelt.Numerics
         {
             if (x is null) throw new ArgumentNullException(nameof(x));
             if (y is null) throw new ArgumentNullException(nameof(y));
-            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.");
+            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.", nameof(y));
             if (x.Count < 2) throw new ArgumentException("At least two points are required.", nameof(x));
 
             _x = new double[x.Count];
@@ -98,6 +98,7 @@ namespace ToolBelt.Numerics
                 throw new ArgumentOutOfRangeException(nameof(x), x, $"Value is {side} the table range and extrapolation is disabled.");
             if (_policy == Extrapolation.Clamp)
                 return side == "below" ? _y[0] : _y[_x.Length - 1];
+            if (_y[i0] == _y[i1]) return _y[i0]; // a flat end stays flat out to ±∞ (Lerp made 0·∞ = NaN)
             return Lerp(_x[i0], _y[i0], _x[i1], _y[i1], x); // Linear
         }
 
@@ -118,9 +119,12 @@ namespace ToolBelt.Numerics
             double dx = x1 - x0, dv = x - x0, dy = y1 - y0;
             if (!double.IsInfinity(dx) && !double.IsInfinity(dv) && !double.IsInfinity(dy))
             {
-                double r = y0 + dy * dv / dx;
-                // dy·dv can overflow when the result does not (a 1e300 rise over 1e10): divide first.
-                return double.IsInfinity(r) ? y0 + dy * (dv / dx) : r;
+                double p = dy * dv;
+                // dy·dv can overflow when the result does not (a 1e300 rise over 1e10), or underflow (1e-200 over 2e-200):
+                // divide first.
+                if (double.IsInfinity(p) || (Math.Abs(p) < 2.2250738585072014E-308 && dy != 0 && dv != 0))
+                    return y0 + dy * (dv / dx);
+                return y0 + p / dx;
             }
             // A span overflowed (points at ±1e308): interpolate the halves, which cannot.
             double t = (0.5 * x - 0.5 * x0) / (0.5 * x1 - 0.5 * x0);

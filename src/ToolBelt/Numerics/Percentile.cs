@@ -40,6 +40,7 @@ namespace ToolBelt.Numerics
             double frac = rank - lo;
             double a = sorted[lo], b = sorted[hi];
             if (a == b) return a;                         // also ∞ and ∞, where b − a is NaN
+            if (double.IsInfinity(a) && double.IsInfinity(b)) return frac < 0.5 ? a : b;   // −∞ to +∞, as EmpiricalDistribution
             double d = b - a;
             return double.IsInfinity(d) ? (1 - frac) * a + frac * b : a + frac * d; // d overflows for ±1e308
         }

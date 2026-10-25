@@ -17,6 +17,7 @@ namespace ToolBelt.Numerics
         private readonly double[] _y;
         private readonly double[] _m; // tangents
         private readonly double _sx, _sy; // the stored x and y are the inputs times these (see RangeScale)
+        private readonly double[] _yIn;   // the y given, returned exactly at the knots (scaling can flush a tiny y to 0)
 
         public MonotoneCubic(IReadOnlyList<double> x, IReadOnlyList<double> y)
         {
@@ -37,6 +38,7 @@ namespace ToolBelt.Numerics
                 _y[i] = y[i];
             }
 
+            _yIn = (double[])_y.Clone();
             _sx = RangeScale(_x);
             _sy = RangeScale(_y);
             for (int i = 0; i < n; i++) { _x[i] *= _sx; _y[i] *= _sy; }
@@ -81,8 +83,8 @@ namespace ToolBelt.Numerics
         {
             int n = _x.Length;
             x *= _sx;
-            if (x <= _x[0]) return _y[0] / _sy;
-            if (x >= _x[n - 1]) return _y[n - 1] / _sy;
+            if (x <= _x[0]) return _yIn[0];
+            if (x >= _x[n - 1]) return _yIn[n - 1];
 
             // Find the segment [lo, lo+1] containing x.
             int lo = 0, hi = n - 1;
@@ -92,6 +94,7 @@ namespace ToolBelt.Numerics
                 if (_x[mid] <= x) lo = mid; else hi = mid;
             }
 
+            if (x == _x[lo]) return _yIn[lo];
             double h = _x[lo + 1] - _x[lo];
             double t = (x - _x[lo]) / h;
             double t2 = t * t, t3 = t2 * t;
@@ -103,13 +106,19 @@ namespace ToolBelt.Numerics
             return (h00 * _y[lo] + h10 * h * _m[lo] + h01 * _y[lo + 1] + h11 * h * _m[lo + 1]) / _sy;
         }
 
-        // Coordinates beyond 2⁵⁰⁰ are stored scaled down by 2⁶⁰⁰ (a power of two, so exact): differences and slopes of
-        // points near ±double.MaxValue then cannot overflow. Ordinary data keeps a scale of 1 and is untouched.
+        // Coordinates beyond 2⁵⁰⁰ are stored scaled down by a power of two (so exactly) to just under 2⁵⁰⁰, and all-tiny ones
+        // (below 2⁻⁵⁰⁰) scaled up: differences and slopes of points near ±double.MaxValue or 0 then cannot overflow.
+        // Ordinary data keeps a scale of 1 and is untouched.
         private static double RangeScale(double[] v)
         {
             double max = 0;
             foreach (double d in v) max = Math.Max(max, Math.Abs(d));
-            return max > Pow2(500) ? Pow2(-600) : 1.0;
+            int e = (int)((BitConverter.DoubleToInt64Bits(max) >> 52) & 0x7FF) - 1023;
+            // Just enough to bring the largest under 2⁵⁰⁰: a fixed 2⁻⁶⁰⁰ flushed small coordinates (1e-150 beside 1e160) to 0.
+            if (max > Pow2(500)) return Pow2(499 - e);
+            // All tiny: the largest up to [1, 2) (at most 2¹⁰²³ for subnormals), as a 1e9 rise over 1e-300 overflowed.
+            if (max < Pow2(-500) && max > 0) return Pow2(-e);
+            return 1.0;
         }
 
         private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);

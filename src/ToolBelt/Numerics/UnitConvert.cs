@@ -53,8 +53,8 @@ namespace ToolBelt.Numerics
             if (from.Category == "temperature")
             {
                 // Celsius ↔ Fahrenheit directly: via kelvin, 0.1 °C came back as 0.10000000000002274.
-                if (fromUnit == "C" && toUnit == "F") return value * 9.0 / 5.0 + 32;
-                if (fromUnit == "F" && toUnit == "C") return (value - 32) * 5.0 / 9.0;
+                if (fromUnit == "C" && toUnit == "F") return Ratio(value, 9.0, 5.0) + 32;
+                if (fromUnit == "F" && toUnit == "C") return Ratio(value - 32, 5.0, 9.0);
                 return FromKelvin(ToKelvin(value, fromUnit), toUnit);
             }
 
@@ -96,7 +96,7 @@ namespace ToolBelt.Numerics
             {
                 case "K": return value;
                 case "C": return value + 273.15;
-                case "F": return (value - 32) * 5.0 / 9.0 + 273.15;
+                case "F": return Ratio(value - 32, 5.0, 9.0) + 273.15;
                 default: throw new ArgumentException($"Unknown temperature unit '{unit}'.");
             }
         }
@@ -107,9 +107,17 @@ namespace ToolBelt.Numerics
             {
                 case "K": return kelvin;
                 case "C": return kelvin - 273.15;
-                case "F": return (kelvin - 273.15) * 9.0 / 5.0 + 32;
+                case "F": return Ratio(kelvin - 273.15, 9.0, 5.0) + 32;
                 default: throw new ArgumentException($"Unknown temperature unit '{unit}'.");
             }
+        }
+
+        // value·num/den, multiplying first (as before, for ordinary values) unless that overflows: 9e307 °C is 1.62e308 °F,
+        // but came back as ∞ through 8.1e308.
+        private static double Ratio(double value, double num, double den)
+        {
+            double r = value * num / den;
+            return double.IsInfinity(r) && !double.IsInfinity(value) ? value / den * num : r;
         }
     }
 }

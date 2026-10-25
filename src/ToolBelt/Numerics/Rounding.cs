@@ -59,7 +59,11 @@ namespace ToolBelt.Numerics
         {
             string s = value.ToString("R", CultureInfo.InvariantCulture);
             if (double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) != value)
-                s = value.ToString("G17", CultureInfo.InvariantCulture); // .NET Framework's "R" can lose the last digit
+                for (int p = 16; p <= 17; p++) // .NET Framework's "R" can lose the last digit; G17 alone was not the shortest
+                {
+                    s = value.ToString("G" + p, CultureInfo.InvariantCulture);
+                    if (double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) == value) break;
+                }
             int exp = 0, ePos = s.IndexOfAny(new[] { 'E', 'e' });
             if (ePos >= 0)
             {

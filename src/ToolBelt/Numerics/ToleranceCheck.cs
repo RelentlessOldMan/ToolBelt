@@ -39,7 +39,7 @@ namespace ToolBelt.Numerics
             if (series is null) throw new ArgumentNullException(nameof(series));
             if (double.IsNaN(lowerLimit)) throw new ArgumentOutOfRangeException(nameof(lowerLimit), lowerLimit, "Limit is NaN.");
             if (double.IsNaN(upperLimit)) throw new ArgumentOutOfRangeException(nameof(upperLimit), upperLimit, "Limit is NaN.");
-            if (lowerLimit > upperLimit) throw new ArgumentException("lowerLimit must not exceed upperLimit.");
+            if (lowerLimit > upperLimit) throw new ArgumentException("lowerLimit must not exceed upperLimit.", nameof(lowerLimit));
 
             int count = 0, first = -1, worstIndex = -1;
             double worstDeviation = 0;

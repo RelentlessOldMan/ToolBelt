@@ -167,7 +167,10 @@ namespace ToolBelt.Numerics
         }
 
         /// <summary>The estimate for the i-th probability given at construction.</summary>
-        public double this[int index] => _trackers[index].Estimate;
+        public double this[int index]
+            => index >= 0 && index < _trackers.Length
+                ? _trackers[index].Estimate
+                : throw new ArgumentOutOfRangeException(nameof(index), index, "Index is outside the probabilities given.");
 
         /// <summary>Probability → estimate.</summary>
         public IReadOnlyDictionary<double, double> Estimates()

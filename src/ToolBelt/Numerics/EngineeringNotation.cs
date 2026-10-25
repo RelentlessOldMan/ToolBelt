@@ -63,7 +63,11 @@ namespace ToolBelt.Numerics
             // A plain number first, so Format's "NaN" / "Infinity" round-trip (the 'y' of "Infinity" is yocto). A finite
             // text that overflows ("1e400") is not a value; .NET Core parses it as infinity.
             if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
-                return !double.IsInfinity(value) || s.IndexOf("Infinity", StringComparison.OrdinalIgnoreCase) >= 0;
+            {
+                if (!double.IsInfinity(value) || s.IndexOf("Infinity", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                value = 0; // a failed parse reports 0, not the ∞ it overflowed to
+                return false;
+            }
             char last = s[s.Length - 1];
             int exponent;
             if (char.IsLetter(last) || last == 'µ' || last == 'μ')
@@ -110,7 +114,11 @@ namespace ToolBelt.Numerics
         {
             string s = value.ToString("R", CultureInfo.InvariantCulture);
             if (double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) != value)
-                s = value.ToString("G17", CultureInfo.InvariantCulture); // .NET Framework's "R" can lose the last digit
+                for (int p = 16; p <= 17; p++) // .NET Framework's "R" can lose the last digit; G17 alone was not the shortest
+                {
+                    s = value.ToString("G" + p, CultureInfo.InvariantCulture);
+                    if (double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) == value) break;
+                }
             int exp = 0, ePos = s.IndexOfAny(new[] { 'E', 'e' });
             if (ePos >= 0)
             {

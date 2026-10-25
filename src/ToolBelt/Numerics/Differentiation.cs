@@ -23,13 +23,20 @@ namespace ToolBelt.Numerics
             var d = new double[n];
             if (n == 2)
             {
-                d[0] = d[1] = (y[1] - y[0]) / dx;
+                double s = (y[1] - y[0]) / dx;
+                d[0] = d[1] = double.IsInfinity(s) ? 2 * ((0.5 * y[1] - 0.5 * y[0]) / dx) : s;
                 return d;
             }
             d[0] = (-3 * y[0] + 4 * y[1] - y[2]) / (2 * dx);                     // 2nd-order forward
             d[n - 1] = (3 * y[n - 1] - 4 * y[n - 2] + y[n - 3]) / (2 * dx);      // 2nd-order backward
             for (int i = 1; i < n - 1; i++)
                 d[i] = (y[i + 1] - y[i - 1]) / (2 * dx);                          // 2nd-order central
+            // Samples near ±double.MaxValue overflowed the differences (NaN or ∞): redo those from eighths.
+            for (int i = 0; i < n; i++)
+                if (double.IsNaN(d[i]) || double.IsInfinity(d[i]))
+                    d[i] = 4 * ((i == 0 ? -0.375 * y[0] + 0.5 * y[1] - 0.125 * y[2]
+                        : i == n - 1 ? 0.375 * y[n - 1] - 0.5 * y[n - 2] + 0.125 * y[n - 3]
+                        : 0.125 * y[i + 1] - 0.125 * y[i - 1]) / dx);
             return d;
         }
 
@@ -109,10 +116,24 @@ namespace ToolBelt.Numerics
         private static double QuadraticDerivative(double at, double x0, double x1, double x2,
             double f0, double f1, double f2)
         {
-            double t0 = f0 * ((at - x1) + (at - x2)) / ((x0 - x1) * (x0 - x2));
-            double t1 = f1 * ((at - x0) + (at - x2)) / ((x1 - x0) * (x1 - x2));
-            double t2 = f2 * ((at - x0) + (at - x1)) / ((x2 - x0) * (x2 - x1));
-            return t0 + t1 + t2;
+            double q0 = (x0 - x1) * (x0 - x2), q1 = (x1 - x0) * (x1 - x2), q2 = (x2 - x0) * (x2 - x1);
+            if (Normal(q0) && Normal(q1) && Normal(q2))
+            {
+                double t0 = f0 * ((at - x1) + (at - x2)) / q0;
+                double t1 = f1 * ((at - x0) + (at - x2)) / q1;
+                double t2 = f2 * ((at - x0) + (at - x1)) / q2;
+                return t0 + t1 + t2;
+            }
+            // The product of two spacings overflowed (points 1e160 apart) or underflowed: divide by one at a time.
+            return f0 * (((at - x1) + (at - x2)) / (x0 - x1) / (x0 - x2))
+                 + f1 * (((at - x0) + (at - x2)) / (x1 - x0) / (x1 - x2))
+                 + f2 * (((at - x0) + (at - x1)) / (x2 - x0) / (x2 - x1));
+        }
+
+        private static bool Normal(double v)
+        {
+            v = Math.Abs(v);
+            return v >= 2.2250738585072014E-308 && !double.IsInfinity(v);
         }
     }
 }

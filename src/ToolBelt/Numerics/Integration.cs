@@ -30,7 +30,7 @@ namespace ToolBelt.Numerics
             for (int i = 1; i < y.Count; i++)
             {
                 double h = x[i] - x[i - 1];
-                if (h < 0) throw new ArgumentException("x values must be ascending.", nameof(x));
+                if (!(h >= 0)) throw new ArgumentException("x values must be ascending.", nameof(x)); // NaN too
                 sum += Panel(y[i - 1], y[i], h);
             }
             return sum;
@@ -61,9 +61,19 @@ namespace ToolBelt.Numerics
             if (even != intervals) // trailing odd interval
             {
                 int n = intervals;
-                sum += n >= 2
-                    ? dx * (5.0 / 12 * y[n] + 8.0 / 12 * y[n - 1] - 1.0 / 12 * y[n - 2])
-                    : Panel(y[n - 1], y[n], dx);
+                if (n >= 2)
+                {
+                    double t = 5.0 / 12 * y[n] + 8.0 / 12 * y[n - 1] - 1.0 / 12 * y[n - 2];
+                    // As above: near double.MaxValue the combination overflows, so use halves of it.
+                    if (double.IsInfinity(t) && IsFinite(y[n]) && IsFinite(y[n - 1]) && IsFinite(y[n - 2]))
+                        sum += dx * (5.0 / 24 * y[n] + 8.0 / 24 * y[n - 1] - 1.0 / 24 * y[n - 2]) * 2;
+                    else
+                        sum += dx * t;
+                }
+                else
+                {
+                    sum += Panel(y[n - 1], y[n], dx);
+                }
             }
             return sum;
         }

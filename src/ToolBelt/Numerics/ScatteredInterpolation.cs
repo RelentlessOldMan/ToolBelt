@@ -31,7 +31,8 @@ namespace ToolBelt.Numerics
             double power = 2, int? nearest = null, double? radius = null)
         {
             Validate(samples, power, nearest, radius);
-            if (columns < 1 || rows < 1) throw new ArgumentOutOfRangeException(nameof(rows), "The grid needs at least one row and column.");
+            if (columns < 1) throw new ArgumentOutOfRangeException(nameof(columns), columns, "The grid needs at least one column.");
+            if (rows < 1) throw new ArgumentOutOfRangeException(nameof(rows), rows, "The grid needs at least one row.");
             var grid = new double[rows, columns];
             var scratch = new List<(double, double)>(samples.Count);
             for (int r = 0; r < rows; r++)
@@ -95,6 +96,13 @@ namespace ToolBelt.Numerics
                 num += w * v;
                 den += w;
             }
+            if (double.IsInfinity(num))
+            {
+                // Values near double.MaxValue overflowed the sum: average them divided by the count, then scale back.
+                num = 0;
+                foreach (var (d, v) in scratch) num += Math.Pow(minDistance / d, power) * (v / scratch.Count);
+                return num / den * scratch.Count;
+            }
             return num / den;
         }
 
@@ -115,7 +123,10 @@ namespace ToolBelt.Numerics
             if (nearest is int k && k < 1) throw new ArgumentOutOfRangeException(nameof(nearest), k, "Must be at least 1.");
             if (radius is double r && !(r > 0)) throw new ArgumentOutOfRangeException(nameof(radius), r, "Radius must be positive.");
             foreach (var s in samples)
+            {
                 if (double.IsNaN(s.X) || double.IsNaN(s.Y) || double.IsNaN(s.Value)) throw new ArgumentException("Samples must not contain NaN.", nameof(samples));
+                if (double.IsInfinity(s.X) || double.IsInfinity(s.Y)) throw new ArgumentException("Sample coordinates must be finite.", nameof(samples));
+            }
         }
     }
 }

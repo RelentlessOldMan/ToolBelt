@@ -78,7 +78,9 @@ namespace ToolBelt.Numerics
             for (int i = 1; i <= maxIterations; i++)
             {
                 double tol = Tol(tolerance, b);
-                if (fb == 0 || Math.Abs(b - a) < tol)
+                // As Bisection: a bracket of two adjacent doubles is as tight as it gets (a tolerance of 0 never ended).
+                double mid = 0.5 * a + 0.5 * b;
+                if (fb == 0 || Math.Abs(b - a) < tol || mid == a || mid == b)
                     return Success(b, i, fb);
 
                 double s;
@@ -127,11 +129,15 @@ namespace ToolBelt.Numerics
             {
                 double fx = f(x);
                 if (double.IsNaN(fx)) return Failure(x, i, NaNMessage);
-                if (Math.Abs(fx) < tolerance)
-                    return Success(x, i, fx);
+                if (fx == 0) return Success(x, i, fx);
+                // A small residual alone is not convergence (1e-15·(x − 5) is below 1e-12 at 0, e^−x at 28): the step
+                // must vanish too, as the tolerance is on x.
                 double dfx = derivative != null ? derivative(x) : NumericDerivative(f, x);
                 if (dfx == 0 || double.IsNaN(dfx))
+                {
+                    if (Math.Abs(fx) < tolerance && ChangesSign(f, x, Tol(tolerance, x))) return Success(x, i, fx);
                     return Failure(x, i, "Derivative vanished; Newton's method cannot proceed.");
+                }
                 double next = x - fx / dfx;
                 double t = Tol(tolerance, next);
                 if (Math.Abs(next - x) < t)
@@ -165,13 +171,22 @@ namespace ToolBelt.Numerics
             for (int i = 1; i <= maxIterations; i++)
             {
                 if (double.IsNaN(f0) || double.IsNaN(f1)) return Failure(x1, i, NaNMessage);
-                if (Math.Abs(f1) < tolerance)
-                    return Success(x1, i, f1);
+                if (f1 == 0) return Success(x1, i, f1);
                 if (f1 == f0)
+                {
+                    if (Math.Abs(f1) < tolerance && ChangesSign(f, x1, Tol(tolerance, x1))) return Success(x1, i, f1);
                     return Failure(x1, i, "Secant step divided by zero (equal function values).");
+                }
+                // As Newton: a small residual is not enough (a flat e^−x, a triple root); the step must vanish.
                 double next = x1 - f1 * (x1 - x0) / (f1 - f0);
-                if (Math.Abs(next - x1) < Tol(tolerance, next))
-                    return Success(next, i, f(next));
+                double t = Tol(tolerance, next);
+                if (Math.Abs(next - x1) < t)
+                {
+                    double fn = f(next);
+                    if (Math.Abs(fn) < tolerance || fn == 0 || ChangesSign(f, next, t))
+                        return Success(next, i, fn);
+                    return Failure(next, i, "Secant step vanished but f has no root near it.");
+                }
                 x0 = x1; f0 = f1;
                 x1 = next; f1 = f(x1);
             }

@@ -17,6 +17,7 @@ namespace ToolBelt.Numerics
     {
         private readonly double[] _x, _y, _t;
         private readonly double _sx, _sy; // the stored x and y are the inputs times these (see RangeScale)
+        private readonly double[] _yIn;   // the y given, returned exactly at the knots (scaling can flush a tiny y to 0)
 
         public AkimaSpline(IReadOnlyList<double> x, IReadOnlyList<double> y, bool modified = false)
         {
@@ -36,6 +37,7 @@ namespace ToolBelt.Numerics
                 if (i > 0 && !(_x[i] > _x[i - 1])) throw new ArgumentException("x must be strictly increasing.", nameof(x));
             }
 
+            _yIn = (double[])_y.Clone();
             _sx = RangeScale(_x);
             _sy = RangeScale(_y);
             for (int i = 0; i < n; i++) { _x[i] *= _sx; _y[i] *= _sy; }
@@ -66,7 +68,10 @@ namespace ToolBelt.Numerics
                     w1 += Math.Abs(mR2 + mR1) / 2;
                     w2 += Math.Abs(mL1 + mL2) / 2;
                 }
-                _t[i] = w1 + w2 == 0 ? (mL1 + mR1) / 2 : (w1 * mL1 + w2 * mR1) / (w1 + w2);
+                if (w1 + w2 == 0) { _t[i] = mL1 / 2 + mR1 / 2; continue; }
+                // The weighted mean with normalised weights: w·m overflowed for steep slopes (a 1e-150 step beside 1e160).
+                double r = w1 >= w2 ? w2 / w1 : w1 / w2, big = 1 / (1 + r), small = r / (1 + r);
+                _t[i] = w1 >= w2 ? big * mL1 + small * mR1 : small * mL1 + big * mR1;
             }
         }
 
@@ -74,9 +79,10 @@ namespace ToolBelt.Numerics
         public double Interpolate(double x)
         {
             x *= _sx;
-            if (x <= _x[0]) return _y[0] / _sy;
-            if (x >= _x[_x.Length - 1]) return _y[_y.Length - 1] / _sy;
+            if (x <= _x[0]) return _yIn[0];
+            if (x >= _x[_x.Length - 1]) return _yIn[_yIn.Length - 1];
             int i = Segment(x);
+            if (x == _x[i]) return _yIn[i];
             double h = _x[i + 1] - _x[i], s = (x - _x[i]) / h;
             double h00 = (1 + 2 * s) * (1 - s) * (1 - s), h10 = s * (1 - s) * (1 - s);
             double h01 = s * s * (3 - 2 * s), h11 = s * s * (s - 1);
@@ -107,13 +113,19 @@ namespace ToolBelt.Numerics
             }
         }
 
-        // Coordinates beyond 2⁵⁰⁰ are stored scaled down by 2⁶⁰⁰ (a power of two, so exact): differences and slopes of
-        // points near ±double.MaxValue then cannot overflow. Ordinary data keeps a scale of 1 and is untouched.
+        // Coordinates beyond 2⁵⁰⁰ are stored scaled down by a power of two (so exactly) to just under 2⁵⁰⁰, and all-tiny ones
+        // (below 2⁻⁵⁰⁰) scaled up: differences and slopes of points near ±double.MaxValue or 0 then cannot overflow.
+        // Ordinary data keeps a scale of 1 and is untouched.
         private static double RangeScale(double[] v)
         {
             double max = 0;
             foreach (double d in v) max = Math.Max(max, Math.Abs(d));
-            return max > Pow2(500) ? Pow2(-600) : 1.0;
+            int e = (int)((BitConverter.DoubleToInt64Bits(max) >> 52) & 0x7FF) - 1023;
+            // Just enough to bring the largest under 2⁵⁰⁰: a fixed 2⁻⁶⁰⁰ flushed small coordinates (1e-150 beside 1e160) to 0.
+            if (max > Pow2(500)) return Pow2(499 - e);
+            // All tiny: the largest up to [1, 2) (at most 2¹⁰²³ for subnormals), as a 1e9 rise over 1e-300 overflowed.
+            if (max < Pow2(-500) && max > 0) return Pow2(-e);
+            return 1.0;
         }
 
         private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
