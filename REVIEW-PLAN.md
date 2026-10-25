@@ -49,7 +49,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 1 | 19 / 19 | re-queue (3 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 1 | 27 / 27 | re-queue (5 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 2 | 22 / 67 | re-queue (22 bugs, 2 severe) |
-| 9  | Collections | `Collections/*` | 3,400 | ~1 | 1 | 28 / 28 | re-queue (6 severe) |
+| 9  | Collections | `Collections/*` | 3,400 | ~1 | 2 | 11 / 39 | re-queue (11 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 2 | 25 / 65 | re-queue (1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 1 | 26 / 26 | re-queue (1 severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 1 | 32 / 32 | re-queue (3 severe) |
@@ -60,7 +60,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9, 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 9**
+5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 7**
 
 ## Releases
 
@@ -93,6 +93,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.22.0 | 22 | Windows satellite, second pass | 26 | (see tag) |
 | v0.23.0 | 23 | Statistics, second pass | 22 | (see tag) |
 | v0.24.0 | 24 | IO, second pass | 22 | (see tag) |
+| v0.25.0 | 25 | Collections, second pass | 11 | (see tag) |
 
 ## Round log
 
@@ -1159,3 +1160,24 @@ Reviewers: one for correctness and one for robustness, fresh to the section (re-
 - **Checked build:** caught `keep + 1` overflowing in `ShiftNumbered`'s cleanup (fixed); otherwise the same 7 baseline
   failures (Net ×5, Guards, Palette).
 - **Re-queued:** yes (22 bugs, 2 severe).
+
+### Round 25 — 2026-10-25 — Collections, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 9 with 6 severe).
+**11 confirmed bugs**, 9 with a failing-first regression test in `CollectionsReview2Tests`; the two huge-capacity
+overflows need multi-gigabyte arrays and were confirmed by the reviewers' runs and by inspection. One severe.
+
+- **Severe — `ObjectPool.Return` race:** two concurrent returns of one instance both passed the "already pooled?"
+  check while resetting, so it was pooled twice and two renters got it. An instance being reset now counts as pooled.
+- **TopN.Add:** a comparer throwing mid-sift dropped a retained item (the slot was not yet counted).
+- **BloomFilter / CountingBloomFilter:** a NaN false-positive rate built a 1-bit filter that matched everything.
+- **CountMinSketch:** counts and `TotalCount` wrapped negative; they now saturate at `long.MaxValue`.
+- **Aggregation.Summarize:** finite values whose sum overflows gave an infinite mean and deviation; recomputed on
+  power-of-two-scaled values in that case only.
+- **TtlCache.Set:** a clock with a positive offset threw near the end of the calendar instead of saturating.
+- **Deque / CircularBuffer:** a change between `GetEnumerator()` and the first `MoveNext` went undetected; the
+  buffer's index arithmetic overflowed past a capacity of 2^30; the deque's growth overflowed past 2^30 elements.
+- **Also:** `ConsoleHelpersTests.Spinner_AnimatesInTheBackground` was flaky on one throttled core (fixed 150 ms
+  sleep); it now polls.
+- **Unconfirmed:** `ReservoirSampler` skip precision after ~1e16 items.
+- **Checked build:** same 7 baseline failures, none new.
+- **Re-queued:** yes (11 bugs, 1 severe).

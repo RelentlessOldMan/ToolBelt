@@ -63,7 +63,9 @@ namespace ToolBelt.Collections
             }
             // Saturate rather than throw when now + ttl is past the end of the calendar. In ticks, since
             // MaxValue - ttl itself underflows for a huge ttl (the long difference cannot overflow).
-            var expiresAt = now.UtcTicks > DateTimeOffset.MaxValue.UtcTicks - _ttl.Ticks ? DateTimeOffset.MaxValue : now + _ttl;
+            // Both clock times count: now + ttl also moves the local (offset) time, which reaches the end first when
+            // the offset is positive.
+            var expiresAt = Math.Max(now.UtcTicks, now.Ticks) > DateTimeOffset.MaxValue.UtcTicks - _ttl.Ticks ? DateTimeOffset.MaxValue : now + _ttl;
             _entries[key] = new Entry(value, expiresAt);
         }
 

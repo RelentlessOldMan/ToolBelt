@@ -38,11 +38,11 @@ namespace ToolBelt.Collections
             if (_count == _buffer.Length)
             {
                 _buffer[_start] = item;             // overwrite oldest...
-                _start = (_start + 1) % _buffer.Length; // ...and advance the window
+                _start = Slot(1); // ...and advance the window
             }
             else
             {
-                _buffer[(_start + _count) % _buffer.Length] = item;
+                _buffer[Slot(_count)] = item;
                 _count++;
             }
             _version++;
@@ -60,7 +60,7 @@ namespace ToolBelt.Collections
             {
                 if ((uint)index >= (uint)_count)
                     throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be in [0, {_count}).");
-                return _buffer[(_start + index) % _buffer.Length];
+                return _buffer[Slot(index)];
             }
         }
 
@@ -75,7 +75,7 @@ namespace ToolBelt.Collections
 
             item = _buffer[_start];
             _buffer[_start] = default!; // release reference
-            _start = (_start + 1) % _buffer.Length;
+            _start = Slot(1);
             _count--;
             _version++;
             return true;
@@ -93,22 +93,31 @@ namespace ToolBelt.Collections
         {
             var result = new T[_count];
             for (int i = 0; i < _count; i++)
-                result[i] = _buffer[(_start + i) % _buffer.Length];
+                result[i] = _buffer[Slot(i)];
             return result;
         }
 
         /// <summary>Enumerates oldest to newest. Modifying the buffer during enumeration throws <see cref="InvalidOperationException"/>.</summary>
-        public IEnumerator<T> GetEnumerator()
+        public IEnumerator<T> GetEnumerator() => Enumerate(_version);   // version taken now, not at the first MoveNext
+
+        private IEnumerator<T> Enumerate(int version)
         {
-            int version = _version;
             for (int i = 0; i < _count; i++)
             {
-                yield return _buffer[(_start + i) % _buffer.Length];
+                yield return _buffer[Slot(i)];
                 if (version != _version)
                     throw new InvalidOperationException("The buffer was modified during enumeration.");
             }
         }
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        // Physical index of logical position i (0 <= i <= capacity). (_start + i) % length overflowed int past a
+        // capacity of 2^30, but _start + i - length lies in (-length, length].
+        private int Slot(int i)
+        {
+            int j = _start + i - _buffer.Length;
+            return j >= 0 ? j : j + _buffer.Length;
+        }
     }
 }

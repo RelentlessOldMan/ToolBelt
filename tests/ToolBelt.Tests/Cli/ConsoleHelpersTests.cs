@@ -89,8 +89,14 @@ namespace ToolBelt.Tests.Cli
         public void Spinner_AnimatesInTheBackground()
         {
             var w = new StringWriter();
-            using (new ConsoleSpinner("bg", TextWriter.Synchronized(w), interactive: true, frames: ConsoleSpinner.Ascii, interval: TimeSpan.FromMilliseconds(5)))
-                Thread.Sleep(150);
+            var writer = TextWriter.Synchronized(w);
+            int Frames() { lock (writer) return w.ToString().Split('\r').Length; }   // the synchronized writer locks itself
+            using (new ConsoleSpinner("bg", writer, interactive: true, frames: ConsoleSpinner.Ascii, interval: TimeSpan.FromMilliseconds(5)))
+            {
+                // Polled, not a fixed sleep: on one throttled core the spinner thread may not run within 150 ms.
+                var deadline = DateTime.UtcNow.AddSeconds(10);
+                while (DateTime.UtcNow < deadline && Frames() <= 5) Thread.Sleep(10);
+            }
             Check.True(w.ToString().Split('\r').Length > 5, "several frames were drawn");
         }
 

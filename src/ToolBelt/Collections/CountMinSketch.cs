@@ -49,10 +49,13 @@ namespace ToolBelt.Collections
             for (int row = 0; row < _depth; row++)
             {
                 int col = Column(baseHash, row);
-                _counts[row][col] += amount;
+                _counts[row][col] = Saturating(_counts[row][col], amount);
             }
-            TotalCount += amount;
+            TotalCount = Saturating(TotalCount, amount);
         }
+
+        // Wrapping made a count negative, under-counting; stopping at long.MaxValue keeps estimates upper bounds.
+        private static long Saturating(long count, long amount) => count > long.MaxValue - amount ? long.MaxValue : count + amount;
 
         /// <summary>Returns the estimated frequency of <paramref name="item"/> (never below the true count).</summary>
         public long Estimate(T item)

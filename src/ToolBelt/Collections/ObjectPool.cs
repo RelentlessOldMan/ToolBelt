@@ -18,6 +18,7 @@ namespace ToolBelt.Collections
         private readonly int _maxRetained;
         private readonly Stack<T> _items = new Stack<T>();
         private readonly HashSet<T> _pooled = new HashSet<T>(ReferenceComparer.Instance); // same set as _items
+        private readonly HashSet<T> _returning = new HashSet<T>(ReferenceComparer.Instance); // being reset by a Return
         private readonly object _gate = new object();
 
         /// <param name="factory">Creates a new instance when the pool is empty.</param>
@@ -59,14 +60,25 @@ namespace ToolBelt.Collections
             if (item is null) throw new ArgumentNullException(nameof(item));
             lock (_gate)
             {
-                if (_items.Count >= _maxRetained || _pooled.Contains(item))
+                // A Return of the same instance still resetting counts as pooled: otherwise both pushed it, one
+                // after a Rent took the first, and two renters shared it.
+                if (_items.Count >= _maxRetained || _pooled.Contains(item) || !_returning.Add(item))
                     return; // dropped (or already pooled): don't reset it
             }
 
-            _reset?.Invoke(item); // reset outside the lock
+            try
+            {
+                _reset?.Invoke(item); // reset outside the lock
+            }
+            catch
+            {
+                lock (_gate) _returning.Remove(item);
+                throw;
+            }
 
             lock (_gate)
             {
+                _returning.Remove(item);
                 if (_items.Count < _maxRetained && _pooled.Add(item))
                     _items.Push(item);
             }

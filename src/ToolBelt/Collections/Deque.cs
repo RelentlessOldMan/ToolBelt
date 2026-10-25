@@ -110,9 +110,10 @@ namespace ToolBelt.Collections
         }
 
         /// <summary>Enumerates front to back. Modifying the deque during enumeration throws <see cref="InvalidOperationException"/>.</summary>
-        public IEnumerator<T> GetEnumerator()
+        public IEnumerator<T> GetEnumerator() => Enumerate(_version);   // version taken now, not at the first MoveNext
+
+        private IEnumerator<T> Enumerate(int version)
         {
-            int version = _version;
             for (int i = 0; i < _count; i++)
             {
                 yield return _array[Slot(i)];
@@ -128,7 +129,10 @@ namespace ToolBelt.Collections
             if (_count < _array.Length)
                 return;
 
-            var grown = new T[_array.Length * 2];
+            // Doubling overflowed int past 2^30 elements; cap at the largest array length, as List<T> does.
+            const int MaxLength = 0x7FFFFFC7;
+            if (_array.Length >= MaxLength) throw new InvalidOperationException("The deque is at the maximum array length.");
+            var grown = new T[(int)Math.Min((long)_array.Length * 2, MaxLength)];
             for (int i = 0; i < _count; i++)
                 grown[i] = _array[Slot(i)];
             _array = grown;

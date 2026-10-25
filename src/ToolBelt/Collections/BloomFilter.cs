@@ -21,7 +21,7 @@ namespace ToolBelt.Collections
         {
             if (expectedItems <= 0)
                 throw new ArgumentOutOfRangeException(nameof(expectedItems), expectedItems, "Expected items must be positive.");
-            if (falsePositiveRate <= 0 || falsePositiveRate >= 1)
+            if (!(falsePositiveRate > 0 && falsePositiveRate < 1))   // NaN too: it built a 1-bit filter
                 throw new ArgumentOutOfRangeException(nameof(falsePositiveRate), falsePositiveRate, "Rate must be in (0, 1).");
 
             double ln2 = Math.Log(2);

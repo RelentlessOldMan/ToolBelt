@@ -675,6 +675,7 @@ tests/
       CartesianProductTests.cs
       CombinatoricsTests.cs
       CollectionsReviewTests.cs (review round 9 regressions: deep tries/permutations, sketch hashing, enumerator versions, huge capacities)
+      CollectionsReview2Tests.cs (second-pass regressions: pool return race, throwing comparers, overflow-safe sums and counts)
       CounterTests.cs
       CountMinSketchTests.cs
       DataTableLiteTests.cs

@@ -72,7 +72,27 @@ namespace ToolBelt.Collections
                     foreach (double v in group) { double d = v - mean; variance += d * d; }
                     variance /= group.Count - 1;
                 }
-                result.Add(new GroupSummary<TKey>(key, group.Count, sum, mean, min, max, Math.Sqrt(variance)));
+                double stdDev = Math.Sqrt(variance);
+                // Finite values whose sum or squared deviations overflow (1e308 + 1e308): redo both on values scaled
+                // by a power of two near 1/max|v|, which is exact, so the mean is not ∞ above Max.
+                if ((double.IsInfinity(sum) || double.IsInfinity(variance))
+                    && !double.IsNaN(min) && !double.IsInfinity(min) && !double.IsInfinity(max))
+                {
+                    int k = (int)Math.Floor(Math.Log(Math.Max(Math.Abs(min), Math.Abs(max)), 2));
+                    double down = Math.Pow(2, -k), up = Math.Pow(2, k);
+                    double scaledSum = 0;
+                    foreach (double v in group) scaledSum += v * down;
+                    double scaledMean = scaledSum / group.Count;
+                    mean = scaledMean * up;
+                    double scaledVariance = 0;
+                    if (group.Count > 1)
+                    {
+                        foreach (double v in group) { double d = v * down - scaledMean; scaledVariance += d * d; }
+                        scaledVariance /= group.Count - 1;
+                    }
+                    stdDev = Math.Sqrt(scaledVariance) * up;
+                }
+                result.Add(new GroupSummary<TKey>(key, group.Count, sum, mean, min, max, stdDev));
             }
             return result;
         }

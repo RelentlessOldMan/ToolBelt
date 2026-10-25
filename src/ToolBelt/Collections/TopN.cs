@@ -37,9 +37,11 @@ namespace ToolBelt.Collections
             {
                 if (_count == _heap.Length)
                     Array.Resize(ref _heap, (int)Math.Min((long)_heap.Length * 2, _capacity));
+                // Counted before the sift: a comparer throwing mid-sift then leaves every item in the heap (out of
+                // order), where afterwards the item swapped into the uncounted slot was lost.
                 _heap[_count] = item;
-                SiftUp(_count);
                 _count++;
+                SiftUp(_count - 1);
             }
             else if (_comparer.Compare(item, _heap[0]) > 0)
             {
