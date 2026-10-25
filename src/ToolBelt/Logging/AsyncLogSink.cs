@@ -1,5 +1,6 @@
-// ToolBelt drop-in — also copy ToolBelt.Threading/ConcurrentPipeline.cs.
+// ToolBelt drop-in — also copy Logging/Log.cs and Threading/ConcurrentPipeline.cs.
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using ToolBelt.Threading;
 
@@ -10,12 +11,22 @@ namespace ToolBelt.Logging
     /// sink by a single background consumer, so a slow sink (a file, a network target) never stalls the
     /// application's hot path. The overflow policy decides what happens when the buffer is full (block, or
     /// drop and count). Disposing drains the buffer first. Built on <see cref="ConcurrentPipeline{T}"/>.
+    /// An event emitted from inside the inner sink on the consumer thread (for example a first-chance exception
+    /// monitor reporting the sink's own failure into the same logger) is written straight to the inner sink instead
+    /// of queued, since the consumer cannot wait for space that only it can free; a second level of such re-entry is
+    /// dropped and counted in <see cref="DroppedCount"/>.
     /// </summary>
     public sealed class AsyncLogSink : ILogSink
     {
         private readonly ConcurrentPipeline<LogEvent> _pipeline;
         private readonly ILogSink _inner;
         private readonly bool _ownsInner;
+        private long _reentrantDropped;
+        private int _disposed;
+
+        // The sink whose consumer is running on this thread, and how deeply it has re-entered.
+        [ThreadStatic] private static AsyncLogSink? t_consuming;
+        [ThreadStatic] private static int t_depth;
 
         public AsyncLogSink(
             ILogSink inner,
@@ -27,17 +38,48 @@ namespace ToolBelt.Logging
             _inner = inner ?? throw new ArgumentNullException(nameof(inner));
             _ownsInner = ownsInner;
             _pipeline = new ConcurrentPipeline<LogEvent>(
-                (logEvent, _) => { inner.Emit(logEvent); return Task.CompletedTask; },
+                (logEvent, _) => { Consume(logEvent); return Task.CompletedTask; },
                 capacity, overflowPolicy, onError);
         }
 
-        /// <summary>Number of events dropped due to overflow (only with a drop policy).</summary>
-        public long DroppedCount => _pipeline.DroppedCount;
+        /// <summary>Number of events dropped due to overflow (only with a drop policy) or nested re-entry.</summary>
+        public long DroppedCount => _pipeline.DroppedCount + Interlocked.Read(ref _reentrantDropped);
 
-        public void Emit(LogEvent logEvent) => _pipeline.TryEnqueue(logEvent);
+        public void Emit(LogEvent logEvent)
+        {
+            if (t_consuming != this)
+            {
+                _pipeline.TryEnqueue(logEvent);
+                return;
+            }
+            // Re-entered from the inner sink on our own consumer thread: queueing could wait forever for space.
+            if (t_depth > 1)
+            {
+                Interlocked.Increment(ref _reentrantDropped);
+                return;
+            }
+            t_depth++;
+            try { _inner.Emit(logEvent); }
+            finally { t_depth--; }
+        }
+
+        private void Consume(LogEvent logEvent)
+        {
+            AsyncLogSink? saved = t_consuming;
+            int savedDepth = t_depth;
+            t_consuming = this;
+            t_depth = 1;
+            try { _inner.Emit(logEvent); }
+            finally
+            {
+                t_consuming = saved;
+                t_depth = savedDepth;
+            }
+        }
 
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
             try { _pipeline.CompleteAsync().GetAwaiter().GetResult(); } // drain buffered events
             catch { /* best-effort drain */ }
             _pipeline.Dispose();

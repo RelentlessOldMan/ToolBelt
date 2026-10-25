@@ -266,8 +266,11 @@ namespace ToolBelt.Diagnostics
 
         private static void ValidateTimeout(TimeSpan timeout, string paramName)
         {
-            if (timeout <= TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
-                throw new ArgumentOutOfRangeException(paramName, timeout, "Timeout must be positive (or Timeout.InfiniteTimeSpan).");
+            if (timeout == Timeout.InfiniteTimeSpan) return;
+            // The timers behind the timeout (CancelAfter, Task.Delay) take at most int.MaxValue ms (~24.8 days) everywhere.
+            if (timeout <= TimeSpan.Zero || timeout.TotalMilliseconds > int.MaxValue)
+                throw new ArgumentOutOfRangeException(paramName, timeout,
+                    "Timeout must be positive and at most int.MaxValue milliseconds (or Timeout.InfiniteTimeSpan).");
         }
 
         private sealed class Registration

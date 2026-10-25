@@ -1,4 +1,4 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Logging/Log.cs and Logging/LogFormatters.cs.
 using System;
 using System.IO;
 using System.Text;
@@ -9,7 +9,8 @@ namespace ToolBelt.Logging
     /// Writes formatted log lines to a file, with optional size-based rotation and retention. When the file
     /// reaches <c>maxBytes</c> it rolls to <c>path.1</c>, <c>path.2</c>, … keeping at most <c>maxFiles</c>
     /// backups; older ones are pruned. Writes are serialized and flushed per line so events are not lost on a
-    /// crash. Thread-safe.
+    /// crash. If a rotation fails (another process holds a backup or the file without delete sharing), the sink keeps
+    /// appending to the current file and tries again on the next write. Thread-safe.
     /// </summary>
     public sealed class FileSink : ILogSink
     {
@@ -19,8 +20,9 @@ namespace ToolBelt.Logging
         private readonly int _maxFiles;
         private readonly Encoding _encoding;
         private readonly object _gate = new object();
-        private FileStream _stream = null!;
-        private StreamWriter _writer = null!;
+        private FileStream? _stream;
+        private StreamWriter? _writer;
+        private bool _disposed;
 
         /// <summary>
         /// Creates a file sink. <paramref name="maxBytes"/> of 0 disables rotation; otherwise the file rolls
@@ -43,9 +45,11 @@ namespace ToolBelt.Logging
             string line = _formatter(logEvent);
             lock (_gate)
             {
-                _writer.WriteLine(line);
+                if (_disposed) throw new ObjectDisposedException(nameof(FileSink));
+                if (_writer == null) Open(); // an earlier reopen failed; try again
+                _writer!.WriteLine(line);
                 _writer.Flush();
-                if (_maxBytes > 0 && _stream.Length >= _maxBytes) Rotate();
+                if (_maxBytes > 0 && _stream!.Length >= _maxBytes) Rotate();
             }
         }
 
@@ -53,8 +57,13 @@ namespace ToolBelt.Logging
         {
             lock (_gate)
             {
+                if (_disposed) return;
+                _disposed = true;
+                if (_writer == null) return;
                 try { _writer.Flush(); } catch { /* best-effort */ }
                 _writer.Dispose(); // also disposes the underlying stream
+                _writer = null;
+                _stream = null;
             }
         }
 
@@ -68,16 +77,26 @@ namespace ToolBelt.Logging
 
         private void Rotate()
         {
-            _writer.Flush();
+            _writer!.Flush();
             _writer.Dispose();
+            _writer = null;
+            _stream = null;
 
             string Rotated(int n) => _path + "." + n;
-            if (File.Exists(Rotated(_maxFiles))) File.Delete(Rotated(_maxFiles));
-            for (int k = _maxFiles - 1; k >= 1; k--)
-                if (File.Exists(Rotated(k))) File.Move(Rotated(k), Rotated(k + 1));
-            if (File.Exists(_path)) File.Move(_path, Rotated(1));
+            try
+            {
+                if (File.Exists(Rotated(_maxFiles))) File.Delete(Rotated(_maxFiles));
+                for (int k = _maxFiles - 1; k >= 1; k--)
+                    if (File.Exists(Rotated(k))) File.Move(Rotated(k), Rotated(k + 1));
+                if (File.Exists(_path)) File.Move(_path, Rotated(1));
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                // Someone holds a file open without delete sharing (a log viewer, a backup tool). Keep appending to
+                // the current file; the next write past the limit tries again.
+            }
 
-            Open(); // fresh, empty primary file
+            Open(); // a fresh primary file, or the current one again if the rotation failed
         }
     }
 }

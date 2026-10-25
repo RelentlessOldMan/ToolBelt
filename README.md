@@ -571,7 +571,7 @@ src/
       Logger.cs             thread-safe fan-out logger (levels, category, injectable clock)
       LogSinks.cs           DelegateSink / TextWriterSink (console) / RollingMemorySink
       FileSink.cs           file sink with size-based rotation + retention
-      SyslogSink.cs         RFC 5424 syslog over UDP or TCP (octet counting); failures counted, never thrown
+      SyslogSink.cs         RFC 5424 syslog over UDP or TCP (octet counting, connect timeout + back-off); failures counted, never thrown
       AsyncLogSink.cs       off-thread bounded-queue sink (built on ConcurrentPipeline)
       LogDecorators.cs      FilterSink / RouterSink / RateLimitedSink (composable sink wrappers)
       LogFormatters.cs      plain / compact / single-line-JSON line formatters
@@ -972,6 +972,7 @@ tests/
       StructuredTextFormatterTests.cs
       ScopedContextTests.cs
       SyslogAndFirstChanceTests.cs (real UDP/TCP loopback collectors, reconnect)
+      LoggingReviewTests.cs (round 12 review regressions: Logging, Diagnostics, Cli)
   ToolBelt.Windows.Tests/   Windows-only integration tests for the platform satellite (net8.0-windows)
     PowerStatusTests.cs
     SingleInstanceTests.cs

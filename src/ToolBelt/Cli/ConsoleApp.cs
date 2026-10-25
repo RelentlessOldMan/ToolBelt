@@ -45,7 +45,10 @@ namespace ToolBelt.Cli
     /// an exit code — the body's own return, <see cref="ExitCodes.Interrupted"/> for a cancel, an <see cref="ExitException"/>'s
     /// code and message, <see cref="ExitCodes.Usage"/> for an <see cref="ArgumentException"/>, and
     /// <see cref="ExitCodes.Software"/> for anything unexpected, written to stderr as one line (full details with
-    /// <c>verbose</c>). Usage: <c>static Task&lt;int&gt; Main(string[] a) =&gt; ConsoleApp.RunAsync(ct =&gt; Run(a, ct));</c>
+    /// <c>verbose</c>). A cancellation that surfaces wrapped in an <see cref="AggregateException"/> (from
+    /// <c>Task.Wait</c> or <c>.Result</c>) also counts as an interrupt. Only Ctrl+C / Ctrl+Break is hooked: a SIGTERM
+    /// or a closing console window ends the process without tripping the token.
+    /// Usage: <c>static Task&lt;int&gt; Main(string[] a) =&gt; ConsoleApp.RunAsync(ct =&gt; Run(a, ct));</c>
     /// </summary>
     public static class ConsoleApp
     {
@@ -80,7 +83,7 @@ namespace ToolBelt.Cli
             {
                 return await body(cts.Token).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            catch (Exception ex) when (cts.IsCancellationRequested && IsCancellation(ex))
             {
                 err.WriteLine("Cancelled.");
                 return ExitCodes.Interrupted;
@@ -104,6 +107,20 @@ namespace ToolBelt.Cli
             {
                 if (handler != null) Console.CancelKeyPress -= handler;
             }
+        }
+
+        private static bool IsCancellation(Exception ex)
+        {
+            if (ex is OperationCanceledException) return true;
+            if (ex is AggregateException agg)
+            {
+                var inner = agg.Flatten().InnerExceptions;
+                if (inner.Count == 0) return false;
+                foreach (Exception e in inner)
+                    if (!(e is OperationCanceledException)) return false;
+                return true;
+            }
+            return false;
         }
 
         /// <summary>A token that trips on the first Ctrl+C (which is then suppressed); dispose to unhook.</summary>

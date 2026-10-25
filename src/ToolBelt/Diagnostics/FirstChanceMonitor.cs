@@ -28,7 +28,8 @@ namespace ToolBelt.Diagnostics
         public int SuppressedSinceLast { get; }
 
         public override string ToString()
-            => $"{Time:HH:mm:ss.fff} first-chance {Exception.GetType().FullName}: {Exception.Message}"
+            => Time.ToString("HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture)
+               + $" first-chance {Exception.GetType().FullName}: {Exception.Message}"
                + (SuppressedSinceLast > 0 ? $" (+{SuppressedSinceLast} similar suppressed)" : "");
     }
 

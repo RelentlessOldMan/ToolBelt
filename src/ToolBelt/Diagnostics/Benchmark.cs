@@ -38,7 +38,8 @@ namespace ToolBelt.Diagnostics
         public double RelativeToBaseline { get; internal set; } = 1.0;
 
         public override string ToString()
-            => $"{Name}: {MeanNanoseconds:F1} ns/op, {OperationsPerSecond:N0} ops/s, {AllocatedBytesPerOperation} B/op";
+            => string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0}: {1:F1} ns/op, {2:N0} ops/s, {3} B/op",
+                Name, MeanNanoseconds, OperationsPerSecond, AllocatedBytesPerOperation);
     }
 
     /// <summary>

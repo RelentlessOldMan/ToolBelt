@@ -56,10 +56,18 @@ namespace ToolBelt.Diagnostics
         public long ReserveBytes { get; }
 
         /// <summary>True when the run's bytes fit while leaving <see cref="ReserveBytes"/> free.</summary>
-        public bool HasRoom => AvailableBytes - ReserveBytes >= RequiredBytes;
+        public bool HasRoom => (decimal)AvailableBytes - ReserveBytes >= RequiredBytes;
 
-        /// <summary>Bytes that would have to be freed for the run to fit (0 when it fits).</summary>
-        public long ShortfallBytes => HasRoom ? 0 : RequiredBytes - (AvailableBytes - ReserveBytes);
+        /// <summary>Bytes that would have to be freed for the run to fit (0 when it fits; capped at <see cref="long.MaxValue"/>).</summary>
+        public long ShortfallBytes
+        {
+            get
+            {
+                if (HasRoom) return 0;
+                decimal shortfall = (decimal)RequiredBytes - ((decimal)AvailableBytes - ReserveBytes);
+                return shortfall >= long.MaxValue ? long.MaxValue : (long)shortfall;
+            }
+        }
 
         /// <summary>True when the directory is writable and there is room — i.e. the run may start.</summary>
         public bool IsOk => IsWritable && HasRoom;
@@ -87,8 +95,10 @@ namespace ToolBelt.Diagnostics
     /// process write there, and will a run of a given size fit. The volume is resolved by the longest matching
     /// mount point, so a path under a Unix mount like <c>/mnt/data</c> reports that volume rather than the root one. On
     /// Windows only drive letters are enumerated, so a volume mounted into a folder (<c>C:\Mounts\Data</c>) reports the
-    /// drive it sits on — give such paths by their own drive letter or volume GUID path. Answers are a snapshot — other processes can consume space after you check —
-    /// so leave a reserve for anything long-running.
+    /// drive it sits on — give such a volume its own drive letter to query it. UNC paths (<c>\\server\share</c>) and
+    /// device or volume-GUID paths (<c>\\?\…</c>) are not supported (the BCL cannot query them) and throw
+    /// <see cref="ArgumentException"/>; map a drive letter instead. Answers are a snapshot — other processes can consume
+    /// space after you check — so leave a reserve for anything long-running.
     /// </summary>
     public static class DiskSpace
     {
@@ -133,14 +143,24 @@ namespace ToolBelt.Diagnostics
         /// <summary>
         /// Checks that <paramref name="directory"/> is writable and that <paramref name="requiredBytes"/> fit on its
         /// volume while leaving <paramref name="reserveBytes"/> free. Call before a long capture or export so it
-        /// fails up front rather than hours in.
+        /// fails up front rather than hours in. A directory that is not writable because its drive is missing reports
+        /// <see cref="PreflightResult.IsWritable"/> false and 0 available bytes rather than throwing.
         /// </summary>
         public static PreflightResult Preflight(string directory, long requiredBytes, long reserveBytes = 0)
         {
             if (requiredBytes < 0) throw new ArgumentOutOfRangeException(nameof(requiredBytes), requiredBytes, "Must be non-negative.");
             if (reserveBytes < 0) throw new ArgumentOutOfRangeException(nameof(reserveBytes), reserveBytes, "Must be non-negative.");
             bool writable = IsWritable(directory);
-            return new PreflightResult(writable, AvailableBytes(directory), requiredBytes, reserveBytes);
+            long available;
+            if (writable)
+                available = AvailableBytes(directory);
+            else
+            {
+                try { available = AvailableBytes(directory); }
+                catch (IOException) { available = 0; }                 // e.g. DriveNotFoundException
+                catch (UnauthorizedAccessException) { available = 0; }
+            }
+            return new PreflightResult(writable, available, requiredBytes, reserveBytes);
         }
 
         /// <summary>
@@ -149,12 +169,12 @@ namespace ToolBelt.Diagnostics
         /// </summary>
         public static long EstimateBytes(double bytesPerSecond, TimeSpan duration, double safetyFactor = 1.2)
         {
-            if (double.IsNaN(bytesPerSecond) || bytesPerSecond < 0)
-                throw new ArgumentOutOfRangeException(nameof(bytesPerSecond), bytesPerSecond, "Must be non-negative.");
+            if (double.IsNaN(bytesPerSecond) || double.IsInfinity(bytesPerSecond) || bytesPerSecond < 0)
+                throw new ArgumentOutOfRangeException(nameof(bytesPerSecond), bytesPerSecond, "Must be finite and non-negative.");
             if (duration < TimeSpan.Zero)
                 throw new ArgumentOutOfRangeException(nameof(duration), duration, "Must be non-negative.");
-            if (double.IsNaN(safetyFactor) || safetyFactor < 1)
-                throw new ArgumentOutOfRangeException(nameof(safetyFactor), safetyFactor, "Must be at least 1.");
+            if (double.IsNaN(safetyFactor) || double.IsInfinity(safetyFactor) || safetyFactor < 1)
+                throw new ArgumentOutOfRangeException(nameof(safetyFactor), safetyFactor, "Must be finite and at least 1.");
             double bytes = Math.Ceiling(bytesPerSecond * duration.TotalSeconds * safetyFactor);
             if (bytes >= long.MaxValue)
                 throw new OverflowException("Estimated size exceeds the range of a 64-bit byte count.");
@@ -194,6 +214,10 @@ namespace ToolBelt.Diagnostics
             string? pathRoot = Path.GetPathRoot(full);
             if (string.IsNullOrEmpty(pathRoot))
                 throw new ArgumentException("Could not determine the volume for the path.", nameof(path));
+            if (pathRoot!.StartsWith(@"\\", StringComparison.Ordinal) || pathRoot.StartsWith("//", StringComparison.Ordinal))
+                throw new ArgumentException(
+                    "Disk space for UNC and device paths (\\\\server\\share, \\\\?\\...) is not available; map a drive letter instead: " + path,
+                    nameof(path));
             return new DriveInfo(pathRoot);
         }
 

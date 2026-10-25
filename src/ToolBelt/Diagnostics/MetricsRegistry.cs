@@ -60,10 +60,11 @@ namespace ToolBelt.Diagnostics
             lock (_gate) _gauges[name] = value;
         }
 
-        /// <summary>Records a timer/distribution sample (e.g. a duration in milliseconds).</summary>
+        /// <summary>Records a timer/distribution sample (e.g. a duration in milliseconds). NaN is rejected.</summary>
         public void Record(string name, double value)
         {
             if (name is null) throw new ArgumentNullException(nameof(name));
+            if (double.IsNaN(value)) throw new ArgumentOutOfRangeException(nameof(value), value, "A sample must not be NaN.");
             lock (_gate)
             {
                 if (!_timers.TryGetValue(name, out var list)) { list = new List<double>(); _timers[name] = list; }

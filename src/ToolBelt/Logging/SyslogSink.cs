@@ -20,7 +20,11 @@ namespace ToolBelt.Logging
         /// <summary>UDP datagrams (port 514): fire-and-forget, may be lost; messages are capped at 2048 bytes.</summary>
         Udp,
 
-        /// <summary>TCP with RFC 6587 octet-counting framing (port 601 / 514): reliable, reconnects on failure.</summary>
+        /// <summary>
+        /// TCP with RFC 6587 octet-counting framing (port 601 / 514): reliable while connected, reconnects on failure.
+        /// A connect waits at most <see cref="SyslogSink.ConnectTimeout"/>; after a failed connect, further attempts
+        /// back off (1 s doubling to 60 s) and events in between count as failed sends without touching the network.
+        /// </summary>
         Tcp,
     }
 
@@ -45,6 +49,11 @@ namespace ToolBelt.Logging
         private NetworkStream? _tcpStream;
         private bool _disposed;
         private long _failed;
+        private long _retryAtTimestamp;   // Stopwatch timestamp before which no reconnect is attempted
+        private TimeSpan _backoff;
+        private TimeSpan _connectTimeout = TimeSpan.FromSeconds(3);
+        private static readonly TimeSpan MinBackoff = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(60);
 
         public SyslogSink(string host, int port = 514, SyslogTransport transport = SyslogTransport.Udp,
             SyslogFacility facility = SyslogFacility.Local0, string? appName = null)
@@ -57,6 +66,21 @@ namespace ToolBelt.Logging
             _hostName = Token(Environment.MachineName, 255);
             _appName = Token(appName ?? AppDomain.CurrentDomain.FriendlyName, 48);
             _procId = Token(System.Diagnostics.Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture), 128);
+        }
+
+        /// <summary>
+        /// The longest a TCP connect may take (default 3 s). The connect runs on the logging thread, under the sink's
+        /// lock, so keep it short.
+        /// </summary>
+        public TimeSpan ConnectTimeout
+        {
+            get { lock (_gate) return _connectTimeout; }
+            set
+            {
+                if (value <= TimeSpan.Zero || value.TotalMilliseconds > int.MaxValue)
+                    throw new ArgumentOutOfRangeException(nameof(value), value, "Connect timeout must be positive and at most int.MaxValue ms.");
+                lock (_gate) _connectTimeout = value;
+            }
         }
 
         /// <summary>Messages that could not be delivered.</summary>
@@ -104,21 +128,48 @@ namespace ToolBelt.Logging
             {
                 try
                 {
-                    if (_tcpStream == null)
-                    {
-                        _tcp = new TcpClient { NoDelay = true, SendTimeout = 5000 };
-                        _tcp.Connect(_host, _port);
-                        _tcpStream = _tcp.GetStream();
-                    }
+                    if (_tcpStream == null) Connect();
+                    var stream = _tcpStream!;
                     byte[] prefix = Encoding.ASCII.GetBytes(payload.Length.ToString(CultureInfo.InvariantCulture) + " ");
-                    _tcpStream.Write(prefix, 0, prefix.Length);
-                    _tcpStream.Write(payload, 0, payload.Length);
+                    stream.Write(prefix, 0, prefix.Length);
+                    stream.Write(payload, 0, payload.Length);
                     return;
                 }
                 catch when (hadConnection && attempt == 0)
                 {
                     ResetTcp();                                                       // stale connection: reconnect once
                 }
+            }
+        }
+
+        private void Connect()
+        {
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (now < _retryAtTimestamp)
+                throw new SocketException((int)SocketError.TryAgain); // backing off after a failed connect: don't block
+            var client = new TcpClient { NoDelay = true, SendTimeout = 5000 };
+            try
+            {
+                // TcpClient.Connect has no timeout (an unreachable host takes ~21 s on Windows), so race the async connect.
+                System.Threading.Tasks.Task connect = client.ConnectAsync(_host, _port);
+                if (!connect.Wait(_connectTimeout))
+                {
+                    _ = connect.ContinueWith(t => _ = t.Exception, System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
+                    throw new SocketException((int)SocketError.TimedOut);
+                }
+                _tcp = client;
+                _tcpStream = client.GetStream();
+                _backoff = TimeSpan.Zero;
+                _retryAtTimestamp = 0;
+            }
+            catch (Exception ex)
+            {
+                client.Dispose();
+                _backoff = _backoff == TimeSpan.Zero ? MinBackoff : TimeSpan.FromTicks(Math.Min(_backoff.Ticks * 2, MaxBackoff.Ticks));
+                _retryAtTimestamp = System.Diagnostics.Stopwatch.GetTimestamp() + (long)(_backoff.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
+                if (ex is AggregateException agg && agg.InnerException != null)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(agg.InnerException).Throw();
+                throw;
             }
         }
 

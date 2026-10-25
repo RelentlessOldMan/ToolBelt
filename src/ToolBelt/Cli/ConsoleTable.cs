@@ -15,7 +15,8 @@ namespace ToolBelt.Cli
     /// <summary>
     /// Builds a simple aligned monospace table for console output: a header row, a dashed divider, and
     /// one line per data row, with every column padded to the width of its widest cell. All rendered
-    /// lines have identical length. Cell values are used verbatim (a null cell renders as empty).
+    /// lines have identical length (in UTF-16 characters, so wide CJK or emoji cells may misalign on screen). Cell
+    /// values are used verbatim (a null cell or header renders as empty).
     /// </summary>
     public sealed class ConsoleTable
     {
@@ -33,7 +34,8 @@ namespace ToolBelt.Cli
             if (headers.Length == 0)
                 throw new ArgumentException("At least one column is required.", nameof(headers));
 
-            _headers = (string[])headers.Clone();
+            _headers = new string[headers.Length];
+            for (int i = 0; i < headers.Length; i++) _headers[i] = headers[i] ?? string.Empty;
             _alignments = new ColumnAlignment[headers.Length]; // defaults to Left
         }
 

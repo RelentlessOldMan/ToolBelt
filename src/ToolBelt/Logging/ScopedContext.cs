@@ -9,7 +9,7 @@ namespace ToolBelt.Logging
     /// nested operations tag their log messages automatically without threading a logger parameter through
     /// every call. Nested pushes combine with a <c>/</c> separator. Backed by <see cref="AsyncLocal{T}"/>, so
     /// the value flows across <c>await</c> boundaries and stays isolated per asynchronous flow.
-    /// <see cref="Logger"/> reads <see cref="Current"/> and folds it into each event's category.
+    /// The library's <c>Logger</c> reads <see cref="Current"/> and folds it into each event's category.
     /// </summary>
     public static class ScopedContext
     {
@@ -18,12 +18,16 @@ namespace ToolBelt.Logging
         /// <summary>The current combined scope, or null if none is active.</summary>
         public static string? Current => Ambient.Value;
 
-        /// <summary>Pushes a scope for the lifetime of the returned token; disposing restores the previous scope.</summary>
+        /// <summary>
+        /// Pushes a scope for the lifetime of the returned token; disposing restores the previous scope. An empty
+        /// scope leaves the current one unchanged.
+        /// </summary>
         public static IDisposable Push(string scope)
         {
             if (scope is null) throw new ArgumentNullException(nameof(scope));
             string? previous = Ambient.Value;
-            Ambient.Value = string.IsNullOrEmpty(previous) ? scope : previous + "/" + scope;
+            if (scope.Length > 0)
+                Ambient.Value = string.IsNullOrEmpty(previous) ? scope : previous + "/" + scope;
             return new Popper(previous);
         }
 

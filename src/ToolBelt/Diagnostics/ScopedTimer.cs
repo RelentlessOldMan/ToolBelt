@@ -1,4 +1,4 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Diagnostics/MetricsRegistry.cs (for ToMetrics).
 using System;
 
 namespace ToolBelt.Diagnostics

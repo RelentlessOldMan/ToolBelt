@@ -1,4 +1,4 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Logging/Log.cs.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -18,8 +18,11 @@ namespace ToolBelt.Logging
 
     /// <summary>
     /// A configurable line formatter: choose which fields appear, in what order, with which delimiter and
-    /// timestamp format. This gives log files a machine-parseable shape (readable by a delimited/CSV reader)
-    /// without abandoning the plain-string event model. Use <see cref="Format"/> as the sink's formatter.
+    /// timestamp format. This gives log files a machine-parseable shape (split each line on the delimiter) without
+    /// abandoning the plain-string event model. Use <see cref="Format"/> as the sink's formatter. Newlines and the
+    /// delimiter inside a value become spaces; nothing else is escaped, so a quoting CSV reader may misread a value
+    /// that contains a <c>"</c>, and with the default space delimiter a value containing spaces is not separable —
+    /// put free text such as the message last, or pick a delimiter like a tab.
     /// </summary>
     public sealed class StructuredTextFormatter
     {
@@ -34,6 +37,8 @@ namespace ToolBelt.Logging
             _fields = fields;
             _delimiter = delimiter ?? throw new ArgumentNullException(nameof(delimiter));
             _timestampFormat = timestampFormat ?? throw new ArgumentNullException(nameof(timestampFormat));
+            try { new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero).ToString(timestampFormat, CultureInfo.InvariantCulture); }
+            catch (FormatException ex) { throw new ArgumentException("Invalid timestamp format: " + ex.Message, nameof(timestampFormat), ex); }
         }
 
         /// <summary>A tab-delimited timestamp/level/category/message formatter (a delimited preset).</summary>

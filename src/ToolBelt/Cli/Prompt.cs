@@ -52,9 +52,12 @@ namespace ToolBelt.Cli
             }, showDefault: false);
         }
 
-        /// <summary>Free text; empty input takes <paramref name="defaultValue"/> if there is one, else re-asks.</summary>
+        /// <summary>
+        /// Free text; empty (or whitespace-only) input takes <paramref name="defaultValue"/> if there is one, else
+        /// re-asks. A real answer is returned as typed, surrounding spaces included.
+        /// </summary>
         public string Text(string question, string? defaultValue = null)
-            => Ask(question, defaultValue, s => s.Length == 0 ? (false, "", "A value is required.") : (true, s, null), showDefault: true);
+            => Ask(question, defaultValue, s => s.Trim().Length == 0 ? (false, "", "A value is required.") : (true, s, null), showDefault: true);
 
         /// <summary>A value parsed (and optionally validated) by <paramref name="parse"/>, which returns null for invalid input.</summary>
         public T Value<T>(string question, Func<string, T?> parse, T? defaultValue = null, string invalidMessage = "That isn't a valid value.") where T : struct
@@ -63,12 +66,27 @@ namespace ToolBelt.Cli
             return Ask(question, defaultValue, s => parse(s) is T v ? (true, v, null) : (false, default, invalidMessage), showDefault: true);
         }
 
-        /// <summary>An integer within [<paramref name="min"/>, <paramref name="max"/>] (invariant culture).</summary>
+        /// <summary>
+        /// An integer within [<paramref name="min"/>, <paramref name="max"/>] (invariant culture). A default outside
+        /// the range, or <paramref name="min"/> above <paramref name="max"/>, throws <see cref="ArgumentOutOfRangeException"/>.
+        /// </summary>
         public int Integer(string question, int min = int.MinValue, int max = int.MaxValue, int? defaultValue = null)
-            => Value(question, s => int.TryParse(s.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int v) && v >= min && v <= max ? v : (int?)null,
-                defaultValue, min == int.MinValue && max == int.MaxValue ? "Please enter a whole number." : $"Please enter a whole number from {min} to {max}.");
+        {
+            if (min > max) throw new ArgumentOutOfRangeException(nameof(min), min, "min must not exceed max.");
+            if (defaultValue is int dv && (dv < min || dv > max))
+                throw new ArgumentOutOfRangeException(nameof(defaultValue), dv, "The default must be within [min, max].");
+            string invalid = min == int.MinValue && max == int.MaxValue
+                ? "Please enter a whole number."
+                : string.Format(CultureInfo.InvariantCulture, "Please enter a whole number from {0} to {1}.", min, max);
+            return Value(question, s => int.TryParse(s.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int v) && v >= min && v <= max ? v : (int?)null,
+                defaultValue, invalid);
+        }
 
-        /// <summary>Lists the options numbered from 1 and returns the chosen index (a number or an option's exact text, any case).</summary>
+        /// <summary>
+        /// Lists the options numbered from 1 and returns the chosen index (a number or an option's exact text, any
+        /// case). A number is read as a position first, so an option whose text is itself a number in range is
+        /// reachable only by its position.
+        /// </summary>
         public int Choose(string question, IReadOnlyList<string> options, int? defaultIndex = null)
         {
             if (options is null || options.Count == 0) throw new ArgumentException("Need at least one option.", nameof(options));
@@ -90,7 +108,12 @@ namespace ToolBelt.Cli
 
         private T Ask<T>(string question, T? defaultValue, Func<string, (bool Ok, T Value, string? Error)> parse, bool showDefault,
             string? defaultLabel = null, string? context = null) where T : struct
-            => AskCore(question, defaultValue.HasValue, defaultValue.GetValueOrDefault(), parse, showDefault, defaultLabel ?? defaultValue?.ToString(), context);
+            => AskCore(question, defaultValue.HasValue, defaultValue.GetValueOrDefault(), parse, showDefault, defaultLabel ?? Invariant(defaultValue), context);
+
+        private static string? Invariant<T>(T? value) where T : struct
+            => value is null ? null
+               : value.Value is IFormattable f ? f.ToString(null, CultureInfo.InvariantCulture)
+               : value.Value.ToString();
 
         private string Ask(string question, string? defaultValue, Func<string, (bool Ok, string Value, string? Error)> parse, bool showDefault)
             => AskCore(question, defaultValue != null, defaultValue!, parse, showDefault, defaultValue, null);

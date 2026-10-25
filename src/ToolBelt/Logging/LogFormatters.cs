@@ -1,4 +1,4 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Logging/Log.cs.
 using System;
 using System.Globalization;
 using System.Text;

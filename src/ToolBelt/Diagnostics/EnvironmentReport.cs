@@ -50,7 +50,7 @@ namespace ToolBelt.Diagnostics
             {
                 using DiagnosticsProcess process = DiagnosticsProcess.GetCurrentProcess();
                 workingSet = process.WorkingSet64;
-                uptime = DateTime.Now - process.StartTime;
+                uptime = DateTime.UtcNow - process.StartTime.ToUniversalTime(); // local times would be off by an hour across a DST change
                 if (uptime < TimeSpan.Zero) uptime = TimeSpan.Zero;
             }
             catch { /* some hosts restrict process self-inspection */ }

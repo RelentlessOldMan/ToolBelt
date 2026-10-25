@@ -52,8 +52,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 1 | 28 / 28 | re-queue (6 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 1 | 40 / 40 | re-queue (7 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 1 | 26 / 26 | re-queue (1 severe) |
-| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 0 | – / 0 | **next** |
-| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 0 | – / 0 | queued |
+| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 1 | 32 / 32 | re-queue (3 severe) |
+| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 0 | – / 0 | **next** |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 0 | – / 0 | queued |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 0 | – / 0 | queued |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 0 | – / 0 | queued |
@@ -79,6 +79,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.9.0 | 9 | Collections | 28 | (see tag) |
 | v0.10.0 | 10 | Concurrency | 40 | (see tag) |
 | v0.11.0 | 11 | Text & small types | 26 | (see tag) |
+| v0.12.0 | 12 | Logging, diagnostics, CLI | 32 | (see tag) |
 
 ## Round log
 
@@ -605,3 +606,50 @@ enums, non-canonical id text). **26 confirmed bugs**: 25 with failing-first regr
   surrogate differs by runtime (documented); `TextDiff` is still O(n·m) over the changed middle.
 - **Checked build:** the section is clean; the same 42 failures remain elsewhere.
 - **Re-queued:** yes (26 bugs, 1 severe).
+
+### Round 12 — 2026-10-25 — Logging, diagnostics, CLI
+Reviewers: one for correctness and one for robustness (locked or missing files, unreachable hosts, re-entrant sinks,
+hostile cultures, infinities, broken writers). **32 confirmed bugs**: 28 with failing-first regression tests in
+`LoggingReviewTests` (28 tests), 4 by inspection; plus 5 doc-only items. No existing tests needed changes.
+
+- **Severe:**
+  - `FileSink` rotation threw when another process held the log or a backup open without delete sharing (a log
+    viewer, a backup tool), and left the sink with a disposed writer, so every later event threw too. A failed
+    rotation now keeps appending to the current file and retries on the next write.
+  - `AsyncLogSink` deadlocked when the inner sink logged back into the same sink on the consumer thread (for example
+    a first-chance monitor reporting the sink's own failure) and the buffer was full. Such re-entrant events now go
+    straight to the inner sink; a second level is dropped and counted.
+  - `SyslogSink` over TCP to an unreachable host blocked the logging thread for about 21 s per event, under the lock.
+    The connect is now capped by a new `ConnectTimeout` (default 3 s), and failed connects back off (1 s doubling to
+    60 s) and count events as failed without touching the network.
+- **Moderate:**
+  - `RouterSink`: a throwing route starved every route after it. All routes now run and the failure is rethrown.
+  - `RateLimitedSink` keyed on `Level|Category|Message`, so ("x|y", "z") and ("x", "y|z") collided and one was
+    swallowed.
+  - `ExceptionUtils`: `Describe` indented by visit order rather than tree depth and was quadratic in the number of
+    siblings (2000 siblings gave 4 MB); `RootCause` looped forever on a cyclic chain and `Flatten` grew without bound
+    on one (by inspection); `IsTransient` called file-not-found, path-too-long and end-of-stream transient.
+  - `DiskSpace`: `Preflight` threw `DriveNotFoundException` for a missing drive instead of reporting not writable;
+    `ShortfallBytes` overflowed to a negative number; `EstimateBytes` accepted infinite rates; UNC paths failed with
+    a cryptic error (and the docs recommended volume GUID paths, which don't work either).
+  - `Sparkline` ignored a single explicit bound (the scan overwrote it) and threw `IndexOutOfRangeException` on
+    infinities and on ranges that overflow a double.
+  - `ConsoleApp` returned 70 instead of 130 when the cancellation surfaced wrapped in an `AggregateException`
+    (`Task.Wait`).
+  - `ConsoleSpinner.Dispose` threw on a broken writer and then never stopped the animation loop.
+- **Minor:** `AsyncLogSink` double dispose disposed the inner sink twice; `StructuredTextFormatter` accepted an
+  invalid timestamp format and failed on the first event; `ScopedContext.Push("")` added a stray "/";
+  `HealthCheck` accepted timeouts beyond the 24.8-day timer limit; `MetricsRegistry.Record` accepted NaN (poisoning
+  every statistic); `Benchmark`, `FirstChanceRecord` and `Prompt` labels used the current culture; `ConsoleTable`
+  threw on a null header; `Prompt.Text` accepted whitespace-only input and `Prompt.Integer` a default outside the
+  range; `EnvironmentReport` uptime was off by an hour across DST (by inspection); the spinner line wrapped on a
+  narrow console and could not be redrawn (by inspection); eight drop-in headers claimed "fully self-contained" but
+  needed `Log.cs` and friends (by inspection).
+- **Doc-only:** `StructuredTextFormatter` is not quote-safe CSV and its default space delimiter cannot separate
+  values with spaces; `RateLimitedSink` summaries are written on the next event or on dispose (no timer);
+  `ConsoleApp` hooks Ctrl+C only, not SIGTERM; `Prompt.Choose` reads a number as a position first; `ConsoleTable`
+  widths are UTF-16 characters.
+- **Not changed:** `AsyncLogSink.Emit` after dispose still throws (pipeline contract); `MetricsRegistry` keeps
+  every sample (documented); `Prompt.Choose` precedence.
+- **Checked build:** the section is clean; the same 42 failures remain elsewhere.
+- **Re-queued:** yes (3 severe).

@@ -1,6 +1,7 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Logging/Log.cs.
 using System;
 using System.Collections.Generic;
+using System.Runtime.ExceptionServices;
 
 namespace ToolBelt.Logging
 {
@@ -36,7 +37,8 @@ namespace ToolBelt.Logging
     /// <summary>
     /// Routes each event to every sink whose predicate matches (e.g. errors to one file, everything to
     /// another). An event matching no route is dropped; add a catch-all route (<c>_ =&gt; true</c>) if that
-    /// is not wanted.
+    /// is not wanted. A route whose predicate or sink throws does not stop the others: every route is tried, then the
+    /// failure is rethrown (an <see cref="AggregateException"/> if several failed).
     /// </summary>
     public sealed class RouterSink : ILogSink
     {
@@ -58,9 +60,22 @@ namespace ToolBelt.Logging
 
         public void Emit(LogEvent logEvent)
         {
+            List<Exception>? errors = null;
             foreach (var route in _routes)
-                if (route.Predicate(logEvent))
-                    route.Sink.Emit(logEvent);
+            {
+                try
+                {
+                    if (route.Predicate(logEvent))
+                        route.Sink.Emit(logEvent);
+                }
+                catch (Exception ex)
+                {
+                    (errors ??= new List<Exception>()).Add(ex);
+                }
+            }
+            if (errors == null) return;
+            if (errors.Count == 1) ExceptionDispatchInfo.Capture(errors[0]).Throw();
+            throw new AggregateException(errors);
         }
 
         public void Dispose()
@@ -74,8 +89,10 @@ namespace ToolBelt.Logging
     }
 
     /// <summary>
-    /// Suppresses a flood of the identical message, forwarding the first occurrence and, once the window has
-    /// elapsed (or a different message arrives), a "(repeated N times)" summary for what it swallowed. A
+    /// Suppresses a flood of the identical message (same level, category and text), forwarding the first occurrence
+    /// and a "(repeated N times)" summary for what it swallowed. The summary is written when the next event arrives
+    /// after the window has elapsed or with a different message, or on <see cref="Dispose"/>; there is no timer, so a
+    /// flood that stops with nothing logged after it is summarized only when the sink is disposed. A
     /// single repeating error can no longer fill a disk. Uses an injectable clock and tracks only the current
     /// run of identical messages, so its memory is bounded.
     /// </summary>
@@ -87,7 +104,10 @@ namespace ToolBelt.Logging
         private readonly bool _ownsInner;
         private readonly object _gate = new object();
 
-        private string? _currentKey;
+        private bool _hasCurrent;
+        private LogLevel _currentLevel;
+        private string _currentCategory = string.Empty;
+        private string _currentMessage = string.Empty;
         private DateTimeOffset _windowStart;
         private int _suppressed;
         private LogEvent? _lastSuppressed;
@@ -103,11 +123,13 @@ namespace ToolBelt.Logging
 
         public void Emit(LogEvent logEvent)
         {
-            string key = logEvent.Level + "|" + logEvent.Category + "|" + logEvent.Message;
             DateTimeOffset now = _clock();
             lock (_gate)
             {
-                if (key == _currentKey && now - _windowStart < _window)
+                bool same = _hasCurrent && logEvent.Level == _currentLevel
+                    && string.Equals(logEvent.Category, _currentCategory, StringComparison.Ordinal)
+                    && string.Equals(logEvent.Message, _currentMessage, StringComparison.Ordinal);
+                if (same && now - _windowStart < _window)
                 {
                     _suppressed++;
                     _lastSuppressed = logEvent;
@@ -115,7 +137,10 @@ namespace ToolBelt.Logging
                 }
                 FlushSummary(now);
                 _inner.Emit(logEvent);
-                _currentKey = key;
+                _hasCurrent = true;
+                _currentLevel = logEvent.Level;
+                _currentCategory = logEvent.Category;
+                _currentMessage = logEvent.Message;
                 _windowStart = now;
                 _suppressed = 0;
                 _lastSuppressed = null;

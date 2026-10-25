@@ -10,7 +10,9 @@ namespace ToolBelt.Cli
     /// An "I'm still working" spinner for console tools. While running it redraws <c>frame message</c> in place with a
     /// carriage return; on dispose it erases the line and optionally writes a final status line. When the output isn't an
     /// interactive terminal (redirected to a file or a CI log) it draws nothing animated — it writes the message once —
-    /// so logs aren't filled with carriage-return garbage. The writer and interactivity are injectable for tests.
+    /// so logs aren't filled with carriage-return garbage. On the real console the line is cut to the window width so
+    /// it cannot wrap (a wrapped line can't be redrawn in place). If the output breaks (a closed pipe), stopping still
+    /// ends the animation and <see cref="Dispose"/> does not throw. The writer and interactivity are injectable for tests.
     /// </summary>
     public sealed class ConsoleSpinner : IDisposable
     {
@@ -26,6 +28,7 @@ namespace ToolBelt.Cli
         private readonly object _gate = new object();
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly Task? _loop;
+        private readonly bool _isConsole;
         private string _message;
         private int _frame, _lastWidth;
         private bool _disposed;
@@ -39,6 +42,7 @@ namespace ToolBelt.Cli
         {
             _message = message ?? throw new ArgumentNullException(nameof(message));
             _writer = writer ?? Console.Error;
+            _isConsole = writer is null;
             _interactive = interactive ?? (writer is null && !Console.IsErrorRedirected);
             _frames = frames is { Length: > 0 } ? frames : Dots;
             TimeSpan period = interval ?? TimeSpan.FromMilliseconds(80);
@@ -102,19 +106,40 @@ namespace ToolBelt.Cli
                 if (_disposed) return;
                 _disposed = true;
                 _cts.Cancel();
-                if (_interactive) _writer.Write("\r" + new string(' ', _lastWidth) + "\r");
-                if (finalLine != null) _writer.WriteLine(finalLine);
-                _writer.Flush();
             }
-            try { _loop?.Wait(); } catch (AggregateException) { }
-            _cts.Dispose();
+            try
+            {
+                lock (_gate)
+                {
+                    if (_interactive) _writer.Write("\r" + new string(' ', _lastWidth) + "\r");
+                    if (finalLine != null) _writer.WriteLine(finalLine);
+                    _writer.Flush();
+                }
+            }
+            finally
+            {
+                try { _loop?.Wait(); } catch (AggregateException) { }
+                _cts.Dispose();
+            }
         }
 
-        public void Dispose() => Stop();
+        /// <summary>Stops and erases the spinner; an output failure (e.g. a closed pipe) is ignored.</summary>
+        public void Dispose()
+        {
+            try { Stop(); }
+            catch (IOException) { }
+            catch (ObjectDisposedException) { }
+        }
 
         private void Draw()
         {
             string line = _frames[_frame] + " " + _message;
+            if (_isConsole)
+            {
+                int width;
+                try { width = Console.WindowWidth; } catch (Exception) { width = 0; } // no console window (e.g. a service)
+                if (width > 1 && line.Length > width - 1) line = line.Substring(0, width - 1);
+            }
             int pad = Math.Max(0, _lastWidth - line.Length);
             _writer.Write("\r" + line + new string(' ', pad));
             _writer.Flush();

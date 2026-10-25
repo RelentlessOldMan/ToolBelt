@@ -8,7 +8,9 @@ namespace ToolBelt.Cli
     /// <summary>
     /// Renders a numeric series as a one-line block-character mini chart (▁▂▃▄▅▆▇█), auto-scaling to the
     /// data's range unless explicit bounds are given. Tiny and disproportionately useful for console
-    /// diagnostics where opening an image would be overkill.
+    /// diagnostics where opening an image would be overkill. NaN draws as a space, +∞ as the top block and −∞ as
+    /// the bottom one; auto-scaling uses the finite values only, and a bound you supply is kept even if the other is
+    /// computed.
     /// </summary>
     public static class Sparkline
     {
@@ -25,23 +27,29 @@ namespace ToolBelt.Cli
             {
                 foreach (double v in values)
                 {
-                    if (double.IsNaN(v)) continue;
-                    if (v < lo) lo = v;
-                    if (v > hi) hi = v;
+                    if (double.IsNaN(v) || double.IsInfinity(v)) continue;
+                    if (min is null && v < lo) lo = v;
+                    if (max is null && v > hi) hi = v;
                 }
             }
 
             var sb = new StringBuilder(values.Count);
             double range = hi - lo;
+            bool halve = double.IsInfinity(range) && !double.IsInfinity(lo) && !double.IsInfinity(hi);
+            if (halve) range = hi / 2 - lo / 2; // the full range overflows a double; scale both halves instead
             foreach (double v in values)
             {
                 if (double.IsNaN(v)) { sb.Append(' '); continue; }
                 int level;
-                if (range <= 0)
-                    level = 0; // flat series -> all lowest block
+                if (double.IsPositiveInfinity(v))
+                    level = Blocks.Length - 1;
+                else if (double.IsNegativeInfinity(v))
+                    level = 0;
+                else if (!(range > 0) || double.IsInfinity(range))
+                    level = 0; // flat (or no finite) series -> all lowest block
                 else
                 {
-                    double t = (v - lo) / range;
+                    double t = halve ? (v / 2 - lo / 2) / range : (v - lo) / range;
                     if (t < 0) t = 0;
                     if (t > 1) t = 1;
                     level = (int)Math.Round(t * (Blocks.Length - 1), MidpointRounding.AwayFromZero);
