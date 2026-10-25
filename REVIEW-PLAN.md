@@ -40,8 +40,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 1 | 16 / 16 | re-queue (2 severe) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
-| 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 0 | – / 0 | **next** |
-| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 0 | – / 0 | queued |
+| 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 1 | 31 / 31 | re-queue (7 severe) |
+| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 0 | – / 0 | **next** |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 0 | – / 0 | queued |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 0 | – / 0 | queued |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 0 | – / 0 | queued |
@@ -67,6 +67,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 |---------|-------|---------|-----------:|--------|
 | v0.1.0 | 1 | Filters & control | 16 | (see tag) |
 | v0.2.0 | 2 | Signal analysis | 24 | (see tag) |
+| v0.3.0 | 3 | Statistics | 31 | (see tag) |
 
 ## Round log
 
@@ -158,3 +159,65 @@ doc-only, 1 hardening fix with no feasible test, 0 rejected.
   2³⁰. They now throw. This was not reproduced, because it needs more than 8 GB.
 - **Lead for section 4:** `Polynomial.Fit` itself still uses the ill-conditioned normal equations.
 - **Re-queued:** yes (1 severe, 24 bugs).
+
+### Round 3 — 2026-10-24 — Statistics
+
+Reviewers: one for correctness and one for robustness. Their findings consolidated to 31 distinct issues, and fixing
+them turned up 3 more. **31 confirmed bugs** (each has a failing-first regression test in `StatisticsReviewTests`, or
+new mpmath rows in `DistributionReferenceData`), 2 doc-only, 1 hardening fix, 0 rejected. On HEAD the new tests fail,
+hang (2) or stack-overflow (1); the only ones that pass there are an equivalence guard for the rewritten run rules
+and a pin for the newly documented tau-a.
+
+- **Severe:**
+  - `ChangePoint.DetectShift` maximised the unweighted |Δmean|, which favours the ends: {0 ×5, 10 ×4, 20} returned
+    9, not 5. It now maximises k(n−k)/n·Δ², which minimises the total squared error (checked by brute force).
+  - `SpecialFunctions.Gamma(NaN)` recursed until a stack overflow.
+  - `KolmogorovSmirnovTwoSample` looped forever on a NaN.
+  - The incomplete gamma's 100,000-term cap broke chi-square at large df: `ChiSquareCdf(1e9; 1e9)` was 4e-6 off, and
+    at 1e10 it returned 0.42. Fix: Temme's uniform expansion for large a (Distributions and the private copies).
+  - `LinearRegression.Fit` on constant x of 0.1 ×3 saw an sxx of 2e-34 of round-off and returned slope ≈ 1e33.
+  - `PermutationTest`: one infinite rearrangement made the tie tolerance infinite (p = 1), and NaN data gave p = 0.
+- **Moderate:**
+  - Incomplete beta and gamma accuracy at large parameters: `RegularizedBetaI(0.5; 1e6, 1e6)` was off by 2.8e-9 and
+    `RegularizedGammaQ` at 1e8 by 1.9e-8. Fixed with BASYM, a stable beta prefix, and the large-b continued
+    fraction start (TOMS 708).
+  - `LnGamma(1e-8)` was off by 2.7e-10 and `LnGamma(1e-310)` returned ∞; `Erf` of a tiny argument returned 0.
+  - Anova's and GaugeRR's private F tails (300 iterations, cancelling LnGamma) were off by 5e-11 at df 1e5, and
+    Anova accepted NaN df. They now carry synced copies of the Distributions machinery (the drop-in law forbids a
+    shared dependency).
+  - Trend: n(n−1)/2 overflowed int at 46,342 points, `Math.Sign(NaN)` threw ArithmeticException, and S overflowed.
+    Now capped at `Trend.MaxPoints` (65,536).
+  - Pearson and R² overflowed or underflowed in √(sxx·syy) near 1e±80.
+  - One- and two-sample t, Anova, GaugeRR and ProcessCapability tested for exactly zero variance, so constant data
+    (0.1 ×3) gave a round-off t of 1.4, an F or %GRR from noise, or Cp ≈ 1e16. Fixed with shifted means and
+    round-off floors.
+  - `Bootstrap` passed a NaN confidence through to an IndexOutOfRangeException, and `ConfidenceInterval` blamed
+    parameter "p" for it.
+  - `DistributionFit.FitGamma` threw on tight data (CV < 1.4e-7), which aborted `FitAll`.
+  - `GaugeRR`: all-identical readings gave Unacceptable, ndc = int.MaxValue and NaN.
+  - `ControlChart`: a NaN counted as both above and below, so it completed runs and trends, and a NaN center line
+    flagged every window.
+- **Minor:**
+  - `Log1p(∞)` was NaN, so `StudentTPdf(1e160)` and `ChiSquarePdf(∞)` were NaN.
+  - `StudentTQuantile` was pinned at 1.34e154 in the extreme tails: x² overflowed, and so did the bisection's lo·hi.
+    Now 1e-15 from mpmath out to 3e299, and −∞ only where the true quantile overflows.
+  - `ExponentialCdf` / `ExponentialQuantile` cancelled for small arguments (now expm1 / log1p).
+  - `NormalQuantile` had 1e-9 relative error near ½.
+  - ProcessCapability PPM took 1 − Φ, so a far upper spec gave 0 ppm; a NaN sigma passed the `<= 0` check.
+  - `ChiSquareGoodnessOfFit` accepted proportions as expected counts (totals not checked) and NaN or negative counts.
+  - `MultipleRegression` reported a NaN as "the predictors are collinear".
+  - Result lists were the backing arrays (`Coefficients`, `Residuals`, `NullDistribution`, `Distribution`…): a
+    cast back to double[] rewrote what `Predict` uses.
+  - `DistributionFit` overflowed for values near 1e308.
+  - Validation gaps: NaN df, probabilities, bounds and spec limits; infinite sd or rate; an unvalidated
+    `BlandAltman` z (a negative z swapped the limits); `RequireOrdered` named no parameter.
+  - NaN in the rank tests, Bootstrap and TheilSen sorted silently into the result; `ChangePoint` on all-NaN returned
+    (1, −1).
+  - Found while fixing: constant data in `ControlChart.Individuals` put every point beyond the limits (the mean an
+    ulp off with a zero moving range); and Sen's / Theil–Sen pairwise differences overflowed to ∞ slopes for values
+    of opposite sign near 1e308, which then overflowed the even median.
+- **Doc-only:** `ChiSquareIndependence` applies no Yates correction (R and SciPy do for 2×2) and has the
+  small-expected-count caveat; ProcessCapability's first line claimed BCL-only but it needs Distributions.cs.
+- **Hardening:** the run and trend rules were O(n·runLength). They are now one pass (200,000 points with a
+  run length of 100,000 took over a minute).
+- **Re-queued:** yes (7 severe, 31 bugs).

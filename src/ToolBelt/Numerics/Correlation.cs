@@ -8,7 +8,7 @@ namespace ToolBelt.Numerics
     /// Correlation between paired samples. <see cref="Pearson"/> returns the Pearson correlation
     /// coefficient in [-1, 1] (1 = perfect positive linear relationship, -1 = perfect negative, 0 = none).
     /// If either variable is constant the coefficient is undefined and <see cref="double.NaN"/> is
-    /// returned.
+    /// returned. Values must be finite.
     /// </summary>
     public static class Correlation
     {
@@ -22,9 +22,17 @@ namespace ToolBelt.Numerics
             if (n < 2)
                 throw new ArgumentException("At least two points are required.", nameof(xs));
 
-            double meanX = 0, meanY = 0;
-            for (int i = 0; i < n; i++) { meanX += xs[i]; meanY += ys[i]; }
-            meanX /= n; meanY /= n;
+            // Means about the first point: a constant variable then has exactly that mean and zero spread, instead of
+            // round-off crumbs (0.1 + 0.1 + 0.1 ≠ 0.3) that read as a real, tiny variance.
+            double x0 = xs[0], y0 = ys[0], shiftX = 0, shiftY = 0;
+            for (int i = 0; i < n; i++)
+            {
+                if (double.IsNaN(xs[i]) || double.IsInfinity(xs[i])) throw new ArgumentException($"Value [{i}] is not finite.", nameof(xs));
+                if (double.IsNaN(ys[i]) || double.IsInfinity(ys[i])) throw new ArgumentException($"Value [{i}] is not finite.", nameof(ys));
+                shiftX += xs[i] - x0;
+                shiftY += ys[i] - y0;
+            }
+            double meanX = x0 + shiftX / n, meanY = y0 + shiftY / n;
 
             double sxx = 0, syy = 0, sxy = 0;
             for (int i = 0; i < n; i++)
@@ -39,7 +47,8 @@ namespace ToolBelt.Numerics
             if (sxx == 0 || syy == 0)
                 return double.NaN; // a constant variable has no linear correlation
 
-            double r = sxy / Math.Sqrt(sxx * syy);
+            // Separate roots: sxx·syy over- or underflows for data near 1e±80.
+            double r = sxy / Math.Sqrt(sxx) / Math.Sqrt(syy);
             // Clamp tiny floating-point excursions past the mathematical bounds.
             if (r > 1) r = 1;
             else if (r < -1) r = -1;

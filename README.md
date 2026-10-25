@@ -459,7 +459,7 @@ src/
       RunningStatistics.cs  Welford online mean/variance/stddev/min/max
       SpecialFunctions.cs   gamma / log-gamma / erf / erfc / regularized incomplete gamma (P and Q direct) & beta
       ToleranceCheck.cs     evaluate a series against limits (violations, worst deviation)
-      Trend.cs              Mann-Kendall trend test + Sen's slope (robust)
+      Trend.cs              Mann-Kendall trend test (tau-a) + Sen's slope (robust; exact, n² memory, ≤ Trend.MaxPoints)
       UnitConvert.cs        length/mass/time/angle/data + temperature conversions (+ parse)
       Vector2.cs            immutable 2D vector (dot/cross/length/normalize/lerp/angle)
       WeightedAverage.cs    weighted arithmetic mean
@@ -815,8 +815,9 @@ tests/
       DifferentiationTests.cs
       DistributionsTests.cs
       DistributionsTailTests.cs      (closed forms, identities, deep-tail round trips)
-      DistributionReferenceTests.cs  (+ DistributionReferenceData.cs: 229 mpmath 40-digit reference values)
+      DistributionReferenceTests.cs  (+ DistributionReferenceData.cs: 337 mpmath 40-digit reference values)
       InferenceAccuracyTests.cs      (worked examples + simulated coverage / false-positive rates)
+      StatisticsReviewTests.cs       (review regressions: extreme tails, huge df, round-off variance, non-finite inputs, SPC)
       StreamingQuantileTests.cs
       SamplingAndPermutationTests.cs (Poisson/gamma sampling vs pmf/CDF; exact permutation p-values)
       RegressionAndFitTests.cs       (textbook SEs, interval coverage, MLE optimality, family recovery)

@@ -91,12 +91,9 @@ namespace ToolBelt.Numerics
         {
             double[] x = Check(sample, positive: false, min: 2);
             int n = x.Length;
-            double mean = x.Average();
-            double ss = 0;
-            foreach (double v in x) ss += (v - mean) * (v - mean);
-            double sd = Math.Sqrt(ss / n);
+            var (mean, sd) = MeanSd(x);
             if (sd == 0) throw new ArgumentException("All values are equal; the spread cannot be estimated.", nameof(sample));
-            double ll = -n / 2.0 * (Math.Log(2 * Math.PI * sd * sd) + 1);
+            double ll = -n / 2.0 * (Math.Log(2 * Math.PI) + 2 * Math.Log(sd) + 1);
             Func<double, double> cdf = v => Distributions.NormalCdf(v, mean, sd);
             return Make(DistributionFamily.Normal, P("mean", mean, "sd", sd), ll, x, cdf);
         }
@@ -111,7 +108,7 @@ namespace ToolBelt.Numerics
             foreach (double v in lx) ss += (v - mu) * (v - mu);
             double sigma = Math.Sqrt(ss / n);
             if (sigma == 0) throw new ArgumentException("All values are equal; the spread cannot be estimated.", nameof(sample));
-            double ll = -n / 2.0 * (Math.Log(2 * Math.PI * sigma * sigma) + 1) - lx.Sum();
+            double ll = -n / 2.0 * (Math.Log(2 * Math.PI) + 2 * Math.Log(sigma) + 1) - lx.Sum();
             Func<double, double> cdf = v => Distributions.LogNormalCdf(v, mu, sigma);
             return Make(DistributionFamily.LogNormal, P("mu", mu, "sigma", sigma), ll, x, cdf);
         }
@@ -119,9 +116,8 @@ namespace ToolBelt.Numerics
         public static DistributionFitResult FitExponential(IReadOnlyList<double> sample)
         {
             double[] x = Check(sample, positive: true, min: 1);
-            double sum = x.Sum();
-            double rate = x.Length / sum;
-            double ll = x.Length * Math.Log(rate) - rate * sum;
+            double rate = 1 / MeanSd(x).Mean;
+            double ll = x.Length * (Math.Log(rate) - 1);       // Σ rate·x = n at the MLE
             Func<double, double> cdf = v => Distributions.ExponentialCdf(v, rate);
             return Make(DistributionFamily.Exponential, P("rate", rate), ll, x, cdf);
         }
@@ -130,13 +126,22 @@ namespace ToolBelt.Numerics
         {
             double[] x = Check(sample, positive: true, min: 2);
             int n = x.Length;
-            double mean = x.Average(), meanLog = x.Select(v => Math.Log(v)).Average();
-            double s = Math.Log(mean) - meanLog;                 // >= 0 by Jensen; 0 only when all values are equal
-            if (!(s > 1e-14)) throw new ArgumentException("All values are equal; the shape cannot be estimated.", nameof(sample));
+            double mean = MeanSd(x).Mean;
+            // s = ln x̄ − mean(ln x) = mean(dᵢ − ln(1 + dᵢ)) − mean(dᵢ) with dᵢ = xᵢ/x̄ − 1: no cancellation between two O(1)
+            // logs, so tight data (s ≈ CV²/2, below 1e-14 at CV 1.4e-7) keeps its shape.
+            double s = 0, meanD = 0;
+            foreach (double v in x)
+            {
+                double d = (v - mean) / mean;
+                s -= Log1pmx(d);
+                meanD += d;
+            }
+            s = (s - meanD) / n;                                  // >= 0 by Jensen; 0 only when all values are equal
+            if (!(s > 0)) throw new ArgumentException("All values are equal; the shape cannot be estimated.", nameof(sample));
             double k = (3 - s + Math.Sqrt((s - 3) * (s - 3) + 24 * s)) / (12 * s); // Minka's starting point
             for (int i = 0; i < 100; i++)
             {
-                double f = Math.Log(k) - Digamma(k) - s, df = 1 / k - Trigamma(k);
+                double f = LogMinusDigamma(k) - s, df = InvMinusTrigamma(k);
                 double next = k - f / df;
                 if (!(next > 0)) next = k / 2;
                 bool done = Math.Abs(next - k) <= 1e-14 * k;
@@ -144,7 +149,7 @@ namespace ToolBelt.Numerics
                 if (done) break;
             }
             double theta = mean / k;
-            double ll = (k - 1) * x.Select(v => Math.Log(v)).Sum() - x.Sum() / theta - n * (k * Math.Log(theta) + LnGamma(k));
+            double ll = (k - 1) * x.Select(v => Math.Log(v)).Sum() - n * k - n * (k * Math.Log(theta) + LnGamma(k)); // Σx/θ = nk
             double shape = k;
             Func<double, double> cdf = v => v <= 0 ? 0 : Distributions.ChiSquareCdf(2 * v / theta, 2 * shape); // Gamma(k, θ) ⇔ χ²(2k) of 2x/θ
             return Make(DistributionFamily.Gamma, P("shape", k, "scale", theta), ll, x, cdf);
@@ -204,10 +209,13 @@ namespace ToolBelt.Numerics
             var fits = new List<DistributionFitResult> { FitNormal(x) };
             if (x.All(v => v > 0))
             {
-                fits.Add(FitLogNormal(x));
-                fits.Add(FitExponential(x));
-                fits.Add(FitGamma(x));
-                fits.Add(FitWeibull(x));
+                // Data whose spread the normal fit resolves can still be too tight for a shape estimate (values a few ulps
+                // apart): skip that family rather than fail the whole comparison.
+                foreach (var fit in new Func<double[], DistributionFitResult>[] { FitLogNormal, FitExponential, FitGamma, FitWeibull })
+                {
+                    try { fits.Add(fit(x)); }
+                    catch (ArgumentException) { }
+                }
             }
             return fits.OrderBy(f => f.Aic).ToList();
         }
@@ -237,6 +245,53 @@ namespace ToolBelt.Numerics
                 x[i] = v;
             }
             return x;
+        }
+
+        // Mean and MLE standard deviation, scaled by the largest magnitude so sums and squares of values near 1e308 do not
+        // overflow (nor squares near 1e-170 underflow).
+        private static (double Mean, double Sd) MeanSd(double[] x)
+        {
+            double scale = 0;
+            foreach (double v in x) scale = Math.Max(scale, Math.Abs(v));
+            if (scale == 0) return (0, 0);
+            double mean = 0;
+            foreach (double v in x) mean += v / scale;
+            mean /= x.Length;
+            double ss = 0;
+            foreach (double v in x) { double d = v / scale - mean; ss += d * d; }
+            return (mean * scale, Math.Sqrt(ss / x.Length) * scale);
+        }
+
+        // ln(1 + d) − d, accurate for small d.
+        private static double Log1pmx(double d)
+        {
+            if (Math.Abs(d) > 0.5) return Math.Log(1 + d) - d;
+            double term = d, sum = 0;
+            for (int j = 2; j < 200; j++)
+            {
+                term *= -d;
+                double t = term / j;
+                sum += t;
+                if (Math.Abs(t) <= 1e-17 * Math.Abs(sum)) break;
+            }
+            return sum;
+        }
+
+        // ln k − ψ(k), directly from the asymptotic series for large k (forming the difference of two O(ln k) values
+        // leaves no digits when the answer is 1/(2k) ≈ 1e-14).
+        private static double LogMinusDigamma(double k)
+        {
+            if (k < 6) return Math.Log(k) - Digamma(k);
+            double f = 1 / (k * k);
+            return 0.5 / k + f * (1.0 / 12 - f * (1.0 / 120 - f * (1.0 / 252 - f * (1.0 / 240 - f * (1.0 / 132)))));
+        }
+
+        // 1/k − ψ′(k), likewise.
+        private static double InvMinusTrigamma(double k)
+        {
+            if (k < 6) return 1 / k - Trigamma(k);
+            double f = 1 / (k * k);
+            return -(f / 2 + f / k * (1.0 / 6 - f * (1.0 / 30 - f * (1.0 / 42 - f * (1.0 / 30)))));
         }
 
         // e^x − 1 without cancellation for small x (Goldberg).

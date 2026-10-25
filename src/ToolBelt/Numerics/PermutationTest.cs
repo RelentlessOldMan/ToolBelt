@@ -24,7 +24,7 @@ namespace ToolBelt.Numerics
             PValue = pValue;
             Permutations = permutations;
             IsExact = exact;
-            NullDistribution = nullDistribution;
+            NullDistribution = Array.AsReadOnly(nullDistribution);
         }
 
         /// <summary>The statistic on the data as observed.</summary>
@@ -72,6 +72,8 @@ namespace ToolBelt.Numerics
             if (a.Count == 0 || b.Count == 0) throw new ArgumentException("Both samples must be non-empty.");
             if (permutations < 1) throw new ArgumentOutOfRangeException(nameof(permutations), permutations, "Must be positive.");
             statistic ??= MeanDifference;
+            RequireFinite(a, nameof(a));
+            RequireFinite(b, nameof(b));
 
             int na = a.Count, n = na + b.Count;
             var pooled = new double[n];
@@ -129,6 +131,8 @@ namespace ToolBelt.Numerics
             if (first.Count != second.Count) throw new ArgumentException("Paired samples must have the same length.");
             if (first.Count == 0) throw new ArgumentException("Samples must be non-empty.");
             if (permutations < 1) throw new ArgumentOutOfRangeException(nameof(permutations), permutations, "Must be positive.");
+            RequireFinite(first, nameof(first));
+            RequireFinite(second, nameof(second));
 
             int n = first.Count;
             var d = new double[n];
@@ -164,8 +168,15 @@ namespace ToolBelt.Numerics
         {
             // A tolerance relative to the statistic's own scale, so rearrangements equal to the observed value up to rounding
             // count as "as extreme" — whatever the units (an absolute 1e-12 would call everything a tie for data near 1e-13).
-            double scale = Math.Abs(observed);
-            foreach (double s in nulls) scale = Math.Max(scale, Math.Abs(s));
+            // Infinite values take no part in the scale (an infinite tolerance made everything a tie, p = 1); a NaN would fail
+            // every comparison (p = 0), so it is refused.
+            if (double.IsNaN(observed)) throw new InvalidOperationException("The statistic returned NaN on the observed data.");
+            double scale = double.IsInfinity(observed) ? 0 : Math.Abs(observed);
+            foreach (double s in nulls)
+            {
+                if (double.IsNaN(s)) throw new InvalidOperationException("The statistic returned NaN on a rearrangement.");
+                if (!double.IsInfinity(s)) scale = Math.Max(scale, Math.Abs(s));
+            }
             double tol = 1e-12 * scale;
             int greater = 0, less = 0;
             foreach (double s in nulls)
@@ -215,6 +226,12 @@ namespace ToolBelt.Numerics
                 if (r > 1e12) return r;
             }
             return r;
+        }
+
+        private static void RequireFinite(IReadOnlyList<double> x, string name)
+        {
+            for (int i = 0; i < x.Count; i++)
+                if (double.IsNaN(x[i]) || double.IsInfinity(x[i])) throw new ArgumentException($"Value [{i}] is not finite.", name);
         }
 
         private static double Mean(IReadOnlyList<double> x)

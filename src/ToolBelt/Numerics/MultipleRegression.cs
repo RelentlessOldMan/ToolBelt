@@ -12,8 +12,8 @@ namespace ToolBelt.Numerics
         internal RegressionResult(double[] coefficients, double[] standardErrors, double[] fitted, double[] residuals,
             double rSquared, double adjustedRSquared, double residualStandardError, int degreesOfFreedom, bool hasIntercept, double[,] xtxInverse)
         {
-            Coefficients = coefficients;
-            StandardErrors = standardErrors;
+            Coefficients = Array.AsReadOnly(coefficients);      // wrapped: a cast back to double[] could rewrite what Predict uses
+            StandardErrors = Array.AsReadOnly(standardErrors);
             var t = new double[coefficients.Length];
             var p = new double[coefficients.Length];
             for (int i = 0; i < t.Length; i++)
@@ -22,10 +22,10 @@ namespace ToolBelt.Numerics
                 p[i] = degreesOfFreedom > 0 && !double.IsNaN(t[i])
                     ? 2 * Distributions.StudentTCdf(-Math.Abs(t[i]), degreesOfFreedom) : double.NaN;
             }
-            TStatistics = t;
-            PValues = p;
-            Fitted = fitted;
-            Residuals = residuals;
+            TStatistics = Array.AsReadOnly(t);
+            PValues = Array.AsReadOnly(p);
+            Fitted = Array.AsReadOnly(fitted);
+            Residuals = Array.AsReadOnly(residuals);
             RSquared = rSquared;
             AdjustedRSquared = adjustedRSquared;
             ResidualStandardError = residualStandardError;
@@ -102,8 +102,8 @@ namespace ToolBelt.Numerics
     /// <summary>
     /// Ordinary least squares with several predictors, solved by Householder QR (numerically sounder than the normal
     /// equations), with standard errors, t-statistics, p-values, R² and adjusted R², and confidence/prediction intervals.
-    /// Exactly collinear predictors are rejected rather than silently producing garbage. The one-predictor line fit is the
-    /// special case; for data with outliers see <see cref="RobustRegression"/>.
+    /// Exactly collinear predictors are rejected rather than silently producing garbage, and every value must be finite. The
+    /// one-predictor line fit is the special case; for data with outliers see <see cref="RobustRegression"/>.
     /// </summary>
     public static class MultipleRegression
     {
@@ -117,6 +117,13 @@ namespace ToolBelt.Numerics
             int p = k + (intercept ? 1 : 0);
             if (p == 0) throw new ArgumentException("Need at least one predictor or an intercept.", nameof(x));
             if (n < p) throw new ArgumentException($"Need at least {p} observations for {p} coefficients.", nameof(y));
+            // A NaN would otherwise surface as "the predictors are collinear" (NaN norms fail every independence test).
+            for (int i = 0; i < n; i++)
+            {
+                if (!IsFinite(y[i])) throw new ArgumentException($"y[{i}] is not finite.", nameof(y));
+                for (int j = 0; j < k; j++)
+                    if (!IsFinite(x[i, j])) throw new ArgumentException($"x[{i}, {j}] is not finite.", nameof(x));
+            }
 
             var a = new double[n, p];
             for (int i = 0; i < n; i++)
@@ -237,6 +244,8 @@ namespace ToolBelt.Numerics
             return Fit(x, y, intercept);
         }
 
+        private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
         private static double Hypot(double a, double b)
         {
             double x = Math.Abs(a), y = Math.Abs(b);
@@ -252,18 +261,23 @@ namespace ToolBelt.Numerics
     {
         /// <summary>
         /// The Theil–Sen estimator: the median of all pairwise slopes, intercept = median of y − slope·x. Tolerates up to
-        /// ~29% arbitrarily bad points (a single wild reading barely moves it, unlike least squares). O(n²) pairs — fine
-        /// for thousands of points.
+        /// ~29% arbitrarily bad points (a single wild reading barely moves it, unlike least squares). O(n²) pairs, all held
+        /// in memory — fine for thousands of points; 10,000 points is 50 million slopes (400 MB). Values must be finite.
         /// </summary>
         public static (double Slope, double Intercept) TheilSen(IReadOnlyList<double> x, IReadOnlyList<double> y)
         {
             if (x is null) throw new ArgumentNullException(nameof(x));
             if (y is null) throw new ArgumentNullException(nameof(y));
             if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.");
+            for (int i = 0; i < x.Count; i++)
+            {
+                if (double.IsNaN(x[i]) || double.IsInfinity(x[i])) throw new ArgumentException($"x[{i}] is not finite.", nameof(x));
+                if (double.IsNaN(y[i]) || double.IsInfinity(y[i])) throw new ArgumentException($"y[{i}] is not finite.", nameof(y));
+            }
             var slopes = new List<double>();
             for (int i = 0; i < x.Count; i++)
                 for (int j = i + 1; j < x.Count; j++)
-                    if (x[j] != x[i]) slopes.Add((y[j] - y[i]) / (x[j] - x[i]));
+                    if (x[j] != x[i]) slopes.Add(Slope(x[i], y[i], x[j], y[j]));
             if (slopes.Count == 0) throw new ArgumentException("Need at least two distinct x values.");
             double slope = Median(slopes);
             var intercepts = new List<double>(x.Count);
@@ -271,11 +285,18 @@ namespace ToolBelt.Numerics
             return (slope, Median(intercepts));
         }
 
+        // Δy/Δx; if either difference overflows (values of opposite sign near 1e308), from the halves, which are exact.
+        private static double Slope(double x1, double y1, double x2, double y2)
+        {
+            double dy = y2 - y1, dx = x2 - x1;
+            return double.IsInfinity(dy) || double.IsInfinity(dx) ? (y2 / 2 - y1 / 2) / (x2 / 2 - x1 / 2) : dy / dx;
+        }
+
         private static double Median(List<double> v)
         {
             v.Sort();
             int m = v.Count / 2;
-            return v.Count % 2 == 1 ? v[m] : 0.5 * (v[m - 1] + v[m]);
+            return v.Count % 2 == 1 ? v[m] : 0.5 * v[m - 1] + 0.5 * v[m];      // halves first: the sum can overflow
         }
     }
 }

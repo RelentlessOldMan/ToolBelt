@@ -26,9 +26,11 @@ namespace ToolBelt.Tests.Numerics
                     "StudentTCdf" => Distributions.StudentTCdf(r.X, r.A),
                     "StudentTQuantile" => Distributions.StudentTQuantile(r.X, r.A),
                     "ChiSquareCdf" => Distributions.ChiSquareCdf(r.X, r.A),
+                    "ChiSquareSurvival" => Distributions.ChiSquareSurvival(r.X, r.A),
                     "ChiSquareQuantile" => Distributions.ChiSquareQuantile(r.X, r.A),
                     "FCdf" => Distributions.FCdf(r.X, r.A, r.B),
                     "FQuantile" => Distributions.FQuantile(r.X, r.A, r.B),
+                    "FSurvival" => Distributions.FSurvival(r.X, r.A, r.B),
                     _ => throw new InvalidOperationException("Unknown reference function " + r.Fn),
                 };
                 double rel = Math.Abs(got - r.Expected) / Math.Max(Math.Abs(r.Expected), double.Epsilon);

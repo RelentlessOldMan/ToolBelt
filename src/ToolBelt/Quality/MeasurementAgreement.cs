@@ -27,7 +27,7 @@ namespace ToolBelt.Quality
     /// <summary>
     /// Compares two measurement methods via the Bland-Altman limits of agreement: the mean difference
     /// (bias) and the interval within which most differences lie. The right tool for "do these two setups
-    /// agree?" — generic statistics with no domain content.
+    /// agree?" — generic statistics with no domain content. Values must be finite and z (1.96 for 95%) positive.
     /// </summary>
     public static class MeasurementAgreement
     {
@@ -37,16 +37,20 @@ namespace ToolBelt.Quality
             if (methodB is null) throw new ArgumentNullException(nameof(methodB));
             if (methodA.Count != methodB.Count) throw new ArgumentException("Both methods must have the same number of paired measurements.");
             if (methodA.Count < 2) throw new ArgumentException("At least two paired measurements are required.", nameof(methodA));
+            if (!(z > 0) || double.IsInfinity(z)) throw new ArgumentOutOfRangeException(nameof(z), z, "z must be positive and finite.");
 
             int n = methodA.Count;
-            double sum = 0;
             var diffs = new double[n];
             for (int i = 0; i < n; i++)
             {
                 diffs[i] = methodA[i] - methodB[i];
-                sum += diffs[i];
+                if (double.IsNaN(diffs[i]) || double.IsInfinity(diffs[i]))
+                    throw new ArgumentException($"Pair [{i}] has a non-finite value or difference.", nameof(methodA));
             }
-            double bias = sum / n;
+            // Mean about the first difference: a constant offset gives exactly that bias and a zero spread.
+            double sum = 0;
+            for (int i = 0; i < n; i++) sum += diffs[i] - diffs[0];
+            double bias = diffs[0] + sum / n;
 
             double variance = 0;
             for (int i = 0; i < n; i++) { double d = diffs[i] - bias; variance += d * d; }

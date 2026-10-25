@@ -22,7 +22,8 @@ namespace ToolBelt.Quality
     /// <summary>
     /// Individuals (I-MR) control-chart limits plus the classic run rules expressed as pure predicates that
     /// return the offending indices. Each rule is independently testable; the limits and rules feed directly
-    /// into a plot as annotated lines.
+    /// into a plot as annotated lines. Every value must be finite: a NaN compares false both ways, so it would
+    /// count as both above and below the center line and complete runs and trends it is not part of.
     /// </summary>
     public static class ControlChart
     {
@@ -33,10 +34,13 @@ namespace ToolBelt.Quality
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
             if (data.Count < 2) throw new ArgumentException("At least two points are required.", nameof(data));
+            RequireFinite(data);
 
-            double mean = 0;
-            for (int i = 0; i < data.Count; i++) mean += data[i];
-            mean /= data.Count;
+            // Mean about the first value: constant data gives exactly that value, not one an ulp off — with a zero
+            // moving range the limits collapse onto the mean, and an ulp would put every point beyond them.
+            double sum = 0;
+            for (int i = 0; i < data.Count; i++) sum += data[i] - data[0];
+            double mean = data[0] + sum / data.Count;
 
             double sumRange = 0;
             for (int i = 1; i < data.Count; i++) sumRange += Math.Abs(data[i] - data[i - 1]);
@@ -51,6 +55,7 @@ namespace ToolBelt.Quality
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
             if (limits is null) throw new ArgumentNullException(nameof(limits));
+            RequireFinite(data);
             var hits = new List<int>();
             for (int i = 0; i < data.Count; i++)
                 if (data[i] > limits.UpperControlLimit || data[i] < limits.LowerControlLimit)
@@ -63,16 +68,17 @@ namespace ToolBelt.Quality
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
             if (runLength < 1) throw new ArgumentOutOfRangeException(nameof(runLength), runLength, "Run length must be positive.");
+            if (double.IsNaN(centerLine) || double.IsInfinity(centerLine))
+                throw new ArgumentOutOfRangeException(nameof(centerLine), centerLine, "Center line must be finite.");
+            RequireFinite(data);
+            // Lengths of the current runs above and below (a point on the line ends both); one pass, O(n).
             var hits = new List<int>();
-            for (int i = runLength - 1; i < data.Count; i++)
+            int above = 0, below = 0;
+            for (int i = 0; i < data.Count; i++)
             {
-                bool allAbove = true, allBelow = true;
-                for (int k = i - runLength + 1; k <= i; k++)
-                {
-                    if (data[k] <= centerLine) allAbove = false;
-                    if (data[k] >= centerLine) allBelow = false;
-                }
-                if (allAbove || allBelow) hits.Add(i);
+                above = data[i] > centerLine ? above + 1 : 0;
+                below = data[i] < centerLine ? below + 1 : 0;
+                if (above >= runLength || below >= runLength) hits.Add(i);
             }
             return hits;
         }
@@ -82,18 +88,24 @@ namespace ToolBelt.Quality
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
             if (length < 2) throw new ArgumentOutOfRangeException(nameof(length), length, "Trend length must be at least 2.");
+            RequireFinite(data);
+            // Counts of consecutive rising and falling steps (a tie ends both); length points take length − 1 steps.
             var hits = new List<int>();
-            for (int i = length - 1; i < data.Count; i++)
+            int rising = 0, falling = 0;
+            for (int i = 1; i < data.Count; i++)
             {
-                bool increasing = true, decreasing = true;
-                for (int k = i - length + 2; k <= i; k++)
-                {
-                    if (data[k] <= data[k - 1]) increasing = false;
-                    if (data[k] >= data[k - 1]) decreasing = false;
-                }
-                if (increasing || decreasing) hits.Add(i);
+                rising = data[i] > data[i - 1] ? rising + 1 : 0;
+                falling = data[i] < data[i - 1] ? falling + 1 : 0;
+                if (rising >= length - 1 || falling >= length - 1) hits.Add(i);
             }
             return hits;
+        }
+
+        private static void RequireFinite(IReadOnlyList<double> data)
+        {
+            for (int i = 0; i < data.Count; i++)
+                if (double.IsNaN(data[i]) || double.IsInfinity(data[i]))
+                    throw new ArgumentException($"Value [{i}] is not finite.", nameof(data));
         }
     }
 }

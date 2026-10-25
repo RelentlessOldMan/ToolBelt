@@ -67,7 +67,9 @@ namespace ToolBelt.Numerics
         public static TestResult OneSampleT(IReadOnlyList<double> sample, double populationMean)
         {
             RequireCount(sample, 2, nameof(sample));
-            var (mean, variance, n) = MeanVariance(sample);
+            if (double.IsNaN(populationMean) || double.IsInfinity(populationMean))
+                throw new ArgumentOutOfRangeException(nameof(populationMean), populationMean, "Population mean must be finite.");
+            var (mean, variance, n) = MeanVariance(sample, nameof(sample));
             double df = n - 1;
             if (variance == 0)
                 return mean == populationMean
@@ -97,8 +99,8 @@ namespace ToolBelt.Numerics
         {
             RequireCount(a, 2, nameof(a));
             RequireCount(b, 2, nameof(b));
-            var (ma, va, na) = MeanVariance(a);
-            var (mb, vb, nb) = MeanVariance(b);
+            var (ma, va, na) = MeanVariance(a, nameof(a));
+            var (mb, vb, nb) = MeanVariance(b, nameof(b));
 
             double t, df;
             if (equalVariance)
@@ -133,8 +135,8 @@ namespace ToolBelt.Numerics
         {
             RequireCount(a, 2, nameof(a));
             RequireCount(b, 2, nameof(b));
-            var (_, va, na) = MeanVariance(a);
-            var (_, vb, nb) = MeanVariance(b);
+            var (_, va, na) = MeanVariance(a, nameof(a));
+            var (_, vb, nb) = MeanVariance(b, nameof(b));
             double d1 = na - 1, d2 = nb - 1;
             if (vb == 0)
                 return va == 0 ? new TestResult(double.NaN, 1, d1, d2) : new TestResult(double.PositiveInfinity, 0, d1, d2);
@@ -150,7 +152,11 @@ namespace ToolBelt.Numerics
 
         // ---------- Pearson's chi-square ----------
 
-        /// <summary>Chi-square goodness-of-fit test (upper-tail p). df = categories - 1.</summary>
+        /// <summary>
+        /// Chi-square goodness-of-fit test (upper-tail p). df = categories - 1. Observed counts must be finite and
+        /// non-negative, expected counts finite and positive, and the two must have the same total (to 1e-8 relative) —
+        /// scale the expected proportions to the observed total first.
+        /// </summary>
         public static TestResult ChiSquareGoodnessOfFit(IReadOnlyList<double> observed, IReadOnlyList<double> expected)
         {
             if (observed is null) throw new ArgumentNullException(nameof(observed));
@@ -160,19 +166,33 @@ namespace ToolBelt.Numerics
             if (observed.Count < 2)
                 throw new ArgumentException("Need at least two categories.", nameof(observed));
 
-            double chi2 = 0;
+            double chi2 = 0, totalObserved = 0, totalExpected = 0;
             for (int i = 0; i < observed.Count; i++)
             {
-                if (expected[i] <= 0)
-                    throw new ArgumentException($"Expected count at index {i} must be positive.", nameof(expected));
-                double d = observed[i] - expected[i];
-                chi2 += d * d / expected[i];
+                double o = observed[i], e = expected[i];
+                if (!(o >= 0) || double.IsInfinity(o))
+                    throw new ArgumentException($"Observed count at index {i} must be finite and non-negative.", nameof(observed));
+                if (!(e > 0) || double.IsInfinity(e))
+                    throw new ArgumentException($"Expected count at index {i} must be finite and positive.", nameof(expected));
+                double d = o - e;
+                chi2 += d * d / e;
+                totalObserved += o;
+                totalExpected += e;
             }
+            if (Math.Abs(totalObserved - totalExpected) > 1e-8 * Math.Max(totalObserved, totalExpected))
+                throw new ArgumentException(
+                    $"Observed total {totalObserved:R} and expected total {totalExpected:R} differ; scale the expected counts to the observed total.",
+                    nameof(expected));
             double df = observed.Count - 1;
             return new TestResult(chi2, ChiSquareUpperP(chi2, df), df);
         }
 
-        /// <summary>Chi-square test of independence over an r×c contingency table (upper-tail p). df = (r-1)(c-1).</summary>
+        /// <summary>
+        /// Pearson's chi-square test of independence over an r×c contingency table (upper-tail p). df = (r-1)(c-1).
+        /// No Yates continuity correction is applied, also for 2×2 tables (R's <c>chisq.test</c> and SciPy's
+        /// <c>chi2_contingency</c> apply it to 2×2 by default, so their p-values are larger there). With small expected
+        /// counts (below about 5) the chi-square approximation is poor; use an exact test.
+        /// </summary>
         public static TestResult ChiSquareIndependence(double[,] contingency)
         {
             if (contingency is null) throw new ArgumentNullException(nameof(contingency));
@@ -186,7 +206,8 @@ namespace ToolBelt.Numerics
                 for (int j = 0; j < c; j++)
                 {
                     double v = contingency[i, j];
-                    if (v < 0) throw new ArgumentException("Counts must be non-negative.", nameof(contingency));
+                    if (!(v >= 0) || double.IsInfinity(v))
+                        throw new ArgumentException($"Count [{i}, {j}] must be finite and non-negative.", nameof(contingency));
                     rowSum[i] += v; colSum[j] += v; total += v;
                 }
             if (total <= 0) throw new ArgumentException("Contingency table must contain positive counts.", nameof(contingency));
@@ -224,6 +245,8 @@ namespace ToolBelt.Numerics
             for (int i = 0; i < n; i++)
             {
                 double f = cdf(sorted[i]);
+                if (!(f >= 0 && f <= 1))
+                    throw new ArgumentException($"The CDF returned {f:R} at {sorted[i]:R}; it must return a value in [0, 1].", nameof(cdf));
                 double dPlus = (i + 1.0) / n - f;
                 double dMinus = f - (double)i / n;
                 if (dPlus > d) d = dPlus;
@@ -316,12 +339,19 @@ namespace ToolBelt.Numerics
 
         // ---------- shared helpers ----------
 
-        private static (double mean, double variance, int n) MeanVariance(IReadOnlyList<double> x)
+        // Mean and sample variance of finite data. The mean is taken about the first value, so a constant sample has
+        // exactly that mean and exactly zero variance (summing 0.1 three times and dividing by 3 does not give 0.1, and
+        // the leftover crumbs read as a real, vanishingly small variance — an enormous t).
+        private static (double mean, double variance, int n) MeanVariance(IReadOnlyList<double> x, string name)
         {
             int n = x.Count;
-            double mean = 0;
-            for (int i = 0; i < n; i++) mean += x[i];
-            mean /= n;
+            double x0 = x[0], shift = 0;
+            for (int i = 0; i < n; i++)
+            {
+                if (double.IsInfinity(x[i])) throw new ArgumentException($"Value [{i}] is not finite.", name);
+                shift += x[i] - x0;
+            }
+            double mean = x0 + shift / n;
             double ss = 0;
             for (int i = 0; i < n; i++) { double d = x[i] - mean; ss += d * d; }
             return (mean, ss / (n - 1), n);
@@ -342,6 +372,8 @@ namespace ToolBelt.Numerics
         {
             if (x is null) throw new ArgumentNullException(name);
             if (x.Count < min) throw new ArgumentException($"Need at least {min} value(s).", name);
+            for (int i = 0; i < x.Count; i++)
+                if (double.IsNaN(x[i])) throw new ArgumentException($"Value [{i}] is NaN.", name);
         }
 
         // Two-sided Student-t p-value P(|T| > |t|), from the directly computed tail (no 1 − x cancellation).

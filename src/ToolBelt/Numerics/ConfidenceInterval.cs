@@ -22,11 +22,15 @@ namespace ToolBelt.Numerics
         {
             if (sample is null) throw new ArgumentNullException(nameof(sample));
             if (sample.Count < 2) throw new ArgumentException("At least two samples are required.", nameof(sample));
-            if (confidence <= 0 || confidence >= 1) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
+            if (!(confidence > 0 && confidence < 1)) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
 
             int n = sample.Count;
             double mean = 0;
-            for (int i = 0; i < n; i++) mean += sample[i];
+            for (int i = 0; i < n; i++)
+            {
+                if (double.IsNaN(sample[i]) || double.IsInfinity(sample[i])) throw new ArgumentException($"Value [{i}] is not finite.", nameof(sample));
+                mean += sample[i];
+            }
             mean /= n;
 
             double sumSq = 0;
@@ -73,10 +77,14 @@ namespace ToolBelt.Numerics
         {
             if (sample is null) throw new ArgumentNullException(nameof(sample));
             if (sample.Count < 2) throw new ArgumentException("At least two samples are required.", nameof(sample));
-            if (confidence <= 0 || confidence >= 1) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
+            if (!(confidence > 0 && confidence < 1)) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
             int n = sample.Count;
             double mean = 0;
-            for (int i = 0; i < n; i++) mean += sample[i];
+            for (int i = 0; i < n; i++)
+            {
+                if (double.IsNaN(sample[i]) || double.IsInfinity(sample[i])) throw new ArgumentException($"Value [{i}] is not finite.", nameof(sample));
+                mean += sample[i];
+            }
             mean /= n;
             double sumSq = 0;
             for (int i = 0; i < n; i++) { double d = sample[i] - mean; sumSq += d * d; }
@@ -88,7 +96,7 @@ namespace ToolBelt.Numerics
         {
             if (trials < 1) throw new ArgumentOutOfRangeException(nameof(trials), trials, "Trials must be positive.");
             if (successes < 0 || successes > trials) throw new ArgumentOutOfRangeException(nameof(successes), successes, "Successes must be in [0, trials].");
-            if (confidence <= 0 || confidence >= 1) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
+            if (!(confidence > 0 && confidence < 1)) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
 
             double p = (double)successes / trials;
             double z = Distributions.NormalQuantile((1 + confidence) / 2);

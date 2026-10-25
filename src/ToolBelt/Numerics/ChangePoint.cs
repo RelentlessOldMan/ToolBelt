@@ -32,8 +32,10 @@ namespace ToolBelt.Numerics
         }
 
         /// <summary>
-        /// Finds the split point that best divides the series into two segments by mean, returning the index
-        /// where the second segment begins and the absolute difference of the two segment means.
+        /// Finds the single split that best divides the series into two segments by mean — the one that minimises the two
+        /// segments' total squared error, equivalently maximises k(n − k)/n · Δ² — returning the index where the second
+        /// segment begins and the absolute difference Δ of the two segment means. (Maximising |Δ| alone favours splits
+        /// that cut off one or two points at the ends.) Values must be finite.
         /// </summary>
         public static (int Index, double Magnitude) DetectShift(IReadOnlyList<double> series)
         {
@@ -42,21 +44,29 @@ namespace ToolBelt.Numerics
 
             int n = series.Count;
             double total = 0;
-            for (int i = 0; i < n; i++) total += series[i];
+            for (int i = 0; i < n; i++)
+            {
+                double v = series[i];
+                if (double.IsNaN(v) || double.IsInfinity(v)) throw new ArgumentException($"Value [{i}] is not finite.", nameof(series));
+                total += v;
+            }
 
             double leftSum = 0;
             int bestIndex = 1;
-            double bestMagnitude = -1;
+            double bestScore = -1, bestMagnitude = 0;
             for (int k = 1; k < n; k++)
             {
                 leftSum += series[k - 1];
                 double leftMean = leftSum / k;
                 double rightMean = (total - leftSum) / (n - k);
                 double magnitude = Math.Abs(rightMean - leftMean);
-                if (magnitude > bestMagnitude)
+                // The reduction in squared error from splitting at k is k(n − k)/n · Δ².
+                double score = (double)k * (n - k) / n * magnitude * magnitude;
+                if (score > bestScore)
                 {
-                    bestMagnitude = magnitude;
+                    bestScore = score;
                     bestIndex = k;
+                    bestMagnitude = magnitude;
                 }
             }
             return (bestIndex, bestMagnitude);

@@ -11,7 +11,7 @@ namespace ToolBelt.Numerics
         {
             Lower = lower;
             Upper = upper;
-            Distribution = distribution;
+            Distribution = Array.AsReadOnly(distribution);
         }
 
         public double Lower { get; }
@@ -41,7 +41,7 @@ namespace ToolBelt.Numerics
             if (random is null) throw new ArgumentNullException(nameof(random));
             if (sample.Count < 1) throw new ArgumentException("At least one sample is required.", nameof(sample));
             if (resamples < 1) throw new ArgumentOutOfRangeException(nameof(resamples), resamples, "Resample count must be positive.");
-            if (confidence <= 0 || confidence >= 1) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
+            if (!(confidence > 0 && confidence < 1)) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
 
             int n = sample.Count;
             var estimates = new double[resamples];
@@ -49,7 +49,10 @@ namespace ToolBelt.Numerics
             for (int r = 0; r < resamples; r++)
             {
                 for (int i = 0; i < n; i++) resample[i] = sample[random.Next(n)]; // draw with replacement
-                estimates[r] = statistic(resample);
+                double e = statistic(resample);
+                // A NaN would sort to the front and become the lower bound.
+                if (double.IsNaN(e)) throw new InvalidOperationException("The statistic returned NaN on a resample.");
+                estimates[r] = e;
             }
 
             Array.Sort(estimates);
