@@ -80,7 +80,7 @@ namespace ToolBelt.Visualization
         {
             if (changes is null) throw new ArgumentNullException(nameof(changes));
             var list = changes.ToList();
-            if (list.Any(c => double.IsNaN(c.Time) || double.IsInfinity(c.Time))) throw new ArgumentException("Change times must be finite.");
+            if (list.Any(c => double.IsNaN(c.Time) || double.IsInfinity(c.Time))) throw new ArgumentException("Change times must be finite.", nameof(changes));
             // Stable sort; for equal times the last change wins.
             var ordered = list.Select((c, i) => (c, i)).OrderBy(t => t.c.Time).ThenBy(t => t.i).Select(t => t.c).ToList();
             var result = new List<(double, string?)>();
@@ -89,7 +89,7 @@ namespace ToolBelt.Visualization
                 if (result.Count > 0 && result[result.Count - 1].Item1 == c.Time) result[result.Count - 1] = (c.Time, c.Value);
                 else if (result.Count == 0 || result[result.Count - 1].Item2 != c.Value) result.Add((c.Time, c.Value));
             }
-            return result;
+            return result.AsReadOnly(); // a bare List could be cast back and edited
         }
     }
 
@@ -98,6 +98,8 @@ namespace ToolBelt.Visualization
     {
         public TimingMarker(double time, string label, Rgba? color = null)
         {
+            if (double.IsNaN(time) || double.IsInfinity(time))
+                throw new ArgumentOutOfRangeException(nameof(time), time, "Marker time must be finite.");
             Time = time;
             Label = label ?? throw new ArgumentNullException(nameof(label));
             Color = color ?? new Rgba(213, 94, 0);
@@ -144,6 +146,11 @@ namespace ToolBelt.Visualization
             if (!(t1 > t0)) t1 = t0 + 1;
             Func<double, string> fmt = o.FormatTime ?? FormatSeconds;
 
+            // Checked here so a bad value names the option (it failed later inside SvgUtils, naming "value"), and capped:
+            // the hatch loop steps 6 px at a time, so Width = 1e9 ran for minutes and 1e17 never ended (x + 6 == x).
+            if (!(o.Width > 0) || o.Width > 1e6) throw new ArgumentOutOfRangeException(nameof(options), "Width must be in (0, 1e6].");
+            if (!(o.LaneHeight > 0) || double.IsInfinity(o.LaneHeight)) throw new ArgumentOutOfRangeException(nameof(options), "LaneHeight must be positive and finite.");
+            if (!(o.LaneGap >= 0) || double.IsInfinity(o.LaneGap)) throw new ArgumentOutOfRangeException(nameof(options), "LaneGap must be non-negative and finite.");
             double nameWidth = Math.Max(60, signals.Max(s => SvgUtils.EstimateTextWidth(s.Name, 12)) + 18);
             double left = nameWidth, right = 16, top = o.Title != null ? 40 : 16;
             double plotW = o.Width - left - right;
@@ -161,16 +168,30 @@ namespace ToolBelt.Visualization
                 sb.Append("<text x=\"").Append(SvgUtils.Number(left)).Append("\" y=\"22\" font-size=\"14\" font-weight=\"bold\">").Append(SvgUtils.EscapeText(o.Title)).Append("</text>\n");
 
             TickSet ticks = AxisTicks.Linear(t0, t1, maxTicks: Math.Max(2, (int)(plotW / 90)), loose: false);
+            var tickLabels = ticks.Values.Select(fmt).ToList();
+            if (o.FormatTime is null)
+            {
+                // Far from zero (e.g. epoch timestamps) neighbouring ticks rounded to the same label; then label the
+                // first tick in full and the rest as offsets from it.
+                bool clash = false;
+                for (int i = 1; i < tickLabels.Count; i++) clash |= tickLabels[i] == tickLabels[i - 1];
+                if (clash)
+                    for (int i = 1; i < tickLabels.Count; i++)
+                        tickLabels[i] = "+" + FormatSeconds(ticks.Values[i] - ticks.Values[0]);
+            }
             sb.Append("<g stroke=\"#eeeeee\">\n");
             foreach (double v in ticks.Values)
                 sb.Append("<line x1=\"").Append(SvgUtils.Number(X(v))).Append("\" y1=\"").Append(SvgUtils.Number(top - 4)).Append("\" x2=\"").Append(SvgUtils.Number(X(v)))
                   .Append("\" y2=\"").Append(SvgUtils.Number(axisY)).Append("\"/>\n");
             sb.Append("</g>\n<line x1=\"").Append(SvgUtils.Number(left)).Append("\" y1=\"").Append(SvgUtils.Number(axisY)).Append("\" x2=\"").Append(SvgUtils.Number(left + plotW))
               .Append("\" y2=\"").Append(SvgUtils.Number(axisY)).Append("\" stroke=\"#444\"/>\n");
-            foreach (double v in ticks.Values)
+            for (int ti = 0; ti < ticks.Count; ti++)
+            {
+                double v = ticks.Values[ti];
                 sb.Append("<line x1=\"").Append(SvgUtils.Number(X(v))).Append("\" y1=\"").Append(SvgUtils.Number(axisY)).Append("\" x2=\"").Append(SvgUtils.Number(X(v)))
                   .Append("\" y2=\"").Append(SvgUtils.Number(axisY + 4)).Append("\" stroke=\"#444\"/>\n<text x=\"").Append(SvgUtils.Number(X(v))).Append("\" y=\"")
-                  .Append(SvgUtils.Number(axisY + 16)).Append("\" text-anchor=\"middle\">").Append(SvgUtils.EscapeText(fmt(v))).Append("</text>\n");
+                  .Append(SvgUtils.Number(axisY + 16)).Append("\" text-anchor=\"middle\">").Append(SvgUtils.EscapeText(tickLabels[ti])).Append("</text>\n");
+            }
 
             for (int s = 0; s < signals.Count; s++)
             {
@@ -277,6 +298,12 @@ namespace ToolBelt.Visualization
             if (seconds == 0) return "0";
             double a = Math.Abs(seconds);
             (double scale, string unit) = a >= 1 ? (1, "s") : a >= 1e-3 ? (1e3, "ms") : a >= 1e-6 ? (1e6, "µs") : a >= 1e-9 ? (1e9, "ns") : (1e12, "ps");
+            // Choose the unit after rounding: 0.9999999 s came out as "1000 ms".
+            if (Math.Round(a * scale, 3) >= 1000 && scale > 1)
+            {
+                scale /= 1000;
+                unit = unit == "ms" ? "s" : unit == "µs" ? "ms" : unit == "ns" ? "µs" : "ns";
+            }
             return (seconds * scale).ToString("0.###", CultureInfo.InvariantCulture) + " " + unit;
         }
     }

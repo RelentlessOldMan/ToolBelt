@@ -71,29 +71,39 @@ namespace ToolBelt.Visualization
             Bounds(series, options, out double minX, out double maxX, out double minY, out double maxY);
             double rangeX = maxX - minX, rangeY = maxY - minY;
 
-            int MapX(double x) => rangeX > 0 ? left + (int)Math.Round((x - minX) / rangeX * (right - left)) : (left + right) / 2;
-            int MapY(double y) => rangeY > 0 ? bottom - (int)Math.Round((y - minY) / rangeY * (bottom - top)) : (top + bottom) / 2;
+            // Mapped coordinates stay doubles until they are clipped to the plot area: a NaN, ∞ or far
+            // out-of-range value cast to int gave int.MinValue, and DrawLine's Math.Abs then overflowed.
+            double MapX(double x) => rangeX > 0 ? left + (x - minX) / rangeX * (right - left) : (left + right) / 2;
+            double MapY(double y) => rangeY > 0 ? bottom - (y - minY) / rangeY * (bottom - top) : (top + bottom) / 2;
+            int Px(double v) => (int)Math.Round(v);
 
             foreach (Series s in series)
             {
-                int? prevX = null, prevY = null;
+                bool havePrev = false;
+                double prevX = 0, prevY = 0;
                 for (int i = 0; i < s.Y.Count; i++)
                 {
-                    double xv = s.X?[i] ?? i;
-                    int px = MapX(xv), py = MapY(s.Y[i]);
+                    double xv = s.X?[i] ?? i, yv = s.Y[i];
+                    if (!IsFinite(xv) || !IsFinite(yv)) { havePrev = false; continue; } // a gap in the line
+                    double px = MapX(xv), py = MapY(yv);
                     switch (s.Style)
                     {
                         case PlotStyle.Line:
-                            if (prevX.HasValue) image.DrawLine(prevX.Value, prevY!.Value, px, py, s.Color);
+                            if (havePrev) image.DrawLineClipped(prevX, prevY, px, py, s.Color, left, top, right, bottom);
                             break;
                         case PlotStyle.Scatter:
-                            image.DrawRectangle(px - 1, py - 1, 3, 3, s.Color, filled: true);
+                            if (px >= left && px <= right && py >= top && py <= bottom)
+                                image.DrawRectangle(Px(px) - 1, Px(py) - 1, 3, 3, s.Color, filled: true);
                             break;
                         case PlotStyle.Bar:
-                            image.DrawRectangle(px, Math.Min(py, MapY(0)), 1, Math.Abs(py - MapY(0)) + 1, s.Color, filled: true);
+                            if (px >= left && px <= right)
+                            {
+                                int a = Px(Clamp(py, top, bottom)), b = Px(Clamp(MapY(0), top, bottom));
+                                image.DrawRectangle(Px(px), Math.Min(a, b), 1, Math.Abs(a - b) + 1, s.Color, filled: true);
+                            }
                             break;
                     }
-                    prevX = px; prevY = py;
+                    prevX = px; prevY = py; havePrev = true;
                 }
             }
             return image;
@@ -119,7 +129,11 @@ namespace ToolBelt.Visualization
             return new PlotFrame(left, top, right - left, bottom - top, minX, maxX, minY, maxY);
         }
 
-        // Data bounds across all series, or the explicit option values.
+        private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        private static double Clamp(double v, double lo, double hi) => v < lo ? lo : v > hi ? hi : v;
+
+        // Data bounds across all series (finite values only), or the explicit option values.
         private static void Bounds(IReadOnlyList<Series> series, PlotOptions options,
             out double minX, out double maxX, out double minY, out double maxY)
         {
@@ -132,6 +146,7 @@ namespace ToolBelt.Visualization
                     {
                         double x = s.X?[i] ?? i;
                         double y = s.Y[i];
+                        if (!IsFinite(x) || !IsFinite(y)) continue; // NaN/∞ points are gaps, not range
                         if (options.MinX is null && x < minX) minX = x;
                         if (options.MaxX is null && x > maxX) maxX = x;
                         if (options.MinY is null && y < minY) minY = y;

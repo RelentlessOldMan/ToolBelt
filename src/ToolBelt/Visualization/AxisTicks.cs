@@ -51,7 +51,7 @@ namespace ToolBelt.Visualization
         public static TickSet Linear(double min, double max, int maxTicks = 6, bool loose = true)
         {
             Normalize(ref min, ref max, maxTicks);
-            double raw = (max - min) / (maxTicks - 1);
+            double raw = max / (maxTicks - 1) - min / (maxTicks - 1); // max − min overflowed for ±1e308
             double magnitude = Math.Pow(10, Math.Floor(Math.Log10(raw)));
             double step = 0;
             // Walk 1, 2, 5, 10, 20, 50 … × magnitude until the ticks fit. Once the step reaches the largest magnitude
@@ -62,7 +62,13 @@ namespace ToolBelt.Visualization
             for (int i = 0; ; i++)
             {
                 double candidate = NiceMultipliers[i % 3] * magnitude * Math.Pow(10, i / 3);
-                if (CountTicks(min, max, candidate) <= maxTicks || candidate >= reach) { step = candidate; break; }
+                if (double.IsInfinity(candidate)) // only near double.MaxValue: keep the last finite step
+                {
+                    step = NiceMultipliers[(i - 1) % 3] * magnitude * Math.Pow(10, (i - 1) / 3);
+                    break;
+                }
+                if (CountTicks(min, max, candidate) <= maxTicks || (candidate >= reach && CountTicks(min, max, candidate) != long.MaxValue))
+                { step = candidate; break; }
             }
 
             int decimals = DecimalsFor(step);
@@ -72,19 +78,21 @@ namespace ToolBelt.Visualization
             for (long k = first; k <= last; k++)
             {
                 double v = Clean(k * step, decimals);
+                if (double.IsInfinity(v)) continue; // a loose tick past double.MaxValue
                 if (!loose && (v < min - step * 1e-9 || v > max + step * 1e-9)) continue;
                 values.Add(v);
             }
             var labels = new List<string>(values.Count);
             foreach (double v in values) labels.Add(FormatLinear(v, step, decimals));
             return loose
-                ? new TickSet(values, labels, step, values[0], values[values.Count - 1])
+                ? new TickSet(values, labels, step, Math.Min(values[0], min), Math.Max(values[values.Count - 1], max))
                 : new TickSet(values, labels, step, min, max);
         }
 
         /// <summary>
         /// Decade ticks (…, 0.1, 1, 10, 100, …) for a log axis over a strictly positive range. Loose labelling
-        /// rounds out to whole decades.
+        /// rounds out to whole decades. A tight range that holds fewer than two decades (e.g. [2, 8]) gets
+        /// <see cref="Linear"/> ticks inside it instead, so the axis is never unlabelled.
         /// </summary>
         public static TickSet Log10(double min, double max, bool loose = true)
         {
@@ -106,6 +114,8 @@ namespace ToolBelt.Visualization
                     ? v.ToString("0.###", CultureInfo.InvariantCulture)
                     : "1e" + e.ToString(CultureInfo.InvariantCulture));
             }
+            if (!loose && values.Count < 2)
+                return Linear(min, max, 6, loose: false); // no decade inside [2, 8] left the axis with no ticks
             return loose
                 ? new TickSet(values, labels, 10, Math.Pow(10, lo), Math.Pow(10, hi))
                 : new TickSet(values, labels, 10, min, max);
@@ -152,6 +162,7 @@ namespace ToolBelt.Visualization
         /// <summary>Formats a number of seconds the way <see cref="Time"/> labels it (<c>m:ss</c>, <c>h:mm:ss</c>, or seconds).</summary>
         public static string FormatTime(double seconds, double span, int decimals = 0)
         {
+            if (decimals < 0 || decimals > 15) throw new ArgumentOutOfRangeException(nameof(decimals), decimals, "Decimals must be in [0, 15].");
             string sign = seconds < 0 ? "-" : "";
             double a = Math.Abs(seconds);
             if (span < 60)
@@ -192,8 +203,14 @@ namespace ToolBelt.Visualization
             }
         }
 
+        // In doubles: the long casts wrapped once |value / step| passed 9.2e18 (epoch nanoseconds read as seconds),
+        // so a hopeless step "fitted". Past 2^52 steps the multiples are not even distinct, so count it as too many.
         private static long CountTicks(double min, double max, double step)
-            => (long)Math.Ceiling(max / step - 1e-9) - (long)Math.Floor(min / step + 1e-9) + 1;
+        {
+            double a = min / step, b = max / step;
+            if (!(Math.Abs(a) < 4.5e15) || !(Math.Abs(b) < 4.5e15)) return long.MaxValue;
+            return (long)Math.Ceiling(b - 1e-9) - (long)Math.Floor(a + 1e-9) + 1;
+        }
 
         private static int DecimalsFor(double step)
         {
@@ -211,7 +228,14 @@ namespace ToolBelt.Visualization
         {
             double mag = Math.Max(Math.Abs(value), step);
             if (mag >= 1e7 || step < 1e-5)
-                return value == 0 ? "0" : value.ToString("0.###E+0", CultureInfo.InvariantCulture);
+            {
+                if (value == 0) return "0";
+                // Enough mantissa digits to resolve the step: a fixed "0.###" gave every tick of
+                // [12345670, 12345680] the label "1.235E+7".
+                int digits = (int)Math.Floor(Math.Log10(Math.Abs(value))) - (int)Math.Floor(Math.Log10(step) + 1e-9);
+                digits = Math.Max(0, Math.Min(16, digits));
+                return value.ToString(digits == 0 ? "0E+0" : "0." + new string('#', digits) + "E+0", CultureInfo.InvariantCulture);
+            }
             return value.ToString(decimals == 0 ? "0" : "0." + new string('0', decimals), CultureInfo.InvariantCulture);
         }
     }

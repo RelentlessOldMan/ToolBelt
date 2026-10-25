@@ -1,7 +1,7 @@
 # Independent review plan
 
 A full-codebase review, done one section at a time. Each round: independently review **one** section → verify and
-fix the bugs → cut a release → pause (compact). This file is the tracker; it is updated at the end of every round.
+fix the bugs → cut a release → move on to the next round. This file is the tracker; it is updated at the end of every round.
 
 ## Round protocol
 
@@ -24,7 +24,7 @@ fix the bugs → cut a release → pause (compact). This file is the tracker; it
    - the README updated if the public API changed.
 4. **Release.** Bump the version, commit (`Review round N: <section>`), push, tag `v0.N.0`, and create a GitHub
    release (`gh release create`) whose notes list the fixes.
-5. **Record.** Update the tracker table and the round log below, then pause for compaction.
+5. **Record.** Update the tracker table and the round log below, then start the next round.
 
 **Re-review rule.** A section goes back on the queue if its last pass found **≥ 3 confirmed bugs**, or any
 **severe** one (hang, crash on plausible input, silently wrong numbers, security issue). A section is done when a
@@ -42,8 +42,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 1 | 31 / 31 | re-queue (7 severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 1 | 43 / 43 | re-queue (8 severe) |
-| 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 0 | – / 0 | **next** |
-| 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 0 | – / 0 | queued |
+| 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 1 | 33 / 33 | re-queue (8 severe) |
+| 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 0 | – / 0 | **next** |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 0 | – / 0 | queued |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 0 | – / 0 | queued |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 0 | – / 0 | queued |
@@ -69,6 +69,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.2.0 | 2 | Signal analysis | 24 | (see tag) |
 | v0.3.0 | 3 | Statistics | 31 | (see tag) |
 | v0.4.0 | 4 | Numerics core | 43 | (see tag) |
+| v0.5.0 | 5 | Charts | 33 | (see tag) |
 
 ## Round log
 
@@ -278,3 +279,44 @@ hardening fixes, 0 rejected.
 - **Also fixed:** a round-3 leftover. v0.3.0's equal-totals check in `ChiSquareGoodnessOfFit` broke the MathChecks
   cross-check, which fed it unequal totals; the test now scales expected to the observed total.
 - **Re-queued:** yes (8 severe, 43 bugs).
+
+### Round 5 — 2026-10-25 — Charts
+
+Reviewers: one for correctness (19 findings) and one for robustness (15), about 33 distinct issues after overlap.
+**33 confirmed bugs** (each has a failing-first regression test in `ChartsReviewTests`), 0 doc-only, 1 left by
+choice, 0 rejected.
+
+- **Severe:**
+  - The raster charts (`LinePlot`, `BandChart`, `ErrorBarChart`, `BoxPlot`) cast mapped coordinates to int and
+    walked every pixel. A value far outside an explicit range hung (y = 1e7 against [0, 1]), or wrapped the int and
+    threw. They now map in doubles, skip non-finite points and clip lines with Liang–Barsky before stepping (new
+    public `ImageBuffer.DrawLineClipped`).
+  - `ImageBuffer.DrawLine` / `DrawRectangle` stepped off-canvas pixels one by one: `DrawLine(int.MinValue, …,
+    int.MaxValue, …)` never returned, and `Math.Abs` of the difference threw. `new ImageBuffer(65536, 16384)` wrapped
+    `width × height × 4` to a zero-length buffer, and `HeatMap` with a big `CellSize` did the same.
+  - `Annotations` raster lines (callouts, thick reference lines) had the same pixel walk: a callout with dx = 1e10
+    hung, and a 1e4 px pen cost thickness² per pixel.
+  - `AxisTicks.CountTicks` cast to long, so epoch-nanosecond ranges (1.7e18) wrapped and a hopeless step "fitted";
+    `Time(0, 1e16)` gave no ticks. A huge `MaxXTicks` spent seconds building ticks that cannot be drawn, and a
+    `TimingDiagram` with `Width = 1e17` hatched forever (x + 6 == x).
+  - `HeatMap` blanked every finite cell when one value was ∞, and `Histogram` discarded the finite range when one
+    value was ∞ (and gave NaN edges for a ±1e308 span).
+  - `BoxPlot.Compute` let NaN into the quartiles, and whiskers could end inside the box.
+- **Moderate:**
+  - `AxisTicks`: narrow spans far from zero (1 to 1.00001, 12345670 to 12345680) produced duplicate labels; ±1e308
+    gave an infinite step; a tight log range inside one decade had no ticks.
+  - `TimingDiagram`: epoch-scale ticks collided (now first label + "+Δ"); `FormatSeconds` chose its unit before
+    rounding (0.9999999 s gave "1000 ms"); a marker accepted a NaN time.
+  - `SvgChart`: auto-ranged bars were cut to half width at the ends, and one explicit limit past the data collapsed
+    the axis (same fallback bug in `Waterfall.ValueRange`).
+  - `PlotFrame.Map/Unmap` overflowed on a ±1e308 range; `HexBin` gave a cell to a point far outside the frame.
+  - `Annotations` dropped a band on a log axis when a bound was ≤ 0 (now clamped to the axis minimum).
+  - `Histogram` values on an edge landed in the wrong bin, and min > max or non-finite bounds were accepted;
+    `HeatMap` accepted min > max.
+- **Minor:** `Palettes.FromHex` accepted whitespace ("#fffff ", "# ff"); the shared
+  palettes and `TimingSignal.Changes` could be cast back to arrays/lists and edited; validation gaps
+  (`whiskerReach` NaN, `bins == int.MaxValue`, NaN colormap stops, infinite `PlotFrame` size, `FormatTime`
+  decimals, `TimingDiagram` lane sizes, null `FontFamily` / `Colormap` / column NREs); several errors named `o`, `y1`
+  or nothing instead of `options`, `y2`, `changes`.
+- **Left by choice:** `BoxStats.Outliers` stays a public `double[]` (changing it breaks the API).
+- **Re-queued:** yes (8 severe, 33 bugs).

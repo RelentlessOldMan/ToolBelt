@@ -46,8 +46,9 @@ namespace ToolBelt.Visualization
             if (columns is null) throw new ArgumentNullException(nameof(columns));
             int k = names.Count;
             if (k < 1 || columns.Count != k) throw new ArgumentException("Need one column per name (at least one).");
+            if (columns.Any(c => c is null)) throw new ArgumentException("Columns must not be null.", nameof(columns));
             int n = columns[0].Count;
-            if (columns.Any(c => c is null || c.Count != n)) throw new ArgumentException("All columns must have the same length.");
+            if (columns.Any(c => c.Count != n)) throw new ArgumentException("All columns must have the same length.");
             var o = options ?? new ScatterMatrixOptions();
             if (o.Groups != null && o.Groups.Count != n) throw new ArgumentException("Groups must have one entry per row.");
             if (o.Bins < 1) throw new ArgumentOutOfRangeException(nameof(options), "Bins must be positive.");

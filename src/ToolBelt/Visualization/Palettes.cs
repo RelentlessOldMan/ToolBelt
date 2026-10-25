@@ -15,25 +15,25 @@ namespace ToolBelt.Visualization
     public static class Palettes
     {
         /// <summary>Okabe &amp; Ito (2008): black, orange, sky blue, bluish green, yellow, blue, vermillion, reddish purple.</summary>
-        public static IReadOnlyList<Rgba> OkabeIto { get; } = new[]
+        public static IReadOnlyList<Rgba> OkabeIto { get; } = Array.AsReadOnly(new[]
         {
             new Rgba(0, 0, 0), new Rgba(230, 159, 0), new Rgba(86, 180, 233), new Rgba(0, 158, 115),
             new Rgba(240, 228, 66), new Rgba(0, 114, 178), new Rgba(213, 94, 0), new Rgba(204, 121, 167),
-        };
+        });
 
         /// <summary>Okabe–Ito without black — for series on a white plot where black reads as an axis.</summary>
-        public static IReadOnlyList<Rgba> OkabeItoNoBlack { get; } = new[]
+        public static IReadOnlyList<Rgba> OkabeItoNoBlack { get; } = Array.AsReadOnly(new[]
         {
             new Rgba(230, 159, 0), new Rgba(86, 180, 233), new Rgba(0, 158, 115), new Rgba(240, 228, 66),
             new Rgba(0, 114, 178), new Rgba(213, 94, 0), new Rgba(204, 121, 167),
-        };
+        });
 
         /// <summary>Tableau 10 (2016 revision).</summary>
-        public static IReadOnlyList<Rgba> Tableau10 { get; } = new[]
+        public static IReadOnlyList<Rgba> Tableau10 { get; } = Array.AsReadOnly(new[]
         {
             new Rgba(78, 121, 167), new Rgba(242, 142, 43), new Rgba(225, 87, 89), new Rgba(118, 183, 178), new Rgba(89, 161, 79),
             new Rgba(237, 201, 72), new Rgba(176, 122, 161), new Rgba(255, 157, 167), new Rgba(156, 117, 95), new Rgba(186, 176, 172),
-        };
+        });
 
         /// <summary>The <paramref name="index"/>-th colour, cycling when there are more series than colours.</summary>
         public static Rgba Cycle(IReadOnlyList<Rgba> palette, int index)
@@ -74,7 +74,7 @@ namespace ToolBelt.Visualization
             if (hex is null) throw new ArgumentNullException(nameof(hex));
             string h = hex.StartsWith("#", StringComparison.Ordinal) ? hex.Substring(1) : hex;
             if (h.Length == 3) h = new string(new[] { h[0], h[0], h[1], h[1], h[2], h[2] });
-            if ((h.Length != 6 && h.Length != 8) || !uint.TryParse(h, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint v))
+            if ((h.Length != 6 && h.Length != 8) || !uint.TryParse(h, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out uint v))
                 throw new FormatException($"'{hex}' is not a #RGB, #RRGGBB or #RRGGBBAA colour.");
             if (h.Length == 6) v = (v << 8) | 0xFF;
             return new Rgba((byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v);

@@ -53,36 +53,46 @@ namespace ToolBelt.Visualization
             double minV = options.Min ?? double.PositiveInfinity, maxV = options.Max ?? double.NegativeInfinity;
             if (options.Min is null || options.Max is null)
             {
+                // Finite values only: Math.Min/Max propagate NaN, which collapsed every value onto the centre row.
                 for (int i = 0; i < n; i++)
-                {
-                    if (options.Min is null) minV = Math.Min(minV, Math.Min(lower[i], upper[i]));
-                    if (options.Max is null) maxV = Math.Max(maxV, Math.Max(lower[i], upper[i]));
-                }
+                    foreach (double v in new[] { lower[i], upper[i] })
+                    {
+                        if (!IsFinite(v)) continue;
+                        if (options.Min is null && v < minV) minV = v;
+                        if (options.Max is null && v > maxV) maxV = v;
+                    }
             }
             double range = maxV - minV;
-            int MapX(int i) => n > 1 ? left + (int)Math.Round((double)i / (n - 1) * (right - left)) : (left + right) / 2;
-            int MapY(double v) => range > 0 ? bottom - (int)Math.Round((v - minV) / range * (bottom - top)) : (top + bottom) / 2;
+            double MapX(int i) => n > 1 ? left + (double)i / (n - 1) * (right - left) : (left + right) / 2;
+            double MapY(double v) => range > 0 ? bottom - (v - minV) / range * (bottom - top) : (top + bottom) / 2;
 
-            // Fill a vertical span at each column between the two curves.
+            // Fill a vertical span at each column between the two curves, clipped to the plot area (values
+            // outside an explicit Min/Max threw from SetPixel). A column with a NaN or ∞ edge is left empty.
             for (int i = 0; i < n; i++)
             {
-                int x = MapX(i);
-                int yA = MapY(lower[i]), yB = MapY(upper[i]);
-                int y0 = Math.Min(yA, yB), y1 = Math.Max(yA, yB);
-                for (int y = y0; y <= y1; y++) image.SetPixel(x, y, options.BandColor);
+                if (!IsFinite(lower[i]) || !IsFinite(upper[i])) continue;
+                int x = (int)Math.Round(MapX(i));
+                double yA = MapY(lower[i]), yB = MapY(upper[i]);
+                double lo = Math.Max(Math.Min(yA, yB), top), hi = Math.Min(Math.Max(yA, yB), bottom);
+                if (lo > hi) continue;
+                for (int y = (int)Math.Round(lo); y <= (int)Math.Round(hi); y++) image.SetPixel(x, y, options.BandColor);
             }
 
             if (center != null)
             {
-                int? prevX = null, prevY = null;
+                bool havePrev = false;
+                double prevX = 0, prevY = 0;
                 for (int i = 0; i < n; i++)
                 {
-                    int x = MapX(i), y = MapY(center[i]);
-                    if (prevX.HasValue) image.DrawLine(prevX.Value, prevY!.Value, x, y, options.CenterColor);
-                    prevX = x; prevY = y;
+                    if (!IsFinite(center[i])) { havePrev = false; continue; }
+                    double x = MapX(i), y = MapY(center[i]);
+                    if (havePrev) image.DrawLineClipped(prevX, prevY, x, y, options.CenterColor, left, top, right, bottom);
+                    prevX = x; prevY = y; havePrev = true;
                 }
             }
             return image;
         }
+
+        private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
     }
 }

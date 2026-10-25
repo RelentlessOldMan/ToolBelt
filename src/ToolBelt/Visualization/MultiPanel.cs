@@ -144,9 +144,9 @@ namespace ToolBelt.Visualization
         {
             if (panels is null) throw new ArgumentNullException(nameof(panels));
             if (panels.Count == 0) throw new ArgumentException("At least one panel is required.", nameof(panels));
-            if (o.Columns < 1) throw new ArgumentOutOfRangeException(nameof(o), "Columns must be positive.");
-            if (!(o.PanelWidth > 0) || !(o.PanelHeight > 0)) throw new ArgumentOutOfRangeException(nameof(o), "Panel size must be positive.");
-            if (!(o.Gap >= 0)) throw new ArgumentOutOfRangeException(nameof(o), "Gap must be non-negative.");
+            if (o.Columns < 1) throw new ArgumentOutOfRangeException("options", "Columns must be positive.");
+            if (!(o.PanelWidth > 0) || !(o.PanelHeight > 0)) throw new ArgumentOutOfRangeException("options", "Panel size must be positive.");
+            if (!(o.Gap >= 0)) throw new ArgumentOutOfRangeException("options", "Gap must be non-negative.");
             for (int i = 0; i < panels.Count; i++)
                 if (panels[i] is null) throw new ArgumentException($"Panel {i} is null.", nameof(panels));
 

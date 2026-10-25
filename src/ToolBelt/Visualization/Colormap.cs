@@ -16,6 +16,9 @@ namespace ToolBelt.Visualization
         {
             if (stops is null) throw new ArgumentNullException(nameof(stops));
             if (stops.Length < 2) throw new ArgumentException("A colormap needs at least two stops.", nameof(stops));
+            foreach (var st in stops)
+                if (double.IsNaN(st.Position) || double.IsInfinity(st.Position)) // a NaN stop sorted anywhere
+                    throw new ArgumentException("Stop positions must be finite.", nameof(stops));
             _stops = (( double, Rgba)[])stops.Clone();
             Array.Sort(_stops, (a, b) => a.Position.CompareTo(b.Position));
         }

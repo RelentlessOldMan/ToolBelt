@@ -24,9 +24,9 @@ namespace ToolBelt.Visualization
         public double Q3 { get; }
         /// <summary>The maximum value.</summary>
         public double Max { get; }
-        /// <summary>Lowest value still within the lower Tukey fence.</summary>
+        /// <summary>Lowest value still within the lower Tukey fence, but never above <see cref="Q1"/>.</summary>
         public double LowerWhisker { get; }
-        /// <summary>Highest value still within the upper Tukey fence.</summary>
+        /// <summary>Highest value still within the upper Tukey fence, but never below <see cref="Q3"/>.</summary>
         public double UpperWhisker { get; }
         /// <summary>Values beyond the fences.</summary>
         public double[] Outliers { get; }
@@ -67,22 +67,25 @@ namespace ToolBelt.Visualization
     /// </summary>
     public static class BoxPlot
     {
-        /// <summary>Computes the box statistics for one dataset.</summary>
+        /// <summary>Computes the box statistics for one dataset. NaN values are ignored.</summary>
         public static BoxStats Compute(IReadOnlyList<double> data, double whiskerReach = 1.5)
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
             if (data.Count == 0) throw new ArgumentException("Dataset must be non-empty.", nameof(data));
-            if (whiskerReach < 0) throw new ArgumentOutOfRangeException(nameof(whiskerReach), whiskerReach, "Whisker reach must be non-negative.");
+            if (!(whiskerReach >= 0)) throw new ArgumentOutOfRangeException(nameof(whiskerReach), whiskerReach, "Whisker reach must be non-negative.");
 
-            var sorted = new double[data.Count];
-            for (int i = 0; i < data.Count; i++) sorted[i] = data[i];
+            // NaN has no rank: Array.Sort put it first, so it became the minimum and shifted every quartile.
+            var kept = new List<double>(data.Count);
+            for (int i = 0; i < data.Count; i++) if (!double.IsNaN(data[i])) kept.Add(data[i]);
+            if (kept.Count == 0) throw new ArgumentException("Dataset has no non-NaN values.", nameof(data));
+            var sorted = kept.ToArray();
             Array.Sort(sorted);
 
             double q1 = Percentile(sorted, 25), median = Percentile(sorted, 50), q3 = Percentile(sorted, 75);
             double iqr = q3 - q1;
             double lowerFence = q1 - whiskerReach * iqr, upperFence = q3 + whiskerReach * iqr;
 
-            double lowerWhisker = sorted[sorted.Length - 1], upperWhisker = sorted[0];
+            double lowerWhisker = double.PositiveInfinity, upperWhisker = double.NegativeInfinity;
             var outliers = new List<double>();
             foreach (double v in sorted)
             {
@@ -93,7 +96,10 @@ namespace ToolBelt.Visualization
                     if (v > upperWhisker) upperWhisker = v;
                 }
             }
-            if (outliers.Count == sorted.Length) { lowerWhisker = sorted[0]; upperWhisker = sorted[sorted.Length - 1]; }
+            // As matplotlib does, a whisker never ends inside the box: with no value between the box and the
+            // fence (or every value an outlier) it stops at the quartile.
+            lowerWhisker = Math.Min(lowerWhisker, q1);
+            upperWhisker = Math.Max(upperWhisker, q3);
 
             return new BoxStats(sorted[0], q1, median, q3, sorted[sorted.Length - 1],
                 lowerWhisker, upperWhisker, outliers.ToArray());
@@ -120,41 +126,50 @@ namespace ToolBelt.Visualization
             if (options.Min is null || options.Max is null)
             {
                 foreach (var s in stats)
-                {
-                    if (options.Min is null) minV = Math.Min(minV, s.Min);
-                    if (options.Max is null) maxV = Math.Max(maxV, s.Max);
-                }
+                    foreach (double v in new[] { s.Min, s.LowerWhisker, s.Q1, s.Q3, s.UpperWhisker, s.Max })
+                    {
+                        if (double.IsInfinity(v)) continue; // an ∞ outlier cannot set the axis
+                        if (options.Min is null && v < minV) minV = v;
+                        if (options.Max is null && v > maxV) maxV = v;
+                    }
             }
             double range = maxV - minV;
             int plotHeight = bottom - top;
-            int MapY(double v) => range > 0 ? bottom - (int)Math.Round((v - minV) / range * plotHeight) : (top + bottom) / 2;
+            // Doubles, clipped when drawn: a value outside an explicit Min/Max overflowed the int cast.
+            double MapY(double v) => range > 0 ? bottom - (v - minV) / range * plotHeight : (top + bottom) / 2;
 
             int plotWidth = right - left;
             double slot = (double)plotWidth / datasets.Count;
             int halfBox = Math.Max(2, (int)(slot * 0.3));
 
+            void Line(double x0, double y0, double x1, double y1, Rgba c)
+                => image.DrawLineClipped(x0, y0, x1, y1, c, left, top, right, bottom);
+
             for (int i = 0; i < stats.Length; i++)
             {
                 var s = stats[i];
                 int cx = left + (int)Math.Round((i + 0.5) * slot);
-                int q1y = MapY(s.Q1), q3y = MapY(s.Q3), medY = MapY(s.Median);
-                int loY = MapY(s.LowerWhisker), hiY = MapY(s.UpperWhisker);
+                double q1y = MapY(s.Q1), q3y = MapY(s.Q3), medY = MapY(s.Median);
+                double loY = MapY(s.LowerWhisker), hiY = MapY(s.UpperWhisker);
 
                 // Box (Q1..Q3).
-                int boxTop = Math.Min(q1y, q3y);
-                image.DrawRectangle(cx - halfBox, boxTop, halfBox * 2 + 1, Math.Abs(q1y - q3y) + 1, options.BoxColor);
+                Line(cx - halfBox, q1y, cx + halfBox, q1y, options.BoxColor);
+                Line(cx - halfBox, q3y, cx + halfBox, q3y, options.BoxColor);
+                Line(cx - halfBox, q1y, cx - halfBox, q3y, options.BoxColor);
+                Line(cx + halfBox, q1y, cx + halfBox, q3y, options.BoxColor);
                 // Median line.
-                image.DrawLine(cx - halfBox, medY, cx + halfBox, medY, options.MedianColor);
+                Line(cx - halfBox, medY, cx + halfBox, medY, options.MedianColor);
                 // Whiskers + caps.
-                image.DrawLine(cx, q3y, cx, hiY, options.BoxColor);
-                image.DrawLine(cx, q1y, cx, loY, options.BoxColor);
-                image.DrawLine(cx - halfBox / 2, hiY, cx + halfBox / 2, hiY, options.BoxColor);
-                image.DrawLine(cx - halfBox / 2, loY, cx + halfBox / 2, loY, options.BoxColor);
+                Line(cx, q3y, cx, hiY, options.BoxColor);
+                Line(cx, q1y, cx, loY, options.BoxColor);
+                Line(cx - halfBox / 2, hiY, cx + halfBox / 2, hiY, options.BoxColor);
+                Line(cx - halfBox / 2, loY, cx + halfBox / 2, loY, options.BoxColor);
                 // Outliers.
                 foreach (double o in s.Outliers)
                 {
-                    int oy = MapY(o);
-                    image.DrawRectangle(cx - 1, oy - 1, 3, 3, options.OutlierColor, filled: true);
+                    double oy = MapY(o);
+                    if (oy >= top && oy <= bottom)
+                        image.DrawRectangle(cx - 1, (int)Math.Round(oy) - 1, 3, 3, options.OutlierColor, filled: true);
                 }
             }
             return image;

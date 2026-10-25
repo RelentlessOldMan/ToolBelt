@@ -65,7 +65,7 @@ namespace ToolBelt.Visualization
     {
         private static readonly double Sqrt3 = Math.Sqrt(3);
 
-        /// <summary>Bins points through <paramref name="frame"/> into hexagons of circumradius <paramref name="radius"/> pixels. Non-finite points are skipped.</summary>
+        /// <summary>Bins points through <paramref name="frame"/> into hexagons of circumradius <paramref name="radius"/> pixels. Non-finite points, and points so far outside the frame that their hexagon index would not fit an <c>int</c>, are skipped.</summary>
         public static IReadOnlyList<HexCell> Compute(IEnumerable<(double X, double Y)> points, PlotFrame frame, double radius)
         {
             if (points is null) throw new ArgumentNullException(nameof(points));
@@ -76,6 +76,9 @@ namespace ToolBelt.Visualization
             {
                 double px = frame.MapX(x) - frame.Left, py = frame.MapY(y) - frame.Top;
                 if (double.IsNaN(px) || double.IsNaN(py) || double.IsInfinity(px) || double.IsInfinity(py)) continue;
+                // A point so far outside the frame that its hexagon index overflows an int has no cell (the cast
+                // wrapped it into a bogus one).
+                if (Math.Abs(px / dx) > 1e9 || Math.Abs(py / dy) > 1e9) continue;
                 var key = Nearest(px, py, dx, dy);
                 counts[key] = counts.TryGetValue(key, out int n) ? n + 1 : 1;
             }
@@ -114,6 +117,7 @@ namespace ToolBelt.Visualization
         {
             if (points is null) throw new ArgumentNullException(nameof(points));
             var o = options ?? new HexBinOptions();
+            if (o.Colormap is null) throw new ArgumentException("Colormap must not be null.", nameof(options));
             var finite = points.Where(p => !double.IsNaN(p.X) && !double.IsNaN(p.Y) && !double.IsInfinity(p.X) && !double.IsInfinity(p.Y)).ToArray();
             double xmin = o.XMin ?? (finite.Length > 0 ? finite.Min(p => p.X) : 0), xmax = o.XMax ?? (finite.Length > 0 ? finite.Max(p => p.X) : 1);
             double ymin = o.YMin ?? (finite.Length > 0 ? finite.Min(p => p.Y) : 0), ymax = o.YMax ?? (finite.Length > 0 ? finite.Max(p => p.Y) : 1);

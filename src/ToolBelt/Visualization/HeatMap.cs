@@ -44,14 +44,19 @@ namespace ToolBelt.Visualization
                     for (int c = 0; c < cols; c++)
                     {
                         double v = data[r, c];
-                        if (double.IsNaN(v)) continue;
+                        if (double.IsNaN(v) || double.IsInfinity(v)) continue; // an ∞ made the range ∞, so every cell NaN
                         if (options.Min is null && v < min) min = v;
                         if (options.Max is null && v > max) max = v;
                     }
             }
+            if (min > max && options.Min.HasValue && options.Max.HasValue)
+                throw new ArgumentException("Min must not exceed Max.", nameof(options));
             double range = max - min;
+            if (double.IsInfinity(range)) range = double.MaxValue; // finite extremes ±1e308: keep the cells mappable
 
             int cell = options.CellSize;
+            if ((long)cols * cell > int.MaxValue || (long)rows * cell > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(options), "CellSize makes the image too large."); // the int product wrapped
             var image = new ImageBuffer(cols * cell, rows * cell);
             for (int r = 0; r < rows; r++)
                 for (int c = 0; c < cols; c++)
@@ -59,7 +64,8 @@ namespace ToolBelt.Visualization
                     double v = data[r, c];
                     Rgba color = double.IsNaN(v)
                         ? options.NanColor
-                        : colormap.Map(range > 0 ? (v - min) / range : 0.5);
+                        : double.IsInfinity(v) ? colormap.Map(v > 0 ? 1 : 0) // ±∞ takes the end colour
+                        : colormap.Map(range > 0 ? (v / range - min / range) : 0.5);
                     image.DrawRectangle(c * cell, r * cell, cell, cell, color, filled: true);
                 }
             return image;

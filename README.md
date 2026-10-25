@@ -517,7 +517,7 @@ src/
       TimeOfDayRange.cs     half-open time-of-day window (overnight wrap, Contains)
       UnixTime.cs           Unix epoch conversions (seconds/millis, DTO/DateTime)
     Visualization/
-      ImageBuffer.cs        RGBA raster canvas (get/set/fill/line/rect/blit)
+      ImageBuffer.cs        RGBA raster canvas (get/set/fill/line/rect/blit; DrawLineClipped cuts a double-precision line to a rect)
       PngWriter.cs          BCL-only PNG encoder (deflate + CRC-32 + Adler-32)
       PngReader.cs          BCL-only PNG decoder: all colour types, 1-16 bit, all filters, Adam7, tRNS; CRC/Adler verified
       Bmp.cs                BMP read/write (32-bit BGRA V4 or 24-bit; reads top-down, bitfields, 8-bit palette)
@@ -931,6 +931,7 @@ tests/
       ErrorBarChartTests.cs
       BandChartTests.cs
       LinePlotTests.cs
+      ChartsReviewTests.cs  (review regressions: far out-of-range data clipped, non-finite values, overflow-safe ranges and ticks, option validation)
     Resilience/
       RetryTests.cs
       CircuitBreakerTests.cs

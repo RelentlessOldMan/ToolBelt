@@ -158,7 +158,10 @@ namespace ToolBelt.Visualization
                 }
             min = options.ValueMin ?? min;
             max = options.ValueMax ?? max;
-            if (double.IsInfinity(min) || double.IsInfinity(max)) { min = 0; max = 1; } // no finite data at all
+            // No finite data: keep whichever limit was given (an explicit ValueMin of 5 used to become [0, 1]).
+            if (double.IsInfinity(min) && double.IsInfinity(max)) { min = 0; max = 1; }
+            else if (double.IsInfinity(min)) min = max - 1;
+            else if (double.IsInfinity(max)) max = min + 1;
             if (min > max) (min, max) = (max, min);
             return (min, max);
         }
@@ -181,7 +184,7 @@ namespace ToolBelt.Visualization
         {
             Validate(data, o);
             if (!(o.Width > 0) || !(o.Height > 0) || !(o.FontSize > 0))
-                throw new ArgumentOutOfRangeException(nameof(o), "Width, Height and FontSize must be positive.");
+                throw new ArgumentOutOfRangeException("options", "Width, Height and FontSize must be positive.");
             int rows = data.GetLength(0), cols = data.GetLength(1);
             double fLo = o.FrequencyStart - o.FrequencyStep / 2, fHi = o.FrequencyStart + (cols - 0.5) * o.FrequencyStep;
             double tLo = o.TimeStart, tHi = o.TimeStart + rows * o.TimeStep;
@@ -320,13 +323,13 @@ namespace ToolBelt.Visualization
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
             if (data.GetLength(0) == 0 || data.GetLength(1) == 0) throw new ArgumentException("Data must be non-empty.", nameof(data));
-            if (o.Colormap is null) throw new ArgumentException("Colormap must not be null.", nameof(o));
+            if (o.Colormap is null) throw new ArgumentException("Colormap must not be null.", "options");
             if (!(o.FrequencyStep > 0) || double.IsInfinity(o.FrequencyStep))
-                throw new ArgumentOutOfRangeException(nameof(o), "FrequencyStep must be positive and finite.");
+                throw new ArgumentOutOfRangeException("options", "FrequencyStep must be positive and finite.");
             if (!(o.TimeStep > 0) || double.IsInfinity(o.TimeStep))
-                throw new ArgumentOutOfRangeException(nameof(o), "TimeStep must be positive and finite.");
+                throw new ArgumentOutOfRangeException("options", "TimeStep must be positive and finite.");
             if (double.IsNaN(o.FrequencyStart) || double.IsInfinity(o.FrequencyStart) || double.IsNaN(o.TimeStart) || double.IsInfinity(o.TimeStart))
-                throw new ArgumentOutOfRangeException(nameof(o), "FrequencyStart and TimeStart must be finite.");
+                throw new ArgumentOutOfRangeException("options", "FrequencyStart and TimeStart must be finite.");
         }
     }
 }

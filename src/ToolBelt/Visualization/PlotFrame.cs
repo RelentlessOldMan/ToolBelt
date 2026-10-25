@@ -17,8 +17,10 @@ namespace ToolBelt.Visualization
             double xMin, double xMax, double yMin, double yMax,
             bool logX = false, bool logY = false)
         {
-            if (!(width > 0)) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
-            if (!(height > 0)) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
+            if (!(width > 0) || double.IsInfinity(width)) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive and finite.");
+            if (!(height > 0) || double.IsInfinity(height)) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive and finite.");
+            if (double.IsNaN(left) || double.IsInfinity(left)) throw new ArgumentOutOfRangeException(nameof(left), left, "Left must be finite.");
+            if (double.IsNaN(top) || double.IsInfinity(top)) throw new ArgumentOutOfRangeException(nameof(top), top, "Top must be finite.");
             CheckRange(xMin, xMax, logX, nameof(xMin));
             CheckRange(yMin, yMax, logY, nameof(yMin));
             Left = left;
@@ -84,7 +86,9 @@ namespace ToolBelt.Visualization
             }
             else
             {
-                t = max == min ? 0.5 : (v - min) / (max - min);
+                t = max == min ? 0.5
+                    : double.IsInfinity(max - min) ? (v / 2 - min / 2) / (max / 2 - min / 2) // a ±1e308 range overflowed
+                    : (v - min) / (max - min);
             }
             return invert ? origin + extent - t * extent : origin + t * extent;
         }
@@ -97,7 +101,7 @@ namespace ToolBelt.Visualization
                 double lmin = Math.Log10(min), lmax = Math.Log10(max);
                 return Math.Pow(10, lmin + t * (lmax - lmin));
             }
-            return min + t * (max - min);
+            return double.IsInfinity(max - min) ? 2 * (min / 2 + t * (max / 2 - min / 2)) : min + t * (max - min);
         }
 
         private static void CheckRange(double min, double max, bool log, string name)

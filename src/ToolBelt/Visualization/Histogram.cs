@@ -33,38 +33,55 @@ namespace ToolBelt.Visualization
         /// Counts <paramref name="data"/> into <paramref name="bins"/> equal-width bins. Returns the bin
         /// edges (length <c>bins+1</c>) and counts (length <c>bins</c>). Values are placed in bin
         /// <c>i</c> when they fall in <c>[edge[i], edge[i+1])</c>; the maximum lands in the last bin.
-        /// NaN values and values outside the range are ignored.
+        /// NaN values and values outside the range are ignored; infinities never set an automatic range. Explicit
+        /// bounds must be finite with <paramref name="min"/> ≤ <paramref name="max"/>.
         /// </summary>
         public static (double[] Edges, int[] Counts) Bin(
             IReadOnlyList<double> data, int bins, double? min = null, double? max = null)
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
-            if (bins < 1) throw new ArgumentOutOfRangeException(nameof(bins), bins, "Need at least one bin.");
+            if (bins < 1 || bins == int.MaxValue) throw new ArgumentOutOfRangeException(nameof(bins), bins, "Need between 1 and int.MaxValue - 1 bins.");
+
+            if (min.HasValue && (double.IsNaN(min.Value) || double.IsInfinity(min.Value)))
+                throw new ArgumentOutOfRangeException(nameof(min), min, "Min must be finite.");
+            if (max.HasValue && (double.IsNaN(max.Value) || double.IsInfinity(max.Value)))
+                throw new ArgumentOutOfRangeException(nameof(max), max, "Max must be finite.");
+            if (min > max) throw new ArgumentException("Min must not exceed Max.", nameof(min));
 
             double lo = min ?? double.PositiveInfinity, hi = max ?? double.NegativeInfinity;
             if (min is null || max is null)
             {
                 foreach (double v in data)
                 {
-                    if (double.IsNaN(v)) continue;
+                    // ±∞ cannot set a range: one ∞ used to discard every finite value for [0, 1].
+                    if (double.IsNaN(v) || double.IsInfinity(v)) continue;
                     if (min is null && v < lo) lo = v;
                     if (max is null && v > hi) hi = v;
                 }
             }
-            if (double.IsInfinity(lo) || double.IsInfinity(hi)) { lo = 0; hi = 1; } // no finite data
+            if (double.IsInfinity(lo) || double.IsInfinity(hi)) // no finite data on an auto side
+            {
+                if (double.IsInfinity(lo) && double.IsInfinity(hi)) { lo = 0; hi = 1; }
+                else if (double.IsInfinity(lo)) lo = hi - 1;
+                else hi = lo + 1;
+            }
             if (hi <= lo) { hi = lo + 0.5; lo -= 0.5; }                             // degenerate range
 
-            double width = (hi - lo) / bins;
+            // Scaled by bins first so ±1e308 ranges do not overflow.
+            double width = hi / bins - lo / bins;
             var edges = new double[bins + 1];
-            for (int i = 0; i <= bins; i++) edges[i] = lo + i * width;
+            for (int i = 0; i < bins; i++) edges[i] = lo + i * width;
+            edges[bins] = hi;
 
             var counts = new int[bins];
             foreach (double v in data)
             {
                 if (double.IsNaN(v) || v < lo || v > hi) continue;
-                int idx = (int)((v - lo) / width);
-                if (idx < 0) idx = 0;
-                if (idx > bins - 1) idx = bins - 1; // v == hi
+                int idx = (int)Math.Min(bins - 1, Math.Max(0, Math.Floor(v / width - lo / width)));
+                // Settle against the returned edges, so a value equal to edge[i] is always in bin i (the
+                // quotient alone disagreed with the edges for values on them).
+                while (idx > 0 && v < edges[idx]) idx--;
+                while (idx < bins - 1 && v >= edges[idx + 1]) idx++;
                 counts[idx]++;
             }
             return (edges, counts);

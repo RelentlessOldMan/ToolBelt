@@ -41,6 +41,9 @@ namespace ToolBelt.Visualization
         {
             if (width < 1) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
             if (height < 1) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
+            // width * height * 4 wrapped silently: 65536 × 16384 gave a zero-length buffer behind a "valid" image.
+            if ((long)width * height * 4 > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(width), $"A {width} × {height} image is too large.");
             Width = width;
             Height = height;
             _pixels = new byte[width * height * 4];
@@ -76,6 +79,13 @@ namespace ToolBelt.Visualization
         /// <summary>Draws a line with Bresenham's algorithm, clipping to the canvas.</summary>
         public void DrawLine(int x0, int y0, int x1, int y1, Rgba color)
         {
+            if ((uint)x0 >= (uint)Width || (uint)y0 >= (uint)Height || (uint)x1 >= (uint)Width || (uint)y1 >= (uint)Height)
+            {
+                // Cut to the canvas first: stepping a far off-canvas line pixel by pixel hung, and Math.Abs of an
+                // int.MinValue difference threw.
+                DrawLineClipped(x0, y0, x1, y1, color, 0, 0, Width - 1, Height - 1);
+                return;
+            }
             int dx = Math.Abs(x1 - x0), dy = -Math.Abs(y1 - y0);
             int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
             int err = dx + dy;
@@ -89,19 +99,60 @@ namespace ToolBelt.Visualization
             }
         }
 
+        /// <summary>
+        /// Draws a line between real-valued pixel coordinates, clipped to the rectangle [left, right] × [top, bottom]
+        /// before rounding, so a far off-canvas endpoint keeps its slope and costs nothing. Nothing is drawn if
+        /// a coordinate is NaN or the segment misses the rectangle.
+        /// </summary>
+        public void DrawLineClipped(double x0, double y0, double x1, double y1, Rgba color,
+            int left, int top, int right, int bottom)
+        {
+            if (double.IsNaN(x0) || double.IsNaN(y0) || double.IsNaN(x1) || double.IsNaN(y1)) return;
+            // Liang–Barsky against the rectangle; an infinite coordinate is handled by the same comparisons.
+            double t0 = 0, t1 = 1, dx = x1 - x0, dy = y1 - y0;
+            if (double.IsInfinity(x0) || double.IsInfinity(y0) || double.IsInfinity(x1) || double.IsInfinity(y1)
+                || double.IsInfinity(dx) || double.IsInfinity(dy)) return;
+            if (!ClipEdge(-dx, x0 - left, ref t0, ref t1) || !ClipEdge(dx, right - x0, ref t0, ref t1)
+                || !ClipEdge(-dy, y0 - top, ref t0, ref t1) || !ClipEdge(dy, bottom - y0, ref t0, ref t1))
+                return;
+            DrawLine((int)Math.Round(x0 + t0 * dx), (int)Math.Round(y0 + t0 * dy),
+                     (int)Math.Round(x0 + t1 * dx), (int)Math.Round(y0 + t1 * dy), color);
+        }
+
+        private static bool ClipEdge(double p, double q, ref double t0, ref double t1)
+        {
+            if (p == 0) return q >= 0;
+            double t = q / p;
+            if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+            else { if (t < t0) return false; if (t < t1) t1 = t; }
+            return true;
+        }
+
         /// <summary>Draws a rectangle (outline, or filled), clipping to the canvas.</summary>
         public void DrawRectangle(int x, int y, int width, int height, Rgba color, bool filled = false)
         {
             if (width <= 0 || height <= 0) return;
+            // Walk only the part on the canvas (in long: x + width overflowed, and a huge rectangle took seconds).
+            long x1 = (long)x + width - 1, y1 = (long)y + height - 1;
+            int cx0 = (int)Math.Max(0, x), cy0 = (int)Math.Max(0, y);
+            int cx1 = (int)Math.Min(Width - 1, x1), cy1 = (int)Math.Min(Height - 1, y1);
             if (filled)
             {
-                for (int yy = y; yy < y + height; yy++)
-                    for (int xx = x; xx < x + width; xx++)
-                        PutClipped(xx, yy, color);
+                for (int yy = cy0; yy <= cy1; yy++)
+                    for (int xx = cx0; xx <= cx1; xx++)
+                        Put(xx, yy, color);
                 return;
             }
-            for (int xx = x; xx < x + width; xx++) { PutClipped(xx, y, color); PutClipped(xx, y + height - 1, color); }
-            for (int yy = y; yy < y + height; yy++) { PutClipped(x, yy, color); PutClipped(x + width - 1, yy, color); }
+            for (int xx = cx0; xx <= cx1; xx++)
+            {
+                if (y >= 0 && y < Height) Put(xx, y, color);
+                if (y1 >= 0 && y1 < Height) Put(xx, (int)y1, color);
+            }
+            for (int yy = cy0; yy <= cy1; yy++)
+            {
+                if (x >= 0 && x < Width) Put(x, yy, color);
+                if (x1 >= 0 && x1 < Width) Put((int)x1, yy, color);
+            }
         }
 
         /// <summary>Copies <paramref name="source"/> onto this image at (destX, destY), clipping to the canvas.</summary>

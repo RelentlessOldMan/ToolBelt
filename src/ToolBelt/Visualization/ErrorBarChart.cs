@@ -57,28 +57,42 @@ namespace ToolBelt.Visualization
             double minY = options.MinY ?? double.PositiveInfinity, maxY = options.MaxY ?? double.NegativeInfinity;
             for (int i = 0; i < x.Count; i++)
             {
+                // A point with a NaN or ∞ coordinate is not plotted and does not set the range (a NaN made the
+                // range NaN, which put every point on the centre row); a non-finite error draws no bar.
+                if (!IsFinite(x[i]) || !IsFinite(y[i])) continue;
+                double e = IsFinite(error[i]) ? Math.Abs(error[i]) : 0;
                 if (options.MinX is null) minX = Math.Min(minX, x[i]);
                 if (options.MaxX is null) maxX = Math.Max(maxX, x[i]);
-                if (options.MinY is null) minY = Math.Min(minY, y[i] - Math.Abs(error[i]));
-                if (options.MaxY is null) maxY = Math.Max(maxY, y[i] + Math.Abs(error[i]));
+                if (options.MinY is null) minY = Math.Min(minY, y[i] - e);
+                if (options.MaxY is null) maxY = Math.Max(maxY, y[i] + e);
             }
             double rangeX = maxX - minX, rangeY = maxY - minY;
-            int MapX(double v) => rangeX > 0 ? left + (int)Math.Round((v - minX) / rangeX * (right - left)) : (left + right) / 2;
-            int MapY(double v) => rangeY > 0 ? bottom - (int)Math.Round((v - minY) / rangeY * (bottom - top)) : (top + bottom) / 2;
+            double MapX(double v) => rangeX > 0 ? left + (v - minX) / rangeX * (right - left) : (left + right) / 2;
+            double MapY(double v) => rangeY > 0 ? bottom - (v - minY) / rangeY * (bottom - top) : (top + bottom) / 2;
 
             int cap = Math.Max(0, options.CapHalfWidth);
             for (int i = 0; i < x.Count; i++)
             {
-                int px = MapX(x[i]);
-                int py = MapY(y[i]);
-                int hiY = MapY(y[i] + Math.Abs(error[i]));
-                int loY = MapY(y[i] - Math.Abs(error[i]));
-                image.DrawLine(px, hiY, px, loY, options.Color);            // whisker
-                image.DrawLine(px - cap, hiY, px + cap, hiY, options.Color); // upper cap
-                image.DrawLine(px - cap, loY, px + cap, loY, options.Color); // lower cap
-                image.DrawRectangle(px - 1, py - 1, 3, 3, options.Color, filled: true); // marker
+                if (!IsFinite(x[i]) || !IsFinite(y[i])) continue;
+                double px = MapX(x[i]);
+                if (px < left || px > right) continue; // outside an explicit x range
+                double py = MapY(y[i]);
+                int ix = (int)Math.Round(px);
+                if (IsFinite(error[i]))
+                {
+                    double e = Math.Abs(error[i]);
+                    double hiY = MapY(y[i] + e), loY = MapY(y[i] - e);
+                    // Clipped as doubles: a huge error against an explicit range overflowed the int casts.
+                    image.DrawLineClipped(px, hiY, px, loY, options.Color, left, top, right, bottom);              // whisker
+                    image.DrawLineClipped(px - cap, hiY, px + cap, hiY, options.Color, left, top, right, bottom);  // upper cap
+                    image.DrawLineClipped(px - cap, loY, px + cap, loY, options.Color, left, top, right, bottom);  // lower cap
+                }
+                if (py >= top && py <= bottom)
+                    image.DrawRectangle(ix - 1, (int)Math.Round(py) - 1, 3, 3, options.Color, filled: true); // marker
             }
             return image;
         }
+
+        private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
     }
 }

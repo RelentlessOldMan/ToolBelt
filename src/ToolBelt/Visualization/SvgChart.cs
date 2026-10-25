@@ -142,8 +142,9 @@ namespace ToolBelt.Visualization
             if (series is null) throw new ArgumentNullException(nameof(series));
             for (int i = 0; i < series.Count; i++)
                 if (series[i] is null) throw new ArgumentException($"Series {i} is null.", nameof(series));
-            if (!(o.Width > 0) || !(o.Height > 0)) throw new ArgumentOutOfRangeException(nameof(o), "Width and height must be positive.");
-            if (!(o.FontSize > 0)) throw new ArgumentOutOfRangeException(nameof(o), "FontSize must be positive.");
+            if (!(o.Width > 0) || !(o.Height > 0)) throw new ArgumentOutOfRangeException("options", "Width and height must be positive.");
+            if (!(o.FontSize > 0)) throw new ArgumentOutOfRangeException("options", "FontSize must be positive.");
+            if (o.FontFamily is null) throw new ArgumentException("FontFamily must not be null.", "options");
 
             // Data extents (finite values only; non-positive values cannot appear on a log axis).
             double? dxMin = null, dxMax = null, dyMin = null, dyMax = null;
@@ -168,9 +169,18 @@ namespace ToolBelt.Visualization
                 if (e.YMax is double ay1 && Usable(ay1, o.YAxis)) Extend(ref dyMin, ref dyMax, ay1);
             }
             if (anyBar && o.YAxis != AxisKind.Log) Extend(ref dyMin, ref dyMax, 0);
+            if (anyBar && o.XAxis != AxisKind.Log && dxMin.HasValue)
+            {
+                // Bars are centred on their x, so the axis must reach half a slot past the end bars (they were
+                // cut to half width). The slot is the closest spacing of bar centres, else 1.
+                double gap = BarSpacing(series);
+                Extend(ref dxMin, ref dxMax, dxMin.Value - gap / 2);
+                Extend(ref dxMin, ref dxMax, dxMax!.Value + gap / 2);
+            }
 
-            var (xTicks, xMin, xMax) = AxisRange(dxMin, dxMax, o.XMin, o.XMax, o.XAxis, o.MaxXTicks);
-            var (yTicks, yMin, yMax) = AxisRange(dyMin, dyMax, o.YMin, o.YMax, o.YAxis, o.MaxYTicks);
+            // More ticks than pixels cannot be drawn; MaxXTicks = 100 000 000 spent seconds building them.
+            var (xTicks, xMin, xMax) = AxisRange(dxMin, dxMax, o.XMin, o.XMax, o.XAxis, CapTicks(o.MaxXTicks, o.Width));
+            var (yTicks, yMin, yMax) = AxisRange(dyMin, dyMax, o.YMin, o.YMax, o.YAxis, CapTicks(o.MaxYTicks, o.Height));
 
             double fs = o.FontSize;
             double maxYLabel = 0;
@@ -199,6 +209,13 @@ namespace ToolBelt.Visualization
         {
             double lo = explicitMin ?? dataMin ?? (kind == AxisKind.Log ? 1 : 0);
             double hi = explicitMax ?? dataMax ?? (kind == AxisKind.Log ? 10 : 1);
+            if (explicitMin.HasValue != explicitMax.HasValue && !(lo < hi))
+            {
+                // One explicit limit past all the data: open the axis beyond it. (Swapping made the range
+                // [limit, limit], which put every point on the centre line.)
+                if (explicitMin.HasValue) hi = kind == AxisKind.Log ? lo * 10 : lo + Math.Max(1, Math.Abs(lo) * 0.1);
+                else lo = kind == AxisKind.Log ? hi / 10 : hi - Math.Max(1, Math.Abs(hi) * 0.1);
+            }
             if (lo > hi) (lo, hi) = (hi, lo);
             if (kind == AxisKind.Log && (!(lo > 0) || !(hi > 0)))
                 throw new ArgumentOutOfRangeException(nameof(explicitMin), "A log axis needs strictly positive limits.");
@@ -213,6 +230,28 @@ namespace ToolBelt.Visualization
             double min = explicitMin ?? ticks.Min, max = explicitMax ?? ticks.Max;
             if (min > max) (min, max) = (max, min);
             return (ticks, min, max);
+        }
+
+        private static int CapTicks(int maxTicks, double pixels)
+            => maxTicks < 2 ? maxTicks : (int)Math.Min(maxTicks, Math.Max(2, Math.Min(pixels, 10000)));
+
+        private static double BarSpacing(IReadOnlyList<Series> series)
+        {
+            double best = double.PositiveInfinity;
+            foreach (Series s in series)
+            {
+                if (s.Style != PlotStyle.Bar) continue;
+                var xs = new List<double>();
+                for (int i = 0; i < s.Y.Count; i++)
+                {
+                    double x = s.X?[i] ?? i;
+                    if (!double.IsNaN(x) && !double.IsInfinity(x)) xs.Add(x);
+                }
+                xs.Sort();
+                for (int i = 1; i < xs.Count; i++)
+                    if (xs[i] > xs[i - 1]) best = Math.Min(best, xs[i] - xs[i - 1]);
+            }
+            return double.IsInfinity(best) ? 1 : best;
         }
 
         private static double BarWidth(IReadOnlyList<Series> series, PlotFrame f)

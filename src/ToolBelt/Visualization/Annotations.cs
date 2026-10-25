@@ -63,12 +63,12 @@ namespace ToolBelt.Visualization
 
         /// <summary>A shaded horizontal band between data y values (e.g. a tolerance zone).</summary>
         public Annotations HorizontalBand(double y1, double y2, string? label = null, Rgba? fill = null)
-            => Add(new Item(Kind.HBand, Finite(Math.Min(y1, y2), nameof(y1)), Finite(Math.Max(y1, y2), nameof(y2)), 0, 0,
+            => Add(new Item(Kind.HBand, Math.Min(Finite(y1, nameof(y1)), Finite(y2, nameof(y2))), Math.Max(y1, y2), 0, 0,
                 label, fill ?? DefaultBandColor, LineDash.Solid, 0));
 
         /// <summary>A shaded vertical band between data x values (e.g. a time window).</summary>
         public Annotations VerticalBand(double x1, double x2, string? label = null, Rgba? fill = null)
-            => Add(new Item(Kind.VBand, Finite(Math.Min(x1, x2), nameof(x1)), Finite(Math.Max(x1, x2), nameof(x2)), 0, 0,
+            => Add(new Item(Kind.VBand, Math.Min(Finite(x1, nameof(x1)), Finite(x2, nameof(x2))), Math.Max(x1, x2), 0, 0,
                 label, fill ?? DefaultBandColor, LineDash.Solid, 0));
 
         /// <summary>
@@ -143,13 +143,13 @@ namespace ToolBelt.Visualization
             {
                 if (!Overlaps(it.A, it.B, f.YMin, f.YMax)) return;
                 x0 = f.Left; x1 = f.Right;
-                y0 = ClampY(f.MapY(it.B), f); y1 = ClampY(f.MapY(it.A), f); // higher value is the smaller pixel y
+                y0 = ClampY(BandY(it.B, f), f); y1 = ClampY(BandY(it.A, f), f); // higher value is the smaller pixel y
             }
             else
             {
                 if (!Overlaps(it.A, it.B, f.XMin, f.XMax)) return;
                 y0 = f.Top; y1 = f.Bottom;
-                x0 = ClampX(f.MapX(it.A), f); x1 = ClampX(f.MapX(it.B), f);
+                x0 = ClampX(BandX(it.A, f), f); x1 = ClampX(BandX(it.B, f), f);
             }
             if (double.IsNaN(x0) || double.IsNaN(x1) || double.IsNaN(y0) || double.IsNaN(y1)) return;
             sb.Append("<rect x=\"").Append(SvgUtils.Number(Math.Min(x0, x1))).Append("\" y=\"").Append(SvgUtils.Number(Math.Min(y0, y1)))
@@ -288,13 +288,13 @@ namespace ToolBelt.Visualization
                 {
                     case Kind.HLine:
                         if (!frame.ContainsY(it.A)) break;
-                        int py = Px(frame.MapY(it.A));
-                        StyledLine(image, Px(frame.Left), py, Px(frame.Right), py, it.Color, it.Dash, Thickness(it.Width));
+                        double py = frame.MapY(it.A);
+                        StyledLine(image, frame.Left, py, frame.Right, py, it.Color, it.Dash, Thickness(it.Width));
                         break;
                     case Kind.VLine:
                         if (!frame.ContainsX(it.A)) break;
-                        int px = Px(frame.MapX(it.A));
-                        StyledLine(image, px, Px(frame.Top), px, Px(frame.Bottom), it.Color, it.Dash, Thickness(it.Width));
+                        double px = frame.MapX(it.A);
+                        StyledLine(image, px, frame.Top, px, frame.Bottom, it.Color, it.Dash, Thickness(it.Width));
                         break;
                     case Kind.Callout:
                     {
@@ -323,12 +323,12 @@ namespace ToolBelt.Visualization
             if (it.Kind == Kind.HBand)
             {
                 if (!Overlaps(it.A, it.B, f.YMin, f.YMax)) return;
-                x0 = f.Left; x1 = f.Right; y0 = ClampY(f.MapY(it.B), f); y1 = ClampY(f.MapY(it.A), f);
+                x0 = f.Left; x1 = f.Right; y0 = ClampY(BandY(it.B, f), f); y1 = ClampY(BandY(it.A, f), f);
             }
             else
             {
                 if (!Overlaps(it.A, it.B, f.XMin, f.XMax)) return;
-                y0 = f.Top; y1 = f.Bottom; x0 = ClampX(f.MapX(it.A), f); x1 = ClampX(f.MapX(it.B), f);
+                y0 = f.Top; y1 = f.Bottom; x0 = ClampX(BandX(it.A, f), f); x1 = ClampX(BandX(it.B, f), f);
             }
             if (double.IsNaN(x0) || double.IsNaN(x1) || double.IsNaN(y0) || double.IsNaN(y1)) return;
             int left = Math.Max(0, Px(Math.Min(x0, x1))), right = Math.Min(image.Width - 1, Px(Math.Max(x0, x1)));
@@ -344,20 +344,34 @@ namespace ToolBelt.Visualization
             if (len < 1e-9) return;
             double ux = (tipX - tailX) / len, uy = (tipY - tailY) / len;
             double hx = tipX - ux * gap, hy = tipY - uy * gap;
-            StyledLine(image, Px(tailX), Px(tailY), Px(hx), Px(hy), color, LineDash.Solid, 1);
+            StyledLine(image, tailX, tailY, hx, hy, color, LineDash.Solid, 1);
             var head = ArrowHead(hx, hy, ux, uy);
-            StyledLine(image, Px(head[0].X), Px(head[0].Y), Px(head[1].X), Px(head[1].Y), color, LineDash.Solid, 1);
-            StyledLine(image, Px(head[0].X), Px(head[0].Y), Px(head[2].X), Px(head[2].Y), color, LineDash.Solid, 1);
+            StyledLine(image, head[0].X, head[0].Y, head[1].X, head[1].Y, color, LineDash.Solid, 1);
+            StyledLine(image, head[0].X, head[0].Y, head[2].X, head[2].Y, color, LineDash.Solid, 1);
         }
 
-        /// <summary>Bresenham with a dash pattern and square thickness, clipped to the image.</summary>
-        private static void StyledLine(ImageBuffer image, int x0, int y0, int x1, int y1, Rgba color, LineDash dash, int thickness)
+        /// <summary>
+        /// Bresenham with a dash pattern and square thickness, clipped to the image. The segment is first cut to the
+        /// image (plus the pen) in doubles: a far off-image endpoint was stepped through pixel by pixel, or overflowed
+        /// the int cast, and a pen wider than the image cost thickness² per pixel for nothing.
+        /// </summary>
+        private static void StyledLine(ImageBuffer image, double fx0, double fy0, double fx1, double fy1, Rgba color, LineDash dash, int thickness)
         {
+            if (double.IsNaN(fx0) || double.IsNaN(fy0) || double.IsNaN(fx1) || double.IsNaN(fy1)) return;
+            thickness = Math.Min(thickness, image.Width + image.Height);
+            double m = thickness + 1, ddx = fx1 - fx0, ddy = fy1 - fy0, t0 = 0, t1 = 1;
+            if (double.IsInfinity(ddx) || double.IsInfinity(ddy)) return;
+            if (!Clip(-ddx, fx0 + m, ref t0, ref t1) || !Clip(ddx, image.Width - 1 + m - fx0, ref t0, ref t1)
+                || !Clip(-ddy, fy0 + m, ref t0, ref t1) || !Clip(ddy, image.Height - 1 + m - fy0, ref t0, ref t1))
+                return;
             int on = dash == LineDash.Dashed ? 6 : (dash == LineDash.Dotted ? 1 : int.MaxValue);
             int off = dash == LineDash.Dashed ? 4 : (dash == LineDash.Dotted ? 2 : 0);
+            int x0 = Px(fx0 + t0 * ddx), y0 = Px(fy0 + t0 * ddy), x1 = Px(fx0 + t1 * ddx), y1 = Px(fy0 + t1 * ddy);
             int dx = Math.Abs(x1 - x0), dy = -Math.Abs(y1 - y0);
             int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-            int err = dx + dy, step = 0, half = (thickness - 1) / 2;
+            // Keep the dash phase of the part cut off the start.
+            int step = dash == LineDash.Solid ? 0 : (int)(Math.Round(t0 * Math.Max(Math.Abs(ddx), Math.Abs(ddy))) % (on + off));
+            int err = dx + dy, half = (thickness - 1) / 2;
             while (true)
             {
                 if (dash == LineDash.Solid || step % (on + off) < on)
@@ -373,6 +387,16 @@ namespace ToolBelt.Visualization
                 if (e2 <= dx) { err += dx; y0 += sy; }
                 step++;
             }
+        }
+
+        // One Liang–Barsky edge test.
+        private static bool Clip(double p, double q, ref double t0, ref double t1)
+        {
+            if (p == 0) return q >= 0;
+            double t = q / p;
+            if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+            else { if (t < t0) return false; if (t < t1) t1 = t; }
+            return true;
         }
 
         // ---------- shared geometry ----------
@@ -406,6 +430,12 @@ namespace ToolBelt.Visualization
 
         private static bool Overlaps(double a, double b, double min, double max)
             => b >= Math.Min(min, max) && a <= Math.Max(min, max);
+
+        // A band bound at or below zero on a log axis has no position, but the band still covers the axis down to
+        // its lower edge (it was dropped altogether).
+        private static double BandX(double v, PlotFrame f) => f.MapX(f.LogX && !(v > 0) ? Math.Min(f.XMin, f.XMax) : v);
+
+        private static double BandY(double v, PlotFrame f) => f.MapY(f.LogY && !(v > 0) ? Math.Min(f.YMin, f.YMax) : v);
 
         private static double ClampX(double px, PlotFrame f) => double.IsNaN(px) ? px : Math.Max(f.Left, Math.Min(f.Right, px));
 
