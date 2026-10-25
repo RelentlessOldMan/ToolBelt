@@ -51,7 +51,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 2 | 22 / 67 | re-queue (22 bugs, 2 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 2 | 11 / 39 | re-queue (11 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 2 | 25 / 65 | re-queue (1 severe) |
-| 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 1 | 26 / 26 | re-queue (1 severe) |
+| 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 2 | 12 / 38 | re-queue (12 bugs) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 2 | 17 / 49 | re-queue (17 bugs, 1 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 2 | 17 / 56 | re-queue (17 bugs) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 2 | 19 / 63 | re-queue (4 severe) |
@@ -60,7 +60,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11, 16, 17). **next: 11**
+5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16, 17). **next: 16**
 
 ## Releases
 
@@ -100,6 +100,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.29.0 | 29 | Logging, diagnostics, CLI, second pass | 17 | (see tag) |
 | v0.30.0 | 30 | Filters & control, second pass | 9 | (see tag) |
 | v0.31.0 | 31 | Signal analysis, second pass | 23 | (see tag) |
+| v0.32.0 | 32 | Text & small types, second pass | 12 | (see tag) |
 
 ## Round log
 
@@ -1397,3 +1398,41 @@ fail on the old code, and one checks that Savitzky-Golay edges still fit the pol
   CycleMeasurements first-crossing timing (documented).
 - **Checked build:** same 7 baseline failures, none new.
 - **Re-queued:** yes (23 bugs, 2 severe).
+
+### Round 32 — 2026-10-25 — Text & small types, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 11 with 1 severe).
+The correctness reviewer fuzzed the command-line builder/splitter round trip (200k lists), natural-sort ordering,
+Jaro-Winkler, Soundex, Roman numerals, TextDiff minimality and ULID/Snowflake ordering; all correct. The
+robustness reviewer found no hangs, and Snowflake and ULID held up under contention. **12 confirmed bugs**, none
+severe, plus 2 doc fixes, each code fix with a failing-first regression test in `TextReview2Tests` (11 tests, all
+failing on the old code).
+
+- **AnsiText / TextAlign:** an OSC string interrupted by an ESC other than ST swallowed all the text after it
+  (`Strip` gave "" and the width 0); an ESC inside a CSI or other escape was eaten as its final byte
+  (`"ESC ESC [31mX"` gave "[31mX"). An ESC now cancels the sequence and starts a new one, in both files.
+- **Slug:** ß, æ, ø, ł, đ, ð, þ, œ and ı have no decomposition and were dropped ("Straße" → "stra-e",
+  "Øresund" → "resund"); they now fold (ss, ae, o, l, d, d, th, oe, i).
+- **PercentEncoding.Encode:** '+' in `safe` with `spaceAsPlus` stayed literal and decoded as a space; it is now
+  escaped, like '%'.
+- **NanoId:** an alphabet with a repeated character (silently biased) or a surrogate half (invalid UTF-16 ids) is
+  rejected.
+- **StringSimilarity.TopMatches:** a NaN `minScore` returned nothing while `BestMatch` filtered nothing; both now
+  filter nothing.
+- **CaseConverter:** a first letter outside the BMP (Deseret) was not capitalised.
+- **GlobMatcher:** with `ignoreCase`, literals compared upper cases while classes tried three forms, so 'ſ'
+  matched "s" but not "[s]" and the Kelvin sign "[k]" but not "k"; literals now use the same forms.
+- **UlidGenerator.DecodeTimestamp:** accepted 'ſ' (U+017F) as 'S'; only ASCII is decoded now.
+- **TextAlign.Fit / PadLeft / PadRight / Center:** a wide or zero-width pad character broke "exactly width
+  columns" ('中' gave 9 for 5); it is now rejected naming pad.
+- **Truncate.WithEllipsisOnWord:** leading whitespace stayed before the ellipsis ("   abcdef", 4 gave "  …").
+- **Guard.InRange:** min > max blamed the value; now an `ArgumentException` naming max.
+- **Docs:** CaseConverter's "idempotent" claim now notes that adjacent one-letter words read back as an acronym
+  ("x_y_z" → "xYZ" → "xYz"); MiddleEllipsis's example showed a split the code never makes.
+- **Not fixed:** NGramSimilarity materialises every gram (400 MB for n = 10,000 on 20k chars); emoji widths for
+  text-presentation symbols and flags; the 8-bit C1 CSI (U+009B); `AnsiText.VisibleLength` counts UTF-16 units;
+  a combining mark at the very start of `ToWords` is dropped; Dedent treats \f and \v lines as blank; RomanNumerals
+  and 'ı' on .NET Framework casing (untested).
+- **Checked build:** same 7 baseline failures, none new.
+- **Verify:** one ToolBelt.Windows test failed once while other builds were loading the machine, then passed 101/101 on three
+  reruns (flaky, unidentified; this round changed nothing in ToolBelt.Windows).
+- **Re-queued:** yes (12 bugs).

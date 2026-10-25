@@ -93,7 +93,7 @@ namespace ToolBelt.Text
             {
                 if (candidate is null) throw new ArgumentException("Candidates must not contain null.", nameof(candidates));
                 double score = scorer(target, candidate);
-                if (score >= minScore)
+                if (!double.IsNaN(score) && (score >= minScore || double.IsNaN(minScore)))   // as BestMatch: a NaN minScore filters nothing
                     scored.Add((new StringMatch(candidate, score), i));
                 i++;
             }

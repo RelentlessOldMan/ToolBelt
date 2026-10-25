@@ -57,7 +57,8 @@ namespace ToolBelt.Text
             }
 
             string trimmed = head.TrimEnd();
-            return (trimmed.Length > 0 ? trimmed : head) + ellipsis;
+            if (trimmed.Length == 0) trimmed = text.Substring(0, budget).TrimEnd();   // "   abcdef" gave "  …"
+            return trimmed + ellipsis;
         }
     }
 }

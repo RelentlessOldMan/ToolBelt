@@ -135,7 +135,7 @@ namespace ToolBelt.Identifiers
 
         private static int DecodeChar(char c)
         {
-            char u = char.ToUpperInvariant(c);
+            char u = c < 0x80 ? char.ToUpperInvariant(c) : '\0';         // 'ſ' (U+017F) upper-cased to 'S'
             if (u == 'O') u = '0';
             if (u == 'I' || u == 'L') u = '1';
             int index = Alphabet.IndexOf(u);

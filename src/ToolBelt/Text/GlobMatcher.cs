@@ -87,7 +87,11 @@ namespace ToolBelt.Text
                 case Kind.Any:
                     return true;
                 case Kind.Literal:
-                    return Fold(token.Literal, ignoreCase) == Fold(c, ignoreCase);
+                    // The same case forms a class tries, so 'ſ' matches neither "s" nor "[s]" and the Kelvin sign both "k" and
+                    // "[k]" (comparing upper cases had them disagree).
+                    char p = token.Literal;
+                    return c == p || (ignoreCase && (char.ToUpperInvariant(c) == p || char.ToLowerInvariant(c) == p
+                        || char.ToUpperInvariant(p) == c || char.ToLowerInvariant(p) == c));
                 case Kind.Class:
                     // Ranges are compared as written (folding the endpoints would turn [Z-a] into the empty range
                     // Z..A); case-insensitivity instead tries the character in both cases.
@@ -106,8 +110,6 @@ namespace ToolBelt.Text
                     return true;
             return false;
         }
-
-        private static char Fold(char c, bool ignoreCase) => ignoreCase ? char.ToUpperInvariant(c) : c;
 
         private static List<Token> Parse(string pattern)
         {

@@ -28,6 +28,14 @@ namespace ToolBelt.Identifiers
             _alphabet = alphabet ?? UrlSafeAlphabet;
             if (_alphabet.Length < 2 || _alphabet.Length > 256)
                 throw new ArgumentException("Alphabet must have between 2 and 256 characters.", nameof(alphabet));
+            // A repeated character was silently drawn more often, and a surrogate half made ids that are not valid UTF-16.
+            for (int i = 0; i < _alphabet.Length; i++)
+            {
+                if (char.IsSurrogate(_alphabet[i]))
+                    throw new ArgumentException($"alphabet[{i}] is a surrogate; the alphabet must be single UTF-16 characters.", nameof(alphabet));
+                if (_alphabet.IndexOf(_alphabet[i], i + 1) >= 0)
+                    throw new ArgumentException($"'{_alphabet[i]}' appears more than once in the alphabet.", nameof(alphabet));
+            }
             if (defaultSize <= 0)
                 throw new ArgumentOutOfRangeException(nameof(defaultSize), defaultSize, "Default size must be positive.");
 #if NETSTANDARD2_0

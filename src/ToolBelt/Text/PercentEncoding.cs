@@ -15,8 +15,8 @@ namespace ToolBelt.Text
         private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, throwOnInvalidBytes: true);
 
         /// <summary>
-        /// Encodes <paramref name="text"/>; characters in <paramref name="safe"/> (e.g. "/") are left as they are, except '%',
-        /// which is always escaped so the result decodes back to the input. Text with an
+        /// Encodes <paramref name="text"/>; characters in <paramref name="safe"/> (e.g. "/") are left as they are, except '%'
+        /// (and '+' when <paramref name="spaceAsPlus"/> is set), which is always escaped so the result decodes back to the input. Text with an
         /// unpaired surrogate (not valid Unicode, so not representable in UTF-8) throws <see cref="ArgumentException"/>.
         /// </summary>
         public static string Encode(string text, string? safe = null, bool spaceAsPlus = false)
@@ -29,7 +29,7 @@ namespace ToolBelt.Text
             foreach (byte b in bytes)
             {
                 char c = (char)b;
-                if (b < 0x80 && (IsUnreserved(c) || (safe != null && c != '%' && safe.IndexOf(c) >= 0))) sb.Append(c);
+                if (b < 0x80 && (IsUnreserved(c) || (safe != null && c != '%' && !(spaceAsPlus && c == '+') && safe.IndexOf(c) >= 0))) sb.Append(c);
                 else if (spaceAsPlus && b == (byte)' ') sb.Append('+');
                 else sb.Append('%').Append(Hex[b >> 4]).Append(Hex[b & 15]);
             }

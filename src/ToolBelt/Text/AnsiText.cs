@@ -35,8 +35,8 @@ namespace ToolBelt.Text
                 {
                     // CSI: parameters/intermediates until a final byte in 0x40-0x7E.
                     i++;
-                    while (i < text.Length && !(text[i] >= '@' && text[i] <= '~')) i++;
-                    if (i < text.Length) i++; // consume the final byte
+                    while (i < text.Length && !(text[i] >= '@' && text[i] <= '~') && text[i] != Escape) i++;
+                    if (i < text.Length && text[i] != Escape) i++; // consume the final byte; an ESC cancels and starts anew
                 }
                 else if (next == ']')
                 {
@@ -45,7 +45,11 @@ namespace ToolBelt.Text
                     while (i < text.Length)
                     {
                         if (text[i] == Bell) { i++; break; }
-                        if (text[i] == Escape && i + 1 < text.Length && text[i + 1] == '\\') { i += 2; break; }
+                        if (text[i] == Escape)                              // ST ends it; any other ESC cancels it and starts anew
+                        {                                                   // (it swallowed the rest of the text)
+                            if (i + 1 < text.Length && text[i + 1] == '\\') i += 2;
+                            break;
+                        }
                         i++;
                     }
                 }
@@ -53,7 +57,7 @@ namespace ToolBelt.Text
                 {
                     // Other escapes: optional intermediate bytes (0x20-0x2F, e.g. the '(' of ESC ( B), then one final byte.
                     while (i < text.Length && text[i] >= ' ' && text[i] <= '/') i++;
-                    if (i < text.Length) i++;
+                    if (i < text.Length && text[i] != Escape) i++;    // "ESC ESC [31m" ate the second ESC as a final byte
                 }
             }
             return sb.ToString();

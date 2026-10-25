@@ -893,6 +893,7 @@ tests/
       TemplateFormatterTests.cs
       TextDiffTests.cs
       TextReviewTests.cs (round 11 review regressions: Text, Identifiers, Enums, Guards)
+      TextReview2Tests.cs (round 32 review regressions: escapes, slug folding, case folding, validation)
       MiscReviewRegressionTests.cs  (2026-10-05 review regressions: Text, Cli, Threading, Time, Diagnostics, Collections)
       TruncateTests.cs
       WordWrapTests.cs

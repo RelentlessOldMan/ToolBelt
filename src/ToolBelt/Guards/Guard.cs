@@ -105,6 +105,7 @@ namespace ToolBelt.Guards
         /// </summary>
         public static int InRange(int value, int min, int max, [CallerArgumentExpression("value")] string? paramName = null)
         {
+            if (min > max) throw new ArgumentException($"The range [{min}, {max}] is empty: min exceeds max.", nameof(max));   // blamed the value
             if (value < min || value > max)
                 throw new ArgumentOutOfRangeException(paramName, value, $"Value must be in [{min}, {max}].");
             return value;

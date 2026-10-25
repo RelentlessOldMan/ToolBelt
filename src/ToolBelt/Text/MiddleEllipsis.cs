@@ -5,8 +5,8 @@ namespace ToolBelt.Text
 {
     /// <summary>
     /// Shortens a string by removing characters from the middle and inserting an ellipsis, keeping both
-    /// the start and the end visible — useful for paths and identifiers ("verylongfilename.txt" →
-    /// "very…name.txt"). The result never exceeds <c>maxLength</c> characters. Input that already fits is
+    /// the start and the end visible — useful for paths and identifiers ("verylongfilename.txt" at 13 →
+    /// "verylo…me.txt"; the head gets the extra character when the split is odd). The result never exceeds <c>maxLength</c> characters. Input that already fits is
     /// returned unchanged.
     /// </summary>
     /// <remarks>Length is measured in UTF-16 code units, so the head/tail cuts can fall between the halves

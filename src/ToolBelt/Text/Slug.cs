@@ -7,7 +7,8 @@ namespace ToolBelt.Text
 {
     /// <summary>
     /// Produces URL- and filename-safe "slugs": lowercase ASCII words joined by a separator. Accented
-    /// letters are folded to their base form (é → e, ü → u); runs of any other character (an unpaired
+    /// letters are folded to their base form (é → e, ü → u, and ß → ss, æ → ae, ø → o, ł → l, đ → d, þ → th, œ → oe, ı → i,
+    /// which have no decomposition); runs of any other character (an unpaired
     /// surrogate included) collapse to a single separator; leading and trailing separators are trimmed.
     /// The operation is idempotent.
     /// </summary>
@@ -36,6 +37,18 @@ namespace ToolBelt.Text
                     continue; // stripped diacritic
 
                 char lower = char.ToLowerInvariant(c);
+                string? folded = Fold(lower);                           // "Straße" gave "stra-e", "Øresund" "resund"
+                if (folded != null)
+                {
+                    bool sep = pendingSeparator && sb.Length > 0;
+                    if (maxLength > 0 && sb.Length + (sep ? 1 : 0) + folded.Length > maxLength)
+                        break;
+                    if (sep)
+                        sb.Append(separator);
+                    pendingSeparator = false;
+                    sb.Append(folded);
+                    continue;
+                }
                 bool isSlugChar = (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9');
 
                 if (isSlugChar)
@@ -55,6 +68,24 @@ namespace ToolBelt.Text
             }
 
             return sb.ToString();
+        }
+
+        // Latin letters with no canonical decomposition, which FormD leaves whole.
+        private static string? Fold(char lower)
+        {
+            switch (lower)
+            {
+                case 'ß': return "ss";
+                case 'æ': return "ae";
+                case 'ø': return "o";
+                case 'ł': return "l";
+                case 'đ': return "d";
+                case 'ð': return "d";
+                case 'þ': return "th";
+                case 'œ': return "oe";
+                case 'ı': return "i";
+                default: return null;
+            }
         }
 
         private static string ReplaceLoneSurrogates(string text)

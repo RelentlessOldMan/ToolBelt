@@ -9,8 +9,9 @@ namespace ToolBelt.Text
     /// <summary>
     /// Converts identifiers between the common casing conventions. Input may be in any style — the string
     /// is first tokenized into words (splitting on separators, camelCase humps, and acronym boundaries),
-    /// then rejoined in the requested style. Conversions are therefore idempotent per style and stable
-    /// across styles.
+    /// then rejoined in the requested style. Conversions are idempotent per style and stable across styles, except
+    /// that adjacent one-letter words become a run of capitals in camelCase or PascalCase ("x_y_z" → "xYZ"), which
+    /// reads back as one acronym ("xYZ" → "xYz", "is_a_b" → "IsAB" → "is_ab").
     /// </summary>
     public static class CaseConverter
     {
@@ -124,7 +125,9 @@ namespace ToolBelt.Text
         {
             if (word.Length == 0)
                 return word;
-            return char.ToUpperInvariant(word[0]) + word.Substring(1).ToLowerInvariant();
+            // The first letter may be a surrogate pair (Deseret, say), which char.ToUpperInvariant(word[0]) left alone.
+            int first = char.IsSurrogatePair(word, 0) ? 2 : 1;
+            return word.Substring(0, first).ToUpperInvariant() + word.Substring(first).ToLowerInvariant();
         }
 
         private static string JoinLower(IReadOnlyList<string> words, char separator)

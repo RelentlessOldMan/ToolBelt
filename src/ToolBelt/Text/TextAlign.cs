@@ -58,6 +58,8 @@ namespace ToolBelt.Text
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
             if (width < 0) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must not be negative.");
+            // Padding counts characters, so a wide or zero-width pad broke "exactly width columns" ('中' gave 9 for 5).
+            if (DisplayWidth(pad.ToString()) != 1) throw new ArgumentOutOfRangeException(nameof(pad), pad, "The pad character must be one column wide.");
             int current = DisplayWidth(text);
             if (current > width)
             {
@@ -112,7 +114,8 @@ namespace ToolBelt.Text
             if (kind == '[')
             {
                 int j = i + 2;
-                while (j < s.Length && !(s[j] >= '@' && s[j] <= '~')) j++;
+                while (j < s.Length && !(s[j] >= '@' && s[j] <= '~') && s[j] != '\u001b') j++;
+                if (j < s.Length) return s[j] == '\u001b' ? j - 1 : j;   // an ESC cancels the sequence and starts a new one
                 return Math.Min(j, s.Length - 1);
             }
             if (kind == ']')
@@ -120,12 +123,13 @@ namespace ToolBelt.Text
                 for (int j = i + 2; j < s.Length; j++)
                 {
                     if (s[j] == '\a') return j;
-                    if (s[j] == '\u001b' && j + 1 < s.Length && s[j + 1] == '\\') return j + 1;
+                    if (s[j] == '\u001b') return j + 1 < s.Length && s[j + 1] == '\\' ? j + 1 : j - 1;   // another ESC cancels it
                 }
                 return s.Length - 1;
             }
             int k = i + 1;
             while (k < s.Length && s[k] >= ' ' && s[k] <= '/') k++;
+            if (k < s.Length && s[k] == '\u001b') return k - 1;         // "ESC ESC [31m" ate the second ESC as a final byte
             return Math.Min(k, s.Length - 1);
         }
 
