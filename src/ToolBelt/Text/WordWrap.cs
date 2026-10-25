@@ -27,19 +27,19 @@ namespace ToolBelt.Text
 
             foreach (string word in SplitWords(text))
             {
-                string remaining = word;
-
                 // Hard-break any word that cannot fit on a line by itself.
-                while (remaining.Length > width)
+                int offset = 0;
+                while (word.Length - offset > width)
                 {
                     if (line.Length > 0)
                     {
                         lines.Add(line.ToString());
                         line.Clear();
                     }
-                    lines.Add(remaining.Substring(0, width));
-                    remaining = remaining.Substring(width);
+                    lines.Add(word.Substring(offset, width));
+                    offset += width;
                 }
+                string remaining = offset == 0 ? word : word.Substring(offset);
 
                 if (remaining.Length == 0)
                     continue;

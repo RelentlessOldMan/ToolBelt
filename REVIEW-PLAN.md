@@ -51,8 +51,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 1 | 45 / 45 | re-queue (6 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 1 | 28 / 28 | re-queue (6 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 1 | 40 / 40 | re-queue (7 severe) |
-| 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 0 | – / 0 | **next** |
-| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 0 | – / 0 | queued |
+| 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 1 | 26 / 26 | re-queue (1 severe) |
+| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 0 | – / 0 | **next** |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 0 | – / 0 | queued |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 0 | – / 0 | queued |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 0 | – / 0 | queued |
@@ -78,6 +78,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.8.0 | 8 | IO | 45 | (see tag) |
 | v0.9.0 | 9 | Collections | 28 | (see tag) |
 | v0.10.0 | 10 | Concurrency | 40 | (see tag) |
+| v0.11.0 | 11 | Text & small types | 26 | (see tag) |
 
 ## Round log
 
@@ -561,3 +562,46 @@ when pinned to one core).
   timings in `StartupTiming`.
 - **Checked build:** the section is clean; the same 42 failures remain elsewhere.
 - **Re-queued:** yes (7 severe).
+
+### Round 11 — 2026-10-25 — Text & small types
+Reviewers: one for correctness and one for robustness (Unicode edge cases, lone surrogates, huge inputs, aliased
+enums, non-canonical id text). **26 confirmed bugs**: 25 with failing-first regression tests in `TextReviewTests`
+(28 tests), 1 by inspection; plus 2 doc-only items. The existing `NaturalComparer` tests that pinned "x01" equal to
+"x1" were updated to the new tie-break, and the differential reference now models it.
+
+- **Severe:** `WordWrap.Wrap` hard-broke an over-long word by re-copying the remainder each line, which is quadratic:
+  300k characters at width 1 took 31 s. It now walks an offset.
+- **Moderate:**
+  - `TextDiff.Lines` built the full n×m LCS table even for nearly identical inputs (20k lines with one change took 6 s
+    and 1.6 GB). The common prefix and suffix are matched first.
+  - `Slug.Slugify` could exceed `maxLength` by one (a separator plus a char appended past the limit) and threw on an
+    unpaired surrogate (`Normalize`).
+  - `CaseConverter.ToWords` split at combining marks and dropped them (decomposed "café" became "cafe"), and treated
+    letters outside the BMP as separators.
+  - `Truncate.WithEllipsisOnWord` dropped a word when the cut landed exactly on a space, kept the spaces before the
+    ellipsis, and only knew `' '` as whitespace.
+  - `NaturalComparer` compared "a01" and "a1" equal, so a `SortedSet`/`SortedDictionary` silently dropped one. The
+    leading-zero count now breaks ties.
+  - `EnumMap` gave each alias its own slot (wrong `Count`, writes through one name invisible through the other).
+  - `ShortGuid.Decode` accepted '+', '/' and stray low bits (many strings per GUID); `UlidGenerator.DecodeTimestamp`
+    accepted a first char above '7' (timestamp past 48 bits) and never checked the random part.
+  - `SnowflakeIdGenerator` returned negative ids once the timestamp passed 41 bits.
+  - `NanoId`/`UlidGenerator`: the default `Random` on .NET Framework seeds from the tick count, so instances created
+    together repeated. The netstandard2.0 build now seeds from a GUID (by inspection).
+- **Minor:** `EnumExtensions.GetFlags` included composite members for `[Flags]` enums and subset members for plain
+  enums (contrary to its docs); `GetValues`/`GetNames`/`EnumMap.Keys` handed out the shared cache arrays; `JaroWinkler`
+  could score above 1 (`prefixScale × maxPrefix > 1`) and accepted NaN; `QueryString.Parse` didn't decode '+';
+  `AnsiText.Strip`/`TextAlign` left the final byte of escapes with intermediates (`ESC ( B`); `TextAlign` counted wide
+  BMP emoji as one column and padded truncation with ' ' instead of `pad`; `GlobMatcher` with `ignoreCase` folded
+  range endpoints (`[Z-a]` became empty); `Indent` treated whitespace-only lines as content when indenting but blank
+  when dedenting (and left short ones untouched); `TemplateFormatter` accepted `{a{b}`; `Guard.Index` passed for a
+  negative count; `Soundex` kept an accented first letter ("Ä626"); `PercentEncoding` with '%' in `safe` didn't
+  round-trip; `TokenizerOptions` accepted null delimiter/quote sets and failed mid-tokenize.
+- **Doc-only:** `CommandLineBuilder` output is not safe for `CommandLineToArgvW`/`ProcessStartInfo.Arguments` or
+  cmd.exe (trailing backslash, `\"` injection), now stated prominently; `StringSimilarity` examples named
+  `LevenshteinDistance.Between` (it's `Distance`) and a method group that doesn't convert.
+- **Not changed:** `CommandLineBuilder` gets no Windows-quoting mode (the round-trip with `CommandLineSplitter` is
+  its contract); `GlobMatcher` `?` matches one UTF-16 unit (documented); `QueryString.Format` with an unpaired
+  surrogate differs by runtime (documented); `TextDiff` is still O(n·m) over the changed middle.
+- **Checked build:** the section is clean; the same 42 failures remain elsewhere.
+- **Re-queued:** yes (26 bugs, 1 severe).

@@ -2,12 +2,14 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 namespace ToolBelt.Enums
 {
     /// <summary>
     /// A dense map from every declared member of an enum to a value, backed by a flat array indexed by
-    /// the member's position, so get/set are O(1) with no hashing. Every enum member always has a slot
+    /// the member's position, so get/set are O(1) with no hashing. Aliases (two names for one value)
+    /// share a single slot. Every enum member always has a slot
     /// (initialized to a default or from a factory), so this is a total function over the enum rather
     /// than a sparse dictionary. Not thread-safe.
     /// </summary>
@@ -17,8 +19,21 @@ namespace ToolBelt.Enums
         // Cached once per closed generic: the distinct enum values and a value->slot lookup.
         private static class Meta
         {
-            public static readonly TEnum[] Values = (TEnum[])Enum.GetValues(typeof(TEnum));
+            public static readonly TEnum[] Values = DistinctValues();
+            public static readonly ReadOnlyCollection<TEnum> Keys = Array.AsReadOnly(Values);
             public static readonly Dictionary<TEnum, int> Index = BuildIndex();
+
+            // Enum.GetValues lists an aliased value once per name; a map needs one slot per value.
+            private static TEnum[] DistinctValues()
+            {
+                var all = (TEnum[])Enum.GetValues(typeof(TEnum));
+                var seen = new HashSet<TEnum>();
+                var distinct = new List<TEnum>(all.Length);
+                foreach (var value in all)
+                    if (seen.Add(value))
+                        distinct.Add(value);
+                return distinct.ToArray();
+            }
 
             private static Dictionary<TEnum, int> BuildIndex()
             {
@@ -48,11 +63,11 @@ namespace ToolBelt.Enums
                 _values[i] = factory(Meta.Values[i]);
         }
 
-        /// <summary>Number of enum members (the fixed slot count).</summary>
+        /// <summary>Number of distinct enum values (the fixed slot count).</summary>
         public int Count => _values.Length;
 
-        /// <summary>All enum members (the keys), in declaration order.</summary>
-        public IReadOnlyList<TEnum> Keys => Meta.Values;
+        /// <summary>All distinct enum values (the keys), in ascending order of their unsigned underlying value.</summary>
+        public IReadOnlyList<TEnum> Keys => Meta.Keys;
 
         /// <summary>Gets or sets the value for a member. Throws for a value that is not a declared member.</summary>
         public TValue this[TEnum key]

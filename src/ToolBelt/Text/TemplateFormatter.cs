@@ -9,7 +9,8 @@ namespace ToolBelt.Text
     /// Substitutes <c>{name}</c> placeholders in a template from a value lookup. Literal braces are written
     /// by doubling: <c>{{</c> and <c>}}</c>. Placeholder names are trimmed of surrounding whitespace. An
     /// unknown placeholder throws unless a default-value provider is supplied; a malformed template (an
-    /// unmatched or empty brace) always throws <see cref="FormatException"/>.
+    /// unmatched or empty brace, or a '{' inside a placeholder) always throws <see cref="FormatException"/>. A null
+    /// value is written as empty text.
     /// </summary>
     public static class TemplateFormatter
     {
@@ -45,6 +46,8 @@ namespace ToolBelt.Text
                     int end = template.IndexOf('}', i + 1);
                     if (end < 0)
                         throw new FormatException("Unclosed '{' in template.");
+                    if (template.IndexOf('{', i + 1, end - i - 1) >= 0)
+                        throw new FormatException("'{' inside a placeholder (use '{{' outside one for a literal brace).");
                     string name = template.Substring(i + 1, end - i - 1).Trim();
                     if (name.Length == 0)
                         throw new FormatException("Empty placeholder '{}' in template.");

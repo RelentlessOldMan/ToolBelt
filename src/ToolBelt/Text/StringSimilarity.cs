@@ -26,7 +26,7 @@ namespace ToolBelt.Text
     /// <summary>
     /// "Did you mean …?" ranking: pick the best (or top-N) candidate for a target string using a pluggable
     /// similarity scorer. The scorer is injected — pass any <c>(a, b) =&gt; score</c> where a higher score
-    /// means more similar (e.g. <c>JaroWinkler.Similarity</c>, or <c>1.0 / (1 + LevenshteinDistance.Between(a, b))</c>)
+    /// means more similar (e.g. <c>(a, b) =&gt; JaroWinkler.Similarity(a, b)</c>, or <c>1.0 / (1 + LevenshteinDistance.Distance(a, b))</c>)
     /// — so this file stays self-contained and does not depend on any sibling. Ordering is stable: among equal
     /// scores, the candidate seen first in the input wins.
     /// </summary>

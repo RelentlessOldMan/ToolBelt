@@ -8,8 +8,15 @@ namespace ToolBelt.Text
     /// <summary>Rules for <see cref="Tokenizer"/>.</summary>
     public sealed class TokenizerOptions
     {
-        /// <summary>Characters that separate tokens (default: space and tab).</summary>
-        public char[] Delimiters { get; set; } = { ' ', '\t' };
+        private char[] _delimiters = { ' ', '\t' };
+        private char[] _quotes = { '"' };
+
+        /// <summary>Characters that separate tokens (default: space and tab). Must not be null.</summary>
+        public char[] Delimiters
+        {
+            get => _delimiters;
+            set => _delimiters = value ?? throw new ArgumentNullException(nameof(value));
+        }
 
         /// <summary>
         /// True (default): runs of delimiters count as one and leading/trailing delimiters are ignored — whitespace style.
@@ -17,8 +24,12 @@ namespace ToolBelt.Text
         /// </summary>
         public bool CollapseDelimiters { get; set; } = true;
 
-        /// <summary>Characters that open and close a quoted section (default: double quote).</summary>
-        public char[] Quotes { get; set; } = { '"' };
+        /// <summary>Characters that open and close a quoted section (default: double quote). Must not be null.</summary>
+        public char[] Quotes
+        {
+            get => _quotes;
+            set => _quotes = value ?? throw new ArgumentNullException(nameof(value));
+        }
 
         /// <summary>Inside quotes, a doubled quote character means one literal quote (CSV style). Default true.</summary>
         public bool DoubledQuoteEscape { get; set; } = true;

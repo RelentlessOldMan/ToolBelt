@@ -37,7 +37,12 @@ namespace ToolBelt.Identifiers
             }
             if (bytes.Length != 16)
                 throw new FormatException($"'{shortGuid}' does not decode to 16 bytes.");
-            return new Guid(bytes);
+            var guid = new Guid(bytes);
+            // Only the exact text Encode produces is accepted: no '+' or '/', and no stray bits in the last character,
+            // so each GUID has one short form and the strings can be compared or used as keys.
+            if (!string.Equals(Encode(guid), shortGuid, StringComparison.Ordinal))
+                throw new FormatException($"'{shortGuid}' is not a canonical short GUID.");
+            return guid;
         }
 
         public static bool TryDecode(string shortGuid, out Guid guid)

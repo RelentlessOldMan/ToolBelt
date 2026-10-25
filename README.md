@@ -879,6 +879,7 @@ tests/
       StringSimilarityTests.cs
       TemplateFormatterTests.cs
       TextDiffTests.cs
+      TextReviewTests.cs (round 11 review regressions: Text, Identifiers, Enums, Guards)
       TruncateTests.cs
       WordWrapTests.cs
     Net/

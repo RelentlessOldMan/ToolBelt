@@ -41,8 +41,9 @@ namespace ToolBelt.Text
     /// reconstructs the new text exactly; keeping Equal/Delete reconstructs the old.
     /// </summary>
     /// <remarks>
-    /// The LCS table is O(n·m) in time and memory for inputs of n and m lines — fine for source files and
-    /// typical documents, but not intended for pairs of very large inputs. Line splitting treats <c>\r\n</c>
+    /// Lines common to the start and end of both inputs are matched first, so the LCS table covers only the
+    /// changed middle: O(n·m) in time and memory for a middle of n and m lines — fine for source files and
+    /// typical documents, and for large inputs with a local change, but not for two large unrelated inputs. Line splitting treats <c>\r\n</c>
     /// and <c>\n</c> as separators and does not retain the terminators.
     /// </remarks>
     public static class TextDiff
@@ -56,39 +57,56 @@ namespace ToolBelt.Text
             string[] a = SplitLines(oldText);
             string[] b = SplitLines(newText);
 
-            // LCS length table: lcs[i, j] = LCS length of a[i..] and b[j..]. Filled from the bottom-right so
-            // the forward walk below can greedily take the direction that preserves the optimum.
-            int n = a.Length, m = b.Length;
+            // A common prefix and suffix are always part of some longest common subsequence, so match them
+            // directly and run the table only over the middle.
+            int prefix = 0;
+            while (prefix < a.Length && prefix < b.Length && string.Equals(a[prefix], b[prefix], StringComparison.Ordinal))
+                prefix++;
+            int suffix = 0;
+            while (suffix < a.Length - prefix && suffix < b.Length - prefix
+                   && string.Equals(a[a.Length - 1 - suffix], b[b.Length - 1 - suffix], StringComparison.Ordinal))
+                suffix++;
+
+            var result = new List<DiffLine>(a.Length + b.Length);
+            for (int k = 0; k < prefix; k++)
+                result.Add(new DiffLine(DiffOp.Equal, a[k]));
+
+            // LCS length table over the middle: lcs[i, j] = LCS length of a[prefix + i..] and b[prefix + j..].
+            // Filled from the bottom-right so the forward walk below can greedily take the direction that
+            // preserves the optimum.
+            int n = a.Length - prefix - suffix, m = b.Length - prefix - suffix;
             var lcs = new int[n + 1, m + 1];
             for (int i = n - 1; i >= 0; i--)
                 for (int j = m - 1; j >= 0; j--)
-                    lcs[i, j] = string.Equals(a[i], b[j], StringComparison.Ordinal)
+                    lcs[i, j] = string.Equals(a[prefix + i], b[prefix + j], StringComparison.Ordinal)
                         ? lcs[i + 1, j + 1] + 1
                         : Math.Max(lcs[i + 1, j], lcs[i, j + 1]);
 
-            var result = new List<DiffLine>(n + m);
             int x = 0, y = 0;
             while (x < n && y < m)
             {
-                if (string.Equals(a[x], b[y], StringComparison.Ordinal))
+                if (string.Equals(a[prefix + x], b[prefix + y], StringComparison.Ordinal))
                 {
-                    result.Add(new DiffLine(DiffOp.Equal, a[x]));
+                    result.Add(new DiffLine(DiffOp.Equal, a[prefix + x]));
                     x++; y++;
                 }
                 else if (lcs[x + 1, y] >= lcs[x, y + 1])
                 {
                     // Dropping a[x] keeps (or ties) the optimum — emit it as a deletion.
-                    result.Add(new DiffLine(DiffOp.Delete, a[x]));
+                    result.Add(new DiffLine(DiffOp.Delete, a[prefix + x]));
                     x++;
                 }
                 else
                 {
-                    result.Add(new DiffLine(DiffOp.Insert, b[y]));
+                    result.Add(new DiffLine(DiffOp.Insert, b[prefix + y]));
                     y++;
                 }
             }
-            while (x < n) result.Add(new DiffLine(DiffOp.Delete, a[x++]));
-            while (y < m) result.Add(new DiffLine(DiffOp.Insert, b[y++]));
+            while (x < n) result.Add(new DiffLine(DiffOp.Delete, a[prefix + x++]));
+            while (y < m) result.Add(new DiffLine(DiffOp.Insert, b[prefix + y++]));
+
+            for (int k = a.Length - suffix; k < a.Length; k++)
+                result.Add(new DiffLine(DiffOp.Equal, a[k]));
             return result;
         }
 

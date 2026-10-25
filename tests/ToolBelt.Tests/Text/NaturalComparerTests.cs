@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using ToolBelt.Text;
@@ -28,10 +29,12 @@ namespace ToolBelt.Tests.Text
             Check.True(NaturalComparer.Ordinal.Compare("100", "99") > 0);
         }
 
-        public void LeadingZeros_CompareEqualByValue()
+        public void LeadingZeros_CompareByValueThenBreakTies()
         {
-            Check.Equal(0, NaturalComparer.Ordinal.Compare("x01", "x1"));
-            Check.Equal(0, NaturalComparer.Ordinal.Compare("007", "7"));
+            Check.True(NaturalComparer.Ordinal.Compare("x01", "x1") > 0);    // equal value; leading zeros only break the tie
+            Check.True(NaturalComparer.Ordinal.Compare("x01", "x2") < 0);
+            Check.True(NaturalComparer.Ordinal.Compare("007", "7") > 0);
+            Check.True(NaturalComparer.Ordinal.Compare("007", "8") < 0);
         }
 
         public void CaseInsensitiveVariant()
@@ -60,8 +63,36 @@ namespace ToolBelt.Tests.Text
 
                 int actual = Math.Sign(NaturalComparer.OrdinalIgnoreCase.Compare(a, b));
                 int expected = Math.Sign(string.CompareOrdinal(PadNumbers(a), PadNumbers(b)));
+                if (expected == 0)
+                    expected = CompareZeroCounts(a, b); // same values: the first run with a different zero count decides
                 Check.Equal(expected, actual, $"trial {trial}: '{a}' vs '{b}'");
             }
+        }
+
+        private static int CompareZeroCounts(string a, string b)
+        {
+            var za = ZeroCounts(a);
+            var zb = ZeroCounts(b);
+            for (int k = 0; k < Math.Min(za.Count, zb.Count); k++)
+                if (za[k] != zb[k])
+                    return za[k] < zb[k] ? -1 : 1;
+            return 0;
+        }
+
+        // The number of leading zeros of each maximal digit run.
+        private static List<int> ZeroCounts(string s)
+        {
+            var counts = new List<int>();
+            int i = 0;
+            while (i < s.Length)
+            {
+                if (s[i] < '0' || s[i] > '9') { i++; continue; }
+                int zeros = 0;
+                while (i < s.Length && s[i] == '0') { zeros++; i++; }
+                while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;
+                counts.Add(zeros);
+            }
+            return counts;
         }
 
         private static string RandomString(Random rng, string palette, int maxLen)

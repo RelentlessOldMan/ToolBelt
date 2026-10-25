@@ -10,6 +10,13 @@ namespace ToolBelt.Text
     /// parses back exactly. The round-trip <c>Split(Join(args)) == args</c> is the contract, verified by
     /// property tests over arguments containing spaces, quotes and empty strings — the cases hand-rolled
     /// quoting reliably gets wrong.
+    /// <para>
+    /// <b>Not for launching processes.</b> The quoting follows <see cref="CommandLineSplitter"/>'s rules (a doubled
+    /// quote is a literal quote; backslashes are ordinary), not Windows' <c>CommandLineToArgvW</c> /
+    /// <c>ProcessStartInfo.Arguments</c> rules and not <c>cmd.exe</c>'s: there an argument ending in a backslash or
+    /// containing <c>"</c> splits differently, and untrusted text can inject extra arguments. To start a process,
+    /// pass arguments one by one (<c>ProcessStartInfo.ArgumentList</c>).
+    /// </para>
     /// </summary>
     public static class CommandLineBuilder
     {

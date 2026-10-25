@@ -6,11 +6,14 @@ namespace ToolBelt.Text
     /// <summary>
     /// Indents and dedents multi-line text. Lines are split on <c>\n</c> and rejoined with <c>\n</c>
     /// (a trailing <c>\r</c> on each line is preserved). Useful for code generation and for cleaning up
-    /// verbatim / heredoc-style string blocks.
+    /// verbatim / heredoc-style string blocks. A line holding only whitespace counts as blank in both directions.
     /// </summary>
     public static class Indent
     {
-        /// <summary>Prefixes every line with <paramref name="prefix"/>. Blank lines are skipped unless <paramref name="indentBlankLines"/> is set.</summary>
+        /// <summary>
+        /// Prefixes every line with <paramref name="prefix"/>. Blank (empty or whitespace-only) lines are left as they are
+        /// unless <paramref name="indentBlankLines"/> is set.
+        /// </summary>
         public static string IndentLines(string text, string prefix, bool indentBlankLines = false)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
@@ -20,14 +23,17 @@ namespace ToolBelt.Text
             for (int i = 0; i < lines.Length; i++)
             {
                 string content = lines[i].TrimEnd('\r');
-                bool blank = content.Length == 0;
+                bool blank = content.Trim().Length == 0;
                 if (!blank || indentBlankLines)
                     lines[i] = prefix + lines[i];
             }
             return string.Join("\n", lines);
         }
 
-        /// <summary>Removes the longest whitespace prefix common to all non-blank lines.</summary>
+        /// <summary>
+        /// Removes the longest whitespace prefix common to all non-blank lines. Whitespace-only lines become empty
+        /// (keeping a trailing <c>\r</c>), as in Python's <c>textwrap.dedent</c>.
+        /// </summary>
         public static string Dedent(string text)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
@@ -46,12 +52,11 @@ namespace ToolBelt.Text
                     break;
             }
 
-            if (string.IsNullOrEmpty(common))
-                return text;
-
             for (int i = 0; i < lines.Length; i++)
             {
-                if (lines[i].StartsWith(common, StringComparison.Ordinal))
+                if (lines[i].Trim().Length == 0)
+                    lines[i] = lines[i].EndsWith("\r", StringComparison.Ordinal) ? "\r" : "";
+                else if (!string.IsNullOrEmpty(common) && lines[i].StartsWith(common, StringComparison.Ordinal))
                     lines[i] = lines[i].Substring(common!.Length);
             }
             return string.Join("\n", lines);

@@ -112,10 +112,13 @@ namespace ToolBelt.Guards
 
         /// <summary>
         /// Throws <see cref="ArgumentOutOfRangeException"/> unless <paramref name="index"/> is a valid index
-        /// into a sequence of length <paramref name="count"/> (i.e. 0 &lt;= index &lt; count).
+        /// into a sequence of length <paramref name="count"/> (i.e. 0 &lt;= index &lt; count). A negative
+        /// <paramref name="count"/> throws too.
         /// </summary>
         public static int Index(int index, int count, [CallerArgumentExpression("index")] string? paramName = null)
         {
+            if (count < 0)
+                throw new ArgumentOutOfRangeException(nameof(count), count, "Count must not be negative.");
             if ((uint)index >= (uint)count)
                 throw new ArgumentOutOfRangeException(paramName, index, $"Index must be in [0, {count}).");
             return index;

@@ -8,7 +8,9 @@ namespace ToolBelt.Text
     /// Matches strings against shell-style glob patterns. Supported syntax: <c>*</c> (any run, including
     /// empty), <c>?</c> (any single character), and character classes <c>[abc]</c>, ranges <c>[a-z]</c>,
     /// and negation <c>[!abc]</c> / <c>[^abc]</c>. Everything else matches literally. Matching is
-    /// whole-string (anchored). An unterminated <c>[</c> class throws <see cref="FormatException"/>.
+    /// whole-string (anchored). An unterminated <c>[</c> class throws <see cref="FormatException"/>. With
+    /// <c>ignoreCase</c>, a character matches a class when it or its upper- or lower-case form is in the range as
+    /// written. Characters are UTF-16 code units, so <c>?</c> matches one half of a surrogate pair.
     /// </summary>
     public static class GlobMatcher
     {
@@ -87,20 +89,22 @@ namespace ToolBelt.Text
                 case Kind.Literal:
                     return Fold(token.Literal, ignoreCase) == Fold(c, ignoreCase);
                 case Kind.Class:
-                    char fc = Fold(c, ignoreCase);
-                    bool inSet = false;
-                    foreach (var (lo, hi) in token.Ranges!)
-                    {
-                        if (fc >= Fold(lo, ignoreCase) && fc <= Fold(hi, ignoreCase))
-                        {
-                            inSet = true;
-                            break;
-                        }
-                    }
+                    // Ranges are compared as written (folding the endpoints would turn [Z-a] into the empty range
+                    // Z..A); case-insensitivity instead tries the character in both cases.
+                    bool inSet = InRanges(token.Ranges!, c)
+                        || (ignoreCase && (InRanges(token.Ranges!, char.ToUpperInvariant(c)) || InRanges(token.Ranges!, char.ToLowerInvariant(c))));
                     return inSet != token.Negated;
                 default:
                     return false;
             }
+        }
+
+        private static bool InRanges((char Lo, char Hi)[] ranges, char c)
+        {
+            foreach (var (lo, hi) in ranges)
+                if (c >= lo && c <= hi)
+                    return true;
+            return false;
         }
 
         private static char Fold(char c, bool ignoreCase) => ignoreCase ? char.ToUpperInvariant(c) : c;

@@ -51,7 +51,9 @@ namespace ToolBelt.Text
                 }
                 else
                 {
-                    i++; // simple two-character escape (e.g. ESC c)
+                    // Other escapes: optional intermediate bytes (0x20-0x2F, e.g. the '(' of ESC ( B), then one final byte.
+                    while (i < text.Length && text[i] >= ' ' && text[i] <= '/') i++;
+                    if (i < text.Length) i++;
                 }
             }
             return sb.ToString();

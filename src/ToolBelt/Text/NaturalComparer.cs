@@ -6,8 +6,9 @@ namespace ToolBelt.Text
 {
     /// <summary>
     /// Compares strings in "natural" order, so embedded digit runs sort by numeric value rather than
-    /// lexically ("img2" &lt; "img10"). Leading zeros do not change a number's value ("x01" and "x1"
-    /// compare equal at that run). Nulls sort before all non-null values.
+    /// lexically ("img2" &lt; "img10"). Leading zeros do not change a number's value; only when two strings
+    /// are otherwise equal do they break the tie, fewer zeros first ("x1" &lt; "x01" &lt; "x2"), so distinct
+    /// strings never compare equal and a sorted set keeps them all. Nulls sort before all non-null values.
     /// </summary>
     public sealed class NaturalComparer : IComparer<string>
     {
@@ -27,7 +28,7 @@ namespace ToolBelt.Text
             if (x is null) return -1;
             if (y is null) return 1;
 
-            int i = 0, j = 0;
+            int i = 0, j = 0, tieBreak = 0;
             while (i < x.Length && j < y.Length)
             {
                 char cx = x[i], cy = y[j];
@@ -35,7 +36,7 @@ namespace ToolBelt.Text
 
                 if (dx && dy)
                 {
-                    int cmp = CompareNumberRuns(x, ref i, y, ref j);
+                    int cmp = CompareNumberRuns(x, ref i, y, ref j, ref tieBreak);
                     if (cmp != 0)
                         return cmp;
                     // Equal magnitude: both runs consumed, continue with the tails.
@@ -50,15 +51,21 @@ namespace ToolBelt.Text
                 }
             }
 
-            // Whatever remains: the longer tail is greater.
-            return (x.Length - i).CompareTo(y.Length - j);
+            // Whatever remains: the longer tail is greater. Otherwise the first difference in leading zeros decides.
+            int tail = (x.Length - i).CompareTo(y.Length - j);
+            return tail != 0 ? tail : tieBreak;
         }
 
-        private static int CompareNumberRuns(string x, ref int i, string y, ref int j)
+        private static int CompareNumberRuns(string x, ref int i, string y, ref int j, ref int tieBreak)
         {
-            // Skip leading zeros (they carry no value).
+            // Skip leading zeros (they carry no value, but remember the first run where their count differs).
+            int xZeros = i, yZeros = j;
             while (i < x.Length && x[i] == '0') i++;
             while (j < y.Length && y[j] == '0') j++;
+            xZeros = i - xZeros;
+            yZeros = j - yZeros;
+            if (tieBreak == 0 && xZeros != yZeros)
+                tieBreak = xZeros < yZeros ? -1 : 1;
 
             int xStart = i, yStart = j;
             while (i < x.Length && IsDigit(x[i])) i++;

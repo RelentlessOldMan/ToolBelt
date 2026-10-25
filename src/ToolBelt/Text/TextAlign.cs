@@ -62,7 +62,7 @@ namespace ToolBelt.Text
             if (current > width)
             {
                 if (!truncate) return text;
-                return Cut(text, width, ellipsis ?? "");
+                return Cut(text, width, ellipsis ?? "", pad);
             }
             int extra = width - current;
             switch (alignment)
@@ -73,7 +73,7 @@ namespace ToolBelt.Text
             }
         }
 
-        private static string Cut(string text, int width, string ellipsis)
+        private static string Cut(string text, int width, string ellipsis, char pad)
         {
             int ellipsisWidth = DisplayWidth(ellipsis);
             if (ellipsisWidth > width) { ellipsis = ""; ellipsisWidth = 0; }
@@ -98,12 +98,13 @@ namespace ToolBelt.Text
                 used += w;
                 i += len - 1;
             }
-            sb.Append(' ', budget - used).Append(ellipsis);
+            sb.Append(pad, budget - used).Append(ellipsis);
             if (sawEscape) sb.Append("\u001b[0m");                 // don't leak a colour past the cut
             return sb.ToString();
         }
 
-        // Index of the last character of the escape sequence starting at `i` (CSI "ESC [ ... final", OSC "ESC ] ... BEL/ST", or ESC + one char).
+        // Index of the last character of the escape sequence starting at `i` (CSI "ESC [ ... final", OSC "ESC ] ... BEL/ST",
+        // or ESC + intermediate bytes 0x20-0x2F + one final char, e.g. "ESC ( B").
         private static int SkipEscape(string s, int i)
         {
             if (i + 1 >= s.Length) return i;
@@ -123,7 +124,9 @@ namespace ToolBelt.Text
                 }
                 return s.Length - 1;
             }
-            return i + 1;
+            int k = i + 1;
+            while (k < s.Length && s[k] >= ' ' && s[k] <= '/') k++;
+            return Math.Min(k, s.Length - 1);
         }
 
         // Width of the surrogate pair at `index`: combining marks, format characters, tags and variation selectors take no
@@ -155,8 +158,29 @@ namespace ToolBelt.Text
                 (c >= 0xF900 && c <= 0xFAFF) ||                    // CJK compatibility ideographs
                 (c >= 0xFE30 && c <= 0xFE4F) ||                    // CJK compatibility forms
                 (c >= 0xFF00 && c <= 0xFF60) ||                    // full-width forms
-                (c >= 0xFFE0 && c <= 0xFFE6);
+                (c >= 0xFFE0 && c <= 0xFFE6) ||
+                IsWideBmpEmoji(c);
             return wide ? 2 : 1;
+        }
+
+        // BMP symbols with East Asian Width "W" (default emoji presentation), e.g. ⭐ U+2B50, ✅ U+2705, ⌚ U+231A.
+        private static readonly char[] WideEmojiRanges =
+        {
+            '\u231A', '\u231B', '\u2329', '\u232A', '\u23E9', '\u23EC', '\u23F0', '\u23F0', '\u23F3', '\u23F3',
+            '\u25FD', '\u25FE', '\u2614', '\u2615', '\u2648', '\u2653', '\u267F', '\u267F', '\u2693', '\u2693',
+            '\u26A1', '\u26A1', '\u26AA', '\u26AB', '\u26BD', '\u26BE', '\u26C4', '\u26C5', '\u26CE', '\u26CE',
+            '\u26D4', '\u26D4', '\u26EA', '\u26EA', '\u26F2', '\u26F3', '\u26F5', '\u26F5', '\u26FA', '\u26FA',
+            '\u26FD', '\u26FD', '\u2705', '\u2705', '\u270A', '\u270B', '\u2728', '\u2728', '\u274C', '\u274C',
+            '\u274E', '\u274E', '\u2753', '\u2755', '\u2757', '\u2757', '\u2795', '\u2797', '\u27B0', '\u27B0',
+            '\u27BF', '\u27BF', '\u2B1B', '\u2B1C', '\u2B50', '\u2B50', '\u2B55', '\u2B55',
+        };
+
+        private static bool IsWideBmpEmoji(char c)
+        {
+            if (c < '\u231A' || c > '\u2B55') return false;
+            for (int i = 0; i < WideEmojiRanges.Length; i += 2)
+                if (c >= WideEmojiRanges[i] && c <= WideEmojiRanges[i + 1]) return true;
+            return false;
         }
     }
 }

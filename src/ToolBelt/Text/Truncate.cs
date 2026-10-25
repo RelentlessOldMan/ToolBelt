@@ -30,7 +30,8 @@ namespace ToolBelt.Text
 
         /// <summary>
         /// Like <see cref="WithEllipsis"/> but avoids cutting mid-word: after reserving room for the
-        /// ellipsis, the cut is pulled back to the last whitespace when one exists in the kept span.
+        /// ellipsis, the cut is pulled back to the last whitespace when one exists in the kept span (a cut that
+        /// already lands on whitespace keeps the whole word), and whitespace before the ellipsis is trimmed.
         /// </summary>
         public static string WithEllipsisOnWord(string text, int maxLength, string ellipsis = "…")
         {
@@ -46,11 +47,17 @@ namespace ToolBelt.Text
             int budget = maxLength - ellipsis.Length;
             string head = text.Substring(0, budget);
 
-            int lastSpace = head.LastIndexOf(' ');
-            if (lastSpace > 0)
-                head = head.Substring(0, lastSpace);
+            if (!char.IsWhiteSpace(text[budget]))
+            {
+                int lastSpace = head.Length - 1;
+                while (lastSpace > 0 && !char.IsWhiteSpace(head[lastSpace]))
+                    lastSpace--;
+                if (lastSpace > 0)
+                    head = head.Substring(0, lastSpace);
+            }
 
-            return head + ellipsis;
+            string trimmed = head.TrimEnd();
+            return (trimmed.Length > 0 ? trimmed : head) + ellipsis;
         }
     }
 }

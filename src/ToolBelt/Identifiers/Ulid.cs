@@ -25,7 +25,12 @@ namespace ToolBelt.Identifiers
         public UlidGenerator(Func<DateTimeOffset>? clock = null, Random? random = null)
         {
             _clock = clock ?? (static () => DateTimeOffset.UtcNow);
+#if NETSTANDARD2_0
+            // On .NET Framework, new Random() seeds from the tick count, so generators created close together would repeat.
+            _random = random ?? new Random(Guid.NewGuid().GetHashCode());
+#else
             _random = random ?? new Random();
+#endif
         }
 
         /// <summary>Produces the next ULID string. Strictly greater (ordinally) than the previous one from this instance.</summary>
@@ -53,18 +58,26 @@ namespace ToolBelt.Identifiers
             }
         }
 
-        /// <summary>Extracts the millisecond timestamp encoded in a ULID string.</summary>
+        /// <summary>
+        /// Extracts the millisecond timestamp encoded in a ULID string. Throws <see cref="FormatException"/> for a
+        /// string that isn't a valid ULID: an invalid character anywhere, or a first character above '7' (the
+        /// timestamp would pass 48 bits).
+        /// </summary>
         public static long DecodeTimestamp(string ulid)
         {
             if (ulid is null) throw new ArgumentNullException(nameof(ulid));
             if (ulid.Length != 26) throw new FormatException("A ULID must be 26 characters.");
 
+            if (DecodeChar(ulid[0]) > 7)
+                throw new FormatException("A ULID's first character must be 0-7 (the timestamp is 48 bits).");
             long timestamp = 0;
             for (int i = 0; i < 10; i++)
             {
                 int value = DecodeChar(ulid[i]);
                 timestamp = timestamp * 32 + value;
             }
+            for (int i = 10; i < 26; i++)
+                DecodeChar(ulid[i]);
             return timestamp;
         }
 

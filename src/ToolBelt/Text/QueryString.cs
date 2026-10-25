@@ -9,11 +9,15 @@ namespace ToolBelt.Text
     /// Builds and parses URL query strings. Keys and values are percent-encoded on build (via
     /// <see cref="Uri.EscapeDataString"/>) and decoded on parse, so arbitrary text round-trips. Pairs
     /// are kept in order and duplicate keys are preserved. <see cref="Format"/> and <see cref="Parse"/>
-    /// are inverses.
+    /// are inverses. Parsing also accepts form encoding ('+' is a space) and keeps a malformed escape such as
+    /// <c>%zz</c> as literal text.
     /// </summary>
     public static class QueryString
     {
-        /// <summary>Joins key/value pairs into a query string (no leading '?').</summary>
+        /// <summary>
+        /// Joins key/value pairs into a query string (no leading '?'). A null value is written as empty. An unpaired
+        /// surrogate becomes U+FFFD on .NET Core and later, and throws on .NET Framework.
+        /// </summary>
         public static string Format(IEnumerable<KeyValuePair<string, string>> pairs)
         {
             if (pairs is null) throw new ArgumentNullException(nameof(pairs));
@@ -50,17 +54,20 @@ namespace ToolBelt.Text
                 string key, value;
                 if (eq < 0)
                 {
-                    key = Uri.UnescapeDataString(part);
+                    key = Decode(part);
                     value = string.Empty;
                 }
                 else
                 {
-                    key = Uri.UnescapeDataString(part.Substring(0, eq));
-                    value = Uri.UnescapeDataString(part.Substring(eq + 1));
+                    key = Decode(part.Substring(0, eq));
+                    value = Decode(part.Substring(eq + 1));
                 }
                 result.Add(new KeyValuePair<string, string>(key, value));
             }
             return result;
         }
+
+        // '+' is a space in form encoding; Format never emits a bare '+' (it escapes it as %2B).
+        private static string Decode(string s) => Uri.UnescapeDataString(s.Replace('+', ' '));
     }
 }

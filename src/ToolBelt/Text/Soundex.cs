@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Globalization;
 using System.Text;
 
 namespace ToolBelt.Text
@@ -7,8 +8,10 @@ namespace ToolBelt.Text
     /// <summary>
     /// American Soundex phonetic coding: a one-letter + three-digit key that groups words by rough
     /// English pronunciation ("Robert" and "Rupert" both code to R163). Non-letters are ignored, casing
-    /// is folded, and the classic <c>h</c>/<c>w</c> bridging rule is applied (letters separated only by
-    /// <c>h</c> or <c>w</c> are treated as adjacent). Input with no letters yields an empty string.
+    /// is folded, accents are removed ("Ärger" codes as "Arger"), and the classic <c>h</c>/<c>w</c> bridging
+    /// rule is applied (letters separated only by <c>h</c> or <c>w</c> are treated as adjacent). Other letters
+    /// outside A–Z (ß, ø, Greek, …) never start the code and act like vowels. Input with no A–Z letters yields an
+    /// empty string.
     /// </summary>
     public static class Soundex
     {
@@ -25,7 +28,13 @@ namespace ToolBelt.Text
                 if (!char.IsLetter(raw))
                     continue;
 
-                char c = char.ToUpperInvariant(raw);
+                char c = char.ToUpperInvariant(BaseLetter(raw));
+                if (c < 'A' || c > 'Z')
+                {
+                    if (haveFirst)
+                        previousCode = 0; // a letter we can't code: treat it like a vowel
+                    continue;
+                }
 
                 if (!haveFirst)
                 {
@@ -60,6 +69,16 @@ namespace ToolBelt.Text
             while (sb.Length < 4)
                 sb.Append('0');
             return sb.ToString();
+        }
+
+        // The letter without its accent (é → e), via canonical decomposition; letters that don't decompose are unchanged.
+        private static char BaseLetter(char c)
+        {
+            if (c < 0x80) return c;
+            string decomposed = c.ToString().Normalize(NormalizationForm.FormD);
+            return decomposed.Length > 0 && CharUnicodeInfo.GetUnicodeCategory(decomposed[0]) != UnicodeCategory.NonSpacingMark
+                ? decomposed[0]
+                : c;
         }
 
         private static int Code(char upper)

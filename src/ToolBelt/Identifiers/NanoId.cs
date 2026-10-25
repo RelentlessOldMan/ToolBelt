@@ -30,7 +30,12 @@ namespace ToolBelt.Identifiers
                 throw new ArgumentException("Alphabet must have between 2 and 256 characters.", nameof(alphabet));
             if (defaultSize <= 0)
                 throw new ArgumentOutOfRangeException(nameof(defaultSize), defaultSize, "Default size must be positive.");
+#if NETSTANDARD2_0
+            // On .NET Framework, new Random() seeds from the tick count, so instances created close together would repeat.
+            _random = random ?? new Random(Guid.NewGuid().GetHashCode());
+#else
             _random = random ?? new Random();
+#endif
             _defaultSize = defaultSize;
         }
 

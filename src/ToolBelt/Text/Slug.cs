@@ -7,8 +7,9 @@ namespace ToolBelt.Text
 {
     /// <summary>
     /// Produces URL- and filename-safe "slugs": lowercase ASCII words joined by a separator. Accented
-    /// letters are folded to their base form (é → e, ü → u); runs of any other character collapse to a
-    /// single separator; leading and trailing separators are trimmed. The operation is idempotent.
+    /// letters are folded to their base form (é → e, ü → u); runs of any other character (an unpaired
+    /// surrogate included) collapse to a single separator; leading and trailing separators are trimmed.
+    /// The operation is idempotent.
     /// </summary>
     public static class Slug
     {
@@ -22,8 +23,9 @@ namespace ToolBelt.Text
             if (text is null)
                 throw new ArgumentNullException(nameof(text));
 
-            // FormD splits accented letters into base + combining mark; we then drop the marks.
-            string normalized = text.Normalize(NormalizationForm.FormD);
+            // FormD splits accented letters into base + combining mark; we then drop the marks. Normalize throws on an
+            // unpaired surrogate, so those become spaces (separators) first.
+            string normalized = ReplaceLoneSurrogates(text).Normalize(NormalizationForm.FormD);
 
             var sb = new StringBuilder(normalized.Length);
             bool pendingSeparator = false;
@@ -38,13 +40,13 @@ namespace ToolBelt.Text
 
                 if (isSlugChar)
                 {
-                    if (pendingSeparator && sb.Length > 0)
+                    bool separate = pendingSeparator && sb.Length > 0;
+                    if (maxLength > 0 && sb.Length + (separate ? 2 : 1) > maxLength)
+                        break;
+                    if (separate)
                         sb.Append(separator);
                     pendingSeparator = false;
                     sb.Append(lower);
-
-                    if (maxLength > 0 && sb.Length >= maxLength)
-                        break;
                 }
                 else if (sb.Length > 0)
                 {
@@ -53,6 +55,18 @@ namespace ToolBelt.Text
             }
 
             return sb.ToString();
+        }
+
+        private static string ReplaceLoneSurrogates(string text)
+        {
+            char[]? chars = null;
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) { i++; continue; }
+                if (char.IsSurrogate(text[i]))
+                    (chars ??= text.ToCharArray())[i] = ' ';
+            }
+            return chars is null ? text : new string(chars);
         }
     }
 }

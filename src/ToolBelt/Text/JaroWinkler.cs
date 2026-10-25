@@ -65,10 +65,12 @@ namespace ToolBelt.Text
         /// </summary>
         public static double Similarity(string a, string b, double prefixScale = 0.1, int maxPrefix = 4)
         {
-            if (prefixScale < 0 || prefixScale > 0.25)
+            if (!(prefixScale >= 0 && prefixScale <= 0.25))
                 throw new ArgumentOutOfRangeException(nameof(prefixScale), prefixScale, "Prefix scale must be in [0, 0.25].");
             if (maxPrefix < 0)
                 throw new ArgumentOutOfRangeException(nameof(maxPrefix), maxPrefix, "Max prefix must not be negative.");
+            if (prefixScale * maxPrefix > 1)
+                throw new ArgumentOutOfRangeException(nameof(maxPrefix), maxPrefix, "Prefix scale × max prefix must not exceed 1, or the score could pass 1.");
 
             double jaro = Jaro(a, b);
 

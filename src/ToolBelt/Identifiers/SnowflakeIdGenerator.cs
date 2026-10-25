@@ -15,6 +15,7 @@ namespace ToolBelt.Identifiers
         private const int SequenceBits = 12;
         private const long MaxMachineId = (1L << MachineBits) - 1;   // 1023
         private const long SequenceMask = (1L << SequenceBits) - 1;  // 4095
+        private const long MaxTimestamp = (1L << 41) - 1;
 
         /// <summary>Default epoch: 2020-01-01 UTC. 41 bits of ms give ~69 years of range from here.</summary>
         public static readonly DateTimeOffset DefaultEpoch = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero);
@@ -56,6 +57,8 @@ namespace ToolBelt.Identifiers
                     _sequence = 0;
                 }
 
+                if (now > MaxTimestamp)
+                    throw new InvalidOperationException("The clock is past the last timestamp 41 bits can hold (about 69 years after the epoch).");
                 _lastTimestamp = now;
                 return (now << (MachineBits + SequenceBits))
                        | (_machineId << SequenceBits)

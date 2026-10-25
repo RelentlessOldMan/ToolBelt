@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 
 namespace ToolBelt.Text
@@ -22,32 +23,48 @@ namespace ToolBelt.Text
             var words = new List<string>();
             var current = new StringBuilder();
 
-            for (int i = 0; i < value.Length; i++)
+            // Walks code points (a surrogate pair is one letter); combining marks stay with the letter before them.
+            bool prevUpper = false, prevLower = false, prevDigit = false;
+            for (int i = 0; i < value.Length;)
             {
-                char c = value[i];
+                int len = char.IsSurrogatePair(value, i) ? 2 : 1;
+                var category = CharUnicodeInfo.GetUnicodeCategory(value, i);
 
-                if (!char.IsLetterOrDigit(c))
+                if (category == UnicodeCategory.NonSpacingMark || category == UnicodeCategory.SpacingCombiningMark
+                    || category == UnicodeCategory.EnclosingMark)
                 {
-                    Flush(current, words); // separator run
+                    if (current.Length > 0)
+                        current.Append(value, i, len);
+                    i += len;
                     continue;
                 }
 
+                if (!char.IsLetterOrDigit(value, i))
+                {
+                    Flush(current, words); // separator run
+                    i += len;
+                    continue;
+                }
+
+                bool upper = char.IsUpper(value, i);
                 if (current.Length > 0)
                 {
-                    char prev = current[current.Length - 1];
-
                     // lower/digit -> upper : a camelCase hump ("fooBar" => foo | Bar)
-                    bool humpBoundary = char.IsUpper(c) && (char.IsLower(prev) || char.IsDigit(prev));
+                    bool humpBoundary = upper && (prevLower || prevDigit);
 
                     // UPPER UPPER lower : end of an acronym ("HTTPServer" => HTTP | Server)
-                    bool acronymBoundary = char.IsUpper(c) && char.IsUpper(prev)
-                        && i + 1 < value.Length && char.IsLower(value[i + 1]);
+                    bool acronymBoundary = upper && prevUpper
+                        && i + len < value.Length && char.IsLower(value, i + len);
 
                     if (humpBoundary || acronymBoundary)
                         Flush(current, words);
                 }
 
-                current.Append(c);
+                current.Append(value, i, len);
+                prevUpper = upper;
+                prevLower = char.IsLower(value, i);
+                prevDigit = char.IsDigit(value, i);
+                i += len;
             }
 
             Flush(current, words);
