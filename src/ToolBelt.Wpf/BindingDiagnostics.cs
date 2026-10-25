@@ -118,7 +118,8 @@ namespace ToolBelt.Wpf
                 _pending.Clear();
             }
             var m = Regex.Match(line, @"Error: (\d+) : (.*)", RegexOptions.Singleline);
-            if (m.Success) Report(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), m.Groups[2].Value);
+            if (m.Success && int.TryParse(m.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int id))   // int.Parse threw on a huge id
+                Report(id, m.Groups[2].Value);
         }
 
         private void Report(int id, string message)

@@ -2,6 +2,8 @@
 using System;
 using System.Collections;
 using System.Globalization;
+using System.Numerics;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Data;
 
@@ -80,7 +82,7 @@ namespace ToolBelt.Wpf
         {
             if (value is null) return false;
             if (parameter is string name && value is Enum)
-                return Enum.TryParse(value.GetType(), name, false, out object? parsed) && value.Equals(parsed);
+                return TryParseName(value.GetType(), name, out object? parsed) && value.Equals(parsed);
             return value.Equals(parameter);
         }
 
@@ -91,9 +93,18 @@ namespace ToolBelt.Wpf
             {
                 Type enumType = Nullable.GetUnderlyingType(targetType) ?? targetType;
                 if (enumType.IsEnum)
-                    return Enum.TryParse(enumType, name, false, out object? parsed) ? parsed : Binding.DoNothing;
+                    return TryParseName(enumType, name, out object? parsed) ? parsed : Binding.DoNothing;
             }
             return parameter;
+        }
+
+        // Names only: Enum.TryParse also took "99", writing an undefined (DayOfWeek)99 back to the source.
+        private static bool TryParseName(Type enumType, string name, out object? value)
+        {
+            value = null;
+            string t = name.TrimStart();
+            if (t.Length == 0 || char.IsDigit(t[0]) || t[0] == '-' || t[0] == '+') return false;
+            return Enum.TryParse(enumType, name, false, out value);
         }
     }
 
@@ -113,6 +124,7 @@ namespace ToolBelt.Wpf
             bool any = value switch
             {
                 null => false,
+                _ when ReferenceEquals(value, DependencyProperty.UnsetValue) => false,
                 int n => n > 0,
                 long n => n > 0,
                 uint n => n > 0,
@@ -126,7 +138,7 @@ namespace ToolBelt.Wpf
                 decimal n => n > 0,
                 ICollection c => c.Count > 0,
                 IEnumerable e => HasAny(e),
-                _ => true,
+                _ => IsPositiveNumber(value) ?? true,
             };
             if (Invert) any = !any;
             return any ? Visibility.Visible : (UseHidden ? Visibility.Hidden : Visibility.Collapsed);
@@ -134,6 +146,21 @@ namespace ToolBelt.Wpf
 
         public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
             => Binding.DoNothing;
+
+        // Half, Int128, BigInteger, nint, ...: any INumberBase<T> the switch does not name (their zero was Visible).
+        private static bool? IsPositiveNumber(object value)
+        {
+            Type t = value.GetType();
+            foreach (Type i in t.GetInterfaces())
+                if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(INumberBase<>) && i.GetGenericArguments()[0] == t)
+                    return (bool)PositiveMethod.MakeGenericMethod(t).Invoke(null, new[] { value })!;
+            return null;
+        }
+
+        private static readonly MethodInfo PositiveMethod =
+            typeof(CountToVisibilityConverter).GetMethod(nameof(Positive), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        private static bool Positive<T>(T v) where T : INumberBase<T> => T.IsPositive(v) && !T.IsZero(v) && !T.IsNaN(v);
 
         private static bool HasAny(IEnumerable sequence)
         {

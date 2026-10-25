@@ -27,7 +27,10 @@ namespace ToolBelt.Wpf
         /// Parses "Ctrl+Shift+S", "Alt+F4", "Win+Space", "Ctrl+1" (case-insensitive; Control, Win/Windows accepted).
         /// </summary>
         public static HotkeyGesture Parse(string text)
-            => TryParse(text, out HotkeyGesture g) ? g : throw new FormatException($"'{text}' is not a valid hotkey.");
+        {
+            if (text is null) throw new ArgumentNullException(nameof(text));
+            return TryParse(text, out HotkeyGesture g) ? g : throw new FormatException($"'{text}' is not a valid hotkey.");
+        }
 
         public static bool TryParse(string? text, out HotkeyGesture gesture)
         {
@@ -51,12 +54,15 @@ namespace ToolBelt.Wpf
             Key key;
             if (keyText.Length == 1 && keyText[0] >= '0' && keyText[0] <= '9')
                 key = Key.D0 + (keyText[0] - '0');
+            else if (char.IsDigit(keyText[0]) || keyText[0] == '-' || keyText.IndexOf(',') >= 0)
+                return false;   // KeyConverter falls back to Enum.Parse: "65" was Key 65 (V), "999" no key at all
             else
             {
                 try { key = (Key)(new KeyConverter().ConvertFromInvariantString(keyText) ?? Key.None); }
                 catch (Exception ex) when (ex is NotSupportedException || ex is ArgumentException || ex is FormatException) { return false; }
             }
-            if (key == Key.None || IsModifierKey(key)) return false;
+            if (key == Key.None || IsModifierKey(key) || !Enum.IsDefined(typeof(Key), key)
+                || key == Key.ImeProcessed || key == Key.DeadCharProcessed) return false;   // pseudo-keys never fire
             gesture = new HotkeyGesture(mods, key);
             return true;
         }
@@ -90,7 +96,9 @@ namespace ToolBelt.Wpf
     /// UI thread, which already pumps messages. A combination another app has taken cannot be registered:
     /// <see cref="Register(HotkeyGesture, Action, bool)"/> throws and <see cref="TryRegister"/> returns false. Disposing unregisters everything;
     /// do so on exit (the OS also releases them when the process ends). For shortcuts that only apply while a window
-    /// is focused, use ordinary WPF <c>InputBindings</c> instead.
+    /// is focused, use ordinary WPF <c>InputBindings</c> instead. Register, unregister and dispose on the creating thread:
+    /// Windows only lets that thread change the window's hotkeys, so other threads get an
+    /// <see cref="InvalidOperationException"/> (and nothing changes).
     /// </summary>
     public sealed class GlobalHotkeys : IDisposable
     {
@@ -128,8 +136,10 @@ namespace ToolBelt.Wpf
             if (!TryRegister(gesture, callback, out int id, noRepeat))
             {
                 int error = Marshal.GetLastWin32Error();
-                throw new Win32Exception(error == 0 ? ERROR_HOTKEY_ALREADY_REGISTERED : error,
-                    $"Could not register hotkey {gesture}; it is probably in use by another application.");
+                if (error == 0) error = ERROR_HOTKEY_ALREADY_REGISTERED;
+                throw new Win32Exception(error, error == ERROR_HOTKEY_ALREADY_REGISTERED
+                    ? $"Could not register hotkey {gesture}; it is probably in use by another application."
+                    : $"Could not register hotkey {gesture}.");
             }
             return id;
         }
@@ -141,10 +151,12 @@ namespace ToolBelt.Wpf
         public bool TryRegister(HotkeyGesture gesture, Action callback, out int id, bool noRepeat = true)
         {
             ThrowIfDisposed();
+            _window.VerifyAccess();      // another thread's RegisterHotKey failed as if the hotkey were taken
             if (callback is null) throw new ArgumentNullException(nameof(callback));
             id = 0;
             uint mods = (uint)gesture.Modifiers | (noRepeat ? MOD_NOREPEAT : 0); // ModifierKeys values match MOD_ALT/CONTROL/SHIFT/WIN
             uint vk = (uint)KeyInterop.VirtualKeyFromKey(gesture.Key);
+            if (vk == 0) throw new ArgumentException("The gesture has no key a hotkey can use.", nameof(gesture));   // default(HotkeyGesture) registered
             int candidate = _nextId;
             if (!RegisterHotKey(_window.Handle, candidate, mods, vk)) return false;
             _nextId++;
@@ -157,6 +169,7 @@ namespace ToolBelt.Wpf
         public bool Unregister(int id)
         {
             ThrowIfDisposed();
+            _window.VerifyAccess();      // another thread's UnregisterHotKey failed silently, leaking the hotkey
             if (!_hotkeys.Remove(id)) return false;
             UnregisterHotKey(_window.Handle, id);
             return true;
@@ -165,6 +178,7 @@ namespace ToolBelt.Wpf
         public void Dispose()
         {
             if (_disposed) return;
+            _window.VerifyAccess();      // before any state changes: it threw half-way, leaving every hotkey registered
             _disposed = true;
             foreach (int id in _hotkeys.Keys) UnregisterHotKey(_window.Handle, id);
             _hotkeys.Clear();
@@ -174,7 +188,8 @@ namespace ToolBelt.Wpf
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
-            if (msg == WM_HOTKEY && _hotkeys.TryGetValue(wParam.ToInt32(), out var entry))
+            long hotkeyId = wParam.ToInt64();       // ToInt32 threw OverflowException on a hostile WM_HOTKEY
+            if (msg == WM_HOTKEY && hotkeyId >= int.MinValue && hotkeyId <= int.MaxValue && _hotkeys.TryGetValue((int)hotkeyId, out var entry))
             {
                 entry.Callback();
                 handled = true;

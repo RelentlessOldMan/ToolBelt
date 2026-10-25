@@ -115,8 +115,13 @@ namespace ToolBelt.Wpf
 
             var merged = _target.MergedDictionaries;
             int index = _applied is null ? -1 : merged.IndexOf(_applied);
-            if (index >= 0) merged[index] = dictionary;
-            else merged.Add(dictionary);
+            // On the first Apply, adopt a registered dictionary the app already merged (App.xaml): adding a second copy
+            // left the first behind it, so it outlived every later switch.
+            if (_applied is null)
+                foreach (ResourceDictionary? known in new[] { dictionary, _light, _dark })
+                    if (known != null && (index = merged.IndexOf(known)) >= 0) break;
+            if (index < 0) merged.Add(dictionary);
+            else if (!ReferenceEquals(merged[index], dictionary)) merged[index] = dictionary;
             _applied = dictionary;
             Effective = effective;
             ThemeChanged?.Invoke(this, effective);

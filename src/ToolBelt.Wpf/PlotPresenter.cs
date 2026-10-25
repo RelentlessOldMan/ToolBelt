@@ -69,8 +69,25 @@ namespace ToolBelt.Wpf
             set => SetValue(BackgroundProperty, value);
         }
 
-        public double MinZoom { get; set; } = 0.02;
-        public double MaxZoom { get; set; } = 64;
+        /// <summary>The smallest scale fitting and zooming allow: a positive finite number.</summary>
+        public double MinZoom
+        {
+            get => _minZoom;
+            set => _minZoom = value > 0 && !double.IsInfinity(value)
+                ? value
+                : throw new ArgumentOutOfRangeException(nameof(value), value, "MinZoom must be a positive finite number.");
+        }
+
+        /// <summary>The largest scale fitting and zooming allow: a positive finite number.</summary>
+        public double MaxZoom
+        {
+            get => _maxZoom;
+            set => _maxZoom = value > 0 && !double.IsInfinity(value)
+                ? value
+                : throw new ArgumentOutOfRangeException(nameof(value), value, "MaxZoom must be a positive finite number.");
+        }
+
+        private double _minZoom = 0.02, _maxZoom = 64;
 
         /// <summary>Zoom multiplier per mouse-wheel notch: a positive finite number (below 1 reverses the wheel).</summary>
         public double WheelFactor
@@ -124,7 +141,8 @@ namespace ToolBelt.Wpf
         {
             Matrix fit = FitMatrix(new Size(src.Width, src.Height), new Size(ActualWidth, ActualHeight));
             double s = Clamp(fit.M11, MinZoom, MaxZoom);
-            return s != fit.M11 ? FitAtScale(new Size(src.Width, src.Height), new Size(ActualWidth, ActualHeight), s) : fit;
+            Matrix m = s != fit.M11 ? FitAtScale(new Size(src.Width, src.Height), new Size(ActualWidth, ActualHeight), s) : fit;
+            return m.HasInverse ? m : _view;   // a 1e10-wide figure fitted to a scale ViewToContent could not invert
         }
 
         /// <summary>Shows the figure at 1:1 from the top-left corner.</summary>
@@ -171,7 +189,9 @@ namespace ToolBelt.Wpf
             if (width < 1) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
             if (height < 1) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
             if (rgba is null) throw new ArgumentNullException(nameof(rgba));
-            if (rgba.Length != width * height * 4) throw new ArgumentException("Expected width × height × 4 bytes.", nameof(rgba));
+            if (!(dpi > 0) || double.IsInfinity(dpi)) throw new ArgumentOutOfRangeException(nameof(dpi), dpi, "DPI must be a positive finite number.");
+            // In long: int arithmetic wrapped, so 32768² × 4 matched an empty array.
+            if (rgba.Length != (long)width * height * 4) throw new ArgumentException("Expected width × height × 4 bytes.", nameof(rgba));
             var bgra = new byte[rgba.Length];
             for (int i = 0; i < rgba.Length; i += 4)
             {

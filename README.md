@@ -1035,6 +1035,7 @@ tests/
     ThemeManagerTests.cs
     PlotPresenterTests.cs
     WpfReviewTests.cs       (round 16 review regressions: command threading, numeric input, paging reset, regex timeouts, converters)
+    WpfReview2Tests.cs      (round 33 review regressions: numeric clamping, hotkey threading, theme adoption, drag filtering, validation)
     UiReviewRegressionTests.cs  (2026-10-05 review regressions: WPF satellite)
   ToolBelt.WinForms.Tests/  WinForms UI satellite tests (net8.0-windows)
     ControlExtensionsTests.cs

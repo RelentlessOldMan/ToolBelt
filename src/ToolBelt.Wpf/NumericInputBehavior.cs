@@ -13,7 +13,10 @@ namespace ToolBelt.Wpf
         public double Minimum { get; set; } = double.NegativeInfinity;
         public double Maximum { get; set; } = double.PositiveInfinity;
 
-        /// <summary>Digits allowed after the decimal separator; 0 means whole numbers only (values round to at most 15).</summary>
+        /// <summary>
+        /// Digits allowed after the decimal separator; 0 means whole numbers only. Values round to at most 15; up to 99 are
+        /// shown, as zeros past the 15th.
+        /// </summary>
         public int DecimalPlaces { get; set; }
 
         /// <summary>Supplies the decimal separator and negative sign; defaults to the current culture.</summary>
@@ -113,8 +116,10 @@ namespace ToolBelt.Wpf
         }
 
         /// <summary>
-        /// Parses, clamps to [Minimum, Maximum], rounds to <see cref="NumericInputRules.DecimalPlaces"/> and formats.
-        /// Returns null when the text holds no number (empty, a lone sign, a value too large for a double, ...).
+        /// Parses, clamps to [Minimum, Maximum], rounds to <see cref="NumericInputRules.DecimalPlaces"/> and formats; the
+        /// result always lies in the range (a bound with more decimals than are shown clamps to the nearest shown value
+        /// inside it), and Minimum wins when it exceeds Maximum. Returns null when the text holds no number (empty, a lone
+        /// sign, a value too large for a double, ...).
         /// </summary>
         public static string? Coerce(string text, NumericInputRules rules)
         {
@@ -143,6 +148,7 @@ namespace ToolBelt.Wpf
                 int sign = Math.Sign(direction);
                 double start = Round(parsed, rules);
                 v = Round(parsed + sign * step, rules);
+                if (double.IsInfinity(v)) v = sign * double.MaxValue;     // stepping past double.MaxValue read "∞"
                 // A step under half a display unit would round straight back (5 − 0.5 → 4.5 → 5): move one unit instead.
                 if (sign != 0 && v == start) v = Round(start + sign * Math.Pow(10, -RoundingDigits(rules)), rules);
             }
@@ -152,7 +158,7 @@ namespace ToolBelt.Wpf
         // ---------- driving a TextBox ----------
 
         /// <summary>
-        /// Steps the box's value up (+1) or down (−1) by its <c>Step</c>, selecting the result. A <c>Step</c> that is not a
+        /// Steps the box's value up (+1) or down (−1) by its <c>Step</c>, leaving the caret at the end. A <c>Step</c> that is not a
         /// positive finite number does nothing (the arrow keys and wheel call this, so a bad binding must not crash input).
         /// </summary>
         public static void StepBy(TextBox box, int direction)
@@ -270,12 +276,34 @@ namespace ToolBelt.Wpf
 
         private static double Round(double v, NumericInputRules r) => Math.Round(v, RoundingDigits(r), MidpointRounding.AwayFromZero);
 
-        private static double Clamp(double v, NumericInputRules r) => v < r.Minimum ? r.Minimum : (v > r.Maximum ? r.Maximum : v);
+        // Clamps to the bounds moved inward to the shown precision — clamping to a raw 0.25 at one decimal formatted back
+        // out of range as "0.2" — and to finite values, so the text never reads "∞". Minimum wins an empty range.
+        private static double Clamp(double v, NumericInputRules r)
+        {
+            double min = Finite(r.Minimum), max = Finite(r.Maximum);
+            double lo = Inward(min, r, up: true), hi = Inward(max, r, up: false);
+            if (lo > hi) { lo = min; hi = Math.Max(min, max); }      // no shown value fits (or Minimum > Maximum)
+            return v < lo ? lo : (v > hi ? hi : v);
+        }
+
+        private static double Finite(double bound) => Math.Max(-double.MaxValue, Math.Min(double.MaxValue, bound));
+
+        private static double Inward(double bound, NumericInputRules r, bool up)
+        {
+            double g = Round(bound, r);
+            if (up ? g >= bound : g <= bound) return g;
+            double unit = Math.Pow(10, -RoundingDigits(r));
+            return Round(up ? g + unit : g - unit, r);
+        }
 
         private static string Format(double v, NumericInputRules r)
         {
             if (v == 0) v = 0; // no "-0"
-            return v.ToString("F" + Math.Max(0, r.DecimalPlaces).ToString(CultureInfo.InvariantCulture), r.Format);
+            // Digits past the 15th are zeros ("F20" printed binary noise: 0.1 gave "0.10000000000000000555"), and at most
+            // 99 are shown (a DecimalPlaces of a billion made losing focus throw FormatException).
+            int digits = RoundingDigits(r), shown = Math.Min(99, Math.Max(0, r.DecimalPlaces));
+            string s = v.ToString("F" + digits.ToString(CultureInfo.InvariantCulture), r.Format);
+            return shown > digits ? s + new string('0', shown - digits) : s;
         }
 
         private static double ParseLoose(string text, NumberFormatInfo nf)

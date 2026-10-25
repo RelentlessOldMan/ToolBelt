@@ -56,11 +56,11 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 2 | 17 / 56 | re-queue (17 bugs) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 2 | 19 / 63 | re-queue (4 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 2 | 26 / 61 | re-queue (1 severe) |
-| 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 1 | 21 / 21 | re-queue (1 severe) |
+| 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 2 | 17 / 38 | re-queue (17 bugs) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16, 17). **next: 16**
+5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17). **next: 17**
 
 ## Releases
 
@@ -101,6 +101,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.30.0 | 30 | Filters & control, second pass | 9 | (see tag) |
 | v0.31.0 | 31 | Signal analysis, second pass | 23 | (see tag) |
 | v0.32.0 | 32 | Text & small types, second pass | 12 | (see tag) |
+| v0.33.0 | 33 | WPF satellite, second pass | 17 | (see tag) |
 
 ## Round log
 
@@ -1436,3 +1437,43 @@ failing on the old code).
 - **Verify:** one ToolBelt.Windows test failed once while other builds were loading the machine, then passed 101/101 on three
   reruns (flaky, unidentified; this round changed nothing in ToolBelt.Windows).
 - **Re-queued:** yes (12 bugs).
+
+### Round 33 — 2026-10-25 — WPF satellite, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 16 with 1 severe).
+None of round 16's 21 fixes had regressed. **17 confirmed bugs**, none severe, plus 1 doc fix, each with a
+failing-first regression test in `WpfReview2Tests` (17 tests, all failing on the old code).
+
+- **NumericInputBehavior:** clamping to a bound with more decimals than shown formatted back out of range (Min 0.25,
+  one decimal: "0" became "0.2"; Max 3.5, none: "9" became "4"); the bounds now move inward to the shown precision.
+  Stepping past double.MaxValue or a Minimum of +∞ gave "Infinity"; a DecimalPlaces of a billion made losing focus
+  throw FormatException; more than 15 decimals showed binary noise ("0.10000000000000000555") rather than the zeros
+  the comment promised. StepBy's doc said it selects the result; it leaves the caret at the end.
+- **RegexValidationRule / RuleBuilder.Matches:** `$` matched before a final "\n", so "123\n" passed a whole-value
+  "[0-9]+"; now `\z`. `Range(5, 1)` now names max.
+- **NotifyTaskCompletion:** `ConfigureAwait(false)` raised PropertyChanged on the thread pool; it now resumes on the
+  creating context, as AsyncRelayCommand does since round 16.
+- **GlobalHotkeys:** Unregister from another thread returned true but left the hotkey registered system-wide; Dispose
+  from another thread threw half-way with every hotkey still registered and no way to retry. Both, and Register,
+  now throw InvalidOperationException before changing anything. A hostile WM_HOTKEY wParam above 32 bits threw
+  OverflowException out of the message loop; `default(HotkeyGesture)` registered VK 0; a failure other than "already
+  registered" no longer claims another app took the hotkey.
+- **HotkeyGesture.TryParse:** KeyConverter's Enum.Parse fallback took "Ctrl+65" as Ctrl+V and "Ctrl+999" as an
+  undefined key; numbers, comma lists and the ImeProcessed/DeadCharProcessed pseudo-keys are rejected. Parse(null)
+  throws ArgumentNullException.
+- **ThemeManager.Apply:** a registered dictionary the app had already merged (App.xaml) got a second copy, which
+  outlived every later switch, so Apply(Dark) changed nothing while reporting Dark; it is now adopted in place.
+- **FileDropBehavior:** filtering called Directory.Exists per file on every DragOver (200 ms per event for 5,000
+  files, for the whole drag); it is now done once per drag. ".tar.gz" never matched (Path.GetExtension).
+- **PlotPresenter:** MinZoom/MaxZoom accept only positive finite numbers; a fit to a scale WPF cannot invert keeps the
+  current view (ViewToContent threw). `BitmapFromRgba`'s size check overflowed (32768² × 4 matched an empty array),
+  and a NaN, zero or negative dpi is rejected.
+- **CountToVisibilityConverter:** zero of nint, Half, Int128, BigInteger (any INumberBase) and UnsetValue are Collapsed.
+- **EnumToBooleanConverter:** a numeric parameter ("99") wrote an undefined enum value back; only names are parsed.
+- **BindingFailureListener.WriteLine:** an id beyond int threw OverflowException.
+- **Not fixed:** ThemeManager's follow-system Apply runs in a dispatcher callback with no try/catch (a missing or broken
+  dictionary throws on an OS theme switch; not reproduced); Normalize leaves "-" or "." in the box; RecordingDialogService
+  Strict mode throws before recording the call; ZoomAbout on a mirrored view; IncrementalCollection records a loader's
+  own OperationCanceledException; a pattern with an unbalanced ")" escapes the anchors; EnumToBoolean names are
+  case-sensitive.
+- **Verify:** all green (WPF 134).
+- **Re-queued:** yes (17 bugs).

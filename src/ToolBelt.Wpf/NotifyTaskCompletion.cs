@@ -11,7 +11,8 @@ namespace ToolBelt.Wpf
     /// <see cref="Result"/>, <see cref="IsFaulted"/>, <see cref="ErrorMessage"/>, etc. When the wrapped task
     /// finishes, <see cref="INotifyPropertyChanged.PropertyChanged"/> is raised for every computed property.
     /// Faults are surfaced through the properties (never rethrown), so a failed task does not crash the UI.
-    /// Await <see cref="Completion"/> to know when the notifications have been raised.
+    /// The notifications are raised on the synchronization context that created the wrapper (the UI thread), so
+    /// handlers may touch UI objects. Await <see cref="Completion"/> to know when they have been raised.
     /// </summary>
     public sealed class NotifyTaskCompletion<TResult> : INotifyPropertyChanged
     {
@@ -47,7 +48,7 @@ namespace ToolBelt.Wpf
         {
             try
             {
-                await task.ConfigureAwait(false);
+                await task;      // back on the creating context (ConfigureAwait(false) raised them on the thread pool)
             }
             catch
             {

@@ -33,8 +33,8 @@ namespace ToolBelt.Wpf
         public static void SetExtensions(DependencyObject element, string? value) => element.SetValue(ExtensionsProperty, value);
 
         /// <summary>
-        /// The dropped file paths that pass the <paramref name="extensions"/> filter (case-insensitive; "*.*" or "*"
-        /// accepts every file). With a filter, folders are excluded — even one whose name ends in a listed extension;
+        /// The dropped file paths that pass the <paramref name="extensions"/> filter (case-insensitive, on the end of the
+        /// name, so ".tar.gz" works; "*.*" or "*" accepts every file). With a filter, folders are excluded — even one whose name ends in a listed extension;
         /// without one, everything in the drop is returned. Empty when the drop holds no files.
         /// </summary>
         public static string[] GetFiles(IDataObject data, string? extensions)
@@ -46,7 +46,7 @@ namespace ToolBelt.Wpf
             if (accepted.Count == 0 && !anyFile) return paths;
             var result = new List<string>();
             foreach (string p in paths)
-                if (p != null && (anyFile || accepted.Contains(Path.GetExtension(p))) && !Directory.Exists(p)) result.Add(p);
+                if (p != null && (anyFile || HasExtension(p, accepted)) && !Directory.Exists(p)) result.Add(p);
             return result.ToArray();
         }
 
@@ -56,6 +56,15 @@ namespace ToolBelt.Wpf
             if (command is null) return DragDropEffects.None;
             string[] files = GetFiles(data, extensions);
             return files.Length > 0 && command.CanExecute(files) ? DragDropEffects.Copy : DragDropEffects.None;
+        }
+
+        // Path.GetExtension gave only the last one, so ".tar.gz" never matched.
+        private static bool HasExtension(string path, HashSet<string> accepted)
+        {
+            string name = Path.GetFileName(path);
+            foreach (string e in accepted)
+                if (name.EndsWith(e, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
         }
 
         private static HashSet<string> ParseExtensions(string? extensions, out bool anyFile)
@@ -103,8 +112,31 @@ namespace ToolBelt.Wpf
         {
             if (!(sender is DependencyObject d)) return;
             if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;      // text and other drags: leave them to the control
-            e.Effects = EffectsFor(e.Data, GetCommand(d), GetExtensions(d));
+            ICommand? command = GetCommand(d);
+            string? extensions = GetExtensions(d);
+            // DragOver fires continuously while hovering, and filtering touches the disk once per file (Directory.Exists):
+            // a drag of thousands of files froze the UI for the whole drag. Filter once per drag.
+            DragCache? c = _drag;
+            if (c is null || !c.Data.TryGetTarget(out IDataObject? cached) || !ReferenceEquals(cached, e.Data) || c.Extensions != extensions)
+                _drag = c = new DragCache(e.Data, extensions, GetFiles(e.Data, extensions));
+            e.Effects = command != null && c.Files.Length > 0 && command.CanExecute(c.Files) ? DragDropEffects.Copy : DragDropEffects.None;
             e.Handled = true;
+        }
+
+        [ThreadStatic] private static DragCache? _drag;
+
+        private sealed class DragCache
+        {
+            public DragCache(IDataObject data, string? extensions, string[] files)
+            {
+                Data = new WeakReference<IDataObject>(data);
+                Extensions = extensions;
+                Files = files;
+            }
+
+            public WeakReference<IDataObject> Data { get; }
+            public string? Extensions { get; }
+            public string[] Files { get; }
         }
 
         private static void OnDrop(object sender, DragEventArgs e)
