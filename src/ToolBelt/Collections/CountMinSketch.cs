@@ -7,8 +7,8 @@ namespace ToolBelt.Collections
     /// <summary>
     /// A Count-Min Sketch: a compact, fixed-memory structure for estimating item frequencies in a stream.
     /// Estimates never under-count the true frequency; they may over-count, with error bounded by the
-    /// configured width and depth. Complements <see cref="BloomFilter"/> (membership) with approximate
-    /// counts. Not thread-safe.
+    /// configured width and depth. Complements a Bloom filter (membership) with approximate counts.
+    /// Not thread-safe.
     /// </summary>
     public sealed class CountMinSketch<T>
     {
@@ -37,7 +37,7 @@ namespace ToolBelt.Collections
             for (int i = 0; i < depth; i++)
             {
                 _counts[i] = new long[width];
-                _seeds[i] = 0x9E3779B1u * (uint)(i + 1); // distinct per-row mixing constant
+                _seeds[i] = unchecked(0x9E3779B1u * (uint)(i + 1)); // distinct per-row mixing constant
             }
         }
 
@@ -70,11 +70,18 @@ namespace ToolBelt.Collections
 
         private int Column(int baseHash, int row)
         {
-            // Mix the item's hash with the row seed, then reduce to [0, width).
-            uint h = (uint)baseHash ^ _seeds[row];
-            h *= 0x85EBCA6Bu;
-            h ^= h >> 13;
-            return (int)(h % (uint)_width);
+            // Mix the item's hash with the row seed through the full MurmurHash3 finalizer, so every input
+            // bit reaches the low bits that survive the reduction to [0, width).
+            unchecked
+            {
+                uint h = (uint)baseHash ^ _seeds[row];
+                h ^= h >> 16;
+                h *= 0x85EBCA6Bu;
+                h ^= h >> 13;
+                h *= 0xC2B2AE35u;
+                h ^= h >> 16;
+                return (int)(h % (uint)_width);
+            }
         }
     }
 }

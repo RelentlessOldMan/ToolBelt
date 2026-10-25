@@ -48,31 +48,63 @@ namespace ToolBelt.Collections
             }
         }
 
-        /// <summary>All permutations of <paramref name="items"/> (n! of them).</summary>
+        /// <summary>
+        /// All permutations of <paramref name="items"/> (n! of them), starting with the input order. Each
+        /// enumeration copies <paramref name="items"/> when it starts, so enumerations are independent.
+        /// </summary>
         public static IEnumerable<T[]> Permutations<T>(IReadOnlyList<T> items)
         {
             if (items is null) throw new ArgumentNullException(nameof(items));
-            var working = new T[items.Count];
-            for (int i = 0; i < working.Length; i++)
-                working[i] = items[i];
-            return Permute(working, 0);
+            return Permute(items);
         }
 
-        private static IEnumerable<T[]> Permute<T>(T[] arr, int start)
+        // The swap-and-recurse order (at depth d, swap each of positions d..n-1 into d, recurse, swap back),
+        // run on an explicit stack: next[d] is the position currently swapped into d. A recursive version
+        // nests one iterator per element and overflows the stack for a long list.
+        private static IEnumerable<T[]> Permute<T>(IReadOnlyList<T> items)
         {
-            if (start >= arr.Length - 1)
+            int n = items.Count;
+            var arr = new T[n];
+            for (int i = 0; i < n; i++)
+                arr[i] = items[i];
+            if (n <= 1)
             {
-                yield return (T[])arr.Clone();
+                yield return arr;
                 yield break;
             }
 
-            for (int i = start; i < arr.Length; i++)
+            var next = new int[n];
+            int depth = 0;
+            while (depth >= 0)
             {
-                (arr[start], arr[i]) = (arr[i], arr[start]);
-                foreach (var p in Permute(arr, start + 1))
-                    yield return p;
-                (arr[start], arr[i]) = (arr[i], arr[start]); // restore for the next swap
+                if (depth == n - 1)
+                {
+                    yield return (T[])arr.Clone();
+                    depth--;
+                    Unswap(arr, next, depth);
+                    continue;
+                }
+
+                int i = next[depth];
+                if (i < n)
+                {
+                    (arr[depth], arr[i]) = (arr[i], arr[depth]);
+                    depth++;
+                    next[depth] = depth;
+                }
+                else if (--depth >= 0)
+                {
+                    Unswap(arr, next, depth);
+                }
             }
+        }
+
+        // Restore the swap made at this depth and move on to the next candidate position.
+        private static void Unswap<T>(T[] arr, int[] next, int depth)
+        {
+            int i = next[depth];
+            (arr[depth], arr[i]) = (arr[i], arr[depth]);
+            next[depth] = i + 1;
         }
     }
 }

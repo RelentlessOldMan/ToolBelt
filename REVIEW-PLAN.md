@@ -49,8 +49,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 1 | 19 / 19 | re-queue (3 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 1 | 27 / 27 | re-queue (5 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 1 | 45 / 45 | re-queue (6 severe) |
-| 9  | Collections | `Collections/*` | 3,400 | ~1 | 0 | – / 0 | **next** |
-| 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 0 | – / 0 | queued |
+| 9  | Collections | `Collections/*` | 3,400 | ~1 | 1 | 28 / 28 | re-queue (6 severe) |
+| 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 0 | – / 0 | **next** |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 0 | – / 0 | queued |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 0 | – / 0 | queued |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 0 | – / 0 | queued |
@@ -76,6 +76,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.6.0 | 6 | Binary formats & images | 19 | (see tag) |
 | v0.7.0 | 7 | Documents & config | 27 | (see tag) |
 | v0.8.0 | 8 | IO | 45 | (see tag) |
+| v0.9.0 | 9 | Collections | 28 | (see tag) |
 
 ## Round log
 
@@ -466,3 +467,46 @@ inspection (races and leaks); 3 hardening items, 3 doc-only, 0 rejected.
 - **Doc-only:** `ChecksumManifest` and `DirectoryUtils.Copy` follow file symlinks; `FileRetention.KeepAtLeast` wording.
 - **Checked build:** the section is clean; the same 55 failures remain elsewhere.
 - **Re-queued:** yes (6 severe, 45 bugs).
+
+### Round 9 — 2026-10-25 — Collections
+
+Reviewers: one for correctness and one for robustness (a probe program against deep inputs, huge capacities,
+overflow and mutation during enumeration). **28 confirmed bugs**: 22 failing-first regression tests in
+`CollectionsReviewTests` (two of them crashed the test process with a stack overflow), the checked build for the
+sketch hashing, 3 by inspection; plus 2 guard tests (permutation order, a Trie-vs-SortedSet differential) and 2
+doc-only items, 0 rejected.
+
+- **Severe:**
+  - `CartesianProduct.Of(List<List<T>>)` bound to the `params` overload (T = `List<T>`) and returned one-element
+    tuples of the inner lists. The `params` form now takes at least two sequences; zero or one go through the list
+    overload.
+  - `Sampling.WeightedPickIndex` accepted infinite weights, and when the total overflowed to infinity it always
+    fell through to the last index, even one with weight 0. Weights are now scaled by the largest, and the
+    fall-through picks the last positive weight.
+  - `CountMinSketch`, `BloomFilter`, `CountingBloomFilter` and `BitSet.PopCount` threw `OverflowException` on every
+    operation in a checked build (hash multiplies weren't `unchecked`).
+  - `Deque` enumeration while pushing never ended (no version check).
+  - `Trie.WithPrefix` and `Remove` recursed once per character: a 200,000-character key crashed the process. Both
+    are iterative now, with the same sorted output.
+  - `Combinatorics.Permutations` shared one working array between enumerations, so two enumerations (or one
+    restarted after being abandoned) interfered.
+- **Moderate:**
+  - `CountMinSketch` mixed hashes too weakly: keys differing only in high bits collided in every row (now the full
+    MurmurHash3 finalizer).
+  - `Permutations` nested one iterator per element and overflowed the stack on a long list (now an explicit stack,
+    same swap order).
+  - `TtlCache` with `TimeSpan.MaxValue` threw on `Set` (now saturates), and expired keys that were never read again
+    accumulated forever (`Set` now prunes when the count doubles).
+  - `LruCache`, `Batch` and `TopN` allocated their full capacity up front: `int.MaxValue` threw `OutOfMemoryException`.
+- **Minor:** `BitSet` and `FenwickTree` constructor overflow near `int.MaxValue` (and Fenwick's update walk);
+  `Deque` index arithmetic; `CircularBuffer` enumeration didn't detect modification; `RangeSorted` checked null only
+  on enumeration; `NearestBy` with a NaN key returned 0 (now throws); `Aggregation.Summarize` dropped NaN from
+  Min/Max; `SamplingPlans.WeightedWithoutReplacement` lost the proportions of subnormal weights;
+  `CountingBloomFilter` and `CountMinSketch` doc crefs to `BloomFilter` broke the drop-in law.
+- **Hardening:** `ObjectPool` kept a double-returned instance twice (two renters shared it), reset instances it
+  then dropped, and accepted a null from the factory; `ReservoirSampler.Sample` could be cast back to the internal
+  `List<T>`; `DataTableLite.ToString` used the current culture.
+- **Doc-only:** `DataTableLite` `Distinct`/`GroupBy`/`InnerJoin` compare boxed values (int 1 ≠ long 1);
+  `TtlCache.Count` is O(n).
+- **Checked build:** the section is clean; 42 failures remain elsewhere (55 at v0.8.0, minus the 13 Collections ones).
+- **Re-queued:** yes (6 severe).

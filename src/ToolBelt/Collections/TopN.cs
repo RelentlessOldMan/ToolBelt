@@ -12,7 +12,8 @@ namespace ToolBelt.Collections
     /// </summary>
     public sealed class TopN<T>
     {
-        private readonly T[] _heap; // min-heap: _heap[0] is the smallest retained item
+        private T[] _heap; // min-heap: _heap[0] is the smallest retained item; grows up to _capacity
+        private readonly int _capacity;
         private readonly IComparer<T> _comparer;
         private int _count;
 
@@ -20,19 +21,22 @@ namespace ToolBelt.Collections
         {
             if (capacity <= 0)
                 throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity must be positive.");
-            _heap = new T[capacity];
+            _capacity = capacity;
+            _heap = new T[Math.Min(capacity, 16)]; // a huge capacity must not allocate up front
             _comparer = comparer ?? Comparer<T>.Default;
         }
 
-        public int Capacity => _heap.Length;
+        public int Capacity => _capacity;
 
         public int Count => _count;
 
         /// <summary>Offers an item; it is kept only if it ranks among the largest <see cref="Capacity"/> seen.</summary>
         public void Add(T item)
         {
-            if (_count < _heap.Length)
+            if (_count < _capacity)
             {
+                if (_count == _heap.Length)
+                    Array.Resize(ref _heap, (int)Math.Min((long)_heap.Length * 2, _capacity));
                 _heap[_count] = item;
                 SiftUp(_count);
                 _count++;

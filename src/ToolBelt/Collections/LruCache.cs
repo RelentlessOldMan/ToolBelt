@@ -23,7 +23,7 @@ namespace ToolBelt.Collections
             if (capacity <= 0)
                 throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity must be positive.");
             _capacity = capacity;
-            _map = new Dictionary<TKey, LinkedListNode<Entry>>(capacity);
+            _map = new Dictionary<TKey, LinkedListNode<Entry>>(Math.Min(capacity, 1024)); // grows on demand
         }
 
         public int Capacity => _capacity;

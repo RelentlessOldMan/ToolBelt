@@ -5,11 +5,11 @@ using System.Text;
 namespace ToolBelt.Collections
 {
     /// <summary>
-    /// A counting Bloom filter: like a <see cref="BloomFilter"/> but each slot is a small saturating counter
+    /// A counting Bloom filter: like a plain Bloom filter (ToolBelt's BloomFilter) but each slot is a small saturating counter
     /// instead of a single bit, which lets items be <see cref="Remove(byte[])"/>d. <see cref="MightContain(byte[])"/>
     /// still never returns a false negative for an item that is currently present, and may return a false
     /// positive at a rate bounded by the size chosen at construction. Sizing and double-hashing match
-    /// <see cref="BloomFilter"/>; the counter store and hashing are inlined so this file stands alone. Not thread-safe.
+    /// BloomFilter; the counter store and hashing are inlined so this file stands alone. Not thread-safe.
     /// </summary>
     /// <remarks>
     /// Two inherent caveats of the counting variant (both documented rather than silently wrong):
@@ -130,7 +130,7 @@ namespace ToolBelt.Collections
             foreach (byte b in data)
             {
                 hash ^= b;
-                hash *= 16777619u;
+                hash = unchecked(hash * 16777619u);
             }
             return hash;
         }

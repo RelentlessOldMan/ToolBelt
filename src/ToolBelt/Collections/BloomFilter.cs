@@ -86,7 +86,7 @@ namespace ToolBelt.Collections
             foreach (byte b in data)
             {
                 hash ^= b;
-                hash *= 16777619u;
+                hash = unchecked(hash * 16777619u);
             }
             return hash;
         }

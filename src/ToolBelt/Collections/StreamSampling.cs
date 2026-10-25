@@ -14,6 +14,7 @@ namespace ToolBelt.Collections
     public sealed class ReservoirSampler<T>
     {
         private readonly List<T> _reservoir;
+        private readonly IReadOnlyList<T> _view; // read-only wrapper, so Sample can't be cast back to List<T>
         private readonly Random _random;
         private double _w;
         private long _nextAccept;
@@ -24,6 +25,7 @@ namespace ToolBelt.Collections
             Capacity = capacity;
             _random = random ?? throw new ArgumentNullException(nameof(random));
             _reservoir = new List<T>(Math.Min(capacity, 1024));
+            _view = _reservoir.AsReadOnly();
         }
 
         public int Capacity { get; }
@@ -31,8 +33,11 @@ namespace ToolBelt.Collections
         /// <summary>Items offered so far.</summary>
         public long Count { get; private set; }
 
-        /// <summary>The current sample (fewer than <see cref="Capacity"/> items until that many have been seen). Order is arbitrary.</summary>
-        public IReadOnlyList<T> Sample => _reservoir;
+        /// <summary>
+        /// The current sample (fewer than <see cref="Capacity"/> items until that many have been seen). Order is arbitrary.
+        /// This is a live read-only view that changes as items are added; copy it to keep a snapshot.
+        /// </summary>
+        public IReadOnlyList<T> Sample => _view;
 
         public void Add(T item)
         {
@@ -92,11 +97,13 @@ namespace ToolBelt.Collections
             if (items.Count != weights.Count) throw new ArgumentException("Items and weights must have the same length.");
             if (count < 0) throw new ArgumentOutOfRangeException(nameof(count), count, "Count must not be negative.");
             int positive = 0;
+            double max = 0;
             for (int i = 0; i < weights.Count; i++)
             {
                 double w = weights[i];
                 if (!(w >= 0) || double.IsInfinity(w)) throw new ArgumentException($"Weight {i} is {w}; weights must be finite and non-negative.", nameof(weights));
                 if (w > 0) positive++;
+                if (w > max) max = w;
             }
             if (count > positive) throw new ArgumentException($"Asked for {count} items but only {positive} have positive weight.", nameof(count));
 
@@ -107,7 +114,8 @@ namespace ToolBelt.Collections
                 if (weights[i] == 0) continue;
                 double u;
                 do u = random.NextDouble(); while (u == 0);
-                double key = Math.Log(u) / weights[i];
+                // Relative weights: ln(u)/w for a subnormal w is -infinity for every such item, which ties them.
+                double key = Math.Log(u) / (weights[i] / max);
                 if (heap.Count < count) heap.Add((key, i));
                 else if (count > 0 && key > heap.Min.Key)
                 {

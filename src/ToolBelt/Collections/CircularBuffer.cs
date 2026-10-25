@@ -15,6 +15,7 @@ namespace ToolBelt.Collections
         private readonly T[] _buffer;
         private int _start; // index of the oldest element
         private int _count;
+        private int _version; // bumped by every mutation so an enumerator can detect one
 
         public CircularBuffer(int capacity)
         {
@@ -44,6 +45,7 @@ namespace ToolBelt.Collections
                 _buffer[(_start + _count) % _buffer.Length] = item;
                 _count++;
             }
+            _version++;
         }
 
         /// <summary>The oldest retained element (index 0 in enumeration order).</summary>
@@ -75,6 +77,7 @@ namespace ToolBelt.Collections
             _buffer[_start] = default!; // release reference
             _start = (_start + 1) % _buffer.Length;
             _count--;
+            _version++;
             return true;
         }
 
@@ -83,6 +86,7 @@ namespace ToolBelt.Collections
             Array.Clear(_buffer, 0, _buffer.Length);
             _start = 0;
             _count = 0;
+            _version++;
         }
 
         public T[] ToArray()
@@ -93,10 +97,16 @@ namespace ToolBelt.Collections
             return result;
         }
 
+        /// <summary>Enumerates oldest to newest. Modifying the buffer during enumeration throws <see cref="InvalidOperationException"/>.</summary>
         public IEnumerator<T> GetEnumerator()
         {
+            int version = _version;
             for (int i = 0; i < _count; i++)
+            {
                 yield return _buffer[(_start + i) % _buffer.Length];
+                if (version != _version)
+                    throw new InvalidOperationException("The buffer was modified during enumeration.");
+            }
         }
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();

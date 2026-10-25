@@ -6,7 +6,9 @@ namespace ToolBelt.Collections
 {
     /// <summary>
     /// A cache whose entries expire a fixed <c>ttl</c> after they are written. Expired entries are
-    /// treated as absent and removed lazily on access (or eagerly via <see cref="Prune"/>). Time is read
+    /// treated as absent and removed lazily on access (or eagerly via <see cref="Prune"/>); <see cref="Set"/>
+    /// also prunes whenever the entry count doubles, so keys that are written once and never read again
+    /// cannot accumulate. A <c>ttl</c> of <see cref="TimeSpan.MaxValue"/> never expires. Time is read
     /// through an injectable clock, so expiry is deterministic in tests. Not thread-safe.
     /// </summary>
     public sealed class TtlCache<TKey, TValue>
@@ -27,6 +29,9 @@ namespace ToolBelt.Collections
         private readonly Dictionary<TKey, Entry> _entries = new Dictionary<TKey, Entry>();
         private readonly TimeSpan _ttl;
         private readonly Func<DateTimeOffset> _clock;
+        private int _pruneAt = MinPruneAt; // Set prunes when the count reaches this, then doubles it
+
+        private const int MinPruneAt = 64;
 
         public TtlCache(TimeSpan ttl, Func<DateTimeOffset>? clock = null)
         {
@@ -36,7 +41,7 @@ namespace ToolBelt.Collections
             _clock = clock ?? (static () => DateTimeOffset.UtcNow);
         }
 
-        /// <summary>Number of entries that have not yet expired (expired entries are pruned first).</summary>
+        /// <summary>Number of entries that have not yet expired (expired entries are pruned first, so this is O(n)).</summary>
         public int Count
         {
             get
@@ -50,7 +55,16 @@ namespace ToolBelt.Collections
         public void Set(TKey key, TValue value)
         {
             if (key is null) throw new ArgumentNullException(nameof(key));
-            _entries[key] = new Entry(value, _clock() + _ttl);
+            var now = _clock();
+            if (_entries.Count >= _pruneAt)
+            {
+                PruneExpired(now);
+                _pruneAt = Math.Max(MinPruneAt, _entries.Count <= int.MaxValue / 2 ? _entries.Count * 2 : int.MaxValue);
+            }
+            // Saturate rather than throw when now + ttl is past the end of the calendar. In ticks, since
+            // MaxValue - ttl itself underflows for a huge ttl (the long difference cannot overflow).
+            var expiresAt = now.UtcTicks > DateTimeOffset.MaxValue.UtcTicks - _ttl.Ticks ? DateTimeOffset.MaxValue : now + _ttl;
+            _entries[key] = new Entry(value, expiresAt);
         }
 
         /// <summary>Gets a value if present and not expired; removes it and returns false if it has expired.</summary>
@@ -82,9 +96,10 @@ namespace ToolBelt.Collections
         public void Clear() => _entries.Clear();
 
         /// <summary>Removes all currently-expired entries.</summary>
-        public void Prune()
+        public void Prune() => PruneExpired(_clock());
+
+        private void PruneExpired(DateTimeOffset now)
         {
-            var now = _clock();
             List<TKey>? expired = null;
             foreach (var pair in _entries)
             {

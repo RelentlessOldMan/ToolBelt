@@ -23,14 +23,14 @@ namespace ToolBelt.Tests.Collections
 
         public void NoSequences_YieldsSingleEmpty()
         {
-            var product = CartesianProduct.Of<int>().ToList();
+            var product = CartesianProduct.Of(Array.Empty<int[]>()).ToList();
             Check.Equal(1, product.Count);
             Check.Equal(0, product[0].Length);
         }
 
         public void SingleSequence()
         {
-            var product = CartesianProduct.Of(new[] { 1, 2, 3 }).ToList();
+            var product = CartesianProduct.Of(new[] { new[] { 1, 2, 3 } }).ToList();
             Check.Equal(3, product.Count);
             Check.True(product[2].SequenceEqual(new[] { 3 }));
         }

@@ -1,7 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 
 namespace ToolBelt.Collections
@@ -17,6 +16,22 @@ namespace ToolBelt.Collections
         {
             public readonly Dictionary<char, Node> Children = new Dictionary<char, Node>();
             public bool IsWord;
+        }
+
+        // One level of the explicit depth-first stack in Collect.
+        private sealed class Frame
+        {
+            public readonly Node Node;
+            public readonly char[] Keys;
+            public int Next;
+
+            public Frame(Node node)
+            {
+                Node = node;
+                Keys = new char[node.Children.Count];
+                node.Children.Keys.CopyTo(Keys, 0);
+                Array.Sort(Keys); // ordinal
+            }
         }
 
         private readonly Node _root = new Node();
@@ -85,7 +100,32 @@ namespace ToolBelt.Collections
         {
             if (key is null)
                 throw new ArgumentNullException(nameof(key));
-            return Remove(_root, key, 0);
+
+            // Iterative (a recursive walk overflows the stack on a very long key): record the path, then
+            // prune now-empty nodes from the bottom up.
+            var path = new Node[key.Length + 1];
+            path[0] = _root;
+            for (int i = 0; i < key.Length; i++)
+            {
+                if (!path[i].Children.TryGetValue(key[i], out var next))
+                    return false;
+                path[i + 1] = next;
+            }
+
+            var end = path[key.Length];
+            if (!end.IsWord)
+                return false;
+            end.IsWord = false;
+            Count--;
+
+            for (int d = key.Length; d > 0; d--)
+            {
+                var node = path[d];
+                if (node.IsWord || node.Children.Count > 0)
+                    break;
+                path[d - 1].Children.Remove(key[d - 1]); // prune dead branch
+            }
+            return true;
         }
 
         private Node? Walk(string s)
@@ -100,38 +140,32 @@ namespace ToolBelt.Collections
             return node;
         }
 
-        private static void Collect(Node node, StringBuilder path, List<string> results)
+        // Depth-first, children in ascending ordinal order, so results come out sorted. Iterative: a
+        // recursive walk overflows the stack on a very long key.
+        private static void Collect(Node start, StringBuilder path, List<string> results)
         {
-            if (node.IsWord)
+            if (start.IsWord)
                 results.Add(path.ToString());
 
-            foreach (char c in node.Children.Keys.OrderBy(k => k))
+            var stack = new List<Frame> { new Frame(start) };
+            while (stack.Count > 0)
             {
+                var top = stack[stack.Count - 1];
+                if (top.Next == top.Keys.Length)
+                {
+                    stack.RemoveAt(stack.Count - 1);
+                    if (stack.Count > 0)
+                        path.Length--; // drop the character that led to the finished node
+                    continue;
+                }
+
+                char c = top.Keys[top.Next++];
+                var child = top.Node.Children[c];
                 path.Append(c);
-                Collect(node.Children[c], path, results);
-                path.Length--;
+                if (child.IsWord)
+                    results.Add(path.ToString());
+                stack.Add(new Frame(child));
             }
-        }
-
-        private bool Remove(Node node, string key, int depth)
-        {
-            if (depth == key.Length)
-            {
-                if (!node.IsWord)
-                    return false;
-                node.IsWord = false;
-                Count--;
-                return true;
-            }
-
-            char c = key[depth];
-            if (!node.Children.TryGetValue(c, out var child))
-                return false;
-
-            bool removed = Remove(child, key, depth + 1);
-            if (removed && !child.IsWord && child.Children.Count == 0)
-                node.Children.Remove(c); // prune dead branch
-            return removed;
         }
     }
 }

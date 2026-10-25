@@ -24,8 +24,8 @@ namespace ToolBelt.Collections
         }
 
         /// <summary>
-        /// Chooses an index in proportion to <paramref name="weights"/>. Weights must be non-negative and
-        /// sum to a positive value.
+        /// Chooses an index in proportion to <paramref name="weights"/>. Weights must be finite, non-negative
+        /// and not all zero. A zero-weight index is never chosen.
         /// </summary>
         public static int WeightedPickIndex(IReadOnlyList<double> weights, Random random)
         {
@@ -33,26 +33,35 @@ namespace ToolBelt.Collections
             if (random is null) throw new ArgumentNullException(nameof(random));
             if (weights.Count == 0) throw new ArgumentException("Weights must not be empty.", nameof(weights));
 
-            double total = 0;
+            double max = 0;
             for (int i = 0; i < weights.Count; i++)
             {
                 double w = weights[i];
-                if (w < 0 || double.IsNaN(w))
+                if (!(w >= 0) || double.IsInfinity(w))
                     throw new ArgumentException($"Weight at index {i} is invalid ({w}).", nameof(weights));
-                total += w;
+                if (w > max) max = w;
             }
-            if (total <= 0)
+            if (max == 0)
                 throw new ArgumentException("Weights must sum to a positive value.", nameof(weights));
+
+            // Scale by the largest weight so the total (at most Count) cannot overflow to infinity.
+            double total = 0;
+            int last = 0;
+            for (int i = 0; i < weights.Count; i++)
+            {
+                total += weights[i] / max;
+                if (weights[i] > 0) last = i;
+            }
 
             double target = random.NextDouble() * total;
             double cumulative = 0;
             for (int i = 0; i < weights.Count; i++)
             {
-                cumulative += weights[i];
-                if (target < cumulative)
+                cumulative += weights[i] / max;
+                if (target < cumulative && weights[i] > 0)
                     return i;
             }
-            return weights.Count - 1; // floating-point guard: fall through to the last item
+            return last; // floating-point guard: fall through to the last item with a positive weight
         }
 
         /// <summary>Picks an item in proportion to its weight. <paramref name="items"/> and <paramref name="weights"/> must align.</summary>

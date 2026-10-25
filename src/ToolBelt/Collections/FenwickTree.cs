@@ -14,8 +14,8 @@ namespace ToolBelt.Collections
 
         public FenwickTree(int size)
         {
-            if (size < 0)
-                throw new ArgumentOutOfRangeException(nameof(size), size, "Size must not be negative.");
+            if (size < 0 || size == int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(size), size, "Size must be in [0, int.MaxValue).");
             _tree = new long[size + 1];
         }
 
@@ -26,8 +26,14 @@ namespace ToolBelt.Collections
         {
             if ((uint)index >= (uint)Size)
                 throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be in [0, {Size}).");
-            for (int x = index + 1; x <= Size; x += x & -x)
+            int size = Size;
+            for (int x = index + 1; ; )
+            {
                 _tree[x] += delta;
+                int step = x & -x;
+                if (x > size - step) break; // x + step would pass the end (or overflow int)
+                x += step;
+            }
         }
 
         /// <summary>Sum of values in the inclusive range [0, <paramref name="index"/>].</summary>

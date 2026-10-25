@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 
 namespace ToolBelt.Collections
@@ -164,7 +165,10 @@ namespace ToolBelt.Collections
             return result;
         }
 
-        /// <summary>Returns the table with duplicate rows removed (full-row structural equality), first kept.</summary>
+        /// <summary>
+        /// Returns the table with duplicate rows removed (full-row structural equality), first kept. Cells compare
+        /// with <see cref="object.Equals(object)"/> on the boxed values, so <c>1</c> (int) and <c>1L</c> (long) differ.
+        /// </summary>
         public DataTableLite Distinct()
         {
             var result = CloneSchemaEmpty();
@@ -177,7 +181,7 @@ namespace ToolBelt.Collections
 
         /// <summary>
         /// Groups rows by the distinct values of one column, preserving first-seen key order. Rows whose key
-        /// cell is null form their own group with a null key.
+        /// cell is null form their own group with a null key. Keys compare as boxed values (<c>1</c> and <c>1L</c> differ).
         /// </summary>
         public IReadOnlyList<DataGroup> GroupBy(string column)
         {
@@ -216,7 +220,8 @@ namespace ToolBelt.Collections
         /// Inner-joins this table (left) with <paramref name="other"/> (right) on equal values of
         /// <paramref name="leftColumn"/> and <paramref name="rightColumn"/>. The result has the left columns
         /// followed by the right columns; if a right column name collides with a left one, pass
-        /// <paramref name="rightPrefix"/> to disambiguate. Null keys never match (SQL-like).
+        /// <paramref name="rightPrefix"/> to disambiguate. Null keys never match (SQL-like). Keys compare as boxed
+        /// values, so an int key never matches a long key of the same number.
         /// </summary>
         public DataTableLite InnerJoin(DataTableLite other, string leftColumn, string rightColumn, string? rightPrefix = null)
         {
@@ -262,7 +267,7 @@ namespace ToolBelt.Collections
             return result;
         }
 
-        /// <summary>Renders the table as aligned text (for debugging / console output).</summary>
+        /// <summary>Renders the table as aligned text (for debugging / console output), formatting cells with the invariant culture.</summary>
         public override string ToString()
         {
             var widths = new int[_columns.Length];
@@ -273,7 +278,7 @@ namespace ToolBelt.Collections
                 cells[r] = new string[_columns.Length];
                 for (int c = 0; c < _columns.Length; c++)
                 {
-                    string s = _rows[r][c]?.ToString() ?? "";
+                    string s = Convert.ToString(_rows[r][c], CultureInfo.InvariantCulture) ?? "";
                     cells[r][c] = s;
                     if (s.Length > widths[c]) widths[c] = s.Length;
                 }

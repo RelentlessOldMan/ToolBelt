@@ -84,10 +84,11 @@ namespace ToolBelt.Collections
 
         /// <summary>
         /// Index of the element whose key is nearest <paramref name="key"/> (ties go to the earlier element), or −1 for an
-        /// empty list — "the sample closest to t".
+        /// empty list — "the sample closest to t". A NaN <paramref name="key"/> is nearest nothing and throws.
         /// </summary>
         public static int NearestBy<T>(this IReadOnlyList<T> list, double key, Func<T, double> keySelector)
         {
+            if (double.IsNaN(key)) throw new ArgumentException("Key must not be NaN.", nameof(key));
             int i = list.LowerBoundBy(key, keySelector);
             if (list.Count == 0) return -1;
             if (i == 0) return 0;
@@ -116,6 +117,12 @@ namespace ToolBelt.Collections
 
         /// <summary>The elements in [<paramref name="from"/>, <paramref name="to"/>) — a range query on a sorted list.</summary>
         public static IEnumerable<T> RangeSorted<T>(this IReadOnlyList<T> list, T from, T to, IComparer<T>? comparer = null)
+        {
+            if (list is null) throw new ArgumentNullException(nameof(list)); // here, not on first MoveNext
+            return RangeSortedIterator(list, from, to, comparer);
+        }
+
+        private static IEnumerable<T> RangeSortedIterator<T>(IReadOnlyList<T> list, T from, T to, IComparer<T>? comparer)
         {
             int start = list.LowerBound(from, comparer), end = list.LowerBound(to, comparer);
             for (int i = start; i < end; i++) yield return list[i];

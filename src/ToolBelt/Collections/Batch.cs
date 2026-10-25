@@ -29,7 +29,7 @@ namespace ToolBelt.Collections
 
         private static IEnumerable<IReadOnlyList<T>> Iterator<T>(IEnumerable<T> source, int size)
         {
-            var bucket = new List<T>(size);
+            var bucket = new List<T>(System.Math.Min(size, 1024)); // a huge size must not allocate up front
             foreach (var item in source)
             {
                 bucket.Add(item);

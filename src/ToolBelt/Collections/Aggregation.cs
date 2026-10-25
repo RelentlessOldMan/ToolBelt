@@ -58,7 +58,13 @@ namespace ToolBelt.Collections
             {
                 List<double> group = values[key];
                 double sum = 0, min = double.PositiveInfinity, max = double.NegativeInfinity;
-                foreach (double v in group) { sum += v; if (v < min) min = v; if (v > max) max = v; }
+                foreach (double v in group)
+                {
+                    sum += v;
+                    if (double.IsNaN(v)) { min = max = double.NaN; continue; }
+                    if (v < min) min = v; // a NaN min/max stays NaN: comparisons with NaN are false
+                    if (v > max) max = v;
+                }
                 double mean = sum / group.Count;
                 double variance = 0;
                 if (group.Count > 1)

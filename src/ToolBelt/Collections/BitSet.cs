@@ -17,7 +17,7 @@ namespace ToolBelt.Collections
         {
             if (initialCapacityBits < 0)
                 throw new ArgumentOutOfRangeException(nameof(initialCapacityBits), initialCapacityBits, "Capacity must not be negative.");
-            _words = new ulong[Math.Max(1, (initialCapacityBits + 63) / 64)];
+            _words = new ulong[Math.Max(1, (int)(((long)initialCapacityBits + 63) / 64))];
         }
 
         /// <summary>Whether bit <paramref name="index"/> is set.</summary>
@@ -135,7 +135,7 @@ namespace ToolBelt.Collections
             x -= (x >> 1) & 0x5555555555555555UL;
             x = (x & 0x3333333333333333UL) + ((x >> 2) & 0x3333333333333333UL);
             x = (x + (x >> 4)) & 0x0F0F0F0F0F0F0F0FUL;
-            return (int)((x * 0x0101010101010101UL) >> 56);
+            return (int)(unchecked(x * 0x0101010101010101UL) >> 56);
         }
 
         private static int TrailingZeroCount(ulong x)

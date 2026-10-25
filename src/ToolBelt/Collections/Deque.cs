@@ -15,6 +15,7 @@ namespace ToolBelt.Collections
         private T[] _array;
         private int _head;  // index of the front element
         private int _count;
+        private int _version; // bumped by every mutation so an enumerator can detect one
 
         public Deque() : this(4) { }
 
@@ -30,8 +31,9 @@ namespace ToolBelt.Collections
         public void PushBack(T item)
         {
             EnsureCapacity();
-            _array[(_head + _count) % _array.Length] = item;
+            _array[Slot(_count)] = item;
             _count++;
+            _version++;
         }
 
         public void PushFront(T item)
@@ -40,6 +42,7 @@ namespace ToolBelt.Collections
             _head = (_head - 1 + _array.Length) % _array.Length;
             _array[_head] = item;
             _count++;
+            _version++;
         }
 
         public bool TryPopFront(out T item)
@@ -54,6 +57,7 @@ namespace ToolBelt.Collections
             _array[_head] = default!;
             _head = (_head + 1) % _array.Length;
             _count--;
+            _version++;
             return true;
         }
 
@@ -65,17 +69,18 @@ namespace ToolBelt.Collections
                 return false;
             }
 
-            int tail = (_head + _count - 1) % _array.Length;
+            int tail = Slot(_count - 1);
             item = _array[tail];
             _array[tail] = default!;
             _count--;
+            _version++;
             return true;
         }
 
         public T PeekFront => _count > 0 ? _array[_head] : throw new InvalidOperationException("Deque is empty.");
 
         public T PeekBack => _count > 0
-            ? _array[(_head + _count - 1) % _array.Length]
+            ? _array[Slot(_count - 1)]
             : throw new InvalidOperationException("Deque is empty.");
 
         public T this[int index]
@@ -84,7 +89,7 @@ namespace ToolBelt.Collections
             {
                 if ((uint)index >= (uint)_count)
                     throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be in [0, {_count}).");
-                return _array[(_head + index) % _array.Length];
+                return _array[Slot(index)];
             }
         }
 
@@ -93,20 +98,27 @@ namespace ToolBelt.Collections
             Array.Clear(_array, 0, _array.Length);
             _head = 0;
             _count = 0;
+            _version++;
         }
 
         public T[] ToArray()
         {
             var result = new T[_count];
             for (int i = 0; i < _count; i++)
-                result[i] = _array[(_head + i) % _array.Length];
+                result[i] = _array[Slot(i)];
             return result;
         }
 
+        /// <summary>Enumerates front to back. Modifying the deque during enumeration throws <see cref="InvalidOperationException"/>.</summary>
         public IEnumerator<T> GetEnumerator()
         {
+            int version = _version;
             for (int i = 0; i < _count; i++)
-                yield return _array[(_head + i) % _array.Length];
+            {
+                yield return _array[Slot(i)];
+                if (version != _version)
+                    throw new InvalidOperationException("The deque was modified during enumeration.");
+            }
         }
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -118,9 +130,17 @@ namespace ToolBelt.Collections
 
             var grown = new T[_array.Length * 2];
             for (int i = 0; i < _count; i++)
-                grown[i] = _array[(_head + i) % _array.Length];
+                grown[i] = _array[Slot(i)];
             _array = grown;
             _head = 0;
+        }
+
+        // Physical index of logical position i (0 <= i < length). _head + i could overflow int for a huge
+        // array, but _head + i - length lies in (-length, length).
+        private int Slot(int i)
+        {
+            int j = _head + i - _array.Length;
+            return j >= 0 ? j : j + _array.Length;
         }
     }
 }

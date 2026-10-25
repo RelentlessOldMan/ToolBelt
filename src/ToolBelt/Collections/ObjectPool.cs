@@ -6,9 +6,10 @@ namespace ToolBelt.Collections
 {
     /// <summary>
     /// A bounded, thread-safe pool of reusable objects. <see cref="Rent"/> returns a pooled instance or
-    /// creates one via the factory; <see cref="Return"/> optionally resets it and keeps it if the pool is
-    /// below capacity (otherwise the instance is simply dropped for the GC). Useful for recycling
-    /// expensive-to-allocate objects such as buffers or builders.
+    /// creates one via the factory; <see cref="Return"/> keeps it (resetting it first, if configured) when
+    /// the pool is below capacity, and otherwise drops it for the GC without resetting it. Returning an
+    /// instance that is already pooled is a no-op, so a double return cannot hand one instance to two
+    /// renters. Useful for recycling expensive-to-allocate objects such as buffers or builders.
     /// </summary>
     public sealed class ObjectPool<T> where T : class
     {
@@ -16,6 +17,7 @@ namespace ToolBelt.Collections
         private readonly Action<T>? _reset;
         private readonly int _maxRetained;
         private readonly Stack<T> _items = new Stack<T>();
+        private readonly HashSet<T> _pooled = new HashSet<T>(ReferenceComparer.Instance); // same set as _items
         private readonly object _gate = new object();
 
         /// <param name="factory">Creates a new instance when the pool is empty.</param>
@@ -41,20 +43,31 @@ namespace ToolBelt.Collections
             lock (_gate)
             {
                 if (_items.Count > 0)
-                    return _items.Pop();
+                {
+                    var pooled = _items.Pop();
+                    _pooled.Remove(pooled);
+                    return pooled;
+                }
             }
-            return _factory(); // create outside the lock; factory may be slow
+            // Create outside the lock; the factory may be slow.
+            return _factory() ?? throw new InvalidOperationException("The pool's factory returned null.");
         }
 
         /// <summary>Resets (if configured) and retains the instance, unless the pool is already full.</summary>
         public void Return(T item)
         {
             if (item is null) throw new ArgumentNullException(nameof(item));
+            lock (_gate)
+            {
+                if (_items.Count >= _maxRetained || _pooled.Contains(item))
+                    return; // dropped (or already pooled): don't reset it
+            }
+
             _reset?.Invoke(item); // reset outside the lock
 
             lock (_gate)
             {
-                if (_items.Count < _maxRetained)
+                if (_items.Count < _maxRetained && _pooled.Add(item))
                     _items.Push(item);
             }
         }
@@ -62,7 +75,19 @@ namespace ToolBelt.Collections
         /// <summary>Drops all retained instances.</summary>
         public void Clear()
         {
-            lock (_gate) _items.Clear();
+            lock (_gate)
+            {
+                _items.Clear();
+                _pooled.Clear();
+            }
+        }
+
+        // Identity, not T's Equals: two equal-but-distinct instances are separate pool entries.
+        private sealed class ReferenceComparer : IEqualityComparer<T>
+        {
+            public static readonly ReferenceComparer Instance = new ReferenceComparer();
+            public bool Equals(T? x, T? y) => ReferenceEquals(x, y);
+            public int GetHashCode(T obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
         }
     }
 }

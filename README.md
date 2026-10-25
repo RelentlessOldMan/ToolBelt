@@ -673,6 +673,7 @@ tests/
       CircularBufferTests.cs
       CartesianProductTests.cs
       CombinatoricsTests.cs
+      CollectionsReviewTests.cs (review round 9 regressions: deep tries/permutations, sketch hashing, enumerator versions, huge capacities)
       CounterTests.cs
       CountMinSketchTests.cs
       DataTableLiteTests.cs
