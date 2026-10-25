@@ -136,7 +136,12 @@ namespace ToolBelt.Numerics
 
             int n = first.Count;
             var d = new double[n];
-            for (int i = 0; i < n; i++) d[i] = first[i] - second[i];
+            for (int i = 0; i < n; i++)
+            {
+                d[i] = first[i] - second[i];
+                // Finite values of opposite sign near 1e308 have an infinite difference, and every null sum became NaN.
+                if (double.IsInfinity(d[i])) throw new ArgumentException($"The difference at [{i}] overflows.", nameof(second));
+            }
             double observed = Mean(d);
             var nulls = new List<double>();
             bool exact = n < 31 && (1L << n) <= permutations;
@@ -238,7 +243,11 @@ namespace ToolBelt.Numerics
         {
             double s = 0;
             for (int i = 0; i < x.Count; i++) s += x[i];
-            return s / x.Count;
+            if (!double.IsInfinity(s)) return s / x.Count;
+            // The sum of finite values overflowed (two of 1e308): average term by term instead, so it is not ∞ − ∞ = NaN.
+            s = 0;
+            for (int i = 0; i < x.Count; i++) s += x[i] / x.Count;
+            return s;
         }
     }
 }

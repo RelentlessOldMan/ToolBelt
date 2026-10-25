@@ -102,9 +102,13 @@ namespace ToolBelt.Numerics
             double z = Distributions.NormalQuantile((1 + confidence) / 2);
             double z2 = z * z;
             double denom = 1 + z2 / trials;
-            double center = (p + z2 / (2 * trials)) / denom;
+            // 2.0·trials: 2·trials overflowed int past ~1.07 billion trials. The Wilson bounds are exactly 0 at no successes
+            // and exactly 1 at all successes, which center ∓ half missed by a rounding error (just below 0, just above 1).
+            double center = (p + z2 / (2.0 * trials)) / denom;
             double half = z * Math.Sqrt(p * (1 - p) / trials + z2 / (4.0 * trials * trials)) / denom;
-            return (center - half, center + half);
+            double lower = successes == 0 ? 0 : Math.Max(0, center - half);
+            double upper = successes == trials ? 1 : Math.Min(1, center + half);
+            return (lower, upper);
         }
     }
 }

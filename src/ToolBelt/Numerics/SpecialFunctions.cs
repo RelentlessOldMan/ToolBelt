@@ -121,11 +121,36 @@ namespace ToolBelt.Numerics
                 if (x > 0) return LnGammaCore(x + 1) - Math.Log(x);
                 return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * x))) - LnGammaCore(1 - x); // reflection
             }
+            // Near its zeros at 1 and 2 ln Γ is tiny, and the Lanczos sum, accurate only absolutely, kept ~1e-5 of it.
+            if (x >= 0.8 && x <= 1.2) return LnGammaNearOne(x - 1);
+            if (x >= 1.8 && x <= 2.2) return Math.Log(x - 1) + LnGammaNearOne(x - 2);   // x − 1 is exact
             double a = Lanczos[0];
             double t = x + 6.5;
             double xm1 = x - 1;
             for (int i = 1; i < Lanczos.Length; i++) a += Lanczos[i] / (xm1 + i);
             return LnSqrt2Pi + (xm1 + 0.5) * Math.Log(t) - t + Math.Log(a);
+        }
+
+        // ζ(2) … ζ(25), for the series of ln Γ(1 + z).
+        private static readonly double[] Zeta =
+        {
+            1.6449340668482264, 1.2020569031595942, 1.0823232337111381, 1.03692775514337, 1.0173430619844492,
+            1.0083492773819229, 1.0040773561979444, 1.0020083928260821, 1.000994575127818, 1.0004941886041194,
+            1.000246086553308, 1.0001227133475785, 1.0000612481350588, 1.000030588236307, 1.0000152822594086,
+            1.0000076371976379, 1.000003817293265, 1.0000019082127165, 1.0000009539620338, 1.0000004769329869,
+            1.0000002384505027, 1.0000001192199259, 1.0000000596081891, 1.0000000298035034,
+        };
+
+        // ln Γ(1 + z) = −γz + Σₖ₌₂ ζ(k)(−z)ᵏ/k for |z| <= 0.2 (the terms fall by 5× each, 24 of them reach 1e-18 relative).
+        private static double LnGammaNearOne(double z)
+        {
+            double w = -z, wk = w, sum = 0.57721566490153286 * w;
+            for (int k = 2; k < Zeta.Length + 2; k++)
+            {
+                wk *= w;
+                sum += Zeta[k - 2] * wk / k;
+            }
+            return sum;
         }
 
         private const double Tiny = 1e-300;
@@ -151,6 +176,21 @@ namespace ToolBelt.Numerics
                 p = sum * Math.Exp(lnPre);
                 if (p > 1) p = 1;
                 q = 1 - p;
+                if (a < 1 && p > 0.5)
+                {
+                    // A small shape puts P near 1, and 1 − P kept few of Q's digits (3e-8 relative at a = 5e-9). Directly:
+                    // Q = 1 − xᵃ/Γ(a + 1) − a·xᵃ/Γ(a + 1)·Σₙ₌₁ (−x)ⁿ/(n!(a + n)), the first difference by expm1.
+                    // lnΓ(1 + a) from a itself: a + 1 rounds away ~1e-16 of a, a relative 2e-8 of a shape near 5e-9.
+                    double u = a * Math.Log(x) - (a <= 0.2 ? LnGammaNearOne(a) : LnGammaCore(a + 1)), term = 1, s = 0;
+                    for (int n = 1; n < 200; n++)
+                    {
+                        term *= -x / n;
+                        double t = term / (a + n);
+                        s += t;
+                        if (Math.Abs(t) <= Eps * Math.Abs(s)) break;
+                    }
+                    q = -Expm1(u) - a * Math.Exp(u) * s;
+                }
                 return;
             }
             q = Math.Exp(lnPre) * GammaCf(a, x);

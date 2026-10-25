@@ -45,14 +45,15 @@ namespace ToolBelt.Quality
     /// <summary>One variance component of a gauge study, with the standard ways of expressing it.</summary>
     public sealed class GaugeComponent
     {
-        internal GaugeComponent(string name, double variance, double totalVariance, double multiplier, double? tolerance)
+        // variance and totalVariance are in units of scale² (the study works scaled so its squares neither under- nor overflow).
+        internal GaugeComponent(string name, double variance, double totalVariance, double multiplier, double? tolerance, double scale)
         {
             Name = name;
-            Variance = variance;
-            StdDev = Math.Sqrt(variance);
+            Variance = variance * scale * scale;
+            StdDev = Math.Sqrt(variance) * scale;
             StudyVariation = multiplier * StdDev;
             PercentContribution = 100 * variance / totalVariance;
-            PercentStudyVariation = 100 * StdDev / Math.Sqrt(totalVariance);
+            PercentStudyVariation = 100 * Math.Sqrt(variance) / Math.Sqrt(totalVariance);
             PercentTolerance = tolerance.HasValue ? 100 * StudyVariation / tolerance.Value : double.NaN;
         }
 
@@ -193,15 +194,20 @@ namespace ToolBelt.Quality
             double grand = 0, maxAbs = 0;
             for (int i = 0; i < p; i++)
                 for (int j = 0; j < o; j++)
-                {
-                    double sum = 0;
                     for (int k = 0; k < r; k++)
                     {
                         double v = measurements[i, j, k];
                         if (double.IsNaN(v) || double.IsInfinity(v)) throw new ArgumentException($"Measurement [{i}, {j}, {k}] is not finite.", nameof(measurements));
-                        sum += v;
                         maxAbs = Math.Max(maxAbs, Math.Abs(v));
                     }
+            // Work in units of the largest reading (a power of two, so normal-range data give the same bits): squared
+            // outright, readings near 1e-160 underflowed to "no variation" and readings near 1e+160 overflowed to NaN.
+            double s = Pow2Scale(maxAbs);
+            for (int i = 0; i < p; i++)
+                for (int j = 0; j < o; j++)
+                {
+                    double sum = 0;
+                    for (int k = 0; k < r; k++) sum += measurements[i, j, k] / s;
                     cell[i, j] = sum / r;
                     partMean[i] += cell[i, j] / o;
                     opMean[j] += cell[i, j] / p;
@@ -217,12 +223,12 @@ namespace ToolBelt.Quality
                 for (int j = 0; j < o; j++)
                 {
                     ssInt += Sq(cell[i, j] - partMean[i] - opMean[j] + grand);
-                    for (int k = 0; k < r; k++) ssRep += Sq(measurements[i, j, k] - cell[i, j]);
+                    for (int k = 0; k < r; k++) ssRep += Sq(measurements[i, j, k] / s - cell[i, j]);
                 }
             ssInt *= r;
             // Sums of squares at rounding level are zero (identical readings of 0.1 leave ~1e-34 of round-off), so they
             // cannot produce F ratios or variance shares out of noise.
-            double floor = p * o * r * Sq(1e-14 * maxAbs);
+            double floor = p * o * r * Sq(1e-14 * (maxAbs / s));
             if (ssPart <= floor) ssPart = 0;
             if (ssOp <= floor) ssOp = 0;
             if (ssInt <= floor) ssInt = 0;
@@ -237,6 +243,7 @@ namespace ToolBelt.Quality
             var (fInt, pInt) = FTest(msInt, msRep, dfInt, dfRep);
             bool removed = !(pInt <= alphaToRemoveInteraction);       // NaN (no variation at all) counts as "no evidence"
 
+            double s2 = s * s;
             List<GaugeAnovaRow> table;
             double vRepeat, vOp, vInt, vPart;
             if (!removed)
@@ -245,10 +252,10 @@ namespace ToolBelt.Quality
                 var (fO, pO) = FTest(msOp, msInt, dfOp, dfInt);
                 table = new List<GaugeAnovaRow>
                 {
-                    new GaugeAnovaRow("Part", dfPart, ssPart, fP, pP),
-                    new GaugeAnovaRow("Operator", dfOp, ssOp, fO, pO),
-                    new GaugeAnovaRow("Part * Operator", dfInt, ssInt, fInt, pInt),
-                    new GaugeAnovaRow("Repeatability", dfRep, ssRep, double.NaN, double.NaN),
+                    new GaugeAnovaRow("Part", dfPart, ssPart * s2, fP, pP),
+                    new GaugeAnovaRow("Operator", dfOp, ssOp * s2, fO, pO),
+                    new GaugeAnovaRow("Part * Operator", dfInt, ssInt * s2, fInt, pInt),
+                    new GaugeAnovaRow("Repeatability", dfRep, ssRep * s2, double.NaN, double.NaN),
                 };
                 vRepeat = msRep;
                 vInt = Math.Max(0, (msInt - msRep) / r);
@@ -263,20 +270,20 @@ namespace ToolBelt.Quality
                 var (fO, pO) = FTest(msOp, msPooled, dfOp, dfPooled);
                 table = new List<GaugeAnovaRow>
                 {
-                    new GaugeAnovaRow("Part", dfPart, ssPart, fP, pP),
-                    new GaugeAnovaRow("Operator", dfOp, ssOp, fO, pO),
-                    new GaugeAnovaRow("Repeatability", dfPooled, ssInt + ssRep, double.NaN, double.NaN),
+                    new GaugeAnovaRow("Part", dfPart, ssPart * s2, fP, pP),
+                    new GaugeAnovaRow("Operator", dfOp, ssOp * s2, fO, pO),
+                    new GaugeAnovaRow("Repeatability", dfPooled, (ssInt + ssRep) * s2, double.NaN, double.NaN),
                 };
                 vRepeat = msPooled;
                 vInt = 0;
                 vOp = Math.Max(0, (msOp - msPooled) / (p * r));
                 vPart = Math.Max(0, (msPart - msPooled) / (o * r));
             }
-            table.Add(new GaugeAnovaRow("Total", p * o * r - 1, ssTotal, double.NaN, double.NaN));
+            table.Add(new GaugeAnovaRow("Total", p * o * r - 1, ssTotal * s2, double.NaN, double.NaN));
 
             double vReprod = vOp + vInt, vGrr = vRepeat + vReprod, vTotal = vGrr + vPart;
             double m = studyVarianceMultiplier;
-            GaugeComponent C(string name, double v) => new GaugeComponent(name, v, vTotal, m, tolerance);
+            GaugeComponent C(string name, double v) => new GaugeComponent(name, v, vTotal, m, tolerance, s);
 
             int ndc;
             if (vGrr == 0) ndc = int.MaxValue;
@@ -346,6 +353,17 @@ namespace ToolBelt.Quality
             -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
         };
 
+        // The power of two at or below m (1 for 0): dividing by it is exact.
+        private static double Pow2Scale(double m)
+        {
+            if (m == 0 || double.IsInfinity(m)) return 1;
+            double p = Math.Pow(2, Math.Floor(Math.Log(m) / Math.Log(2)));
+            // The logarithm can land a hair either side of an integer; settle on exactly the power at or below m.
+            while (p > m) p /= 2;
+            while (p * 2 <= m) p *= 2;
+            return p;
+        }
+
         private static double LnGamma(double x)
         {
             if (double.IsPositiveInfinity(x)) return x;
@@ -355,11 +373,36 @@ namespace ToolBelt.Quality
                 if (x > 0) return LnGamma(x + 1) - Math.Log(x);
                 return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * x))) - LnGamma(1 - x); // reflection
             }
+            // Near its zeros at 1 and 2 ln Γ is tiny, and the Lanczos sum, accurate only absolutely, kept ~1e-5 of it.
+            if (x >= 0.8 && x <= 1.2) return LnGammaNearOne(x - 1);
+            if (x >= 1.8 && x <= 2.2) return Math.Log(x - 1) + LnGammaNearOne(x - 2);   // x − 1 is exact
             double a = Lanczos[0];
             double t = x + 6.5;
             double xm1 = x - 1;
             for (int i = 1; i < Lanczos.Length; i++) a += Lanczos[i] / (xm1 + i);
             return LnSqrt2Pi + (xm1 + 0.5) * Math.Log(t) - t + Math.Log(a);
+        }
+
+        // ζ(2) … ζ(25), for the series of ln Γ(1 + z).
+        private static readonly double[] Zeta =
+        {
+            1.6449340668482264, 1.2020569031595942, 1.0823232337111381, 1.03692775514337, 1.0173430619844492,
+            1.0083492773819229, 1.0040773561979444, 1.0020083928260821, 1.000994575127818, 1.0004941886041194,
+            1.000246086553308, 1.0001227133475785, 1.0000612481350588, 1.000030588236307, 1.0000152822594086,
+            1.0000076371976379, 1.000003817293265, 1.0000019082127165, 1.0000009539620338, 1.0000004769329869,
+            1.0000002384505027, 1.0000001192199259, 1.0000000596081891, 1.0000000298035034,
+        };
+
+        // ln Γ(1 + z) = −γz + Σₖ₌₂ ζ(k)(−z)ᵏ/k for |z| <= 0.2 (the terms fall by 5× each, 24 of them reach 1e-18 relative).
+        private static double LnGammaNearOne(double z)
+        {
+            double w = -z, wk = w, sum = 0.57721566490153286 * w;
+            for (int k = 2; k < Zeta.Length + 2; k++)
+            {
+                wk *= w;
+                sum += Zeta[k - 2] * wk / k;
+            }
+            return sum;
         }
 
         private const double Tiny = 1e-300;
@@ -385,6 +428,21 @@ namespace ToolBelt.Quality
                 p = sum * Math.Exp(lnPre);
                 if (p > 1) p = 1;
                 q = 1 - p;
+                if (a < 1 && p > 0.5)
+                {
+                    // A small shape puts P near 1, and 1 − P kept few of Q's digits (3e-8 relative at a = 5e-9). Directly:
+                    // Q = 1 − xᵃ/Γ(a + 1) − a·xᵃ/Γ(a + 1)·Σₙ₌₁ (−x)ⁿ/(n!(a + n)), the first difference by expm1.
+                    // lnΓ(1 + a) from a itself: a + 1 rounds away ~1e-16 of a, a relative 2e-8 of a shape near 5e-9.
+                    double u = a * Math.Log(x) - (a <= 0.2 ? LnGammaNearOne(a) : LnGamma(a + 1)), term = 1, s = 0;
+                    for (int n = 1; n < 200; n++)
+                    {
+                        term *= -x / n;
+                        double t = term / (a + n);
+                        s += t;
+                        if (Math.Abs(t) <= Eps * Math.Abs(s)) break;
+                    }
+                    q = -Expm1(u) - a * Math.Exp(u) * s;
+                }
                 return;
             }
             q = Math.Exp(lnPre) * GammaCf(a, x);

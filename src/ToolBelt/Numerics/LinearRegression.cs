@@ -55,11 +55,21 @@ namespace ToolBelt.Numerics
             }
             double meanX = x0 + shiftX / n, meanY = y0 + shiftY / n;
 
+            // Deviations relative to each variable's largest: squared outright they underflowed to zero (or overflowed)
+            // for data near 1e±160, reading a varying x as constant.
+            double maxX = 0, maxY = 0;
+            for (int i = 0; i < n; i++)
+            {
+                maxX = Math.Max(maxX, Math.Abs(xs[i] - meanX));
+                maxY = Math.Max(maxY, Math.Abs(ys[i] - meanY));
+            }
+            double sx = Pow2Scale(maxX), sy = Pow2Scale(maxY);
+
             double sxx = 0, sxy = 0, syy = 0;
             for (int i = 0; i < n; i++)
             {
-                double dx = xs[i] - meanX;
-                double dy = ys[i] - meanY;
+                double dx = (xs[i] - meanX) / sx;
+                double dy = (ys[i] - meanY) / sy;
                 sxx += dx * dx;
                 sxy += dx * dy;
                 syy += dy * dy;
@@ -68,13 +78,24 @@ namespace ToolBelt.Numerics
             if (sxx == 0)
                 throw new ArgumentException("All x values are identical; the slope is undefined.", nameof(xs));
 
-            double slope = sxy / sxx;
+            double slope = sxy / sxx * (sy / sx);
             double intercept = meanY - slope * meanX;
             // R² = explained variance / total variance. If y is constant (syy == 0) the fit is exact.
-            // Formed as r² with separate roots: sxy² and sxx·syy over- or underflow for data near 1e±80.
-            double r = syy == 0 ? 1.0 : sxy / Math.Sqrt(sxx) / Math.Sqrt(syy);
+            double r = syy == 0 ? 1.0 : sxy / Math.Sqrt(sxx * syy);   // scaled, so the product neither over- nor underflows
             double rSquared = Math.Min(1.0, r * r);
             return new LinearFit(slope, intercept, rSquared);
+        }
+
+        // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same
+        // bits, while data near 1e±160 no longer over- or underflow when squared.
+        private static double Pow2Scale(double m)
+        {
+            if (m == 0 || double.IsInfinity(m)) return 1;
+            double p = Math.Pow(2, Math.Floor(Math.Log(m) / Math.Log(2)));
+            // The logarithm can land a hair either side of an integer; settle on exactly the power at or below m.
+            while (p > m) p /= 2;
+            while (p * 2 <= m) p *= 2;
+            return p;
         }
     }
 }

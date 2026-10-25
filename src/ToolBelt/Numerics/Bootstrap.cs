@@ -68,7 +68,13 @@ namespace ToolBelt.Numerics
             int hi = (int)Math.Ceiling(position);
             if (lo == hi) return sorted[lo];
             double frac = position - lo;
-            return sorted[lo] * (1 - frac) + sorted[hi] * frac;
+            // As EmpiricalDistribution.Quantile: a·(1 − f) + b·f put a constant statistic's 0.3 at 0.30000000000000004 and
+            // gave NaN between −∞ and +∞.
+            double a = sorted[lo], b = sorted[hi];
+            if (a == b) return a;
+            if (double.IsInfinity(a) && double.IsInfinity(b)) return frac < 0.5 ? a : b;
+            double d = b - a;
+            return double.IsInfinity(d) ? (1 - frac) * a + frac * b : a + frac * d;
         }
     }
 }

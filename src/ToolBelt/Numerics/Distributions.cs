@@ -242,6 +242,13 @@ namespace ToolBelt.Numerics
             double d1 = RequireDf(numeratorDf, nameof(numeratorDf)), d2 = RequireDf(denominatorDf, nameof(denominatorDf));
             RequireOpenProbability(p);
             double guess = 1;
+            if (p < 1e-10)
+            {
+                // Far in the lower tail F ≈ yᵃ/(a·B(a, b)) with y = d1·x/(d1·x + d2): start there rather than at 1.
+                double a = d1 / 2, b = d2 / 2;
+                double y = Math.Exp((Math.Log(p) + Math.Log(a) + LnBeta(a, b)) / a);
+                if (y > 0 && y < 0.01) guess = d2 * y / (d1 * (1 - y));
+            }
             if (p <= 0.5)
                 return SolveIncreasing(x => FMasses(x, d1, d2).Lower, x => FPdf(x, d1, d2), p, guess);
             return SolveDecreasing(x => FMasses(x, d1, d2).Upper, x => FPdf(x, d1, d2), 1 - p, guess);
@@ -383,11 +390,13 @@ namespace ToolBelt.Numerics
             double z = StandardNormalQuantile(p);
             double h = 2 / (9 * k);
             double wh = k * Math.Pow(Math.Max(1 - h + z * Math.Sqrt(h), 1e-3), 3);
-            if (p < 0.05 && k < 5)
+            if (p < 0.05)
             {
+                // The lower tail's leading term (x/2)^a/Γ(a + 1): good for few degrees of freedom, and for any number once
+                // x ≪ k (Wilson–Hilferty, clamped at k·1e-9, started Newton 100 orders of magnitude too high at p = 1e-300).
                 double a = k / 2;
                 double small = 2 * Math.Exp((Math.Log(p) + LnGamma(a + 1)) / a);
-                if (small > 0 && !double.IsInfinity(small)) return small;
+                if (small > 0 && !double.IsInfinity(small) && (k < 5 || small < 0.01 * k)) return small;
             }
             return wh > 0 ? wh : k;
         }
@@ -411,6 +420,8 @@ namespace ToolBelt.Numerics
             if (g(hi) < 0) return hi;
 
             double x = guess > lo && guess < hi ? guess : (lo > 0 ? Math.Sqrt(lo) * Math.Sqrt(hi) : hi / 2);
+            double jump = 16;
+            int slow = 0;
             for (int iter = 0; iter < 400; iter++)
             {
                 double gx = g(x);
@@ -421,6 +432,20 @@ namespace ToolBelt.Numerics
                 double next = d > 0 && !double.IsInfinity(d) ? x - gx / d : double.NaN;
                 if (!(next > lo && next < hi))
                     next = lo > 0 && hi / lo > 4 ? Math.Sqrt(lo) * Math.Sqrt(hi) : (lo == 0 && hi > 1e-300 && x == hi ? hi / 16 : 0.5 * (lo + hi));
+                else if (lo == 0 && next > 0.5 * x && next < 0.999 * x)
+                {
+                    // Above the root with nothing below it yet, on a steep power law (a far lower tail, CDF ~ xᵐ), Newton
+                    // shrinks x by only (1 − 1/m) a step and ran out of iterations, returning the unconverged x. After three
+                    // such steps jump down by a growing factor until the root is bracketed.
+                    if (++slow >= 3)
+                    {
+                        double down = x / jump;
+                        if (down > 0) next = down;
+                        jump = Math.Min(jump * jump, 1e100);
+                        slow = 0;
+                    }
+                }
+                else slow = 0;
                 if (Math.Abs(next - x) <= 4e-16 * Math.Abs(next)) return next;
                 x = next;
                 if (hi - lo <= 4e-16 * hi) return x;
@@ -446,11 +471,36 @@ namespace ToolBelt.Numerics
                 if (x > 0) return LnGamma(x + 1) - Math.Log(x);
                 return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * x))) - LnGamma(1 - x); // reflection
             }
+            // Near its zeros at 1 and 2 ln Γ is tiny, and the Lanczos sum, accurate only absolutely, kept ~1e-5 of it.
+            if (x >= 0.8 && x <= 1.2) return LnGammaNearOne(x - 1);
+            if (x >= 1.8 && x <= 2.2) return Math.Log(x - 1) + LnGammaNearOne(x - 2);   // x − 1 is exact
             double a = Lanczos[0];
             double t = x + 6.5;
             double xm1 = x - 1;
             for (int i = 1; i < Lanczos.Length; i++) a += Lanczos[i] / (xm1 + i);
             return LnSqrt2Pi + (xm1 + 0.5) * Math.Log(t) - t + Math.Log(a);
+        }
+
+        // ζ(2) … ζ(25), for the series of ln Γ(1 + z).
+        private static readonly double[] Zeta =
+        {
+            1.6449340668482264, 1.2020569031595942, 1.0823232337111381, 1.03692775514337, 1.0173430619844492,
+            1.0083492773819229, 1.0040773561979444, 1.0020083928260821, 1.000994575127818, 1.0004941886041194,
+            1.000246086553308, 1.0001227133475785, 1.0000612481350588, 1.000030588236307, 1.0000152822594086,
+            1.0000076371976379, 1.000003817293265, 1.0000019082127165, 1.0000009539620338, 1.0000004769329869,
+            1.0000002384505027, 1.0000001192199259, 1.0000000596081891, 1.0000000298035034,
+        };
+
+        // ln Γ(1 + z) = −γz + Σₖ₌₂ ζ(k)(−z)ᵏ/k for |z| <= 0.2 (the terms fall by 5× each, 24 of them reach 1e-18 relative).
+        private static double LnGammaNearOne(double z)
+        {
+            double w = -z, wk = w, sum = 0.57721566490153286 * w;
+            for (int k = 2; k < Zeta.Length + 2; k++)
+            {
+                wk *= w;
+                sum += Zeta[k - 2] * wk / k;
+            }
+            return sum;
         }
 
         private const double Tiny = 1e-300;
@@ -476,6 +526,21 @@ namespace ToolBelt.Numerics
                 p = sum * Math.Exp(lnPre);
                 if (p > 1) p = 1;
                 q = 1 - p;
+                if (a < 1 && p > 0.5)
+                {
+                    // A small shape puts P near 1, and 1 − P kept few of Q's digits (3e-8 relative at a = 5e-9). Directly:
+                    // Q = 1 − xᵃ/Γ(a + 1) − a·xᵃ/Γ(a + 1)·Σₙ₌₁ (−x)ⁿ/(n!(a + n)), the first difference by expm1.
+                    // lnΓ(1 + a) from a itself: a + 1 rounds away ~1e-16 of a, a relative 2e-8 of a shape near 5e-9.
+                    double u = a * Math.Log(x) - (a <= 0.2 ? LnGammaNearOne(a) : LnGamma(a + 1)), term = 1, s = 0;
+                    for (int n = 1; n < 200; n++)
+                    {
+                        term *= -x / n;
+                        double t = term / (a + n);
+                        s += t;
+                        if (Math.Abs(t) <= Eps * Math.Abs(s)) break;
+                    }
+                    q = -Expm1(u) - a * Math.Exp(u) * s;
+                }
                 return;
             }
             q = Math.Exp(lnPre) * GammaCf(a, x);

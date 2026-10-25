@@ -56,6 +56,7 @@ namespace ToolBelt.Numerics
             double a = _sorted[lower], b = _sorted[upper];
             // As Percentile: a·(1 − f) + b·f put 0.1 and 0.1 at 0.09999999999999999 and overflowed for ±1e308.
             if (a == b) return a;
+            if (double.IsInfinity(a) && double.IsInfinity(b)) return frac < 0.5 ? a : b;   // −∞ to +∞: (1 − f)·a + f·b is NaN
             double d = b - a;
             return double.IsInfinity(d) ? (1 - frac) * a + frac * b : a + frac * d;
         }

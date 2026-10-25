@@ -69,13 +69,13 @@ namespace ToolBelt.Numerics
             RequireCount(sample, 2, nameof(sample));
             if (double.IsNaN(populationMean) || double.IsInfinity(populationMean))
                 throw new ArgumentOutOfRangeException(nameof(populationMean), populationMean, "Population mean must be finite.");
-            var (mean, variance, n) = MeanVariance(sample, nameof(sample));
+            var (mean, sd, n) = MeanVariance(sample, nameof(sample));
             double df = n - 1;
-            if (variance == 0)
+            if (sd == 0)
                 return mean == populationMean
                     ? new TestResult(0, 1, df)
                     : new TestResult(mean > populationMean ? double.PositiveInfinity : double.NegativeInfinity, 0, df);
-            double t = (mean - populationMean) / Math.Sqrt(variance / n);
+            double t = (mean - populationMean) / (sd / Math.Sqrt(n));
             return new TestResult(t, TwoSidedTP(t, df), df);
         }
 
@@ -99,22 +99,27 @@ namespace ToolBelt.Numerics
         {
             RequireCount(a, 2, nameof(a));
             RequireCount(b, 2, nameof(b));
-            var (ma, va, na) = MeanVariance(a, nameof(a));
-            var (mb, vb, nb) = MeanVariance(b, nameof(b));
+            var (ma, sda, na) = MeanVariance(a, nameof(a));
+            var (mb, sdb, nb) = MeanVariance(b, nameof(b));
 
+            // Variances are formed relative to the larger spread m: squared outright they under- or overflowed for data
+            // near 1e±160 (a zero pooled variance read as an infinite t; Welch's df went to NaN).
             double t, df;
             if (equalVariance)
             {
-                double pooled = ((na - 1) * va + (nb - 1) * vb) / (na + nb - 2);
-                double se = Math.Sqrt(pooled * (1.0 / na + 1.0 / nb));
+                double m = Pow2Scale(Math.Max(sda, sdb)), ra = sda / m, rb = sdb / m;
+                double pooled = ((na - 1) * ra * ra + (nb - 1) * rb * rb) / (na + nb - 2);
+                double se = Math.Sqrt(pooled * (1.0 / na + 1.0 / nb)) * m;
                 df = na + nb - 2;
                 t = se == 0 ? SignedInfinity(ma - mb) : (ma - mb) / se;
             }
             else
             {
-                double sa = va / na, sb = vb / nb;
-                double se = Math.Sqrt(sa + sb);
-                // Welch-Satterthwaite degrees of freedom.
+                double sea = sda / Math.Sqrt(na), seb = sdb / Math.Sqrt(nb);
+                double m = Pow2Scale(Math.Max(sea, seb)), ra = sea / m, rb = seb / m;
+                double sa = ra * ra, sb = rb * rb;
+                double se = Math.Sqrt(sa + sb) * m;
+                // Welch-Satterthwaite degrees of freedom (NaN when both spreads are zero).
                 df = (sa + sb) * (sa + sb) / (sa * sa / (na - 1) + sb * sb / (nb - 1));
                 t = se == 0 ? SignedInfinity(ma - mb) : (ma - mb) / se;
             }
@@ -135,12 +140,12 @@ namespace ToolBelt.Numerics
         {
             RequireCount(a, 2, nameof(a));
             RequireCount(b, 2, nameof(b));
-            var (_, va, na) = MeanVariance(a, nameof(a));
-            var (_, vb, nb) = MeanVariance(b, nameof(b));
+            var (_, sda, na) = MeanVariance(a, nameof(a));
+            var (_, sdb, nb) = MeanVariance(b, nameof(b));
             double d1 = na - 1, d2 = nb - 1;
-            if (vb == 0)
-                return va == 0 ? new TestResult(double.NaN, 1, d1, d2) : new TestResult(double.PositiveInfinity, 0, d1, d2);
-            double f = va / vb;
+            if (sdb == 0)
+                return sda == 0 ? new TestResult(double.NaN, 1, d1, d2) : new TestResult(double.PositiveInfinity, 0, d1, d2);
+            double ratio = sda / sdb, f = ratio * ratio;
             if (f == 0) return new TestResult(0, 0, d1, d2);
 
             // Each tail from its own incomplete-beta argument, so tiny p-values keep their precision.
@@ -339,10 +344,11 @@ namespace ToolBelt.Numerics
 
         // ---------- shared helpers ----------
 
-        // Mean and sample variance of finite data. The mean is taken about the first value, so a constant sample has
-        // exactly that mean and exactly zero variance (summing 0.1 three times and dividing by 3 does not give 0.1, and
-        // the leftover crumbs read as a real, vanishingly small variance — an enormous t).
-        private static (double mean, double variance, int n) MeanVariance(IReadOnlyList<double> x, string name)
+        // Mean and sample standard deviation of finite data. The mean is taken about the first value, so a constant
+        // sample has exactly that mean and exactly zero spread (summing 0.1 three times and dividing by 3 does not give
+        // 0.1, and the leftover crumbs read as a real, vanishingly small variance — an enormous t). The deviations are
+        // squared relative to the largest, so data near 1e±160 neither underflow to a zero spread nor overflow.
+        private static (double mean, double sd, int n) MeanVariance(IReadOnlyList<double> x, string name)
         {
             int n = x.Count;
             double x0 = x[0], shift = 0;
@@ -352,9 +358,23 @@ namespace ToolBelt.Numerics
                 shift += x[i] - x0;
             }
             double mean = x0 + shift / n;
-            double ss = 0;
-            for (int i = 0; i < n; i++) { double d = x[i] - mean; ss += d * d; }
-            return (mean, ss / (n - 1), n);
+            double max = 0;
+            for (int i = 0; i < n; i++) max = Math.Max(max, Math.Abs(x[i] - mean));
+            double s = Pow2Scale(max), ss = 0;
+            for (int i = 0; i < n; i++) { double d = (x[i] - mean) / s; ss += d * d; }
+            return (mean, Math.Sqrt(ss / (n - 1)) * s, n);
+        }
+
+        // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same
+        // bits, while data near 1e±160 no longer over- or underflow when squared.
+        private static double Pow2Scale(double m)
+        {
+            if (m == 0 || double.IsInfinity(m)) return 1;
+            double p = Math.Pow(2, Math.Floor(Math.Log(m) / Math.Log(2)));
+            // The logarithm can land a hair either side of an integer; settle on exactly the power at or below m.
+            while (p > m) p /= 2;
+            while (p * 2 <= m) p *= 2;
+            return p;
         }
 
         private static double[] ToSortedArray(IReadOnlyList<double> x)

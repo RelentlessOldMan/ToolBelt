@@ -60,8 +60,9 @@ namespace ToolBelt.Numerics
                 double leftMean = leftSum / k;
                 double rightMean = (total - leftSum) / (n - k);
                 double magnitude = Math.Abs(rightMean - leftMean);
-                // The reduction in squared error from splitting at k is k(n − k)/n · Δ².
-                double score = (double)k * (n - k) / n * magnitude * magnitude;
+                // The reduction in squared error from splitting at k is k(n − k)/n · Δ²; its square root ranks the same
+                // splits without squaring Δ, which underflowed to a tie of zeros for data near 1e-160.
+                double score = Math.Sqrt((double)k * (n - k) / n) * magnitude;
                 if (score > bestScore)
                 {
                     bestScore = score;

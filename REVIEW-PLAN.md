@@ -43,7 +43,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 1 | 16 / 16 | re-queue (2 severe) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
-| 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 1 | 31 / 31 | re-queue (7 severe) |
+| 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 2 | 22 / 53 | re-queue (22 bugs) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 2 | 28 / 71 | re-queue (5 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 2 | 28 / 61 | re-queue (5 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 1 | 19 / 19 | re-queue (3 severe) |
@@ -60,7 +60,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3, 8, 9, 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 3**
+5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8, 9, 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 8**
 
 ## Releases
 
@@ -91,6 +91,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.20.0 | 20 | Objects, functional, grids, graphs, intervals, second pass | 19 | (see tag) |
 | v0.21.0 | 21 | Concurrency, second pass | 25 | (see tag) |
 | v0.22.0 | 22 | Windows satellite, second pass | 26 | (see tag) |
+| v0.23.0 | 23 | Statistics, second pass | 22 | (see tag) |
 
 ## Round log
 
@@ -1097,3 +1098,31 @@ Reviewers: one for correctness and one for robustness, fresh to the section (re-
   - `DeleteValue` throws on access denied.
 - **Checked build:** not run (satellite).
 - **Re-queued:** yes (26 bugs, 1 severe).
+
+### Round 23 — 2026-10-25 — Statistics, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 3 with 7 severe).
+**22 confirmed bugs**, each with a failing-first regression test in `StatisticsReview2Tests`. None severe.
+
+- **Scale invariance** (data near 1e±170 squared to zero or infinity): the one-sample and two-sample t-tests (Welch df
+  went NaN), `Correlation.Pearson`, `LinearRegression.Fit`, `ChangePoint.DetectShift`, `Anova.OneWay` and
+  `GaugeRR.Analyze` now work relative to a power-of-two scale of the data, so normal-range results keep their bits.
+- **Distributions:**
+  - `ChiSquareQuantile` and `FQuantile` failed to converge far in the lower tail (p = 1e-300). Newton now jumps down
+    when it creeps on a steep power law, and both start from the lower tail's leading term.
+  - ln Γ lost ~1e-5 of its value near its zeros at 1 and 2 (lnΓ(1 + 1e-12) wrong in the 4th digit). A ζ-series now
+    covers [0.8, 1.2] and [1.8, 2.2] in all four synced copies.
+  - The regularized upper incomplete gamma for a tiny shape kept few digits (1 − P); it is now formed directly.
+- **DistributionFit:** `FitGamma` refused a sample with a value far below the mean as constant; `FitWeibull` failed
+  for a sample spanning more than the double range. Its private ln Γ is resynced with the shared copy.
+- **ConfidenceInterval.ForProportion:** overflowed past ~1.07 billion trials; bounds strayed just outside [0, 1].
+- **Anova.OneWay:** NaN and ∞ now throw `ArgumentException` (they gave F = NaN).
+- **MultipleRegression:** a constant response read as R² = 0 / adjusted NaN; a null first row threw
+  `NullReferenceException`.
+- **RobustRegression.TheilSen:** more than 65,536 points overflowed the slope list; now refused up front.
+- **PermutationTest:** paired differences that overflow now throw; `MeanDifference` no longer overflows to NaN.
+- **Bootstrap / EmpiricalDistribution quantiles:** a constant statistic gave 0.30000000000000004 for 0.3; −∞ to +∞
+  interpolated to NaN.
+- **Declined:** `ConfidenceInterval.ForMean` at 1e308 and `ChiSquareIndependence` on 1e200 counts (inherent
+  overflow); coefficient-array allocations.
+- **Checked build:** same 7 baseline failures (Net ×5, Guards, Palette), none new.
+- **Re-queued:** yes (22 bugs).

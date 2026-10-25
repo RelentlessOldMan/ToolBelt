@@ -206,9 +206,11 @@ namespace ToolBelt.Numerics
 
             var fitted = new double[n];
             var residuals = new double[n];
+            // The mean about y[0]: a constant response then has exactly that mean and zero total spread, instead of
+            // round-off crumbs (0.1 + 0.1 + 0.1 ≠ 0.3) that turned a perfect fit into R² = 0.
             double sse = 0, ybar = 0;
-            for (int i = 0; i < n; i++) ybar += y[i];
-            ybar /= n;
+            for (int i = 0; i < n; i++) ybar += y[i] - y[0];
+            ybar = y[0] + ybar / n;
             double sst = 0;
             for (int i = 0; i < n; i++)
             {
@@ -226,7 +228,7 @@ namespace ToolBelt.Numerics
             for (int i = 0; i < p; i++) se[i] = df > 0 ? Math.Sqrt(sigma2 * xtxInv[i, i]) : double.NaN;
             double r2 = sst > 0 ? 1 - sse / sst : 1;
             int dfTotal = intercept ? n - 1 : n;
-            double adj = df > 0 && sst > 0 ? 1 - (sse / df) / (sst / dfTotal) : double.NaN;
+            double adj = df > 0 ? (sst > 0 ? 1 - (sse / df) / (sst / dfTotal) : 1) : double.NaN;
             return new RegressionResult(beta, se, fitted, residuals, r2, adj, Math.Sqrt(sigma2), df, intercept, xtxInv);
         }
 
@@ -234,6 +236,7 @@ namespace ToolBelt.Numerics
         public static RegressionResult Fit(IReadOnlyList<IReadOnlyList<double>> rows, IReadOnlyList<double> y, bool intercept = true)
         {
             if (rows is null) throw new ArgumentNullException(nameof(rows));
+            if (rows.Count > 0 && rows[0] is null) throw new ArgumentException("Every row needs the same number of predictors.", nameof(rows));
             int n = rows.Count, k = n == 0 ? 0 : rows[0].Count;
             var x = new double[n, k];
             for (int i = 0; i < n; i++)
@@ -259,10 +262,15 @@ namespace ToolBelt.Numerics
     /// <summary>Line fits that resist outliers.</summary>
     public static class RobustRegression
     {
+        // The most points TheilSen accepts: their 2,147,450,880 pairwise slopes just fit one array.
+        private const int MaxTheilSenPoints = 65536;
+
         /// <summary>
         /// The Theil–Sen estimator: the median of all pairwise slopes, intercept = median of y − slope·x. Tolerates up to
         /// ~29% arbitrarily bad points (a single wild reading barely moves it, unlike least squares). O(n²) pairs, all held
-        /// in memory — fine for thousands of points; 10,000 points is 50 million slopes (400 MB). Values must be finite.
+        /// in memory — fine for thousands of points; 10,000 points is 50 million slopes (400 MB). At most
+        /// 65,536 points (beyond it the pairs pass two billion and no longer fit one list).
+        /// Values must be finite.
         /// </summary>
         public static (double Slope, double Intercept) TheilSen(IReadOnlyList<double> x, IReadOnlyList<double> y)
         {
@@ -274,11 +282,14 @@ namespace ToolBelt.Numerics
                 if (double.IsNaN(x[i]) || double.IsInfinity(x[i])) throw new ArgumentException($"x[{i}] is not finite.", nameof(x));
                 if (double.IsNaN(y[i]) || double.IsInfinity(y[i])) throw new ArgumentException($"y[{i}] is not finite.", nameof(y));
             }
-            var slopes = new List<double>();
+            if (x.Count > MaxTheilSenPoints)
+                throw new ArgumentException($"Theil–Sen holds every pairwise slope; at most {MaxTheilSenPoints} points.", nameof(x));
+            // Sized up front: grown by doubling, the list overflowed its capacity (and Count) past 65,536 points.
+            var slopes = new List<double>((int)((long)x.Count * (x.Count - 1) / 2));
             for (int i = 0; i < x.Count; i++)
                 for (int j = i + 1; j < x.Count; j++)
                     if (x[j] != x[i]) slopes.Add(Slope(x[i], y[i], x[j], y[j]));
-            if (slopes.Count == 0) throw new ArgumentException("Need at least two distinct x values.");
+            if (slopes.Count == 0) throw new ArgumentException("Need at least two distinct x values.", nameof(x));
             double slope = Median(slopes);
             var intercepts = new List<double>(x.Count);
             for (int i = 0; i < x.Count; i++) intercepts.Add(y[i] - slope * x[i]);

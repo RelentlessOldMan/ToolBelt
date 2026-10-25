@@ -71,31 +71,43 @@ namespace ToolBelt.Numerics
 
             int k = groups.Length;
             int total = 0;
-            double grandSum = 0, maxAbs = 0;
+            double maxAbs = 0;
             for (int i = 0; i < k; i++)
             {
                 double[] g = groups[i] ?? throw new ArgumentException($"Group {i} is null.", nameof(groups));
                 if (g.Length == 0)
                     throw new ArgumentException($"Group {i} is empty.", nameof(groups));
                 total += g.Length;
-                for (int j = 0; j < g.Length; j++) { grandSum += g[j]; maxAbs = Math.Max(maxAbs, Math.Abs(g[j])); }
+                for (int j = 0; j < g.Length; j++)
+                {
+                    // A NaN slipped past every comparison and came back as F = NaN; an infinity as F = NaN too.
+                    if (double.IsNaN(g[j]) || double.IsInfinity(g[j]))
+                        throw new ArgumentException($"Group {i} value [{j}] is not finite.", nameof(groups));
+                    maxAbs = Math.Max(maxAbs, Math.Abs(g[j]));
+                }
             }
             if (total <= k)
                 throw new ArgumentException("Total observations must exceed the number of groups (need positive residual df).", nameof(groups));
 
+            // Work in units of the largest magnitude (a power of two, so normal-range data give the same bits): squared
+            // outright, data near 1e-160 underflowed to zero sums of squares and data near 1e+160 overflowed.
+            double s = Pow2Scale(maxAbs);
+            double grandSum = 0;
+            for (int i = 0; i < k; i++)
+                for (int j = 0; j < groups[i].Length; j++) grandSum += groups[i][j] / s;
             double grandMean = grandSum / total;
             double ssBetween = 0, ssWithin = 0;
             for (int i = 0; i < k; i++)
             {
                 double[] g = groups[i];
                 double groupSum = 0;
-                for (int j = 0; j < g.Length; j++) groupSum += g[j];
+                for (int j = 0; j < g.Length; j++) groupSum += g[j] / s;
                 double groupMean = groupSum / g.Length;
                 double d = groupMean - grandMean;
                 ssBetween += g.Length * d * d;
                 for (int j = 0; j < g.Length; j++)
                 {
-                    double e = g[j] - groupMean;
+                    double e = g[j] / s - groupMean;
                     ssWithin += e * e;
                 }
             }
@@ -107,7 +119,8 @@ namespace ToolBelt.Numerics
 
             // Sums of squares at rounding level are zero: data like {0.1, 0.1, 0.1} leave ~1e-34 of round-off in the
             // group mean's residuals, and a ratio of two such crumbs is a meaningless F (and p).
-            double floor = total * (1e-14 * maxAbs) * (1e-14 * maxAbs);
+            double scaledMax = maxAbs / s;
+            double floor = total * (1e-14 * scaledMax) * (1e-14 * scaledMax);
             if (ssWithin <= floor) { ssWithin = 0; msW = 0; }
             if (ssBetween <= floor) { ssBetween = 0; msB = 0; }
 
@@ -123,7 +136,19 @@ namespace ToolBelt.Numerics
                 f = msB / msW;
                 p = FUpperTailProbability(f, dfB, dfW);
             }
-            return new AnovaResult(f, p, dfB, dfW, ssBetween, ssWithin, msB, msW, grandMean);
+            double s2 = s * s;
+            return new AnovaResult(f, p, dfB, dfW, ssBetween * s2, ssWithin * s2, msB * s2, msW * s2, grandMean * s);
+        }
+
+        // The power of two at or below m (1 for 0): dividing by it is exact.
+        private static double Pow2Scale(double m)
+        {
+            if (m == 0 || double.IsInfinity(m)) return 1;
+            double p = Math.Pow(2, Math.Floor(Math.Log(m) / Math.Log(2)));
+            // The logarithm can land a hair either side of an integer; settle on exactly the power at or below m.
+            while (p > m) p /= 2;
+            while (p * 2 <= m) p *= 2;
+            return p;
         }
 
         /// <summary>
@@ -166,11 +191,36 @@ namespace ToolBelt.Numerics
                 if (x > 0) return LnGamma(x + 1) - Math.Log(x);
                 return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * x))) - LnGamma(1 - x); // reflection
             }
+            // Near its zeros at 1 and 2 ln Γ is tiny, and the Lanczos sum, accurate only absolutely, kept ~1e-5 of it.
+            if (x >= 0.8 && x <= 1.2) return LnGammaNearOne(x - 1);
+            if (x >= 1.8 && x <= 2.2) return Math.Log(x - 1) + LnGammaNearOne(x - 2);   // x − 1 is exact
             double a = Lanczos[0];
             double t = x + 6.5;
             double xm1 = x - 1;
             for (int i = 1; i < Lanczos.Length; i++) a += Lanczos[i] / (xm1 + i);
             return LnSqrt2Pi + (xm1 + 0.5) * Math.Log(t) - t + Math.Log(a);
+        }
+
+        // ζ(2) … ζ(25), for the series of ln Γ(1 + z).
+        private static readonly double[] Zeta =
+        {
+            1.6449340668482264, 1.2020569031595942, 1.0823232337111381, 1.03692775514337, 1.0173430619844492,
+            1.0083492773819229, 1.0040773561979444, 1.0020083928260821, 1.000994575127818, 1.0004941886041194,
+            1.000246086553308, 1.0001227133475785, 1.0000612481350588, 1.000030588236307, 1.0000152822594086,
+            1.0000076371976379, 1.000003817293265, 1.0000019082127165, 1.0000009539620338, 1.0000004769329869,
+            1.0000002384505027, 1.0000001192199259, 1.0000000596081891, 1.0000000298035034,
+        };
+
+        // ln Γ(1 + z) = −γz + Σₖ₌₂ ζ(k)(−z)ᵏ/k for |z| <= 0.2 (the terms fall by 5× each, 24 of them reach 1e-18 relative).
+        private static double LnGammaNearOne(double z)
+        {
+            double w = -z, wk = w, sum = 0.57721566490153286 * w;
+            for (int k = 2; k < Zeta.Length + 2; k++)
+            {
+                wk *= w;
+                sum += Zeta[k - 2] * wk / k;
+            }
+            return sum;
         }
 
         private const double Tiny = 1e-300;
@@ -196,6 +246,21 @@ namespace ToolBelt.Numerics
                 p = sum * Math.Exp(lnPre);
                 if (p > 1) p = 1;
                 q = 1 - p;
+                if (a < 1 && p > 0.5)
+                {
+                    // A small shape puts P near 1, and 1 − P kept few of Q's digits (3e-8 relative at a = 5e-9). Directly:
+                    // Q = 1 − xᵃ/Γ(a + 1) − a·xᵃ/Γ(a + 1)·Σₙ₌₁ (−x)ⁿ/(n!(a + n)), the first difference by expm1.
+                    // lnΓ(1 + a) from a itself: a + 1 rounds away ~1e-16 of a, a relative 2e-8 of a shape near 5e-9.
+                    double u = a * Math.Log(x) - (a <= 0.2 ? LnGammaNearOne(a) : LnGamma(a + 1)), term = 1, s = 0;
+                    for (int n = 1; n < 200; n++)
+                    {
+                        term *= -x / n;
+                        double t = term / (a + n);
+                        s += t;
+                        if (Math.Abs(t) <= Eps * Math.Abs(s)) break;
+                    }
+                    q = -Expm1(u) - a * Math.Exp(u) * s;
+                }
                 return;
             }
             q = Math.Exp(lnPre) * GammaCf(a, x);

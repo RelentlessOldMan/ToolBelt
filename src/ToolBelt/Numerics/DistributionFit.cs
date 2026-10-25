@@ -133,7 +133,9 @@ namespace ToolBelt.Numerics
             foreach (double v in x)
             {
                 double d = (v - mean) / mean;
-                s -= Log1pmx(d);
+                // Far from the mean the logs no longer cancel, and 1 + d lost a value far below it (1e-20 against a mean
+                // near 1 rounded to ln 1 = 0: s came out 0 and the fit refused the sample as constant).
+                s -= Math.Abs(d) > 0.5 ? Math.Log(v) - Math.Log(mean) - d : Log1pmx(d);
                 meanD += d;
             }
             s = (s - meanD) / n;                                  // >= 0 by Jensen; 0 only when all values are equal
@@ -160,7 +162,9 @@ namespace ToolBelt.Numerics
             double[] x = Check(sample, positive: true, min: 2);
             int n = x.Length;
             double max = x.Max();
-            double[] ly = x.Select(v => Math.Log(v / max)).ToArray();  // scale-free: the shape equation is invariant to scaling
+            // Scale-free: the shape equation is invariant to scaling. As a difference of logs, since v/max underflowed to 0
+            // (ln 0 = −∞) when the sample spanned more than the double range.
+            double[] ly = x.Select(v => Math.Log(v) - Math.Log(max)).ToArray();
             if (ly.Max() - ly.Min() < 1e-14) throw new ArgumentException("All values are equal; the shape cannot be estimated.", nameof(sample));
             double meanLy = ly.Average();
 
@@ -319,14 +323,55 @@ namespace ToolBelt.Numerics
             return r + 1 / x + f / 2 + f / x * (1.0 / 6 - f * (1.0 / 30 - f * (1.0 / 42 - f * (1.0 / 30))));
         }
 
+        // The same code as Distributions.cs (this copy had drifted: no tiny-x branch, no series near 1 and 2).
+        private const double LnSqrt2Pi = 0.91893853320467274178;
+
+        private static readonly double[] Lanczos =
+        {
+            0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+            771.32342877765313, -176.61502916214059, 12.507343278686905,
+            -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+        };
+
         private static double LnGamma(double x)
         {
-            if (x < 0.5) return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * x))) - LnGamma(1 - x);
-            double[] g = { 0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059,
-                           12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7 };
-            double a = g[0], t = x + 6.5, xm1 = x - 1;
-            for (int i = 1; i < g.Length; i++) a += g[i] / (xm1 + i);
-            return 0.91893853320467274178 + (xm1 + 0.5) * Math.Log(t) - t + Math.Log(a);
+            if (double.IsPositiveInfinity(x)) return x;
+            if (x < 0.5)
+            {
+                // Γ(x) = Γ(x + 1)/x for 0 < x < ½; the reflection formula's π/sin(πx) overflows for x below ~1e-308.
+                if (x > 0) return LnGamma(x + 1) - Math.Log(x);
+                return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * x))) - LnGamma(1 - x); // reflection
+            }
+            // Near its zeros at 1 and 2 ln Γ is tiny, and the Lanczos sum, accurate only absolutely, kept ~1e-5 of it.
+            if (x >= 0.8 && x <= 1.2) return LnGammaNearOne(x - 1);
+            if (x >= 1.8 && x <= 2.2) return Math.Log(x - 1) + LnGammaNearOne(x - 2);   // x − 1 is exact
+            double a = Lanczos[0];
+            double t = x + 6.5;
+            double xm1 = x - 1;
+            for (int i = 1; i < Lanczos.Length; i++) a += Lanczos[i] / (xm1 + i);
+            return LnSqrt2Pi + (xm1 + 0.5) * Math.Log(t) - t + Math.Log(a);
+        }
+
+        // ζ(2) … ζ(25), for the series of ln Γ(1 + z).
+        private static readonly double[] Zeta =
+        {
+            1.6449340668482264, 1.2020569031595942, 1.0823232337111381, 1.03692775514337, 1.0173430619844492,
+            1.0083492773819229, 1.0040773561979444, 1.0020083928260821, 1.000994575127818, 1.0004941886041194,
+            1.000246086553308, 1.0001227133475785, 1.0000612481350588, 1.000030588236307, 1.0000152822594086,
+            1.0000076371976379, 1.000003817293265, 1.0000019082127165, 1.0000009539620338, 1.0000004769329869,
+            1.0000002384505027, 1.0000001192199259, 1.0000000596081891, 1.0000000298035034,
+        };
+
+        // ln Γ(1 + z) = −γz + Σₖ₌₂ ζ(k)(−z)ᵏ/k for |z| <= 0.2 (the terms fall by 5× each, 24 of them reach 1e-18 relative).
+        private static double LnGammaNearOne(double z)
+        {
+            double w = -z, wk = w, sum = 0.57721566490153286 * w;
+            for (int k = 2; k < Zeta.Length + 2; k++)
+            {
+                wk *= w;
+                sum += Zeta[k - 2] * wk / k;
+            }
+            return sum;
         }
     }
 
