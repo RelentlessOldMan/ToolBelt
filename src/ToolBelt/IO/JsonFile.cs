@@ -46,7 +46,9 @@ namespace ToolBelt.IO
         {
             if (json is null) throw new ArgumentNullException(nameof(json));
             T? value = JsonSerializer.Deserialize<T>(json, options ?? Indented);
-            return value is null ? throw new JsonException("The JSON was 'null'.") : value;
+            if (value is null && Nullable.GetUnderlyingType(typeof(T)) is null)   // 'null' is a fine int?
+                throw new JsonException("The JSON was 'null'.");
+            return value!;
         }
 
         /// <summary>Reads and deserializes a file; a parse error is rethrown naming the file, line and position.</summary>
@@ -69,6 +71,7 @@ namespace ToolBelt.IO
         /// <summary>Loads without throwing; false (with the reason) if the file is missing or invalid.</summary>
         public static bool TryLoad<T>(string path, out T? value, out string? error, JsonSerializerOptions? options = null)
         {
+            if (path is null) throw new ArgumentNullException(nameof(path));
             value = default;
             error = null;
             try
@@ -91,7 +94,8 @@ namespace ToolBelt.IO
             string full = Path.GetFullPath(path);
             string dir = Path.GetDirectoryName(full)!;
             Directory.CreateDirectory(dir);
-            string temp = Path.Combine(dir, "." + Path.GetFileName(full) + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp");
+            // A short temp name: appending to a long file name would push it past the 255-character limit.
+            string temp = Path.Combine(dir, ".json-" + Guid.NewGuid().ToString("N") + ".tmp");
             try
             {
                 using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
@@ -103,7 +107,10 @@ namespace ToolBelt.IO
             }
             finally
             {
-                if (File.Exists(temp)) File.Delete(temp);
+                // Best effort: a failed cleanup must not hide the exception that got us here.
+                try { if (File.Exists(temp)) File.Delete(temp); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
             }
         }
     }
@@ -134,6 +141,11 @@ namespace ToolBelt.IO
         public static IEnumerable<T> Read<T>(TextReader reader, JsonSerializerOptions? options = null)
         {
             if (reader is null) throw new ArgumentNullException(nameof(reader));
+            return ReadReader<T>(reader, options);
+        }
+
+        private static IEnumerable<T> ReadReader<T>(TextReader reader, JsonSerializerOptions? options)
+        {
             int lineNumber = 0;
             string? line;
             while ((line = reader.ReadLine()) != null)
@@ -144,10 +156,17 @@ namespace ToolBelt.IO
             }
         }
 
-        public static async IAsyncEnumerable<T> ReadAsync<T>(TextReader reader, JsonSerializerOptions? options = null,
-            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        /// <summary>Asynchronously reads records from a reader.</summary>
+        public static IAsyncEnumerable<T> ReadAsync<T>(TextReader reader, JsonSerializerOptions? options = null,
+            CancellationToken cancellationToken = default)
         {
             if (reader is null) throw new ArgumentNullException(nameof(reader));
+            return ReadAsyncIterator<T>(reader, options, cancellationToken);
+        }
+
+        private static async IAsyncEnumerable<T> ReadAsyncIterator<T>(TextReader reader, JsonSerializerOptions? options,
+            [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
             int lineNumber = 0;
             string? line;
             while ((line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false)) != null)
@@ -163,7 +182,9 @@ namespace ToolBelt.IO
             try
             {
                 T? value = JsonSerializer.Deserialize<T>(line, options ?? Options);
-                return value is null ? throw new JsonException("Record is 'null'.") : value;
+                if (value is null && Nullable.GetUnderlyingType(typeof(T)) is null)
+                    throw new JsonException("Record is 'null'.");
+                return value!;
             }
             catch (JsonException ex)
             {

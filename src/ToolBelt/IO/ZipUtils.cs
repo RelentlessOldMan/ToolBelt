@@ -13,14 +13,18 @@ namespace ToolBelt.IO
     /// optional filter and progress), extract with <b>path-traversal (Zip Slip) protection</b>, list entries,
     /// add or replace a single entry, and read one entry without extracting. The escape check lives here, in
     /// one audited place, because <c>../</c> and absolute entry names are the classic way a malicious archive
-    /// writes outside its target directory.
+    /// writes outside its target directory — and a junction or symbolic link already inside the target is the other.
     /// </summary>
     public static class ZipUtils
     {
         private static readonly StringComparison PathComparison =
             RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
-        /// <summary>Zips every file under <paramref name="sourceDirectory"/> (recursively).</summary>
+        /// <summary>
+        /// Zips every file under <paramref name="sourceDirectory"/> (recursively). Links (junctions, symbolic links) are
+        /// not followed or stored, the archive itself is skipped when it lies inside the source, and a failed run leaves
+        /// no partial zip behind.
+        /// </summary>
         public static void CreateFromDirectory(
             string sourceDirectory, string zipPath,
             Func<string, bool>? filter = null, Action<string>? onEntry = null, CompressionLevel level = CompressionLevel.Optimal)
@@ -30,24 +34,47 @@ namespace ToolBelt.IO
             if (!Directory.Exists(sourceDirectory)) throw new DirectoryNotFoundException(sourceDirectory);
 
             string root = Path.GetFullPath(sourceDirectory);
-            using var fs = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None);
-            using var archive = new ZipArchive(fs, ZipArchiveMode.Create);
-            foreach (string file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+            string zipFull = Path.GetFullPath(zipPath);
+            bool completed = false;
+            try
             {
-                string entryName = Path.GetFullPath(file).Substring(root.Length)
-                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                    .Replace('\\', '/');
-                if (filter != null && !filter(entryName)) continue;
+                using (var fs = new FileStream(zipFull, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var archive = new ZipArchive(fs, ZipArchiveMode.Create))
+                {
+                    foreach (string file in EnumerateFilesNoLinks(root))
+                    {
+                        string full = Path.GetFullPath(file);
+                        if (string.Equals(full, zipFull, PathComparison)) continue;   // the archive being written
+                        string entryName = full.Substring(root.Length)
+                            .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                            .Replace('\\', '/');
+                        if (filter != null && !filter(entryName)) continue;
 
-                ZipArchiveEntry entry = archive.CreateEntry(entryName, level);
-                using (Stream entryStream = entry.Open())
-                using (FileStream input = File.OpenRead(file))
-                    input.CopyTo(entryStream);
-                onEntry?.Invoke(entryName);
+                        ZipArchiveEntry entry = archive.CreateEntry(entryName, level);
+                        using (Stream entryStream = entry.Open())
+                        using (FileStream input = File.OpenRead(file))
+                            input.CopyTo(entryStream);
+                        onEntry?.Invoke(entryName);
+                    }
+                }
+                completed = true;
+            }
+            finally
+            {
+                if (!completed)
+                {
+                    try { File.Delete(zipFull); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
             }
         }
 
-        /// <summary>Extracts the archive into <paramref name="destinationDirectory"/>, rejecting entries that escape it.</summary>
+        /// <summary>
+        /// Extracts the archive into <paramref name="destinationDirectory"/>, rejecting (with <see cref="IOException"/>)
+        /// entries that escape it — by <c>../</c>, an absolute name, or a junction or symbolic link already inside the
+        /// destination, which is never written through.
+        /// </summary>
         public static void ExtractToDirectory(string zipPath, string destinationDirectory, bool overwrite = false, Action<string>? onEntry = null)
         {
             if (zipPath is null) throw new ArgumentNullException(nameof(zipPath));
@@ -63,6 +90,7 @@ namespace ToolBelt.IO
             foreach (ZipArchiveEntry entry in archive.Entries)
             {
                 string target = SafeTarget(root, rootWithSeparator, entry.FullName);
+                EnsureNoLinks(rootWithSeparator, target, entry.FullName);
 
                 // Directory entry (name ends with a separator, no file name).
                 if (entry.FullName.EndsWith("/", StringComparison.Ordinal) || entry.Name.Length == 0)
@@ -70,6 +98,8 @@ namespace ToolBelt.IO
                     Directory.CreateDirectory(target);
                     continue;
                 }
+                if (target.Equals(root, PathComparison) || target.Equals(rootWithSeparator, PathComparison))
+                    throw new IOException($"Zip entry '{entry.FullName}' resolves to the target directory itself.");
 
                 string? dir = Path.GetDirectoryName(target);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
@@ -94,7 +124,7 @@ namespace ToolBelt.IO
             return names;
         }
 
-        /// <summary>Adds an entry, replacing any existing one with the same name.</summary>
+        /// <summary>Adds an entry, replacing every existing one with the same name.</summary>
         public static void AddOrReplaceEntry(string zipPath, string entryName, byte[] content, CompressionLevel level = CompressionLevel.Optimal)
         {
             if (zipPath is null) throw new ArgumentNullException(nameof(zipPath));
@@ -103,25 +133,44 @@ namespace ToolBelt.IO
 
             using var fs = new FileStream(zipPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             using var archive = new ZipArchive(fs, ZipArchiveMode.Update);
-            archive.GetEntry(entryName)?.Delete();
+            // GetEntry finds only one of several same-named entries; remove them all.
+            var stale = new List<ZipArchiveEntry>();
+            foreach (ZipArchiveEntry e in archive.Entries)
+                if (string.Equals(e.FullName, entryName, StringComparison.Ordinal)) stale.Add(e);
+            foreach (ZipArchiveEntry e in stale) e.Delete();
             ZipArchiveEntry entry = archive.CreateEntry(entryName, level);
             using Stream entryStream = entry.Open();
             entryStream.Write(content, 0, content.Length);
         }
 
-        /// <summary>Reads a single entry's bytes without extracting, or null if it is absent.</summary>
-        public static byte[]? ReadEntryBytes(string zipPath, string entryName)
+        /// <summary>
+        /// Reads a single entry's bytes without extracting, or null if it is absent. An entry that inflates past
+        /// <paramref name="maxBytes"/> throws <see cref="InvalidDataException"/> instead of exhausting memory
+        /// (a guard against zip bombs and lying size headers).
+        /// </summary>
+        public static byte[]? ReadEntryBytes(string zipPath, string entryName, long maxBytes = int.MaxValue)
         {
             if (zipPath is null) throw new ArgumentNullException(nameof(zipPath));
             if (entryName is null) throw new ArgumentNullException(nameof(entryName));
+            if (maxBytes < 0) throw new ArgumentOutOfRangeException(nameof(maxBytes), maxBytes, "Must be non-negative.");
+            long cap = Math.Min(maxBytes, 0x7FFFFFC7L);   // the largest byte array the runtime allows
 
             using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
             ZipArchiveEntry? entry = archive.GetEntry(entryName);
             if (entry is null) return null;
+            if (entry.Length > cap)
+                throw new InvalidDataException($"Zip entry '{entryName}' is {entry.Length} bytes, over the {cap}-byte limit.");
             using Stream entryStream = entry.Open();
-            using var ms = new MemoryStream();
-            entryStream.CopyTo(ms);
+            using var ms = new MemoryStream((int)Math.Min(entry.Length, cap));
+            var buffer = new byte[81920];
+            int read;
+            while ((read = entryStream.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                if (ms.Length + read > cap)
+                    throw new InvalidDataException($"Zip entry '{entryName}' inflates past the {cap}-byte limit.");
+                ms.Write(buffer, 0, read);
+            }
             return ms.ToArray();
         }
 
@@ -141,6 +190,57 @@ namespace ToolBelt.IO
             if (!full.Equals(root, PathComparison) && !full.StartsWith(rootWithSeparator, PathComparison))
                 throw new IOException($"Zip entry '{entryName}' would extract outside the target directory.");
             return full;
+        }
+
+        // A junction or symbolic link between the root and the target (or the target itself) would redirect the write
+        // outside the destination, which the string check in SafeTarget cannot see. Every existing component is checked.
+        private static void EnsureNoLinks(string rootWithSeparator, string target, string entryName)
+        {
+            if (target.Length <= rootWithSeparator.Length) return;
+            string path = rootWithSeparator;
+            foreach (string part in target.Substring(rootWithSeparator.Length).Split(
+                new[] { Path.DirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                path = Path.Combine(path, part);
+                FileAttributes attributes;
+                try { attributes = File.GetAttributes(path); }
+                catch (FileNotFoundException) { return; }
+                catch (DirectoryNotFoundException) { return; }
+                if (IsLink(path, attributes))
+                    throw new IOException($"Zip entry '{entryName}' would be written through the link '{path}'.");
+            }
+        }
+
+        private static IEnumerable<string> EnumerateFilesNoLinks(string root)
+        {
+            var pending = new Stack<string>();
+            pending.Push(root);
+            while (pending.Count > 0)
+            {
+                string dir = pending.Pop();
+                foreach (string f in Directory.EnumerateFiles(dir))
+                    if (!IsLink(f, File.GetAttributes(f))) yield return f;
+                foreach (string d in Directory.EnumerateDirectories(dir))
+                    if (!IsLink(d, File.GetAttributes(d))) pending.Push(d);
+            }
+        }
+
+        // A reparse point that is a link (junction or symbolic link). Other reparse points, such as cloud-file
+        // placeholders, are ordinary files and folders.
+        private static bool IsLink(string path, FileAttributes attributes)
+        {
+            if ((attributes & FileAttributes.ReparsePoint) == 0) return false;
+#if NET6_0_OR_GREATER
+            try
+            {
+                FileSystemInfo info = (attributes & FileAttributes.Directory) != 0 ? new DirectoryInfo(path) : new FileInfo(path);
+                return info.LinkTarget != null;
+            }
+            catch (IOException) { return true; }
+            catch (UnauthorizedAccessException) { return true; }
+#else
+            return true;
+#endif
         }
     }
 }

@@ -19,12 +19,12 @@ namespace ToolBelt.IO
             ValidateWidths(widths);
 
             var result = new string[widths.Count];
-            int pos = 0;
+            long pos = 0;   // long: a run of huge widths must not wrap around to a negative position
             for (int i = 0; i < widths.Count; i++)
             {
                 int w = widths[i];
                 string field = pos < line.Length
-                    ? line.Substring(pos, Math.Min(w, line.Length - pos))
+                    ? line.Substring((int)pos, (int)Math.Min(w, line.Length - pos))
                     : string.Empty;
                 result[i] = trim ? field.Trim() : field;
                 pos += w;

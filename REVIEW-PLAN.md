@@ -48,8 +48,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 1 | 33 / 33 | re-queue (8 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 1 | 19 / 19 | re-queue (3 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 1 | 27 / 27 | re-queue (5 severe) |
-| 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 0 | – / 0 | **next** |
-| 9  | Collections | `Collections/*` | 3,400 | ~1 | 0 | – / 0 | queued |
+| 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 1 | 45 / 45 | re-queue (6 severe) |
+| 9  | Collections | `Collections/*` | 3,400 | ~1 | 0 | – / 0 | **next** |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 0 | – / 0 | queued |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 0 | – / 0 | queued |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 0 | – / 0 | queued |
@@ -75,6 +75,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.5.0 | 5 | Charts | 33 | (see tag) |
 | v0.6.0 | 6 | Binary formats & images | 19 | (see tag) |
 | v0.7.0 | 7 | Documents & config | 27 | (see tag) |
+| v0.8.0 | 8 | IO | 45 | (see tag) |
 
 ## Round log
 
@@ -419,3 +420,49 @@ inspection), 3 doc-only, 1 hardening item, 0 rejected.
   no longer collide on Linux.
 - **Checked build:** the section is clean; 55 failures remain elsewhere (round 6's 57 minus the two PDF image ones).
 - **Re-queued:** yes (5 severe, 27 bugs).
+
+### Round 8 — 2026-10-25 — IO
+
+Reviewers: one for correctness (27 findings) and one for robustness (a probe program against links, encodings,
+huge sizes and races). **45 confirmed bugs**: 39 regression tests in `IOReviewTests` (37 failing first; the
+cross-platform `SafeFileName` test only fails off Windows, and the `ReadEntryBytes` cap is a new parameter), 6 by
+inspection (races and leaks); 3 hardening items, 3 doc-only, 0 rejected.
+
+- **Severe:**
+  - `ZipUtils` and `TarUtils` extraction wrote through a junction or symlink already in the destination, escaping
+    the target. Every existing path component is now checked and a link is refused.
+  - `ZipUtils.CreateFromDirectory` followed junctions in the source, and an archive created inside its own source
+    tried to zip itself (`IOException`). It now walks without following links, skips its own output, and deletes a
+    partial archive on failure.
+  - `LineReader` split on raw 0x0A bytes, so UTF-16/32 text came back as corrupted lines. It now rejects encodings
+    whose CR/LF aren't single bytes, and skips a UTF-8 BOM (offsets were off by 3).
+  - `ChecksumManifest.Create` without an `onError` callback silently left out unreadable subtrees; it now throws.
+- **Moderate:**
+  - `ZipUtils.AddOrReplaceEntry` left duplicates; an entry resolving to the root threw the wrong exception;
+    `ReadEntryBytes` had no size cap (new `maxBytes`). `TarUtils` dropped empty directories and extracted sparse
+    entries as garbage (now rejected).
+  - `CsvLine.Parse` accepted an unterminated quote; `CsvDialect.Detect` picked ',' for "1,5;2,5" data and counted
+    integers and "1,000" as decimal-comma evidence; `CsvBinder` couldn't round-trip `Guid`, `TimeSpan`,
+    `DateTimeOffset`, a UTC `DateTime` or an empty nullable.
+  - `ByteSize.Parse("1,5 KB")` was 15,000 bytes, and `Format(1048575)` printed "1024.00 KiB".
+  - `DotEnv` kept quotes when a quoted value had an inline comment, cut unquoted values at any `#`, and didn't handle
+    a BOM or `export<TAB>`.
+  - `FileRetention.MaxTotalBytes` deleted the newest large file but kept older small ones.
+  - `FileWatcher` reported a deleted empty directory as a file, double-reported a pending rename after a rescan,
+    could miss changes between its first snapshot and enabling events, raised `Changed` after `Dispose`, leaked
+    stability probes, and scanned every snapshot key on each deletion (now O(1) with ancestor counts).
+  - `SafeFileName` used the current OS's invalid set (Linux-made names broke on Windows) and missed `CON .txt`,
+    `COM0`/`LPT0`, superscript-digit forms and `CONIN$`/`CONOUT$`.
+  - `AtomicFile` dropped the encoding preamble and leaked its temp file on a failed write; it and `JsonFile` used a
+    temp name 37 characters longer than the target (PathTooLong near MAX_PATH).
+  - `JsonFile` rejected null for `Nullable<T>`; `JsonLines.Read` and `TryLoad` checked arguments late.
+  - `StreamUtils.Copy` read once more after cancellation; `TeeStream.Dispose` leaked the copy if the primary threw.
+  - `DirectoryUtils.EnsureEmpty` on a junction emptied the link's target; it now throws.
+- **Minor:** overflow in `FixedWidth` positions and `HexDump` offsets/huge `bytesPerLine`; `SafeFileName` truncation
+  split surrogate pairs; relative paths kept a trailing separator; deletes threw when an item vanished meanwhile;
+  `CsvBinder`'s drop-in header was false; on .NET 6+ cloud-file placeholders are no longer treated as links.
+- **Hardening:** `CsvDialect.FormatNumber` falls back to G17 where "R" doesn't round-trip (.NET Framework);
+  `FileRetention` re-checks the wildcard (the netfx 8.3 quirk matches "*.log" to "a.logx").
+- **Doc-only:** `ChecksumManifest` and `DirectoryUtils.Copy` follow file symlinks; `FileRetention.KeepAtLeast` wording.
+- **Checked build:** the section is clean; the same 55 failures remain elsewhere.
+- **Re-queued:** yes (6 severe, 45 bugs).

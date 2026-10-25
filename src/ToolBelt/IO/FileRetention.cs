@@ -16,10 +16,13 @@ namespace ToolBelt.IO
         /// <summary>Delete files last written longer ago than this.</summary>
         public TimeSpan? MaxAge { get; set; }
 
-        /// <summary>Keep the newest files whose combined size fits in this many bytes.</summary>
+        /// <summary>
+        /// Keep the newest files whose combined size fits in this many bytes. The cut is by age: once a file doesn't fit,
+        /// it and every older file go, even small ones that would still fit.
+        /// </summary>
         public long? MaxTotalBytes { get; set; }
 
-        /// <summary>Never delete fewer than this many newest files, whatever the other limits say (default 0).</summary>
+        /// <summary>Always keep at least this many newest files, whatever the other limits say (default 0).</summary>
         public int KeepAtLeast { get; set; }
     }
 
@@ -69,19 +72,23 @@ namespace ToolBelt.IO
             if (!Directory.Exists(directory)) return new PruneResult(Array.Empty<string>(), Array.Empty<string>(), Array.Empty<(string, Exception)>(), 0);
 
             DateTime now = nowUtc ?? DateTime.UtcNow;
+            // .NET Framework's "*.log" also matches "a.logx" (8.3-name quirk); re-check against the pattern exactly.
             var files = new DirectoryInfo(directory).GetFiles(searchPattern, SearchOption.TopDirectoryOnly)
+                .Where(f => Matches(f.Name, searchPattern))
                 .OrderByDescending(f => f.LastWriteTimeUtc).ThenByDescending(f => f.Name, StringComparer.Ordinal).ToList();
 
             var kept = new List<string>();
             var doomed = new List<FileInfo>();
             long total = 0;
+            bool overBudget = false;   // once a file breaks the size budget, every older file does too
             for (int i = 0; i < files.Count; i++)
             {
                 FileInfo f = files[i];
                 bool protectedByMinimum = i < policy.KeepAtLeast;
                 bool tooMany = policy.MaxCount is int max && i >= max;
                 bool tooOld = policy.MaxAge is TimeSpan age && now - f.LastWriteTimeUtc > age;
-                bool tooBig = policy.MaxTotalBytes is long cap && total + f.Length > cap;
+                if (!protectedByMinimum && policy.MaxTotalBytes is long cap && total + f.Length > cap) overBudget = true;
+                bool tooBig = overBudget;
                 if (!protectedByMinimum && (tooMany || tooOld || tooBig)) doomed.Add(f);
                 else { kept.Add(f.FullName); total += f.Length; }
             }
@@ -106,6 +113,21 @@ namespace ToolBelt.IO
                 }
             }
             return new PruneResult(kept, deleted, failed, freed);
+        }
+
+        // Windows-style wildcard match ('*' any run, '?' one character), case-insensitive.
+        private static bool Matches(string name, string pattern)
+        {
+            int n = 0, p = 0, star = -1, mark = 0;
+            while (n < name.Length)
+            {
+                if (p < pattern.Length && (pattern[p] == '?' || char.ToUpperInvariant(pattern[p]) == char.ToUpperInvariant(name[n]))) { n++; p++; }
+                else if (p < pattern.Length && pattern[p] == '*') { star = p++; mark = n; }
+                else if (star >= 0) { p = star + 1; n = ++mark; }
+                else return false;
+            }
+            while (p < pattern.Length && pattern[p] == '*') p++;
+            return p == pattern.Length;
         }
 
         /// <summary>

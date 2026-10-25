@@ -22,10 +22,11 @@ namespace ToolBelt.IO
 
             var buffer = new byte[bufferSize];
             long total = 0;
-            int read;
-            while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+            while (true)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                cancellationToken.ThrowIfCancellationRequested();   // before the read, so a cancelled copy consumes nothing more
+                int read = source.Read(buffer, 0, buffer.Length);
+                if (read <= 0) break;
                 destination.Write(buffer, 0, read);
                 total += read;
                 progress?.Invoke(total);

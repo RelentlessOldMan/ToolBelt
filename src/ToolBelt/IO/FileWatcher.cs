@@ -96,6 +96,17 @@ namespace ToolBelt.IO
         /// <summary>Removes and returns everything pending, in first-seen order.</summary>
         public IReadOnlyList<FileChange> TakeAll() => TakeQuiet(DateTime.MaxValue, TimeSpan.Zero);
 
+        internal bool IsPending(string path) => _pending.ContainsKey(path);
+
+        // The old names of pending renames: a rescan sees each as a deletion, which the rename already reports.
+        internal HashSet<string> PendingRenameSources()
+        {
+            var sources = new HashSet<string>(_comparer);
+            foreach (Entry e in _pending.Values)
+                if (e.Kind == FileChangeKind.Renamed) sources.Add(e.OldPath!);
+            return sources;
+        }
+
         // ---------- the merge rules ----------
 
         private void OnCreated(string path, DateTime now)
@@ -206,8 +217,16 @@ namespace ToolBelt.IO
     public sealed class DirectorySnapshot
     {
         private readonly Dictionary<string, (long Length, DateTime LastWriteUtc)> _files;
+        private readonly Dictionary<string, int> _directories;   // directory -> number of files at any depth below it
 
-        private DirectorySnapshot(Dictionary<string, (long, DateTime)> files) => _files = files;
+        private DirectorySnapshot(Dictionary<string, (long, DateTime)> files)
+        {
+            _files = files;
+            _directories = new Dictionary<string, int>(Comparer);
+            foreach (string path in files.Keys) CountAncestors(path, +1);
+        }
+
+        private static StringComparer Comparer => Path.DirectorySeparatorChar == '\\' ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
         public int Count => _files.Count;
 
@@ -255,25 +274,44 @@ namespace ToolBelt.IO
             return changes;
         }
 
+        // O(1) per event: the watcher asks this for every deletion and rename.
         internal bool ContainsUnder(string directory)
-        {
-            string prefix = directory.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            var cmp = Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            return _files.Keys.Any(k => k.StartsWith(prefix, cmp));
-        }
+            => _directories.TryGetValue(directory.TrimEnd(Path.DirectorySeparatorChar), out int n) && n > 0;
+
+        internal bool Contains(string path) => _files.ContainsKey(Path.GetFullPath(path));
 
         internal void Record(string path)
         {
             try
             {
                 var fi = new FileInfo(path);
-                if (fi.Exists) _files[fi.FullName] = (fi.Length, fi.LastWriteTimeUtc);
-                else _files.Remove(fi.FullName);
+                if (fi.Exists)
+                {
+                    if (!_files.ContainsKey(fi.FullName)) CountAncestors(fi.FullName, +1);
+                    _files[fi.FullName] = (fi.Length, fi.LastWriteTimeUtc);
+                }
+                else Remove(fi.FullName);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
         }
 
-        internal void Forget(string path) => _files.Remove(Path.GetFullPath(path));
+        internal void Forget(string path) => Remove(Path.GetFullPath(path));
+
+        private void Remove(string full)
+        {
+            if (_files.Remove(full)) CountAncestors(full, -1);
+        }
+
+        private void CountAncestors(string file, int delta)
+        {
+            for (string? dir = Path.GetDirectoryName(file); !string.IsNullOrEmpty(dir); dir = Path.GetDirectoryName(dir))
+            {
+                string key = dir!.TrimEnd(Path.DirectorySeparatorChar);
+                int n = (_directories.TryGetValue(key, out int c) ? c : 0) + delta;
+                if (n > 0) _directories[key] = n;
+                else _directories.Remove(key);
+            }
+        }
     }
 
     /// <summary>Options for <see cref="FileWatcher"/>.</summary>
@@ -384,12 +422,12 @@ namespace ToolBelt.IO
             if (IsRunning) return;
             bool restart;
             lock (_gate) restart = _snapshot != null;
+            _watcher.EnableRaisingEvents = true;                   // before the snapshot, so nothing slips between the two
             if (!restart)
             {
                 var snap = Snapshot();
                 lock (_gate) _snapshot = snap;
             }
-            _watcher.EnableRaisingEvents = true;
             IsRunning = true;
             if (restart) _rescanRequested = true;
             _timer.Change(_tick, _tick);
@@ -418,9 +456,18 @@ namespace ToolBelt.IO
             {
                 IReadOnlyList<FileChange> diff = _snapshot is null ? Array.Empty<FileChange>() : DirectorySnapshot.Diff(_snapshot, fresh);
                 DateTime now = DateTime.UtcNow;
-                foreach (FileChange c in diff) _coalescer.Add(c, now);
+                HashSet<string> renamedAway = _coalescer.PendingRenameSources();
+                int found = 0;
+                foreach (FileChange c in diff)
+                {
+                    // A pending rename already reports both ends: its source as gone, its target as present.
+                    if (c.Kind == FileChangeKind.Deleted && renamedAway.Contains(c.FullPath)) continue;
+                    if (c.Kind == FileChangeKind.Created && _coalescer.IsPending(c.FullPath)) continue;
+                    _coalescer.Add(c, now);
+                    found++;
+                }
                 _snapshot = fresh;
-                return diff.Count;
+                return found;
             }
         }
 
@@ -467,6 +514,8 @@ namespace ToolBelt.IO
                 {
                     if (kind == FileChangeKind.Deleted && _snapshot != null && _snapshot.ContainsUnder(path)) { _rescanRequested = true; return; }
                     if (kind == FileChangeKind.Renamed && oldPath != null && _snapshot != null && _snapshot.ContainsUnder(oldPath)) { _rescanRequested = true; return; }
+                    // Neither a known file nor a pending one: an empty directory (or a filtered-out file) went away.
+                    if (kind == FileChangeKind.Deleted && _snapshot != null && !_snapshot.Contains(path) && !_coalescer.IsPending(path)) return;
                     _coalescer.Add(new FileChange(kind, path, oldPath), DateTime.UtcNow);
                 }
             }
@@ -493,6 +542,7 @@ namespace ToolBelt.IO
                     {
                         DateTime now = DateTime.UtcNow;
                         batch = Take(_coalescer.TakeQuiet(now, _options.Debounce, _options.StableFor is null ? null : c => IsStable(c, now)));
+                        PruneProbes();
                     }
                     Raise(batch);
                 }
@@ -522,6 +572,16 @@ namespace ToolBelt.IO
             return false;
         }
 
+        // A probe outlives its change when the change is superseded (renamed away, deleted and dropped); don't let them pile up.
+        private void PruneProbes()
+        {
+            if (_probes.Count == 0) return;
+            List<string>? stale = null;
+            foreach (string path in _probes.Keys)
+                if (!_coalescer.IsPending(path)) (stale ??= new List<string>()).Add(path);
+            if (stale != null) foreach (string path in stale) _probes.Remove(path);
+        }
+
         // Keeps the snapshot current with what is being reported, so a later rescan does not repeat it.
         private IReadOnlyList<FileChange> Take(IReadOnlyList<FileChange> batch)
         {
@@ -536,7 +596,7 @@ namespace ToolBelt.IO
 
         private void Raise(IReadOnlyList<FileChange> batch)
         {
-            if (batch.Count == 0) return;
+            if (batch.Count == 0 || _disposed) return;   // no events after Dispose, even from an in-flight tick
             lock (_raiseGate) // reentrant, so a handler that calls Flush() does not deadlock
             {
                 var previous = _raisingOn;

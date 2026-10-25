@@ -8,7 +8,7 @@ namespace ToolBelt.IO
     /// Formats a byte buffer as a classic hex dump: an 8-digit hex offset, the bytes in lowercase hex,
     /// and an ASCII gutter where non-printable bytes render as '.'. Each line covers
     /// <c>bytesPerLine</c> bytes (default 16); the byte column is padded so gutters align on short final
-    /// lines. Empty input yields an empty string.
+    /// lines (up to 256 byte columns; beyond that, to the data length). Empty input yields an empty string.
     /// </summary>
     public static class HexDump
     {
@@ -21,7 +21,10 @@ namespace ToolBelt.IO
             if (data.Length == 0) return string.Empty;
 
             var sb = new StringBuilder();
-            for (int offset = 0; offset < data.Length; offset += bytesPerLine)
+            // Short lines pad to bytesPerLine; past 256 bytes, padding stops at the data's length, so a huge bytesPerLine
+            // can't allocate a huge string of spaces.
+            int width = Math.Min(bytesPerLine, Math.Max(data.Length, 256));
+            for (long offset = 0; offset < data.Length; offset += bytesPerLine)   // long: offset + bytesPerLine can pass int.MaxValue
             {
                 if (offset > 0)
                     sb.Append('\n');
@@ -29,8 +32,8 @@ namespace ToolBelt.IO
                 AppendOffset(sb, offset);
                 sb.Append("  ");
 
-                int lineLen = Math.Min(bytesPerLine, data.Length - offset);
-                for (int j = 0; j < bytesPerLine; j++)
+                int lineLen = (int)Math.Min(bytesPerLine, data.Length - offset);
+                for (int j = 0; j < width; j++)
                 {
                     if (j < lineLen)
                     {
@@ -57,10 +60,10 @@ namespace ToolBelt.IO
             return sb.ToString();
         }
 
-        private static void AppendOffset(StringBuilder sb, int offset)
+        private static void AppendOffset(StringBuilder sb, long offset)
         {
             for (int shift = 28; shift >= 0; shift -= 4)
-                sb.Append(HexDigits[(offset >> shift) & 0xF]);
+                sb.Append(HexDigits[(int)((offset >> shift) & 0xF)]);
         }
     }
 }

@@ -9,7 +9,9 @@ namespace ToolBelt.IO
     /// Parses and formats a single delimited (CSV) line following RFC 4180 quoting rules: a field may be
     /// wrapped in double quotes, a quote inside a quoted field is written as two quotes, and quoted
     /// fields may contain the delimiter, quotes, and line breaks. <see cref="Format"/> and
-    /// <see cref="Parse"/> are inverses.
+    /// <see cref="Parse"/> are inverses, except that an empty field list formats as "", which parses back as
+    /// one empty field. Parsing is lenient about text after a closing quote (<c>"ab"c</c> reads as <c>abc</c>),
+    /// but a quote left open throws <see cref="FormatException"/>: the line is only part of a multi-line record.
     /// </summary>
     public static class CsvLine
     {
@@ -60,6 +62,8 @@ namespace ToolBelt.IO
                 }
             }
 
+            if (inQuotes)
+                throw new FormatException("Unterminated quoted field: the line ends inside quotes (a multi-line record needs its following lines).");
             fields.Add(field.ToString());
             return fields;
         }

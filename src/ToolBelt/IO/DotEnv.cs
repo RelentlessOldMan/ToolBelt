@@ -9,8 +9,10 @@ namespace ToolBelt.IO
     /// Parses <c>.env</c>-style configuration text into key/value pairs. Blank lines and <c>#</c> comment
     /// lines are ignored, an optional <c>export</c> prefix is stripped, and values may be single- or
     /// double-quoted. Double-quoted values honor <c>\n</c>, <c>\t</c>, <c>\"</c>, and <c>\\</c> escapes;
-    /// single-quoted values are literal. Unquoted values are trimmed and may carry a trailing
-    /// <c>#</c> comment. Later keys override earlier ones.
+    /// single-quoted values are literal; a quoted value may be followed by a <c>#</c> comment. Unquoted values
+    /// are trimmed, and a <c>#</c> starts a comment only at the start of the value or after whitespace (so
+    /// <c>URL=http://x/#frag</c> keeps its fragment). A leading byte order mark is ignored, and <c>export</c> may be
+    /// followed by any whitespace. Later keys override earlier ones.
     /// </summary>
     public static class DotEnv
     {
@@ -21,14 +23,17 @@ namespace ToolBelt.IO
 
             var result = new Dictionary<string, string>(StringComparer.Ordinal);
 
+            if (content.Length > 0 && content[0] == '\uFEFF')
+                content = content.Substring(1);
+
             foreach (string rawLine in content.Split('\n'))
             {
                 string line = rawLine.TrimEnd('\r').Trim();
                 if (line.Length == 0 || line[0] == '#')
                     continue;
 
-                if (line.StartsWith("export ", StringComparison.Ordinal))
-                    line = line.Substring("export ".Length).TrimStart();
+                if (line.Length > 6 && line.StartsWith("export", StringComparison.Ordinal) && char.IsWhiteSpace(line[6]))
+                    line = line.Substring(6).TrimStart();
 
                 int eq = line.IndexOf('=');
                 if (eq <= 0)
@@ -47,15 +52,33 @@ namespace ToolBelt.IO
 
         private static string ParseValue(string raw)
         {
-            if (raw.Length >= 2 && raw[0] == '"' && raw[raw.Length - 1] == '"')
-                return Unescape(raw.Substring(1, raw.Length - 2));
-            if (raw.Length >= 2 && raw[0] == '\'' && raw[raw.Length - 1] == '\'')
-                return raw.Substring(1, raw.Length - 2); // literal
+            if (raw.Length >= 2 && (raw[0] == '"' || raw[0] == '\''))
+            {
+                char quote = raw[0];
+                int close = 1;
+                while (close < raw.Length && raw[close] != quote)
+                    close += quote == '"' && raw[close] == '\\' ? 2 : 1;   // skip an escaped character
+                if (close < raw.Length)
+                {
+                    string rest = raw.Substring(close + 1).Trim();
+                    if (rest.Length == 0 || rest[0] == '#')
+                    {
+                        string inner = raw.Substring(1, close - 1);
+                        return quote == '"' ? Unescape(inner) : inner;   // single quotes are literal
+                    }
+                }
+                // No closing quote, or text after it: treat the whole value as unquoted.
+            }
 
-            // Unquoted: strip an inline comment, then trim.
-            int hash = raw.IndexOf('#');
-            if (hash >= 0)
-                raw = raw.Substring(0, hash);
+            // Unquoted: strip an inline comment (a '#' at the start or after whitespace), then trim.
+            for (int i = 0; i < raw.Length; i++)
+            {
+                if (raw[i] == '#' && (i == 0 || char.IsWhiteSpace(raw[i - 1])))
+                {
+                    raw = raw.Substring(0, i);
+                    break;
+                }
+            }
             return raw.Trim();
         }
 

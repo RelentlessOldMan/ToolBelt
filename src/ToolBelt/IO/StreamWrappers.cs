@@ -135,9 +135,17 @@ namespace ToolBelt.IO
         {
             if (disposing)
             {
-                try { _copy.Flush(); } catch (ObjectDisposedException) { }
-                if (!_leavePrimaryOpen) _primary.Dispose();
-                if (!_leaveCopyOpen) _copy.Dispose();
+                try
+                {
+                    try { _copy.Flush(); } catch (ObjectDisposedException) { }
+                    if (!_leavePrimaryOpen) _primary.Dispose();
+                }
+                finally
+                {
+                    try { if (!_leaveCopyOpen) _copy.Dispose(); }   // even if the primary threw
+                    finally { base.Dispose(disposing); }
+                }
+                return;
             }
             base.Dispose(disposing);
         }

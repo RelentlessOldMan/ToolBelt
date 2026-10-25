@@ -87,7 +87,8 @@ namespace ToolBelt.IO
     /// <para>
     /// Links are never followed: a junction or symbolic link to a directory is not descended into by any operation, and
     /// <see cref="Delete"/> removes the link itself — never the target's contents, which a naive recursive delete would
-    /// wipe out. Walks are iterative, so deep trees cannot overflow the stack.
+    /// wipe out. Walks are iterative, so deep trees cannot overflow the stack. A symbolic link to a <i>file</i> is
+    /// treated as that file: <see cref="Copy"/> copies the target's content.
     /// </para>
     /// </summary>
     public static class DirectoryUtils
@@ -194,12 +195,16 @@ namespace ToolBelt.IO
             return true;
         }
 
-        /// <summary>Makes <paramref name="path"/> an empty directory: creates it if missing, otherwise deletes everything inside it.</summary>
+        /// <summary>
+        /// Makes <paramref name="path"/> an empty directory: creates it if missing, otherwise deletes everything inside it.
+        /// A link (junction or symbolic link) throws <see cref="IOException"/> rather than emptying its target.
+        /// </summary>
         public static void EnsureEmpty(string path, int retries = 3, TimeSpan? retryDelay = null)
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
             string full = Path.GetFullPath(path);
             if (File.Exists(full)) throw new IOException($"'{path}' is a file, not a directory.");
+            if (Directory.Exists(full) && IsLink(full)) throw new IOException($"'{path}' is a link; refusing to empty its target.");
             Directory.CreateDirectory(full);
             DeleteTree(full, retries, retryDelay ?? TimeSpan.FromMilliseconds(100), deleteRoot: false);
         }
@@ -328,7 +333,9 @@ namespace ToolBelt.IO
 
         private static string Relative(string root, string path)
         {
-            string trimmed = path.Length > root.Length ? path.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) : "";
+            string trimmed = path.Length > root.Length
+                ? path.Substring(root.Length).Trim(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                : "";
             return trimmed.Replace(Path.DirectorySeparatorChar, '/');
         }
 
@@ -350,15 +357,31 @@ namespace ToolBelt.IO
             return full.Length > root.Length ? full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) : full;
         }
 
+        // A junction or symbolic link. Other reparse points (cloud-file placeholders, deduplicated files) are ordinary
+        // files and folders; telling them apart needs LinkTarget (net6+), so older targets treat every reparse point as a link.
         private static bool IsLink(string path)
         {
-            try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0; }
+            try
+            {
+                FileAttributes a = File.GetAttributes(path);
+                if ((a & FileAttributes.ReparsePoint) == 0) return false;
+#if NET6_0_OR_GREATER
+                FileSystemInfo info = (a & FileAttributes.Directory) != 0 ? new DirectoryInfo(path) : new FileInfo(path);
+                try { return info.LinkTarget != null; }
+                catch (Exception ex) when (IsIoError(ex)) { return true; }
+#else
+                return true;
+#endif
+            }
             catch (Exception ex) when (IsIoError(ex)) { return false; }
         }
 
         private static void ClearReadOnly(string path)
         {
-            FileAttributes a = File.GetAttributes(path);
+            FileAttributes a;
+            try { a = File.GetAttributes(path); }
+            catch (FileNotFoundException) { return; }        // already gone (someone else deleted it): nothing to clear
+            catch (DirectoryNotFoundException) { return; }
             if ((a & FileAttributes.ReadOnly) != 0) File.SetAttributes(path, a & ~FileAttributes.ReadOnly);
         }
 
@@ -367,6 +390,8 @@ namespace ToolBelt.IO
             for (int attempt = 0; ; attempt++)
             {
                 try { action(); return; }
+                catch (DirectoryNotFoundException) { return; }   // the item vanished meanwhile: the delete's goal is met
+                catch (FileNotFoundException) { return; }
                 catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < retries)
                 {
                     if (delay > TimeSpan.Zero) Thread.Sleep(delay); // transient lock: wait and try again

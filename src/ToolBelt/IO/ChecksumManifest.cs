@@ -44,8 +44,8 @@ namespace ToolBelt.IO
     /// trees by content. The text form is the GNU <c>sha256sum</c> format (<c>&lt;hex&gt;  &lt;path&gt;</c>, one per line,
     /// including its backslash escaping for names containing '\' or line breaks), so a manifest written here checks with
     /// <c>sha256sum -c</c> and vice versa. Paths are relative to the root, '/'-separated, compared ordinally (exact case),
-    /// and kept sorted so manifests diff cleanly. The tree walk skips links and reports unreadable entries to an optional
-    /// callback rather than aborting.
+    /// and kept sorted so manifests diff cleanly. The tree walk does not descend into directory links; a symbolic link to a
+    /// file is hashed as its target. Unreadable entries go to an optional callback; without one they throw.
     /// </summary>
     public sealed class ChecksumManifest
     {
@@ -72,13 +72,15 @@ namespace ToolBelt.IO
 
         /// <summary>
         /// Hashes every file under <paramref name="directory"/> (optionally only those whose relative path passes
-        /// <paramref name="fileFilter"/>). Unreadable directories or files go to <paramref name="onError"/> and are left out.
+        /// <paramref name="fileFilter"/>). Unreadable directories or files go to <paramref name="onError"/> and are left out;
+        /// with no <paramref name="onError"/> the first one throws (a manifest must not silently miss a subtree).
         /// </summary>
         public static ChecksumManifest Create(string directory, Func<string, bool>? fileFilter = null, Action<string, Exception>? onError = null)
         {
             if (directory is null) throw new ArgumentNullException(nameof(directory));
             var pairs = new List<KeyValuePair<string, string>>();
-            foreach (string file in DirectoryUtils.EnumerateFiles(directory, "*", onError))
+            Action<string, Exception> walkError = onError ?? ((_, ex) => System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex).Throw());
+            foreach (string file in DirectoryUtils.EnumerateFiles(directory, "*", walkError))
             {
                 string rel = DirectoryUtils.GetRelativePath(directory, file);
                 if (fileFilter != null && !fileFilter(rel)) continue;

@@ -11,8 +11,9 @@ namespace ToolBelt.IO
 {
     /// <summary>
     /// Tar and .tar.gz archives over <see cref="System.Formats.Tar"/>, with the same safety as <see cref="ZipUtils"/>:
-    /// extraction rejects entries that would escape the destination (<c>../</c>, absolute paths) and never creates symbolic
-    /// or hard links (which can point outside it): a link entry is an error, or is skipped with <c>skipLinks</c>. Gzip is chosen by extension (<c>.tar.gz</c>,
+    /// extraction rejects entries that would escape the destination (<c>../</c>, absolute paths, or a junction or symbolic
+    /// link already inside it) and never creates symbolic or hard links (which can point outside it): a link entry is an
+    /// error, or is skipped with <c>skipLinks</c>. Sparse files are rejected rather than silently dropped. Gzip is chosen by extension (<c>.tar.gz</c>,
     /// <c>.tgz</c>) or by the <c>gzip</c> argument. Entries are written in PAX format with forward-slash names.
     /// </summary>
     public static class TarUtils
@@ -20,7 +21,10 @@ namespace ToolBelt.IO
         private static readonly StringComparison PathComparison =
             RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
-        /// <summary>Archives every file under <paramref name="sourceDirectory"/> (recursively, links not followed).</summary>
+        /// <summary>
+        /// Archives every file under <paramref name="sourceDirectory"/> (recursively, links not followed). Empty directories
+        /// are kept as directory entries (named with a trailing <c>/</c>, which is also what <paramref name="filter"/> sees).
+        /// </summary>
         public static void CreateFromDirectory(string sourceDirectory, string archivePath, bool? gzip = null,
             Func<string, bool>? filter = null, Action<string>? onEntry = null)
         {
@@ -36,12 +40,14 @@ namespace ToolBelt.IO
                 using var fs = new FileStream(archiveFull, FileMode.Create, FileAccess.Write, FileShare.None);
                 using Stream output = UseGzip(archivePath, gzip) ? new GZipStream(fs, CompressionLevel.Optimal) : (Stream)fs;
                 using var writer = new TarWriter(output, TarEntryFormat.Pax, leaveOpen: false);
-                foreach (string file in EnumerateFilesNoLinks(root))
+                foreach ((string path, bool isEmptyDirectory) in EnumerateNoLinks(root))
                 {
-                    if (string.Equals(Path.GetFullPath(file), archiveFull, PathComparison)) continue;   // the archive being written
-                    string name = Path.GetRelativePath(root, file).Replace('\\', '/');
+                    if (string.Equals(Path.GetFullPath(path), archiveFull, PathComparison)) continue;   // the archive being written
+                    string name = Path.GetRelativePath(root, path).Replace('\\', '/');
+                    if (isEmptyDirectory) name += "/";
                     if (filter != null && !filter(name)) continue;
-                    writer.WriteEntry(file, name);
+                    if (isEmptyDirectory) writer.WriteEntry(new PaxTarEntry(TarEntryType.Directory, name));
+                    else writer.WriteEntry(path, name);
                     onEntry?.Invoke(name);
                 }
                 completed = true;
@@ -73,6 +79,7 @@ namespace ToolBelt.IO
             while ((entry = reader.GetNextEntry()) != null)
             {
                 string target = SafeTarget(rootWithSep, entry.Name);
+                EnsureNoLinks(rootWithSep, target, entry.Name);
                 switch (entry.EntryType)
                 {
                     case TarEntryType.Directory:
@@ -92,6 +99,8 @@ namespace ToolBelt.IO
                         // TarEntry.ExtractToFile doesn't support links anyway. Refuse them, or skip on request.
                         if (skipLinks) continue;
                         throw new InvalidDataException($"Archive entry '{entry.Name}' is a link; links are not extracted (pass skipLinks to ignore them).");
+                    case TarEntryType.SparseFile:
+                        throw new InvalidDataException($"Archive entry '{entry.Name}' is a sparse file, which is not supported.");
                     default:
                         continue;                                           // PAX/GNU metadata, devices, FIFOs: skipped
                 }
@@ -127,18 +136,53 @@ namespace ToolBelt.IO
             return target;
         }
 
-        private static IEnumerable<string> EnumerateFilesNoLinks(string root)
+        // A junction or symbolic link between the root and the target (or the target itself) would redirect the write
+        // outside the destination, which the string check in SafeTarget cannot see. Every existing component is checked.
+        private static void EnsureNoLinks(string rootWithSep, string target, string entryName)
+        {
+            if (target.Length <= rootWithSep.Length) return;
+            string path = rootWithSep;
+            foreach (string part in target.Substring(rootWithSep.Length).Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+            {
+                path = Path.Combine(path, part);
+                FileAttributes attributes;
+                try { attributes = File.GetAttributes(path); }
+                catch (FileNotFoundException) { return; }
+                catch (DirectoryNotFoundException) { return; }
+                if (IsLink(path, attributes))
+                    throw new InvalidDataException($"Archive entry '{entryName}' would be written through the link '{path}'.");
+            }
+        }
+
+        // Files, plus directories that hold nothing archivable (so they survive the round trip). Links are not followed.
+        private static IEnumerable<(string Path, bool IsEmptyDirectory)> EnumerateNoLinks(string root)
         {
             var pending = new Stack<string>();
             pending.Push(root);
             while (pending.Count > 0)
             {
                 string dir = pending.Pop();
+                bool any = false;
                 foreach (string f in Directory.EnumerateFiles(dir))
-                    if ((File.GetAttributes(f) & FileAttributes.ReparsePoint) == 0) yield return f;
+                    if (!IsLink(f, File.GetAttributes(f))) { any = true; yield return (f, false); }
                 foreach (string d in Directory.EnumerateDirectories(dir))
-                    if ((File.GetAttributes(d) & FileAttributes.ReparsePoint) == 0) pending.Push(d);
+                    if (!IsLink(d, File.GetAttributes(d))) { any = true; pending.Push(d); }
+                if (!any && !string.Equals(dir, root, PathComparison)) yield return (dir, true);
             }
+        }
+
+        // A reparse point that is a link (junction or symbolic link); other reparse points, such as cloud-file
+        // placeholders, are ordinary files and folders.
+        private static bool IsLink(string path, FileAttributes attributes)
+        {
+            if ((attributes & FileAttributes.ReparsePoint) == 0) return false;
+            try
+            {
+                FileSystemInfo info = (attributes & FileAttributes.Directory) != 0 ? new DirectoryInfo(path) : new FileInfo(path);
+                return info.LinkTarget != null;
+            }
+            catch (IOException) { return true; }
+            catch (UnauthorizedAccessException) { return true; }
         }
     }
 }

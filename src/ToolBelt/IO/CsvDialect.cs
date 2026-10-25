@@ -10,8 +10,9 @@ namespace ToolBelt.IO
     /// How a delimited file is laid out — delimiter, decimal separator, header row — with presets for the variants that
     /// actually turn up (RFC 4180, European Excel's "<c>;</c> with decimal commas", tab, pipe) and <see cref="Detect"/>,
     /// which sniffs a sample: the delimiter is the candidate giving the most consistent field count across lines
-    /// (quote-aware), the decimal separator is inferred from numeric-looking fields, and a header is assumed when the first
-    /// row is text where later rows are numbers. <see cref="ParseNumber"/> then reads values the dialect's way.
+    /// (quote-aware; a tie goes to the split that leaves more fields looking like numbers, so "1,5;2,5" is ';'), the
+    /// decimal separator is inferred from fields that actually contain one (a "1,000"-style value is ambiguous and only
+    /// counts when nothing else decides), and a header is assumed when the first row is text where later rows are numbers. <see cref="ParseNumber"/> then reads values the dialect's way.
     /// </summary>
     public sealed class CsvDialect
     {
@@ -45,6 +46,9 @@ namespace ToolBelt.IO
         public string FormatNumber(double value)
         {
             string s = value.ToString("R", CultureInfo.InvariantCulture);
+            // "R" can lose the last bit on .NET Framework; G17 always round-trips.
+            if (!double.IsNaN(value) && double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) != value)
+                s = value.ToString("G17", CultureInfo.InvariantCulture);
             return DecimalSeparator == '.' ? s : s.Replace('.', DecimalSeparator);
         }
 
@@ -73,29 +77,47 @@ namespace ToolBelt.IO
             var lines = sampleLines.Where(l => !string.IsNullOrWhiteSpace(l)).Take(200).ToList();
             if (lines.Count == 0) return Rfc4180;
 
-            // Delimiter: most lines sharing the modal field count (>1 field), then more fields, then candidate order.
+            // Delimiter: most lines sharing the modal field count (>1 field), then the larger share of numeric-looking fields
+            // (either decimal separator), then more fields, then candidate order.
             char best = ',';
-            (int Agree, int Fields) bestScore = (-1, 0);
+            (int Agree, double Numeric, int Fields) bestScore = (-1, 0, 0);
             foreach (char c in Candidates)
             {
-                var counts = lines.Select(l => SafeCount(l, c)).ToList();
-                var modal = counts.Where(n => n > 1).GroupBy(n => n).OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key).FirstOrDefault();
+                var parsed = lines.Select(l => SafeParse(l, c)).ToList();
+                var modal = parsed.Select(r => r.Count).Where(n => n > 1).GroupBy(n => n)
+                    .OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key).FirstOrDefault();
                 if (modal == null) continue;
-                var score = (modal.Count(), modal.Key);
-                if (score.Item1 > bestScore.Agree || (score.Item1 == bestScore.Agree && score.Item2 > bestScore.Fields)) { best = c; bestScore = score; }
+                var fields = parsed.SelectMany(r => r).Select(f => f.Trim()).Where(f => f.Length > 0).ToList();
+                double numeric = fields.Count == 0 ? 0 : (double)fields.Count(f => LooksNumeric(f, '.') || LooksNumeric(f, ',')) / fields.Count;
+                var score = (modal.Count(), numeric, modal.Key);
+                if (score.Item1 > bestScore.Agree
+                    || (score.Item1 == bestScore.Agree && score.Item2 > bestScore.Numeric)
+                    || (score.Item1 == bestScore.Agree && score.Item2 == bestScore.Numeric && score.Item3 > bestScore.Fields))
+                { best = c; bestScore = score; }
             }
 
             var rows = lines.Select(l => SafeParse(l, best)).ToList();
             var body = rows.Skip(1).SelectMany(r => r).Select(f => f.Trim()).ToList();
             var all = rows.SelectMany(r => r).Select(f => f.Trim()).ToList();
 
-            // Decimal separator: a comma can only be decimal when it isn't the delimiter.
+            // Decimal separator: a comma can only be decimal when it isn't the delimiter. Only fields that contain the separator
+            // are evidence (integers say nothing), and "1,000" / "1.000" could be thousands groups, so those only break a tie.
             char dec = '.';
             if (best != ',')
             {
-                int commaDecimals = all.Count(f => LooksNumeric(f, ','));
-                int dotDecimals = all.Count(f => LooksNumeric(f, '.') && f.IndexOf('.') >= 0);
-                if (commaDecimals > dotDecimals && all.Any(f => f.IndexOf(',') >= 0 && LooksNumeric(f, ','))) dec = ',';
+                int comma = 0, dot = 0, commaAmbiguous = 0, dotAmbiguous = 0;
+                foreach (string f in all)
+                {
+                    if (f.IndexOf(',') >= 0 && LooksNumeric(f, ','))
+                    {
+                        if (LooksLikeThousands(f, ',')) commaAmbiguous++; else comma++;
+                    }
+                    else if (f.IndexOf('.') >= 0 && LooksNumeric(f, '.'))
+                    {
+                        if (LooksLikeThousands(f, '.')) dotAmbiguous++; else dot++;
+                    }
+                }
+                if (comma > dot || (comma == dot && commaAmbiguous > dotAmbiguous)) dec = ',';
             }
 
             // Header: the first row has a text field in a column that is numeric in the rest of the sample.
@@ -117,12 +139,22 @@ namespace ToolBelt.IO
             return new CsvDialect(best, dec, header);
         }
 
-        private static int SafeCount(string line, char delimiter) => SafeParse(line, delimiter).Count;
-
         private static IReadOnlyList<string> SafeParse(string line, char delimiter)
         {
             try { return CsvLine.Parse(line, delimiter); }
             catch (FormatException) { return new[] { line }; }
+        }
+
+        // "1,000" or "-12.345": one separator followed by exactly three digits, which a thousands separator also produces.
+        private static bool LooksLikeThousands(string field, char sep)
+        {
+            int at = field.IndexOf(sep);
+            if (at < 1 || at != field.LastIndexOf(sep) || field.Length - at - 1 != 3) return false;
+            int start = field[0] == '-' || field[0] == '+' ? 1 : 0;
+            if (at - start < 1 || at - start > 3) return false;
+            for (int i = start; i < field.Length; i++)
+                if (i != at && !char.IsDigit(field[i])) return false;
+            return true;
         }
 
         private static bool LooksNumeric(string field, char dec)
