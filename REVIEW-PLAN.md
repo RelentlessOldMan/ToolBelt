@@ -53,8 +53,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 1 | 40 / 40 | re-queue (7 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 1 | 26 / 26 | re-queue (1 severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 1 | 32 / 32 | re-queue (3 severe) |
-| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 0 | – / 0 | **next** |
-| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 0 | – / 0 | queued |
+| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 1 | 39 / 39 | re-queue (4 severe) |
+| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 0 | – / 0 | **next** |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 0 | – / 0 | queued |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 0 | – / 0 | queued |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 0 | – / 0 | queued |
@@ -80,6 +80,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.10.0 | 10 | Concurrency | 40 | (see tag) |
 | v0.11.0 | 11 | Text & small types | 26 | (see tag) |
 | v0.12.0 | 12 | Logging, diagnostics, CLI | 32 | (see tag) |
+| v0.13.0 | 13 | Security, net, time | 39 | (see tag) |
 
 ## Round log
 
@@ -653,3 +654,53 @@ hostile cultures, infinities, broken writers). **32 confirmed bugs**: 28 with fa
   every sample (documented); `Prompt.Choose` precedence.
 - **Checked build:** the section is clean; the same 42 failures remain elsewhere.
 - **Re-queued:** yes (3 severe).
+
+### Round 13 — 2026-10-25 — Security, net, time
+Reviewers: one for correctness and one for robustness (DST transitions, calendar edges, hostile servers, stalled
+peers, huge timeouts, malformed stored hashes). **39 confirmed bugs**: 37 with failing-first regression tests in
+`SecurityNetTimeReviewTests` (39 failing-first tests plus 2 guards), 2 by inspection; plus 1 doc-only item.
+`CronSchedulerTests` now pin the scheduler to UTC, since it reads schedules in a time zone (default Local).
+
+- **Severe:**
+  - `CronSchedule`/`CronScheduler` knew nothing of daylight saving: the scheduler read the fields against a fixed
+    offset, so "30 2 * * *" drifted an hour after a transition, a time skipped by spring-forward never ran, and a
+    time repeated by fall-back ran twice. New `GetNextOccurrence(after, timeZone)` follows Vixie cron rules (a skipped
+    time runs at the transition, a repeated time runs once; `*` minute/hour fields run at every matching instant),
+    and `CronScheduler` takes an optional `timeZone` (default Local).
+  - `HttpDownload` resume appended a 206 body whatever its Content-Range said, so a server answering from another
+    offset corrupted the file. The range start must now equal the partial length (a range from 0 restarts).
+  - `HttpDownload` wrote straight into the destination, so a failed download destroyed an existing good file. The
+    body now goes to `destination.part`, moved over the destination only when complete and verified.
+  - `HttpDownload` hung forever on a body that stopped sending (the client's `Timeout` covers headers only). New
+    `ReadTimeout` (default 60 s) fails the read with a retryable `TimeoutException`.
+- **Moderate:**
+  - `CronScheduler.RunDue` threw when a job's schedule had no later occurrence; the job now gets a null `NextRun`
+    and the failure goes to `onError`.
+  - `CronSchedule`: a day-of-week step from a value ("1/2") also matched Sunday (7); Feb 29 across a non-leap century
+    year (2096 → 2104) was beyond the 4-year search (now 8); near `DateTime.MaxValue` it threw
+    `ArgumentOutOfRangeException` instead of `InvalidOperationException`; a step near `int.MaxValue` overflowed;
+    `*/1` in day-of-month counted as restricted (Vixie treats any field starting with `*` as unrestricted).
+  - `HttpDownload`: a 416 for an already complete file failed instead of finishing; a non-206 2xx during resume kept
+    the old byte count; an unfollowed redirect was retried; the client's own timeout was not retried.
+  - `TcpLineClient`: a read timeout lost the partial line (the `StreamReader` buffer was abandoned); no line length
+    limit (a peer without newlines grew memory without bound; new `MaxLineLength`, default 1 Mi characters); timeouts
+    over 24.8 days overflowed; port and timeouts were validated only after connecting; `Send` sent embedded CR/LF as
+    extra lines.
+  - `ConstantTime.Equals(string, string)` compared UTF-8 bytes, so strings differing only in lone surrogates (both
+    encoded as U+FFFD) compared equal. It now compares UTF-16 code units.
+  - `PasswordHasher`: a stored hash with an absurd iteration count tied up a thread for hours (new `MaxIterations`
+    = 10,000,000, enforced by parse and hash); an empty salt or digest was not a `FormatException`.
+  - `CidrRange.TryParse` accepted IPv4 shorthand ("10/8" meant 0.0.0.10/8); `Addresses()` on IPv6 threw only when
+    enumerated; a /0 block skipped 255.255.255.255 (by inspection).
+- **Minor:** `Iso8601Duration` accepted non-ASCII digits, a trailing newline and an empty `T` section;
+  `HumanDuration.Format` threw on `TimeSpan.MinValue` and rounded 9,999,999 days minus a tick up to 10,000,000 days;
+  `BusinessDays.CountBusinessDays` threw on a range ending at `DateTime.MaxValue`, and `AddBusinessDays(int.MinValue)`
+  overflowed; `PortCheck.IsReachable` and `HostInfo.Resolve` rejected timeouts over 24.8 days; `CryptoRandom.Password`
+  accepted undefined class bits, and `Token` with a huge length overflowed with the wrong parameter name; four
+  security drop-in headers claimed "fully self-contained" but need `ConstantTime`, `CryptoRandom` or `KeyDerivation`
+  (by inspection).
+- **Doc-only:** `TcpLineClient` with a null read timeout waits indefinitely.
+- **Not changed:** `SecretsFile` temp-file permissions on Unix (unconfirmed; Windows-first library).
+- **Checked build:** the section is clean; the same 42 failures remain elsewhere (one timing flake in
+  `PauseAndRaceTests` under one-core low priority, which passed 3 of 3 reruns).
+- **Re-queued:** yes (4 severe).

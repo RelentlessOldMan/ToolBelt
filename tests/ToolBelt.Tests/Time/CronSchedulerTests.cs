@@ -15,7 +15,7 @@ namespace ToolBelt.Tests.Time
         private static (CronScheduler Scheduler, Func<DateTimeOffset, DateTimeOffset> SetTime) Manual(List<(string, Exception)>? errors = null)
         {
             DateTimeOffset now = T0;
-            var s = new CronScheduler((j, e) => { lock (errors!) errors.Add((j.Name, e)); }, () => now, (t, ct) => Task.Delay(Timeout.Infinite, ct));
+            var s = new CronScheduler((j, e) => { lock (errors!) errors.Add((j.Name, e)); }, () => now, (t, ct) => Task.Delay(Timeout.Infinite, ct), TimeZoneInfo.Utc);
             return (s, t => now = t);
         }
 
@@ -115,7 +115,7 @@ namespace ToolBelt.Tests.Time
                 lock (delays) delays.Add(t);
                 now += t;                                       // the fake delay advances the fake clock
                 await Task.Yield();
-            });
+            }, timeZone: TimeZoneInfo.Utc);
             s.Add("tick", "5 10 * * *", () => ran.TrySetResult(true));
             s.Start();
             Check.True(await Task.WhenAny(ran.Task, Task.Delay(5000)) == ran.Task, "job ran");

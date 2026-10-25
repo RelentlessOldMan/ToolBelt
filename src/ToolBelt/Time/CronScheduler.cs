@@ -20,7 +20,7 @@ namespace ToolBelt.Time
         public CronSchedule Schedule { get; }
         internal Func<CancellationToken, Task> Action { get; }
 
-        /// <summary>When the job is next due (null until the scheduler starts).</summary>
+        /// <summary>When the job is next due (null until the scheduler starts, or if the schedule has no later occurrence).</summary>
         public DateTimeOffset? NextRun { get; internal set; }
 
         /// <summary>When the last run started.</summary>
@@ -38,8 +38,11 @@ namespace ToolBelt.Time
     /// <see cref="CronSchedule"/>; jobs run concurrently with each other but never overlap themselves — if a run is still
     /// going when the next is due, that occurrence is skipped (and counted in <see cref="Skipped"/>) rather than queued.
     /// Exceptions are reported to <c>onError</c> and never stop the scheduler; waking is recomputed from the clock each
-    /// time, so a long sleep or clock change doesn't fire a burst of missed runs. Clock and delay are injectable so tests
-    /// are deterministic. Stop with <see cref="DisposeAsync"/>/<see cref="Dispose"/>, which waits for running jobs.
+    /// time, so a long sleep or clock change doesn't fire a burst of missed runs. Schedules are read in a time zone
+    /// (default <see cref="TimeZoneInfo.Local"/>), so "at 02:30" stays 02:30 across daylight-saving changes; see
+    /// <see cref="CronSchedule"/> for what happens to times a transition skips or repeats. Clock, delay and time zone are
+    /// injectable so tests are deterministic. Stop with <see cref="DisposeAsync"/>/<see cref="Dispose"/>, which waits for
+    /// running jobs.
     /// </summary>
     public sealed class CronScheduler : IDisposable
     {
@@ -50,14 +53,20 @@ namespace ToolBelt.Time
         private readonly Func<DateTimeOffset> _now;
         private readonly Func<TimeSpan, CancellationToken, Task> _delay;
         private readonly Action<ScheduledJob, Exception>? _onError;
+        private readonly TimeZoneInfo _zone;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private Task? _loop;
         private int _skipped;
 
+        /// <param name="onError">Receives exceptions from jobs, and the failure when a job's schedule has no later occurrence.</param>
+        /// <param name="clock">The current time; default <see cref="DateTimeOffset.Now"/>.</param>
+        /// <param name="delay">How the loop waits; default <see cref="Task.Delay(TimeSpan, CancellationToken)"/>.</param>
+        /// <param name="timeZone">The zone whose wall clock the cron fields describe; default <see cref="TimeZoneInfo.Local"/>.</param>
         public CronScheduler(Action<ScheduledJob, Exception>? onError = null, Func<DateTimeOffset>? clock = null,
-            Func<TimeSpan, CancellationToken, Task>? delay = null)
+            Func<TimeSpan, CancellationToken, Task>? delay = null, TimeZoneInfo? timeZone = null)
         {
             _onError = onError;
+            _zone = timeZone ?? TimeZoneInfo.Local;
             _now = clock ?? (() => DateTimeOffset.Now);
             _delay = delay ?? ((t, ct) => Task.Delay(t, ct));
         }
@@ -75,7 +84,7 @@ namespace ToolBelt.Time
             var job = new ScheduledJob(name, new CronSchedule(cronExpression), action);
             lock (_gate)
             {
-                if (_loop != null) job.NextRun = job.Schedule.GetNextOccurrence(_now());
+                if (_loop != null) job.NextRun = job.Schedule.GetNextOccurrence(_now(), _zone);
                 _jobs.Add(job);
             }
             return job;
@@ -99,18 +108,21 @@ namespace ToolBelt.Time
             {
                 if (_loop != null) throw new InvalidOperationException("The scheduler has already been started.");
                 DateTimeOffset now = _now();
-                foreach (var job in _jobs) job.NextRun = job.Schedule.GetNextOccurrence(now);
+                foreach (var job in _jobs) job.NextRun = job.Schedule.GetNextOccurrence(now, _zone);
                 _loop = Task.Run(() => LoopAsync(_cts.Token));
             }
         }
 
         /// <summary>
         /// Starts every job whose time has come (at or before the clock's now) and advances its next time. Called by the
-        /// background loop; public so tests can drive the scheduler with a fake clock. Returns the number started.
+        /// background loop; public so tests can drive the scheduler with a fake clock. Returns the number started. A job
+        /// whose schedule has no later occurrence gets a null <see cref="ScheduledJob.NextRun"/> (it never runs again) and
+        /// the failure goes to <c>onError</c>.
         /// </summary>
         public int RunDue()
         {
             int started = 0;
+            List<(ScheduledJob, Exception)>? failures = null;
             lock (_gate)
             {
                 if (_cts.IsCancellationRequested) return 0;          // disposing: start nothing new
@@ -118,7 +130,12 @@ namespace ToolBelt.Time
                 foreach (var job in _jobs)
                 {
                     if (job.NextRun is not DateTimeOffset due || due > now) continue;
-                    job.NextRun = job.Schedule.GetNextOccurrence(now);
+                    try { job.NextRun = job.Schedule.GetNextOccurrence(now, _zone); }
+                    catch (Exception ex)
+                    {
+                        job.NextRun = null;
+                        (failures ??= new List<(ScheduledJob, Exception)>()).Add((job, ex));
+                    }
                     if (job.IsRunning) { Interlocked.Increment(ref _skipped); continue; }
                     job.IsRunning = true;
                     job.LastRun = now;
@@ -128,6 +145,8 @@ namespace ToolBelt.Time
                     _running.RemoveAll(r => r.Task.IsCompleted);
                 }
             }
+            if (failures != null)
+                foreach (var (job, ex) in failures) _onError?.Invoke(job, ex);   // outside the lock
             return started;
         }
 

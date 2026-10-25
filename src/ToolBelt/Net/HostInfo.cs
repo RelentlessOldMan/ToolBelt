@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ToolBelt.Net
@@ -44,7 +45,7 @@ namespace ToolBelt.Net
             bool completed;
             try
             {
-                completed = lookup.Wait((int)timeout.TotalMilliseconds);
+                completed = lookup.Wait(WaitMilliseconds(timeout));
             }
             catch (AggregateException ex)
             {
@@ -56,6 +57,13 @@ namespace ToolBelt.Net
                 throw new TimeoutException($"DNS resolution of '{host}' timed out.");
             }
             return lookup.Result;
+        }
+
+        // Rounds up to whole milliseconds; anything past int.MaxValue ms (about 24.8 days) waits indefinitely.
+        private static int WaitMilliseconds(TimeSpan timeout)
+        {
+            double ms = Math.Ceiling(timeout.TotalMilliseconds);
+            return ms >= int.MaxValue ? Timeout.Infinite : (int)ms;
         }
 
         /// <summary>Enumerates the machine's network interfaces with their addresses and MAC.</summary>

@@ -2,6 +2,7 @@
 using System;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ToolBelt.Net
@@ -12,6 +13,13 @@ namespace ToolBelt.Net
     /// </summary>
     public static class PortCheck
     {
+        // Rounds up to whole milliseconds; anything past int.MaxValue ms (about 24.8 days) waits indefinitely.
+        private static int WaitMilliseconds(TimeSpan timeout)
+        {
+            double ms = Math.Ceiling(timeout.TotalMilliseconds);
+            return ms >= int.MaxValue ? Timeout.Infinite : (int)ms;
+        }
+
         /// <summary>True if a TCP connection to <paramref name="host"/>:<paramref name="port"/> succeeds within <paramref name="timeout"/>.</summary>
         public static bool IsReachable(string host, int port, TimeSpan timeout)
         {
@@ -24,7 +32,7 @@ namespace ToolBelt.Net
             {
                 Task connect = client.ConnectAsync(host, port);
                 bool completed;
-                try { completed = connect.Wait((int)timeout.TotalMilliseconds); }
+                try { completed = connect.Wait(WaitMilliseconds(timeout)); }
                 catch { return false; } // connection refused / DNS failure surface here
 
                 if (!completed)

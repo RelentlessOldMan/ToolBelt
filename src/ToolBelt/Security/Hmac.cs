@@ -1,4 +1,4 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Security/ConstantTime.cs.
 using System;
 using System.Security.Cryptography;
 using System.Text;

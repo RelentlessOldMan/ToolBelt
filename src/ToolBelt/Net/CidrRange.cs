@@ -46,7 +46,11 @@ namespace ToolBelt.Net
             if (string.IsNullOrWhiteSpace(text)) return false;
             int slash = text.IndexOf('/');
             if (slash < 0) return false;
-            if (!IPAddress.TryParse(text.Substring(0, slash).Trim(), out IPAddress? addr) || addr is null) return false;
+            string host = text.Substring(0, slash).Trim();
+            if (!IPAddress.TryParse(host, out IPAddress? addr) || addr is null) return false;
+            // IPAddress also accepts IPv4 shorthand ("10" = 0.0.0.10, "10.1" = 10.0.0.1, hex, octal); CIDR text means
+            // a dotted quad.
+            if (addr.AddressFamily == AddressFamily.InterNetwork && !IsDottedQuad(host)) return false;
             if (!int.TryParse(text.Substring(slash + 1).Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int prefix)) return false;
 
             int bits = TotalBits(addr.AddressFamily);
@@ -85,24 +89,39 @@ namespace ToolBelt.Net
             }
         }
 
-        /// <summary>Enumerates every IPv4 address in the block (lazy — beware very large blocks).</summary>
+        /// <summary>
+        /// Enumerates every IPv4 address in the block (lazy — beware very large blocks). Throws
+        /// <see cref="InvalidOperationException"/> at the call for an IPv6 block.
+        /// </summary>
         public IEnumerable<IPAddress> Addresses()
         {
             if (Family != AddressFamily.InterNetwork)
                 throw new InvalidOperationException("Address enumeration is supported for IPv4 only.");
-            uint start = ToUInt32(Network.GetAddressBytes());
-            uint count = PrefixLength == 0 ? uint.MaxValue : (1u << (32 - PrefixLength));
-            for (uint offset = 0; ; offset++)
-            {
-                yield return new IPAddress(FromUInt32(start + offset));
-                if (offset == count - 1) break; // avoid uint wrap past the last address
-            }
+            return EnumerateIPv4(ToUInt32(Network.GetAddressBytes()), 1UL << (32 - PrefixLength));
+        }
+
+        private static IEnumerable<IPAddress> EnumerateIPv4(uint start, ulong count)
+        {
+            for (ulong offset = 0; offset < count; offset++)   // ulong: a /0 block has 2^32 addresses
+                yield return new IPAddress(FromUInt32((uint)(start + offset)));
         }
 
         public override string ToString()
             => Network + "/" + PrefixLength.ToString(CultureInfo.InvariantCulture);
 
         // ---- helpers ----
+
+        private static bool IsDottedQuad(string s)
+        {
+            string[] parts = s.Split('.');
+            if (parts.Length != 4) return false;
+            foreach (string p in parts)
+            {
+                if (p.Length == 0 || p.Length > 3) return false;
+                foreach (char c in p) if (c < '0' || c > '9') return false;
+            }
+            return true;
+        }
 
         private static int TotalBits(AddressFamily family)
             => family == AddressFamily.InterNetworkV6 ? 128 : 32;

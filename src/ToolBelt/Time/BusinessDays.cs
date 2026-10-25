@@ -17,10 +17,15 @@ namespace ToolBelt.Time
 
         /// <summary>
         /// Adds <paramref name="count"/> business days (negative counts move backward). A count of 0
-        /// returns the input date unchanged; non-zero counts land on a business day.
+        /// returns the input date unchanged; non-zero counts land on a business day. Throws
+        /// <see cref="ArgumentOutOfRangeException"/> if the result would fall outside the calendar.
         /// </summary>
         public static DateTime AddBusinessDays(DateTime start, int count, IEnumerable<DateTime>? holidays = null)
         {
+            // Five business days per seven calendar days: a count beyond this cannot land inside the calendar.
+            const int MaxCount = 2_700_000;
+            if (count > MaxCount || count < -MaxCount)
+                throw new ArgumentOutOfRangeException(nameof(count), count, "The result would fall outside the calendar.");
             var set = BuildHolidaySet(holidays);
             DateTime date = start.Date;
             if (count == 0)
@@ -47,9 +52,12 @@ namespace ToolBelt.Time
 
             var set = BuildHolidaySet(holidays);
             int count = 0;
-            for (DateTime d = start; d <= end; d = d.AddDays(1))
+            for (DateTime d = start; ; d = d.AddDays(1))
+            {
                 if (IsBusinessDay(d, set))
                     count++;
+                if (d == end) break;   // stop before AddDays steps past DateTime.MaxValue
+            }
             return count;
         }
 

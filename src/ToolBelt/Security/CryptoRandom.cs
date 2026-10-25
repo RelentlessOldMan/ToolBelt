@@ -39,10 +39,14 @@ namespace ToolBelt.Security
             return buffer;
         }
 
-        /// <summary>A URL-safe random token of the requested character length (base64url alphabet).</summary>
+        /// <summary>The longest token <see cref="Token"/> makes (2^28 characters).</summary>
+        public const int MaxTokenLength = 1 << 28;
+
+        /// <summary>A URL-safe random token of the requested character length (base64url alphabet), at most <see cref="MaxTokenLength"/>.</summary>
         public static string Token(int length)
         {
-            if (length < 1) throw new ArgumentOutOfRangeException(nameof(length), length, "Length must be positive.");
+            if (length < 1 || length > MaxTokenLength)
+                throw new ArgumentOutOfRangeException(nameof(length), length, "Length must be in [1, MaxTokenLength].");
             // Each base64 char carries 6 uniform bits, so the characters are unbiased over the 64-char alphabet.
             int byteCount = (length * 6 + 7) / 8;
             string encoded = Convert.ToBase64String(Bytes(byteCount))
@@ -66,6 +70,7 @@ namespace ToolBelt.Security
         public static string Password(int length, PasswordClasses classes = PasswordClasses.All)
         {
             if (classes == 0) throw new ArgumentException("At least one character class is required.", nameof(classes));
+            if ((classes & ~PasswordClasses.All) != 0) throw new ArgumentException("Unknown character class flags.", nameof(classes));
             var pools = BuildPools(classes);
             if (length < pools.Count)
                 throw new ArgumentOutOfRangeException(nameof(length), length, $"Length must be at least {pools.Count} to include each class.");

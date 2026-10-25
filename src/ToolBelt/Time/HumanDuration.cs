@@ -24,19 +24,15 @@ namespace ToolBelt.Time
                 return "0ms";
 
             var sb = new StringBuilder();
-            if (value < TimeSpan.Zero)
-            {
-                sb.Append('-');
-                value = value.Negate();
-            }
+            if (value < TimeSpan.Zero) sb.Append('-');
 
-            // Negate() of TimeSpan.MinValue overflows; guard so the sign branch above is always safe.
-            long days = (long)value.TotalDays;
-            AppendTerm(sb, days, "d");
-            AppendTerm(sb, value.Hours, "h");
-            AppendTerm(sb, value.Minutes, "m");
-            AppendTerm(sb, value.Seconds, "s");
-            AppendTerm(sb, value.Milliseconds, "ms");
+            // Take the components' magnitudes instead of negating the value: Negate() of TimeSpan.MinValue overflows.
+            // Days comes from the integer property: TotalDays is a double and rounds up just below a whole day.
+            AppendTerm(sb, Math.Abs((long)value.Days), "d");
+            AppendTerm(sb, Math.Abs(value.Hours), "h");
+            AppendTerm(sb, Math.Abs(value.Minutes), "m");
+            AppendTerm(sb, Math.Abs(value.Seconds), "s");
+            AppendTerm(sb, Math.Abs(value.Milliseconds), "ms");
 
             return sb.ToString();
         }

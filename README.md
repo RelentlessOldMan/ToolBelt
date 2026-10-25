@@ -346,9 +346,9 @@ src/
       CidrRange.cs          CIDR block (v4/v6): parse, Contains, network/broadcast, count, enumerate
       IpUtils.cs            private/loopback detection, IPv4 netmask <-> prefix length
       PortCheck.cs          TCP reachability within a timeout + find a free local port
-      TcpLineClient.cs      line-oriented TCP client (connect/read/write timeouts)
+      TcpLineClient.cs      line-oriented TCP client (connect/read/write timeouts, MaxLineLength, partial lines survive a timeout)
       HostInfo.cs           local host/interface info + DNS resolve with a timeout
-      HttpDownload.cs       download to file: progress, resume (Range), checksum, transient retry
+      HttpDownload.cs       download to file via .part: progress, resume (Range), checksum, transient retry, ReadTimeout
     Quality/
       ProcessCapability.cs  Cp/Cpk/sigma-level/ppm (explicit overall vs within-subgroup sigma)
       ControlChart.cs       I-MR limits + run rules (beyond-limits / one-side / trend)
@@ -507,8 +507,8 @@ src/
       TaskExtensions.cs     WithTimeout / WithCancellation / FireAndForget / WhenAllOrFirstException
     Time/
       BusinessDays.cs       business-day add/count (weekends + holidays)
-      CronSchedule.cs       5-field cron parse + next-occurrence
-      CronScheduler.cs      run jobs on cron schedules: no self-overlap, no catch-up bursts, injectable clock
+      CronSchedule.cs       5-field cron parse + next-occurrence (fixed offset, or a time zone with Vixie DST rules)
+      CronScheduler.cs      run jobs on cron schedules: no self-overlap, no catch-up bursts, injectable clock and time zone
       DateRange.cs          date/time interval (contains / overlaps / intersect)
       Iso8601Duration.cs    ISO 8601 duration parse/format (PT1H30M)
       IsoWeek.cs            ISO 8601 week-of-year and week-year
@@ -560,7 +560,7 @@ src/
       ConstantTime.cs       fixed-time equality for secrets (no timing leak)
       CryptoRandom.cs       CSPRNG bytes / URL-safe token / numeric code / password (unbiased)
       KeyDerivation.cs      PBKDF2-HMAC-SHA-256/512 (hand-rolled, identical on both TFMs) + salt
-      PasswordHasher.cs     encoded PBKDF2 hash + constant-time verify + rehash-needed check
+      PasswordHasher.cs     encoded PBKDF2 hash + constant-time verify + rehash-needed check (MaxIterations cap)
       AuthenticatedEncryption.cs  AES-GCM AEAD: self-describing nonce‖ct‖tag blob + detached form (net8.0)
     Process/
       ProcessRunner.cs      run a child: deadlock-free capture, timeout + tree-kill, stdin/env/cancel
@@ -913,6 +913,7 @@ tests/
       IsoWeekTests.cs
       HumanDurationTests.cs
       RelativeTimeTests.cs
+      SecurityNetTimeReviewTests.cs (round 13 review regressions: cron DST and bounds, durations, CIDR, secrets, TCP lines, downloads)
       TimeOfDayRangeTests.cs
       UnixTimeTests.cs
     Visualization/

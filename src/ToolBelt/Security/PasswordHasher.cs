@@ -1,4 +1,4 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Security/KeyDerivation.cs, Security/CryptoRandom.cs and Security/ConstantTime.cs.
 using System;
 using System.Globalization;
 
@@ -20,11 +20,18 @@ namespace ToolBelt.Security
         /// <summary>The default iteration count new hashes are created with. Raise it over time as hardware improves.</summary>
         public const int DefaultIterations = 100_000;
 
+        /// <summary>
+        /// The most iterations a hash may use. A stored hash claiming more is rejected as malformed rather than tying up
+        /// a thread for minutes (or hours) on every login attempt.
+        /// </summary>
+        public const int MaxIterations = 10_000_000;
+
         /// <summary>Hashes a password into an encoded string of the form <c>PBKDF2-SHA256$iterations$saltB64$hashB64</c>.</summary>
         public static string Hash(string password, int iterations = DefaultIterations)
         {
             if (password is null) throw new ArgumentNullException(nameof(password));
-            if (iterations < 1) throw new ArgumentOutOfRangeException(nameof(iterations), iterations, "Iterations must be positive.");
+            if (iterations < 1 || iterations > MaxIterations)
+                throw new ArgumentOutOfRangeException(nameof(iterations), iterations, "Iterations must be in [1, MaxIterations].");
 
             byte[] salt = KeyDerivation.GenerateSalt(SaltLength);
             byte[] key = KeyDerivation.Pbkdf2(password, salt, iterations, KeyLength, KdfHash.Sha256);
@@ -53,16 +60,22 @@ namespace ToolBelt.Security
             string[] parts = encoded.Split('$');
             if (parts.Length != 4 || parts[0] != Prefix)
                 throw new FormatException("Encoded hash is not a recognized PBKDF2-SHA256 string.");
-            if (!int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out int iterations) || iterations < 1)
+            if (!int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out int iterations)
+                || iterations < 1 || iterations > MaxIterations)
                 throw new FormatException("Encoded hash has an invalid iteration count.");
+            byte[] salt, hash;
             try
             {
-                return (iterations, Convert.FromBase64String(parts[2]), Convert.FromBase64String(parts[3]));
+                salt = Convert.FromBase64String(parts[2]);
+                hash = Convert.FromBase64String(parts[3]);
             }
             catch (FormatException ex)
             {
                 throw new FormatException("Encoded hash has an invalid salt or digest.", ex);
             }
+            if (salt.Length == 0 || hash.Length == 0)
+                throw new FormatException("Encoded hash has an empty salt or digest.");
+            return (iterations, salt, hash);
         }
     }
 }

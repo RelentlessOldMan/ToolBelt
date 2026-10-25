@@ -18,7 +18,7 @@ namespace ToolBelt.Security
     /// as <c>nonce ‖ ciphertext ‖ tag</c> — just store or transmit the bytes. A nonce must NEVER repeat under the
     /// same key, which is why this generates one for you; the detached overloads take an explicit nonce only for
     /// interop and known-answer testing. Keys are raw AES keys of 16, 24, or 32 bytes (AES-128/192/256) — derive
-    /// them from a password with <see cref="KeyDerivation"/>, not by hashing a passphrase directly.
+    /// them from a password with <c>KeyDerivation</c>, not by hashing a passphrase directly.
     /// </para>
     /// </summary>
     public static class AuthenticatedEncryption
