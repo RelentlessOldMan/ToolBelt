@@ -13,8 +13,10 @@ namespace ToolBelt.Configuration
     /// per-user location (<c>%APPDATA%\Company\App\settings.json</c>, or <c>~/.config/…</c>) unless a path is given.
     /// It gets the boring-but-critical parts right: saves are atomic (temp file + rename); a missing file yields defaults;
     /// a corrupt file is moved aside to <c>settings.json.corrupt-&lt;timestamp&gt;</c> and defaults are used (reported via
-    /// <see cref="LoadWarning"/>) rather than crashing the app on every launch; unknown properties from newer versions are
-    /// ignored and missing ones keep their defaults. Not thread-safe — save from one place.
+    /// <see cref="LoadWarning"/>) rather than crashing the app on every launch, and a file that can't be read at all
+    /// (locked, no permission) also yields defaults with a warning, left in place; unknown properties from newer
+    /// versions are ignored and missing ones keep their defaults; NaN and ±∞ in floating-point settings round-trip.
+    /// Not thread-safe — save from one place.
     /// </summary>
     public sealed class SettingsStore<T> where T : class, new()
     {
@@ -54,9 +56,23 @@ namespace ToolBelt.Configuration
             if (path is null) throw new ArgumentNullException(nameof(path));
             string full = System.IO.Path.GetFullPath(path);
             if (!File.Exists(full)) return new SettingsStore<T>(full, new T(), null);
+            string text;
             try
             {
-                T? value = JsonSerializer.Deserialize<T>(File.ReadAllText(full, Encoding.UTF8), Options);
+                text = File.ReadAllText(full, Encoding.UTF8);
+            }
+            catch (FileNotFoundException)
+            {
+                return new SettingsStore<T>(full, new T(), null);                // deleted since the Exists check
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                // Locked or unreadable: the file may well be fine, so leave it where it is.
+                return new SettingsStore<T>(full, new T(), $"Settings file could not be read ({ex.Message}); defaults were used.");
+            }
+            try
+            {
+                T? value = JsonSerializer.Deserialize<T>(text, Options);
                 return new SettingsStore<T>(full, value ?? new T(), null);
             }
             catch (Exception ex) when (ex is JsonException || ex is NotSupportedException)
@@ -121,6 +137,7 @@ namespace ToolBelt.Configuration
                 ReadCommentHandling = JsonCommentHandling.Skip,
                 AllowTrailingCommas = true,
                 PropertyNameCaseInsensitive = true,
+                NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,   // NaN is a common "unset"
             };
             o.Converters.Add(new JsonStringEnumConverter());
             return o;

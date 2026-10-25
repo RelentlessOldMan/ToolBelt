@@ -124,6 +124,8 @@ namespace ToolBelt.Documents
         /// <summary>
         /// A figure, numbered "Figure n". Supply SVG markup, PNG bytes, or both: HTML prefers the SVG (crisp at any
         /// size), Markdown prefers the PNG (more widely displayed). Text outputs show the caption as a placeholder.
+        /// The SVG is inlined into the HTML verbatim (scripts and event handlers included), so pass only trusted markup,
+        /// such as the visualization renderers' output.
         /// </summary>
         public ReportBuilder Figure(string caption, string? svg = null, byte[]? png = null)
         {
@@ -246,7 +248,8 @@ namespace ToolBelt.Documents
             var anchors = new Anchors();
             anchors.Next(Title);
             var headings = CollectHeadings(anchors);
-            var md = new MarkdownReport().Heading(1, Title);
+            // Text is escaped like the other formats show it: literally, not as Markdown syntax.
+            var md = new MarkdownReport().Heading(1, EscMdLine(Title));
             if (_metadata.Count > 0)
             {
                 var lines = new List<string>();
@@ -267,9 +270,9 @@ namespace ToolBelt.Documents
                         md.Raw(sb.ToString());
                         break;
                     }
-                    case Kind.Heading: md.Heading(b.Level + 1, b.Text!); heading++; break;
-                    case Kind.Paragraph: md.Paragraph(b.Text!); break;
-                    case Kind.Bullets: md.BulletList(b.Items!); break;
+                    case Kind.Heading: md.Heading(b.Level + 1, EscMdLine(b.Text!)); heading++; break;
+                    case Kind.Paragraph: md.Paragraph(EscMdBlock(b.Text!)); break;
+                    case Kind.Bullets: md.BulletList(b.Items!.ConvertAll(EscMdBlock)); break;
                     case Kind.Properties: md.Table(new[] { "Property", "Value" }, b.Rows!); break;
                     case Kind.Table:
                         table++;
@@ -291,7 +294,7 @@ namespace ToolBelt.Documents
                     case Kind.Callout:
                     {
                         var sb = new StringBuilder("> [!").Append(GithubAlert(b.Callout)).Append("]\n");
-                        foreach (string line in b.Text!.Replace("\r\n", "\n").Split('\n')) sb.Append("> ").Append(line).Append('\n');
+                        foreach (string line in EscMdBlock(b.Text!).Split('\n')) sb.Append("> ").Append(line).Append('\n');
                         md.Raw(sb.ToString());
                         break;
                     }
@@ -466,13 +469,16 @@ namespace ToolBelt.Documents
         {
             private readonly Dictionary<string, int> _seen = new Dictionary<string, int>(StringComparer.Ordinal);
 
-            // GitHub's de-duplication: the first "x" stays "x", repeats become "x-1", "x-2", ...
+            // GitHub's de-duplication: the first "x" stays "x", repeats become "x-1", "x-2", ..., skipping any suffix a
+            // heading already took (headings "x-1", "x", "x" get "x-1", "x", "x-2").
             public string Next(string text)
             {
                 string slug = Slug(text);
                 if (!_seen.TryGetValue(slug, out int n)) { _seen[slug] = 0; return slug; }
-                _seen[slug] = ++n;
-                string candidate = slug + "-" + n.ToString(CultureInfo.InvariantCulture);
+                string candidate;
+                do candidate = slug + "-" + (++n).ToString(CultureInfo.InvariantCulture);
+                while (_seen.ContainsKey(candidate));
+                _seen[slug] = n;
                 _seen[candidate] = 0;
                 return candidate;
             }
@@ -530,10 +536,36 @@ namespace ToolBelt.Documents
             var sb = new StringBuilder(text.Length);
             foreach (char ch in text)
             {
-                if ("\\`*_[]<>|#".IndexOf(ch) >= 0) sb.Append('\\');
+                if ("\\`*_[]<>|#&~".IndexOf(ch) >= 0) sb.Append('\\');
                 sb.Append(ch);
             }
             return sb.ToString();
+        }
+
+        // A heading is one line: line breaks become spaces.
+        private static string EscMdLine(string text) => EscMd(text.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' '));
+
+        // Block text: inline escapes, plus the line starts CommonMark would read as a list item ("- ", "+ ", "1. ") or a
+        // setext underline ("---", "===").
+        private static string EscMdBlock(string text)
+        {
+            string[] lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = EscMd(lines[i]);
+                int s = 0;
+                while (s < line.Length && line[s] == ' ') s++;
+                if (s < line.Length && (line[s] == '-' || line[s] == '+' || line[s] == '='))
+                    line = line.Insert(s, "\\");
+                else
+                {
+                    int d = s;
+                    while (d < line.Length && line[d] >= '0' && line[d] <= '9') d++;
+                    if (d > s && d < line.Length && (line[d] == '.' || line[d] == ')')) line = line.Insert(d, "\\");
+                }
+                lines[i] = line;
+            }
+            return string.Join("\n", lines);
         }
 
         private enum Kind { Toc, Heading, Paragraph, Bullets, Properties, Table, Figure, Code, Callout }

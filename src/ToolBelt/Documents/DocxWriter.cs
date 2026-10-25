@@ -48,6 +48,7 @@ namespace ToolBelt.Documents
         private const string R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
         private const long EmuPerInch = 914400;
         private const double ContentWidthInches = 6.5;                   // Letter with 1" margins
+        private const double MaxExtentEmu = 27273042316900;
 
         private readonly StringBuilder _body = new StringBuilder();
         private readonly List<byte[]> _images = new List<byte[]>();
@@ -63,12 +64,12 @@ namespace ToolBelt.Documents
 
         public string? Author { get; set; }
 
-        /// <summary>Adds a heading. Level 1–6 maps to a decreasing font size; the text is bold.</summary>
+        /// <summary>Adds a heading. Level 1–6 maps to a decreasing font size (16, 14, 13, 12, 11, 10 pt); the text is bold.</summary>
         public DocxWriter Heading(string text, int level = 1)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
             if (level < 1 || level > 6) throw new ArgumentOutOfRangeException(nameof(level), level, "Heading level must be 1–6.");
-            int halfPoints = Math.Max(32 - (level - 1) * 4, 20);
+            int halfPoints = HeadingHalfPoints[level - 1];
             // keepNext keeps a heading on the same page as what follows it.
             _body.Append("<w:p><w:pPr><w:keepNext/><w:spacing w:before=\"240\" w:after=\"80\"/><w:outlineLvl w:val=\"").Append(level - 1)
                  .Append("\"/><w:rPr><w:b/><w:sz w:val=\"").Append(halfPoints)
@@ -76,6 +77,8 @@ namespace ToolBelt.Documents
                  .Append("\"/></w:rPr>").Append(Text(text)).Append("</w:r></w:p>");
             return this;
         }
+
+        private static readonly int[] HeadingHalfPoints = { 32, 28, 26, 24, 22, 20 };
 
         /// <summary>Adds a paragraph, optionally bold and/or italic.</summary>
         public DocxWriter Paragraph(string text, bool bold = false, bool italic = false)
@@ -150,6 +153,12 @@ namespace ToolBelt.Documents
             foreach (var edge in new[] { "top", "left", "bottom", "right", "insideH", "insideV" })
                 _body.Append("<w:").Append(edge).Append(" w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>");
             _body.Append("</w:tblBorders><w:tblCellMar><w:left w:w=\"80\" w:type=\"dxa\"/><w:right w:w=\"80\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr>");
+            // The schema requires a grid after tblPr (Word tolerates its absence; strict validators don't). Even columns
+            // across the text width; the auto-width table still fits itself to its content.
+            int gridCol = (int)(ContentWidthInches * 1440) / headers.Count;
+            _body.Append("<w:tblGrid>");
+            for (int c = 0; c < headers.Count; c++) _body.Append("<w:gridCol w:w=\"").Append(gridCol).Append("\"/>");
+            _body.Append("</w:tblGrid>");
 
             _body.Append("<w:tr><w:trPr><w:tblHeader/></w:trPr>");
             foreach (var h in headers) AppendCell(h ?? "", bold: true);
@@ -177,9 +186,12 @@ namespace ToolBelt.Documents
             if (png is null) throw new ArgumentNullException(nameof(png));
             var (pw, ph) = PngSize(png);
             double w = widthInches ?? Math.Min(pw / 96.0, ContentWidthInches);
-            if (!(w > 0)) throw new ArgumentOutOfRangeException(nameof(widthInches), widthInches, "Width must be positive.");
+            if (!(w > 0) || double.IsInfinity(w)) throw new ArgumentOutOfRangeException(nameof(widthInches), widthInches, "Width must be positive and finite.");
             double h = w * ph / pw;
-            long cx = (long)Math.Round(w * EmuPerInch), cy = (long)Math.Round(h * EmuPerInch);
+            // ST_PositiveCoordinate caps an extent at 27,273,042,316,900 EMU (about 29.8 million inches).
+            if (w * EmuPerInch > MaxExtentEmu || h * EmuPerInch > MaxExtentEmu)
+                throw new ArgumentOutOfRangeException(nameof(widthInches), widthInches, "The image would be larger than a Word drawing can be.");
+            long cx = Math.Max(1L, (long)Math.Round(w * EmuPerInch)), cy = Math.Max(1L, (long)Math.Round(h * EmuPerInch));
             _images.Add(png);
             int index = _images.Count;
             int id = ++_drawingId;

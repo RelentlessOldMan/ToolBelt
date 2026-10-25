@@ -213,7 +213,13 @@ namespace ToolBelt.Documents
             }
         }
 
+        // "+1.5" / "-1.5"; a value that rounds to zero prints as "0", never "-0" or "+0".
         private static string Signed(double v, string format)
-            => (v > 0 ? "+" : "") + v.ToString(format, CultureInfo.InvariantCulture);
+        {
+            string s = v.ToString(format, CultureInfo.InvariantCulture);
+            if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double shown) && shown == 0)
+                return 0.0.ToString(format, CultureInfo.InvariantCulture);
+            return (v > 0 ? "+" : "") + s;
+        }
     }
 }

@@ -68,7 +68,7 @@ namespace ToolBelt.Tests.Documents
             Check.Equal("**bold**", MarkdownReport.Bold("bold"));
             Check.Equal("*it*", MarkdownReport.Italic("it"));
             Check.Equal("[a\\*b](http://x)", MarkdownReport.Link("a*b", "http://x"));
-            Check.Equal("`co\\`de`", MarkdownReport.Code("co`de")); // inline code escapes backticks
+            Check.Equal("``co`de``", MarkdownReport.Code("co`de")); // a longer delimiter (backslashes are literal in code)
         }
 
         public void ImageAndRule()

@@ -7,9 +7,10 @@ namespace ToolBelt.Documents
 {
     /// <summary>
     /// A fluent builder for self-contained HTML documents — headings, paragraphs, lists, tables, code,
-    /// images and links, wrapped in a minimal responsive stylesheet. All text is HTML-escaped, so caller
-    /// data can never break out into markup. <see cref="ToString"/> returns a complete <c>&lt;html&gt;</c>
-    /// document; <see cref="ToFragment"/> returns just the body content for embedding.
+    /// images and links, wrapped in a minimal responsive stylesheet. All text and attribute values are HTML-escaped,
+    /// so caller data can never break out into markup (<see cref="Raw"/> excepted). URLs are escaped but not
+    /// sanitized: a <c>javascript:</c> link stays live, so don't pass untrusted URLs. <see cref="ToString"/> returns a
+    /// complete <c>&lt;html&gt;</c> document; <see cref="ToFragment"/> returns just the body content for embedding.
     /// </summary>
     public sealed class HtmlReport
     {
@@ -26,7 +27,7 @@ namespace ToolBelt.Documents
             + "pre code{background:none;padding:0}blockquote{border-left:4px solid #ddd;margin:1rem 0;"
             + "padding:.2rem 1rem;color:#555}img{max-width:100%}";
 
-        /// <summary>Sets the document title (used in <c>&lt;title&gt;</c> and, unless suppressed, an <c>&lt;h1&gt;</c>).</summary>
+        /// <summary>Sets the document title (the <c>&lt;title&gt;</c> element; add an <see cref="H1"/> to show it on the page).</summary>
         public HtmlReport Title(string title)
         {
             _title = title ?? throw new ArgumentNullException(nameof(title));
@@ -63,7 +64,7 @@ namespace ToolBelt.Documents
         /// <summary>Adds a numbered (<c>ol</c>) list.</summary>
         public HtmlReport NumberedList(IEnumerable<string> items) => List("ol", items);
 
-        /// <summary>Adds a table with a header row.</summary>
+        /// <summary>Adds a table with a header row. Each row is padded/truncated to the header column count (a null row is empty).</summary>
         public HtmlReport Table(IReadOnlyList<string> headers, IEnumerable<IReadOnlyList<string>> rows)
         {
             if (headers is null) throw new ArgumentNullException(nameof(headers));
@@ -75,7 +76,8 @@ namespace ToolBelt.Documents
             foreach (var row in rows)
             {
                 _body.Append("<tr>");
-                foreach (var cell in row) _body.Append("<td>").Append(Escape(cell ?? "")).Append("</td>");
+                for (int c = 0; c < headers.Count; c++)
+                    _body.Append("<td>").Append(Escape(row != null && c < row.Count ? row[c] ?? "" : "")).Append("</td>");
                 _body.Append("</tr>\n");
             }
             _body.Append("</tbody>\n</table>\n");
@@ -86,7 +88,7 @@ namespace ToolBelt.Documents
         public HtmlReport CodeBlock(string code, string language = "")
         {
             if (code is null) throw new ArgumentNullException(nameof(code));
-            string cls = string.IsNullOrEmpty(language) ? "" : $" class=\"language-{Escape(language)}\"";
+            string cls = string.IsNullOrEmpty(language) ? "" : $" class=\"language-{EscapeAttr(language)}\"";
             _body.Append("<pre><code").Append(cls).Append('>').Append(Escape(code)).Append("</code></pre>\n");
             return this;
         }

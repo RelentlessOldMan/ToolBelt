@@ -720,6 +720,7 @@ tests/
       DocxFeaturesTests.cs  (+ opens the file in real Word via COM when installed: pages, list numbers, footer fields)
       ReportBuilderTests.cs
       ReportTemplatesTests.cs
+      DocumentsConfigReviewTests.cs  (review round 7 regressions: documents + configuration)
     Enums/
       EnumExtensionsTests.cs
       EnumFlagsTests.cs

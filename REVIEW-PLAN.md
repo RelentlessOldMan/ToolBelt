@@ -47,8 +47,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 1 | 43 / 43 | re-queue (8 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 1 | 33 / 33 | re-queue (8 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 1 | 19 / 19 | re-queue (3 severe) |
-| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 0 | – / 0 | **next** |
-| 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 0 | – / 0 | queued |
+| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 1 | 27 / 27 | re-queue (5 severe) |
+| 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 0 | – / 0 | **next** |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 0 | – / 0 | queued |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 0 | – / 0 | queued |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 0 | – / 0 | queued |
@@ -74,6 +74,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.4.0 | 4 | Numerics core | 43 | (see tag) |
 | v0.5.0 | 5 | Charts | 33 | (see tag) |
 | v0.6.0 | 6 | Binary formats & images | 19 | (see tag) |
+| v0.7.0 | 7 | Documents & config | 27 | (see tag) |
 
 ## Round log
 
@@ -365,3 +366,56 @@ bug was confirmed with a checked build), 2 doc-only, 2 hardening items left, 0 r
   Collections (13), Net (5), Numerics (4, including `DeterministicRandom`), Documents (2), Guards, Runtime and
   Charts' `Palettes`. Each later round now runs the checked build for its own section (see the protocol).
 - **Re-queued:** yes (3 severe, 19 bugs).
+
+### Round 7 — 2026-10-25 — Documents & config
+
+Reviewers: one for correctness and one for robustness, 29 distinct findings after overlap plus 2 doc items.
+**27 confirmed bugs** (24 failing-first regression tests in `DocumentsConfigReviewTests`; the checked-arithmetic
+bugs were confirmed with a checked build, and the multi-line PDF table width and the false drop-in header by
+inspection), 3 doc-only, 1 hardening item, 0 rejected.
+
+- **Severe:**
+  - `HtmlReport.CodeBlock` escaped the language with the text escaper, so a `"` broke out of the `class`
+    attribute (markup injection).
+  - `ConfigBinder` replaced every nested object with a new one, discarding initializer defaults even when the section
+    had no keys, and skipped get-only nested properties. It now binds only a configured section, into the existing
+    instance.
+  - `ConfigBinder` called `Activator.CreateInstance` on every class-typed property, so a `Uri` (or any type without a
+    parameterless constructor) threw `MissingMethodException` even when unconfigured; a configured one is now a
+    binding error.
+  - `ConfigBinder` could not bind `Guid` or `DateTimeOffset` (`Convert.ChangeType` has no conversion for them).
+  - `PdfWriter` read the PNG IHDR fields without checking the chunk length: `IndexOutOfRangeException` instead of
+    `ArgumentException`.
+- **Moderate:**
+  - `PdfWriter`'s hard split of a word wider than the line was quadratic (25 s for a 1.2 M-character blob), and so was
+    the outline writer (12.7 s for 60k headings). Both are linear now.
+  - `ReportBuilder` anchor de-duplication could reuse an id (headings "x-1", "x", "x" gave "x-1" twice).
+  - `MarkdownReport.CodeBlock` always used a three-backtick fence (a ``` line in the code closed it) and put the
+    language in raw; `Code` escaped backticks with backslashes, which are literal inside a code span.
+  - Markdown escaping missed `<`, `&` and `~`; a lone CR in a table cell ended the row.
+  - `ReportBuilder.ToMarkdown` wrote the title, headings, paragraphs, bullets and callouts raw, so "# x", "*x*",
+    "- x" or "1. x" in report text turned into Markdown syntax (the HTML, PDF and DOCX outputs show it literally).
+  - A bare number was a valid duration in `ConfigBinder` and `EnvironmentVariables` and meant days ("30" → 30 days).
+    It is now rejected as ambiguous.
+  - `PdfWriter` accepted a NaN or infinite margin or font size; `DocxWriter.Image` accepted an infinite or huge width
+    and cast it to a garbage EMU extent.
+  - Booleans, enums and flags parsed inconsistently: the binder rejected "yes"/"on" and accepted undefined enum
+    numbers; both rejected [Flags] combinations such as "Read, Exec".
+- **Minor:**
+  - The `ConfigBinder` header claimed it was self-contained but used `TypeUtils` and `HumanDuration`; the
+    conversions are now inlined.
+  - `HtmlReport.Table` threw on a null row and emitted ragged rows; PDF table widths measured a multi-line cell as one
+    line; tabs, DEL and surrogate pairs measured or printed wrong in the PDF (a pair printed "??").
+  - The binder skipped `IList<T>`, `IReadOnlyList<T>` and `IEnumerable<T>` properties and silently dropped list
+    items after an index gap.
+  - Checked-arithmetic failures in the PDF zlib Adler bytes, the PNG unfilter, `Code`'s per-line count and the DOCX
+    image extent.
+  - `SettingsStore` could not save NaN or ±∞ and threw on a locked or unreadable file.
+  - `ReportTemplates` printed "-0" for a delta that rounds to zero.
+  - DOCX tables had no `tblGrid` (schema-invalid), and heading levels 4–6 were all the same size.
+- **Doc-only:** `HtmlReport.Title` claimed to emit an `<h1>`; URLs are not sanitized (a `javascript:` link stays
+  live); figure SVG is inlined verbatim and must be trusted.
+- **Hardening:** `EnvironmentVariables.WithPrefix` compares keys case-sensitively off Windows, so `APP_X` and `app_x`
+  no longer collide on Linux.
+- **Checked build:** the section is clean; 55 failures remain elsewhere (round 6's 57 minus the two PDF image ones).
+- **Re-queued:** yes (5 severe, 27 bugs).

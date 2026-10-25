@@ -21,8 +21,10 @@ namespace ToolBelt.Documents
     /// <summary>
     /// A fluent builder for GitHub-flavored Markdown documents — headings, paragraphs, lists, tables,
     /// code fences, quotes and rules. Every method returns the builder so calls chain; <see cref="ToString"/>
-    /// yields the finished document. Cell and inline text are escaped so stray <c>|</c> or <c>*</c> don't
-    /// corrupt the layout.
+    /// yields the finished document. Cell and inline-helper text is escaped so stray <c>|</c>, <c>*</c> or raw HTML
+    /// (<c>&lt;</c>, <c>&amp;</c>) don't corrupt the layout; headings and paragraphs are Markdown as given, so they can
+    /// carry <see cref="Bold"/>, <see cref="Link"/> and friends. Code fences and spans grow longer than any backtick
+    /// run inside them.
     /// </summary>
     public sealed class MarkdownReport
     {
@@ -110,7 +112,10 @@ namespace ToolBelt.Documents
         public MarkdownReport CodeBlock(string code, string language = "")
         {
             if (code is null) throw new ArgumentNullException(nameof(code));
-            Block("```" + (language ?? "") + "\n" + code.TrimEnd('\n') + "\n```");
+            // The fence must be longer than any backtick run in the code, or a ``` line inside would close it early.
+            string fence = new string('`', Math.Max(3, LongestRun(code, '`') + 1));
+            string info = (language ?? "").Replace("`", "").Replace("\r", " ").Replace("\n", " ").Trim();
+            Block(fence + info + "\n" + code.TrimEnd('\n') + "\n" + fence);
             return this;
         }
 
@@ -153,7 +158,16 @@ namespace ToolBelt.Documents
         /// <summary>Italic inline span.</summary>
         public static string Italic(string text) => "*" + Escape(text) + "*";
         /// <summary>Inline code span.</summary>
-        public static string Code(string text) => "`" + (text ?? "").Replace("`", "\\`") + "`";
+        public static string Code(string text)
+        {
+            // Backslash escapes don't work inside a code span: use a longer delimiter, padded when the text touches a
+            // backtick (CommonMark strips one space from each side).
+            text ??= "";
+            string fence = new string('`', LongestRun(text, '`') + 1);
+            bool pad = text.Length > 0 && (text[0] == '`' || text[text.Length - 1] == '`'
+                       || (text[0] == ' ' && text[text.Length - 1] == ' ' && text.Trim().Length > 0));
+            return pad ? fence + " " + text + " " + fence : fence + text + fence;
+        }
         /// <summary>Inline link.</summary>
         public static string Link(string text, string url) => "[" + Escape(text) + "](" + (url ?? "") + ")";
 
@@ -171,6 +185,17 @@ namespace ToolBelt.Documents
             sb.Append('\n');
         }
 
+        private static int LongestRun(string text, char ch)
+        {
+            int best = 0, run = 0;
+            foreach (char c in text)
+            {
+                run = c == ch ? run + 1 : 0;
+                if (run > best) best = run;
+            }
+            return best;
+        }
+
         private void Block(string content)
         {
             if (_sb.Length > 0) _sb.Append('\n');
@@ -185,17 +210,18 @@ namespace ToolBelt.Documents
             foreach (char ch in text)
             {
                 if (ch == '\\' || ch == '`' || ch == '*' || ch == '_' || ch == '[' || ch == ']'
-                    || ch == '(' || ch == ')' || ch == '#' || ch == '!')
+                    || ch == '(' || ch == ')' || ch == '#' || ch == '!' || ch == '<' || ch == '>' || ch == '&' || ch == '~')
                     sb.Append('\\');
                 sb.Append(ch);
             }
             return sb.ToString();
         }
 
-        // Table cells additionally escape pipes and collapse newlines (a cell is single-line).
+        // Table cells additionally escape pipes and turn every line ending (CRLF, LF or a lone CR) into <br>:
+        // a cell is single-line, and a raw CR would end the row.
         private static string EscapeCell(string text)
         {
-            return Escape(text).Replace("\r\n", " ").Replace("\n", "<br>").Replace("|", "\\|");
+            return Escape(text).Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", "<br>").Replace("|", "\\|");
         }
     }
 }

@@ -4,6 +4,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Reflection;
 
 namespace ToolBelt.Configuration
 {
@@ -12,7 +13,9 @@ namespace ToolBelt.Configuration
     /// <c>GetTimeSpan("TIMEOUT")</c>, <c>Require("API_URL")</c>. A variable that is set but malformed throws a
     /// <see cref="FormatException"/> naming it (never silently falling back to the default — that hides typos in
     /// deployment config); an empty value counts as unset. Booleans accept true/false/1/0/yes/no/on/off; durations accept
-    /// "30s", "5m", "1.5h", "250ms", "2d" or a TimeSpan string. The variable source is injectable for tests.
+    /// "30s", "5m", "1.5h", "250ms", "2d" or a TimeSpan string with a colon ("00:05:00"); a bare number is rejected as
+    /// ambiguous (TimeSpan would read "30" as 30 days). Enumerations accept a defined member, or a combination of
+    /// defined bits for a [Flags] type. The variable source is injectable for tests.
     /// </summary>
     public sealed class EnvironmentVariables
     {
@@ -67,7 +70,7 @@ namespace ToolBelt.Configuration
         public TimeSpan? GetTimeSpan(string name) => Parse(name, ParseDuration, "a duration such as 30s, 5m, 1.5h, 250ms or 00:05:00");
 
         public TEnum GetEnum<TEnum>(string name, TEnum defaultValue) where TEnum : struct, Enum
-            => Parse(name, s => Enum.TryParse(s, true, out TEnum v) && Enum.IsDefined(typeof(TEnum), v) ? v : (TEnum?)null,
+            => Parse(name, s => Enum.TryParse(s, true, out TEnum v) && IsValidEnum(v) ? v : (TEnum?)null,
                 "one of " + string.Join(", ", Enum.GetNames(typeof(TEnum)))) ?? defaultValue;
 
         /// <summary>A delimited list (default ',' or ';'), items trimmed, empties dropped; empty list when unset.</summary>
@@ -78,11 +81,16 @@ namespace ToolBelt.Configuration
             return v.Split(separators.Length > 0 ? separators : new[] { ',', ';' }).Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
         }
 
-        /// <summary>All variables whose names start with <paramref name="prefix"/> (process environment only), prefix removed.</summary>
+        /// <summary>
+        /// All variables whose names start with <paramref name="prefix"/> (process environment only, prefix matched
+        /// ignoring case), prefix removed. Keys compare ignoring case on Windows, where the environment does too, and
+        /// exactly elsewhere, so <c>APP_X</c> and <c>app_x</c> stay separate on Linux.
+        /// </summary>
         public static IReadOnlyDictionary<string, string> WithPrefix(string prefix, bool stripPrefix = true)
         {
             if (prefix is null) throw new ArgumentNullException(nameof(prefix));
-            var result = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            bool windows = Environment.OSVersion.Platform == PlatformID.Win32NT;
+            var result = new SortedDictionary<string, string>(windows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
             foreach (DictionaryEntry e in Environment.GetEnvironmentVariables())
             {
                 string key = (string)e.Key;
@@ -98,6 +106,23 @@ namespace ToolBelt.Configuration
             if (raw == null) return null;
             return parse(raw.Trim()) ?? throw new FormatException($"Environment variable '{name}' is '{raw}', which is not {expected}.");
         }
+
+        // Defined, or (for a [Flags] type) made only of defined bits — so "Read, Write" is accepted.
+        private static bool IsValidEnum<TEnum>(TEnum value) where TEnum : struct, Enum
+        {
+            if (Enum.IsDefined(typeof(TEnum), value)) return true;
+            if (typeof(TEnum).GetCustomAttribute<FlagsAttribute>() == null) return false;
+            ulong bits = ToBits(value), allowed = 0;
+            foreach (object member in Enum.GetValues(typeof(TEnum))) allowed |= ToBits(member);
+            return (bits & ~allowed) == 0;
+        }
+
+        private static ulong ToBits(object enumValue)
+            => unchecked(Type.GetTypeCode(Enum.GetUnderlyingType(enumValue.GetType())) switch
+            {
+                TypeCode.SByte or TypeCode.Int16 or TypeCode.Int32 or TypeCode.Int64 => (ulong)Convert.ToInt64(enumValue, CultureInfo.InvariantCulture),
+                _ => Convert.ToUInt64(enumValue, CultureInfo.InvariantCulture),
+            });
 
         internal static bool? ParseBool(string s)
         {
@@ -121,7 +146,9 @@ namespace ToolBelt.Configuration
                 double ms = unit switch { "ms" => v, "s" => v * 1e3, "m" => v * 6e4, "h" => v * 3.6e6, _ => v * 8.64e7 };
                 return ms > TimeSpan.MaxValue.TotalMilliseconds ? (TimeSpan?)null : TimeSpan.FromMilliseconds(ms);
             }
-            return TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out TimeSpan t) && t >= TimeSpan.Zero ? t : (TimeSpan?)null;
+            // Only a colon form ("00:05:00", "1.02:00:00"): a bare "30" would parse as 30 days.
+            return s.IndexOf(':') >= 0 && TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out TimeSpan t) && t >= TimeSpan.Zero
+                ? t : (TimeSpan?)null;
         }
     }
 }

@@ -35,7 +35,8 @@ namespace ToolBelt.Documents
     /// standard base-14 fonts (no embedding), bordered tables whose header row repeats on each page, raster images (PNG or
     /// raw RGBA, with transparency), a bookmark outline built from headings, optional "Page X of Y" footers and document
     /// title/author. Text is measured with the real base-14 advance widths, so wrapping is exact in every font. Characters
-    /// outside Windows-1252 are written as '?'. Every byte is spec-conformant (validated by the tests' own parser).
+    /// outside Windows-1252 are written as '?' (one per character, so an emoji is one '?'), as are control characters;
+    /// a tab is a space. Every byte is spec-conformant (validated by the tests' own parser).
     /// </summary>
     public sealed class PdfWriter
     {
@@ -63,8 +64,8 @@ namespace ToolBelt.Documents
         /// <summary>Creates a writer with a page size, uniform margin, base font and body font size.</summary>
         public PdfWriter(PdfPageSize pageSize = PdfPageSize.Letter, double margin = 54, PdfFont font = PdfFont.Courier, double fontSize = 11)
         {
-            if (margin < 0) throw new ArgumentOutOfRangeException(nameof(margin), margin, "Margin must be non-negative.");
-            if (!(fontSize > 0)) throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be positive.");
+            if (!(margin >= 0) || double.IsInfinity(margin)) throw new ArgumentOutOfRangeException(nameof(margin), margin, "Margin must be finite and non-negative.");
+            if (!(fontSize > 0) || double.IsInfinity(fontSize)) throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be positive and finite.");
             (_pageWidth, _pageHeight) = pageSize == PdfPageSize.A4 ? (595.0, 842.0) : (612.0, 792.0);
             if (margin * 2 >= _pageWidth || margin * 2 >= _pageHeight)
                 throw new ArgumentOutOfRangeException(nameof(margin), margin, "Margins leave no room for content.");
@@ -165,8 +166,8 @@ namespace ToolBelt.Documents
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
             double s = RequireSize(size ?? _fontSize * 0.9, nameof(size)), indent = 10;
-            int perLine = Math.Max(1, (int)((UsableWidth - indent) / (s * 0.6)));
-            foreach (var raw in text.Replace("\r\n", "\n").Replace("\t", "    ").Split('\n'))
+            int perLine = (int)Math.Max(1, Math.Min(int.MaxValue, Math.Floor((UsableWidth - indent) / (s * 0.6))));
+            foreach (var raw in Lines(text.Replace("\t", "    ")))
             {
                 for (int start = 0; start == 0 || start < raw.Length; start += perLine)
                 {
@@ -227,8 +228,11 @@ namespace ToolBelt.Documents
             {
                 for (int c = 0; c < n; c++)
                 {
-                    double w = Measure(headers[c] ?? "", size, true);
-                    foreach (var cells in data) w = Math.Max(w, Measure(cells[c], size, false));
+                    // A multi-line cell is as wide as its widest line, not all its lines end to end.
+                    double w = 0;
+                    foreach (string line in Lines(headers[c] ?? "")) w = Math.Max(w, Measure(line, size, true));
+                    foreach (var cells in data)
+                        foreach (string line in Lines(cells[c])) w = Math.Max(w, Measure(line, size, false));
                     widths[c] = w + 2 * pad;
                 }
                 double total = 0;
@@ -319,13 +323,25 @@ namespace ToolBelt.Documents
             if (text is null) throw new ArgumentNullException(nameof(text));
             int[]? table = Widths(bold);
             double units = 0;
-            foreach (char ch in text)
+            for (int i = 0; i < text.Length; i++)
             {
-                int code = WinAnsi(ch);
-                units += table == null ? 600 : (code >= 32 && code <= 255 ? table[code - 32] : 556);
+                if (IsPairStart(text, i)) i++;                                // a surrogate pair is one '?'
+                units += Units(table, text[i]);
             }
             return units / 1000 * size;
         }
+
+        private static int Units(int[]? table, char ch)
+        {
+            int code = WinAnsi(ch);
+            return table == null ? 600 : (code >= 32 && code <= 255 ? table[code - 32] : 556);
+        }
+
+        private static bool IsPairStart(string text, int i)
+            => char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]);
+
+        // Lines of text split on every line ending: CRLF, LF or a lone CR.
+        private static string[] Lines(string text) => text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
 
         /// <summary>Serializes the document to PDF bytes.</summary>
         public byte[] Build()
@@ -440,33 +456,32 @@ namespace ToolBelt.Documents
                 parent[i] = stack.Count > 0 ? stack[stack.Count - 1] : -1;
                 stack.Add(i);
             }
-            List<int> Children(int p)
+            // Children lists, sibling positions and descendant counts in linear time (a parent precedes its children).
+            var children = new List<int>[n + 1];                              // [n] holds the top level
+            for (int i = 0; i <= n; i++) children[i] = new List<int>();
+            var pos = new int[n];
+            for (int i = 0; i < n; i++)
             {
-                var c = new List<int>();
-                for (int i = 0; i < n; i++) if (parent[i] == p) c.Add(i);
-                return c;
+                var list = children[parent[i] < 0 ? n : parent[i]];
+                pos[i] = list.Count;
+                list.Add(i);
             }
-            int Descendants(int p)
-            {
-                int count = 0;
-                foreach (int c in Children(p)) count += 1 + Descendants(c);
-                return count;
-            }
-            var top = Children(-1);
+            var descendants = new int[n];
+            for (int i = n - 1; i >= 0; i--) if (parent[i] >= 0) descendants[parent[i]] += 1 + descendants[i];
+            var top = children[n];
             begin(rootId);
             write($"<< /Type /Outlines /First {ids[top[0]]} 0 R /Last {ids[top[top.Count - 1]]} 0 R /Count {n} >>\nendobj\n");
             for (int i = 0; i < n; i++)
             {
-                var siblings = Children(parent[i]);
-                int pos = siblings.IndexOf(i);
-                var kids = Children(i);
+                var siblings = children[parent[i] < 0 ? n : parent[i]];
+                var kids = children[i];
                 var (title, _, page, y) = _outline[i];
                 var sb = new StringBuilder("<< /Title ").Append(TextString(title))
                     .Append(" /Parent ").Append(parent[i] < 0 ? rootId : ids[parent[i]]).Append(" 0 R");
-                if (pos > 0) sb.Append(" /Prev ").Append(ids[siblings[pos - 1]]).Append(" 0 R");
-                if (pos < siblings.Count - 1) sb.Append(" /Next ").Append(ids[siblings[pos + 1]]).Append(" 0 R");
+                if (pos[i] > 0) sb.Append(" /Prev ").Append(ids[siblings[pos[i] - 1]]).Append(" 0 R");
+                if (pos[i] < siblings.Count - 1) sb.Append(" /Next ").Append(ids[siblings[pos[i] + 1]]).Append(" 0 R");
                 if (kids.Count > 0)
-                    sb.Append(" /First ").Append(ids[kids[0]]).Append(" 0 R /Last ").Append(ids[kids[kids.Count - 1]]).Append(" 0 R /Count ").Append(Descendants(i));
+                    sb.Append(" /First ").Append(ids[kids[0]]).Append(" 0 R /Last ").Append(ids[kids[kids.Count - 1]]).Append(" 0 R /Count ").Append(descendants[i]);
                 sb.Append(" /Dest [").Append(pageIds[page]).Append(" 0 R /XYZ 0 ").Append(Num(y)).Append(" null] >>\nendobj\n");
                 begin(ids[i]);
                 write(sb.ToString());
@@ -478,7 +493,7 @@ namespace ToolBelt.Documents
         private void WriteWrapped(string text, double size, bool bold, double indent)
         {
             double width = UsableWidth - indent;
-            foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
+            foreach (var raw in Lines(text))
                 foreach (var line in Wrap(raw, width, size, bold))
                 {
                     EnsureRoom(size);
@@ -505,17 +520,32 @@ namespace ToolBelt.Documents
             var lines = new List<string>();
             if (text.Length == 0) { lines.Add(""); return lines; }
             var line = new StringBuilder();
+            int[]? table = Widths(bold);
             foreach (var word in text.Split(' '))
             {
                 string w = word;
-                // A word wider than the line is hard-split.
-                while (Measure(w, size, bold) > width && w.Length > 1)
+                // A word wider than the line is hard-split, in one pass over its characters (re-measuring the remaining
+                // tail for every piece made a long unbroken string, such as a base-64 blob, quadratic).
+                if (Measure(w, size, bold) > width && w.Length > 1)
                 {
                     if (line.Length > 0) { lines.Add(line.ToString()); line.Clear(); }
-                    int fit = 1;
-                    while (fit < w.Length && Measure(w.Substring(0, fit + 1), size, bold) <= width) fit++;
-                    lines.Add(w.Substring(0, fit));
-                    w = w.Substring(fit);
+                    int start = 0;
+                    while (true)
+                    {
+                        double units = 0;
+                        int end = start;
+                        while (end < w.Length)
+                        {
+                            int step = IsPairStart(w, end) ? 2 : 1;
+                            double next = units + Units(table, w[end + step - 1]);
+                            if (end > start && next / 1000 * size > width) break;
+                            units = next;
+                            end += step;
+                        }
+                        if (end >= w.Length) { w = w.Substring(start); break; }  // the rest fits: it starts the next line
+                        lines.Add(w.Substring(start, end - start));
+                        start = end;
+                    }
                 }
                 string candidate = line.Length == 0 ? w : line + " " + w;
                 if (line.Length == 0 || Measure(candidate, size, bold) <= width) { line.Clear(); line.Append(candidate); }
@@ -535,7 +565,7 @@ namespace ToolBelt.Documents
         private List<string> CellLines(string text, double width, double size, double pad, bool bold)
         {
             var lines = new List<string>();
-            foreach (var raw in text.Replace("\r\n", "\n").Split('\n')) lines.AddRange(Wrap(raw, Math.Max(1, width - 2 * pad), size, bold));
+            foreach (var raw in Lines(text)) lines.AddRange(Wrap(raw, Math.Max(1, width - 2 * pad), size, bold));
             return lines;
         }
 
@@ -581,9 +611,12 @@ namespace ToolBelt.Documents
 
         // ---------- encoding ----------
 
-        // Windows-1252 code for a character (what /WinAnsiEncoding means), or '?' if it has none.
+        // Windows-1252 code for a character (what /WinAnsiEncoding means), or '?' if it has none. A tab is a space; other
+        // control characters and DEL (which WinAnsiEncoding would show as a bullet) are '?'.
         private static int WinAnsi(char ch)
         {
+            if (ch == '\t') return ' ';
+            if (ch < 32 || ch == 127) return '?';
             if (ch < 128 || (ch >= 160 && ch <= 255)) return ch;
             switch (ch)
             {
@@ -601,9 +634,10 @@ namespace ToolBelt.Documents
         private static string Escape(string text)
         {
             var sb = new StringBuilder(text.Length);
-            foreach (char ch in text)
+            for (int i = 0; i < text.Length; i++)
             {
-                int code = WinAnsi(ch);
+                if (IsPairStart(text, i)) i++;                                // a surrogate pair is one '?'
+                int code = WinAnsi(text[i]);
                 if (code == '\\' || code == '(' || code == ')') sb.Append('\\').Append((char)code);
                 else if (code < 32) sb.Append('?');
                 else sb.Append((char)code);
@@ -645,7 +679,7 @@ namespace ToolBelt.Documents
             uint a = 1, b = 0;
             foreach (byte x in data) { a = (a + x) % 65521; b = (b + a) % 65521; }
             uint adler = (b << 16) | a;
-            ms.WriteByte((byte)(adler >> 24)); ms.WriteByte((byte)(adler >> 16)); ms.WriteByte((byte)(adler >> 8)); ms.WriteByte((byte)adler);
+            unchecked { ms.WriteByte((byte)(adler >> 24)); ms.WriteByte((byte)(adler >> 16)); ms.WriteByte((byte)(adler >> 8)); ms.WriteByte((byte)adler); }
             return ms.ToArray();
         }
 
@@ -666,6 +700,7 @@ namespace ToolBelt.Documents
                 int body = pos + 8;
                 if (kind == "IHDR")
                 {
+                    if (len < 13) throw new ArgumentException("PNG IHDR chunk is too short.", nameof(png));
                     width = (png[body] << 24) | (png[body + 1] << 16) | (png[body + 2] << 8) | png[body + 3];
                     height = (png[body + 4] << 24) | (png[body + 5] << 16) | (png[body + 6] << 8) | png[body + 7];
                     depth = png[body + 8]; type = png[body + 9]; interlace = png[body + 12];
@@ -718,7 +753,7 @@ namespace ToolBelt.Documents
                         4 => Paeth(a, b, c),
                         _ => throw new ArgumentException("Bad PNG filter.", nameof(png)),
                     };
-                    cur[i] = (byte)(cur[i] + pred);
+                    cur[i] = unchecked((byte)(cur[i] + pred));                // filters are defined modulo 256
                 }
                 for (int x = 0; x < width; x++)
                 {
