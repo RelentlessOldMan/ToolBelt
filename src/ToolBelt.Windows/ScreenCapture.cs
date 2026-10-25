@@ -96,8 +96,13 @@ namespace ToolBelt.Windows
         }
 
         // Per-monitor-v2 for the duration, so GetSystemMetrics and BitBlt agree on physical pixels. Returns the previous
-        // context (zero if the switch is unavailable, in which case the thread's own awareness is used).
-        private static IntPtr EnterPhysicalPixels() => SetThreadDpiAwarenessContext(new IntPtr(-4));
+        // context (zero if the switch is unavailable, in which case the thread's own awareness is used). Before Windows 10
+        // 1607 (Server 2012 R2) the function doesn't exist, which is the same case.
+        private static IntPtr EnterPhysicalPixels()
+        {
+            try { return SetThreadDpiAwarenessContext(new IntPtr(-4)); }
+            catch (EntryPointNotFoundException) { return IntPtr.Zero; }
+        }
 
         private static void LeavePhysicalPixels(IntPtr previous)
         {

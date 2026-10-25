@@ -26,8 +26,11 @@ namespace ToolBelt.Windows
         /// <summary>The longest string ReportEvent accepts.</summary>
         public const int MaxMessageLength = 31839;
 
-        // The .NET Framework's generic "%1" message DLL — present on every Windows install, so registered sources render the text verbatim.
-        private const string GenericMessageFile = @"%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\EventLogMessages.dll";
+        // The .NET Framework's generic "%1" message DLL — present on every Windows install, so registered sources render the
+        // text verbatim. Framework64 exists only on 64-bit Windows; a 32-bit install has just Framework.
+        private static string GenericMessageFile => Environment.Is64BitOperatingSystem
+            ? @"%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\EventLogMessages.dll"
+            : @"%SystemRoot%\Microsoft.NET\Framework\v4.0.30319\EventLogMessages.dll";
 
         private readonly object _gate = new object();
         private IntPtr _handle;
@@ -58,6 +61,9 @@ namespace ToolBelt.Windows
                 if (_handle == IntPtr.Zero) throw new ObjectDisposedException(nameof(EventLogWriter));
                 if (!ReportEventW(_handle, (ushort)kind, (ushort)category, (uint)eventId, IntPtr.Zero, 1, 0, new[] { text }, IntPtr.Zero))
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "ReportEvent failed.");
+                // The lock is on _gate, not this: without this, the finalizer could close the handle mid-call once the
+                // writer was otherwise unreachable.
+                GC.KeepAlive(this);
             }
         }
 

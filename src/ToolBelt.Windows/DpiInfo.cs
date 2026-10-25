@@ -75,7 +75,8 @@ namespace ToolBelt.Windows
                 MonitorEnumProc callback = (IntPtr hMonitor, IntPtr hdc, ref RECT rect, IntPtr data) =>
                 {
                     var info = new MONITORINFOEX { cbSize = Marshal.SizeOf<MONITORINFOEX>() };
-                    GetMonitorInfo(hMonitor, ref info);
+                    // A monitor unplugged mid-enumeration fails here; adding it anyway reported a nameless 0×0 monitor.
+                    if (!GetMonitorInfo(hMonitor, ref info)) return true;
                     int hr = GetDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, out uint dx, out uint dy);
                     if (hr != 0) { dx = dy = GetDpiForSystem(); }
                     result.Add(new MonitorDpi(info.szDevice, (int)dx, (int)dy, (info.dwFlags & MONITORINFOF_PRIMARY) != 0,
@@ -97,16 +98,29 @@ namespace ToolBelt.Windows
             return (int)dpi;
         }
 
-        /// <summary>Pixels at <paramref name="dpi"/> for a length given in 96-dpi device-independent units.</summary>
-        public static int Scale(int logicalPixels, int dpi) => (int)Math.Round(logicalPixels * dpi / 96.0, MidpointRounding.AwayFromZero);
+        /// <summary>
+        /// Pixels at <paramref name="dpi"/> for a length given in 96-dpi device-independent units. Throws
+        /// <see cref="OverflowException"/> if the result does not fit an <c>int</c>.
+        /// </summary>
+        public static int Scale(int logicalPixels, int dpi)
+        {
+            // In double from the start: logicalPixels * dpi in int overflowed (and went negative) past about 9 million pixels at 240 dpi.
+            double scaled = Math.Round((double)logicalPixels * dpi / 96.0, MidpointRounding.AwayFromZero);
+            if (scaled > int.MaxValue || scaled < int.MinValue) throw new OverflowException("The scaled length does not fit an int.");
+            return (int)scaled;
+        }
 
         /// <summary>
         /// Sets the calling thread's DPI awareness until disposed (then restores it). Windows created on the thread while
-        /// the scope is open keep the awareness they were created with.
+        /// the scope is open keep the awareness they were created with. Dispose it on the same thread: the awareness is
+        /// per thread, so disposing elsewhere sets that other thread's awareness instead, and an <c>await</c> inside the
+        /// scope can resume on a thread that never had it.
         /// </summary>
         public static IDisposable AwarenessScope(DpiAwareness awareness)
         {
-            IntPtr previous = SetThreadDpiAwarenessContext(ToContext(awareness));
+            IntPtr previous;
+            try { previous = SetThreadDpiAwarenessContext(ToContext(awareness)); }
+            catch (EntryPointNotFoundException) { previous = IntPtr.Zero; }        // before Windows 10 1607
             if (previous == IntPtr.Zero) throw new InvalidOperationException("SetThreadDpiAwarenessContext failed (needs Windows 10 1607+; mixed-mode DPI may be disabled for the process).");
             return new Restore(previous);
         }

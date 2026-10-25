@@ -20,15 +20,15 @@ namespace ToolBelt.Windows
     /// Reports the current process's elevation and integrity level. <see cref="IsElevated"/> checks the
     /// token's elevation bit (true inside a UAC-elevated process); <see cref="IsAdministrator"/> checks
     /// whether the Administrators group is active in the token; <see cref="CurrentIntegrityLevel"/> returns
-    /// the mandatory integrity level. Does not launch or request elevation — it only observes.
+    /// the mandatory integrity level. Always the process token, even on a thread that is impersonating someone else.
+    /// Does not launch or request elevation — it only observes.
     /// </summary>
     public static class Elevation
     {
         /// <summary>True if the current process token is elevated.</summary>
         public static bool IsElevated()
         {
-            using var identity = WindowsIdentity.GetCurrent();
-            IntPtr buffer = GetTokenInfo(identity.Token, TokenElevation, out int size);
+            IntPtr buffer = GetTokenInfo(CurrentProcessToken, TokenElevation, out int size);
             try
             {
                 // TOKEN_ELEVATION is a single DWORD (TokenIsElevated).
@@ -37,18 +37,34 @@ namespace ToolBelt.Windows
             finally { Marshal.FreeHGlobal(buffer); }
         }
 
-        /// <summary>True if the current identity is in the built-in Administrators role (full admin rights active).</summary>
+        /// <summary>True if the process is in the built-in Administrators role (full admin rights active).</summary>
         public static bool IsAdministrator()
         {
-            using var identity = WindowsIdentity.GetCurrent();
-            return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+            // The enabled, non-deny-only groups of the process token: what IsInRole checked, but of the thread's token,
+            // so impersonating another account (or the anonymous token) answered for that account.
+            var administrators = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            IntPtr buffer = GetTokenInfo(CurrentProcessToken, TokenGroups, out _);
+            try
+            {
+                // TOKEN_GROUPS { DWORD GroupCount; SID_AND_ATTRIBUTES Groups[]; }, the array pointer-aligned;
+                // SID_AND_ATTRIBUTES { PSID Sid; DWORD Attributes; } padded to two pointers.
+                int count = Marshal.ReadInt32(buffer);
+                for (int i = 0; i < count; i++)
+                {
+                    IntPtr entry = buffer + IntPtr.Size + i * 2 * IntPtr.Size;
+                    int attributes = Marshal.ReadInt32(entry, IntPtr.Size);
+                    if ((attributes & SE_GROUP_ENABLED) == 0 || (attributes & SE_GROUP_USE_FOR_DENY_ONLY) != 0) continue;
+                    if (new SecurityIdentifier(Marshal.ReadIntPtr(entry)) == administrators) return true;
+                }
+                return false;
+            }
+            finally { Marshal.FreeHGlobal(buffer); }
         }
 
         /// <summary>The mandatory integrity level of the current process token.</summary>
         public static IntegrityLevel CurrentIntegrityLevel()
         {
-            using var identity = WindowsIdentity.GetCurrent();
-            IntPtr buffer = GetTokenInfo(identity.Token, TokenIntegrityLevel, out int size);
+            IntPtr buffer = GetTokenInfo(CurrentProcessToken, TokenIntegrityLevel, out int size);
             try
             {
                 // TOKEN_MANDATORY_LABEL { SID_AND_ATTRIBUTES Label; } — Label.Sid is the first pointer.
@@ -85,6 +101,13 @@ namespace ToolBelt.Windows
             return buffer;
         }
 
+        // GetCurrentProcessToken(): a pseudo-handle for the process token with TOKEN_QUERY access, needing no open (an
+        // impersonating thread may not be allowed to open its own process token). WindowsIdentity.GetCurrent read the
+        // thread token instead whenever the thread was impersonating.
+        private static readonly IntPtr CurrentProcessToken = new IntPtr(-4);
+
+        private const int TokenGroups = 2;
+        private const int SE_GROUP_ENABLED = 0x4, SE_GROUP_USE_FOR_DENY_ONLY = 0x10;
         private const int TokenElevation = 20;
         private const int TokenIntegrityLevel = 25;
         private const int SECURITY_MANDATORY_UNTRUSTED_RID = 0x00000000;

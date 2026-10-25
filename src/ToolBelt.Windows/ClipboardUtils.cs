@@ -165,6 +165,7 @@ namespace ToolBelt.Windows
             BitConverter.GetBytes(1).CopyTo(data, 16);
             names.CopyTo(data, 20);
             uint dropEffect = RegisterClipboardFormat("Preferred DropEffect");
+            if (dropEffect == 0) throw new Win32Exception(Marshal.GetLastWin32Error(), "RegisterClipboardFormat failed.");
             RunSta<object?>(() =>
             {
                 SetData(new[] { (CF_HDROP, data), (dropEffect, BitConverter.GetBytes(1)) });   // DROPEFFECT_COPY
@@ -254,14 +255,16 @@ namespace ToolBelt.Windows
             long offset = (long)headerSize + (compression == 3 && headerSize == 40 ? 12 : 0) + (long)colorsUsed * 4;
             long stride = ((long)w * bpp / 8 + 3) & ~3L;
             if (offset + stride * h > dib.Length) throw new InvalidOperationException("Clipboard DIB is truncated.");
-            var pixels = new byte[(long)w * h * 4];                               // bounded by the length check above
+            // A 24-bit DIB near the 2 GB array limit expands past it at 4 bytes a pixel.
+            if ((long)w * h * 4 > Array.MaxLength) throw new InvalidOperationException("Clipboard DIB is too large to decode.");
+            var pixels = new byte[(long)w * h * 4];
             for (int y = 0; y < h; y++)
             {
                 long src = offset + (rawH > 0 ? h - 1 - y : y) * stride;
                 for (int x = 0; x < w; x++)
                 {
                     long sIdx = src + (long)x * (bpp / 8);
-                    int d = (y * w + x) * 4;
+                    long d = ((long)y * w + x) * 4;
                     pixels[d] = dib[sIdx]; pixels[d + 1] = dib[sIdx + 1]; pixels[d + 2] = dib[sIdx + 2];
                     pixels[d + 3] = bpp == 32 && hasAlpha ? dib[sIdx + 3] : (byte)255;
                 }
@@ -288,11 +291,20 @@ namespace ToolBelt.Windows
                 try
                 {
                     EmptyOrThrow();
-                    for (int i = 0; i < items.Length; i++)
+                    try
                     {
-                        if (SetClipboardData(items[i].Format, handles[i]) == IntPtr.Zero)
-                            throw new Win32Exception(Marshal.GetLastWin32Error(), "SetClipboardData failed.");
-                        handles[i] = IntPtr.Zero;                                       // owned by the clipboard now
+                        for (int i = 0; i < items.Length; i++)
+                        {
+                            if (SetClipboardData(items[i].Format, handles[i]) == IntPtr.Zero)
+                                throw new Win32Exception(Marshal.GetLastWin32Error(), "SetClipboardData failed.");
+                            handles[i] = IntPtr.Zero;                                   // owned by the clipboard now
+                        }
+                    }
+                    catch
+                    {
+                        // All or nothing: a failure part way left the formats already set (file paths with no drop effect).
+                        EmptyClipboard();
+                        throw;
                     }
                 }
                 finally { CloseClipboard(); }

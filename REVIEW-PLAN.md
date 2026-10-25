@@ -55,12 +55,12 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 1 | 32 / 32 | re-queue (3 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 1 | 39 / 39 | re-queue (4 severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 2 | 19 / 63 | re-queue (4 severe) |
-| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 1 | 35 / 35 | re-queue (7 severe) |
+| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 2 | 26 / 61 | re-queue (1 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 1 | 21 / 21 | re-queue (1 severe) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15, 3, 8, 9, 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 15**
+5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3, 8, 9, 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 3**
 
 ## Releases
 
@@ -90,6 +90,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.19.0 | 19 | Charts, second pass | 28 | (see tag) |
 | v0.20.0 | 20 | Objects, functional, grids, graphs, intervals, second pass | 19 | (see tag) |
 | v0.21.0 | 21 | Concurrency, second pass | 25 | (see tag) |
+| v0.22.0 | 22 | Windows satellite, second pass | 26 | (see tag) |
 
 ## Round log
 
@@ -1045,3 +1046,54 @@ Reviewers: one for correctness and one for robustness, fresh to the section (re-
   `TryEnqueue` doc now says DropOldest can evict an accepted item, and the misplaced `Dispose` doc is back on `Dispose`.
 - **Checked build:** 7 failures (Net ×5, Guards, Palette); `ArrayPoolScope` is fixed; nothing new.
 - **Re-queued:** yes (25 bugs, 1 severe).
+
+### Round 22 — 2026-10-25 — Windows satellite, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 15 with 7 severe).
+**26 confirmed bugs**, each with a failing-first regression test in `WindowsReview2Tests` except where noted.
+
+- **Severe:** `SingleInstance` held a thread-owned mutex. When the acquiring thread exited, the mutex was abandoned and
+  the next launch became a second primary. The same thread asking twice also owned the gate twice. The gate is now held
+  by a dedicated background thread, and `Dispose` works from any thread.
+- **Moderate / minor:**
+  - `SingleInstance`: a name taken by another kind of kernel object threw instead of reporting the gate as held.
+  - `SingleInstanceApp`:
+    - An infinite forward timeout made one 1 ms attempt, and `MaxValue` overflowed. Both now wait without limit.
+    - A stalled primary stretched the timeout by up to 5 s.
+    - A launch whose primary exited while it waited was lost; it now becomes the primary.
+    - Launches past the 100-launch pre-subscription queue were acknowledged, then dropped; they are now refused.
+    - Handlers ran after `Dispose` (by inspection).
+  - `RegistryUtils`:
+    - A high-bit DWORD/QWORD failed or went negative for wider and floating-point targets.
+    - Nullable and enum targets always returned the default.
+    - An unreadable key threw `SecurityException`; `KeyExists` now returns true and reads return the default.
+  - `DpiInfo`:
+    - `Scale` overflowed in int arithmetic.
+    - `Monitors` added a 0×0 entry for a monitor whose info query failed (by inspection).
+  - `Elevation` read the thread token while impersonating. It now reads the process token through the
+    `GetCurrentProcessToken` pseudo-handle, and Administrators membership comes from the token groups.
+  - `SetThreadDpiAwarenessContext` is now guarded before Windows 10 1607 in `MonitorInfo`, `ScreenCapture` and
+    `DpiInfo` (by inspection).
+  - `StorageDeviceInfo`:
+    - `\\?\Volume{…}\` was rejected as a network path.
+    - `\\.\UNC\` was not seen as a network path.
+    - A mapped network drive reached the device query (by inspection).
+    - Descriptors over 1 KB were truncated (by inspection).
+  - `EventLogWriter` (by inspection):
+    - The finalizer could close the handle mid-write.
+    - The message DLL path assumed 64-bit Windows.
+  - `ClipboardUtils` (by inspection):
+    - A failed multi-format set left partial data.
+    - `RegisterClipboardFormat` failure went unchecked.
+    - A huge 24-bit DIB overflowed while being decoded.
+  - `IdleTime`: a last-input tick ahead of the current tick read as about 49.7 days idle (by inspection).
+  - `JobObject`: limits set from two threads at once could lose one (by inspection). A 32-bit limit over 4 GiB now
+    throws `ArgumentOutOfRangeException`.
+- **Declined / doc-only:**
+  - Forwarding between elevated and non-elevated launches of one user can fail, because the pipe accepts only the
+    same owner (documented).
+  - `AwarenessScope` must be disposed on its own thread (documented).
+  - A clipboard read can hang on a hung delayed-rendering owner.
+  - Registering a source that already exists under another log.
+  - `DeleteValue` throws on access denied.
+- **Checked build:** not run (satellite).
+- **Re-queued:** yes (26 bugs, 1 severe).

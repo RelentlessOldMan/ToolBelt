@@ -1,5 +1,6 @@
 // ToolBelt.Windows drop-in — Windows-only (net8.0-windows), self-contained (BCL only).
 using System;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 
 namespace ToolBelt.Windows
@@ -11,21 +12,25 @@ namespace ToolBelt.Windows
     /// with <c>Global\</c> for a machine-wide gate or <c>Local\</c> (the default namespace) for one scoped
     /// to the current session. Dispose releases the mutex; if the owning process crashed, the next caller
     /// transparently inherits ownership (the abandoned-mutex case). A gate held by a process this one may not open
-    /// (another user's, or an elevated one's) counts as held by someone else: <see cref="IsOwned"/> is false.
+    /// (another user's, or an elevated one's), or a name already used by another kind of kernel object, counts as
+    /// held by someone else: <see cref="IsOwned"/> is false.
     ///
-    /// <para>Ownership is per-thread and reentrant (the underlying Win32 mutex semantics): the thread that
-    /// owns the gate can re-acquire it, so this type distinguishes separate <b>processes/threads</b> — its
-    /// intended single-instance-application use — not repeated calls on one thread.</para>
+    /// <para>A Win32 mutex belongs to the thread that acquired it and is abandoned when that thread exits, so the gate
+    /// is held by a dedicated background thread instead of the caller's: acquiring on a thread that later ends (an
+    /// <c>async Main</c> resuming on the pool, a <c>Task.Run</c>) keeps the gate, <see cref="Dispose"/> works from any
+    /// thread, and two acquisitions of one name never both own it, whichever threads ask.</para>
     /// </summary>
     public sealed class SingleInstance : IDisposable
     {
-        private readonly Mutex? _mutex;
-        private bool _disposed;
+        private readonly ManualResetEventSlim? _release;
+        private readonly Thread? _holder;
+        private int _disposed;
 
-        private SingleInstance(Mutex? mutex, bool owned)
+        private SingleInstance(ManualResetEventSlim? release, Thread? holder)
         {
-            _mutex = mutex;
-            IsOwned = owned;
+            _release = release;
+            _holder = holder;
+            IsOwned = holder != null;
         }
 
         /// <summary>True if this instance currently owns the gate.</summary>
@@ -40,38 +45,55 @@ namespace ToolBelt.Windows
             if (name is null) throw new ArgumentNullException(nameof(name));
             if (name.Length == 0) throw new ArgumentException("Name must not be empty.", nameof(name));
 
-            Mutex mutex;
-            try { mutex = new Mutex(initiallyOwned: false, name); }
-            catch (UnauthorizedAccessException) { return new SingleInstance(null, owned: false); }   // exists, but not ours to open
-            bool owned;
-            try
+            var release = new ManualResetEventSlim();
+            using var ready = new ManualResetEventSlim();
+            bool owned = false;
+            ExceptionDispatchInfo? error = null;
+            var holder = new Thread(() =>
             {
-                owned = mutex.WaitOne(TimeSpan.Zero, exitContext: false);
-            }
-            catch (AbandonedMutexException)
+                Mutex? mutex = null;
+                try
+                {
+                    try { mutex = new Mutex(initiallyOwned: false, name); }
+                    catch (UnauthorizedAccessException) { return; }                // exists, but not ours to open
+                    catch (WaitHandleCannotBeOpenedException) { return; }          // the name is some other kind of object
+                    try { owned = mutex.WaitOne(TimeSpan.Zero, exitContext: false); }
+                    catch (AbandonedMutexException) { owned = true; }              // the previous owner exited without releasing
+                }
+                catch (Exception ex) { error = ExceptionDispatchInfo.Capture(ex); }
+                finally
+                {
+                    if (!owned) mutex?.Dispose();
+                    ready.Set();
+                }
+                if (!owned) return;
+                release.Wait();
+                try { mutex!.ReleaseMutex(); }
+                catch (ApplicationException) { }
+                mutex!.Dispose();
+            })
+            { IsBackground = true, Name = "ToolBelt.SingleInstance" };
+            holder.Start();
+            ready.Wait();
+            if (!owned)
             {
-                // The previous owner exited without releasing; WaitOne still transfers ownership to us.
-                owned = true;
+                holder.Join();
+                release.Dispose();
+                error?.Throw();
+                return new SingleInstance(null, null);
             }
-            catch
-            {
-                mutex.Dispose();
-                throw;
-            }
-            return new SingleInstance(mutex, owned);
+            return new SingleInstance(release, holder);
         }
 
+        /// <summary>Releases the gate (if owned). Safe from any thread, and more than once.</summary>
         public void Dispose()
         {
-            if (_disposed) return;
-            _disposed = true;
-            if (IsOwned)
-            {
-                try { _mutex!.ReleaseMutex(); }
-                catch (ApplicationException) { /* not held on this thread — ignore */ }
-                IsOwned = false;
-            }
-            _mutex?.Dispose();
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            IsOwned = false;
+            if (_holder is null) return;
+            _release!.Set();
+            _holder.Join();
+            _release.Dispose();
         }
     }
 }

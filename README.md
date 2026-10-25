@@ -580,7 +580,7 @@ src/
       ScopedContext.cs      ambient flow-local scope label folded into each event's category
   ToolBelt.Windows/         Windows platform satellite (net8.0-windows) — Win32 / registry utilities
     PowerStatus.cs          AC line / battery charge / saver mode via GetSystemPowerStatus
-    SingleInstance.cs       single-instance gate over a named mutex (abandoned-owner safe)
+    SingleInstance.cs       single-instance gate over a named mutex (abandoned-owner safe, not tied to the calling thread)
     SingleInstanceApp.cs    second launch forwards args + cwd to the primary (per-user pipe) + foreground handoff
     DriveAndVolumeInfo.cs   fixed-drive enumeration + free space for any path
     StorageDeviceInfo.cs    bus type (USB/NVMe/SATA/SD…), removable, SSD vs HDD, vendor/serial; mapped drive -> UNC path
@@ -990,6 +990,7 @@ tests/
     EventLogWriterTests.cs  (reads the event back with wevtutil)
     WindowsWaveTests.cs     (real job caps on PowerShell children, clipboard round-trips, pipe handoff; no machine-state changes)
     WindowsReviewTests.cs   (round 15 review regressions: DPI, ProgID, registry, job lifetime, single instance, shortcuts, event log)
+    WindowsReview2Tests.cs  (second-pass regressions: gate thread affinity, forward timeouts and takeover, registry conversion, impersonation)
     DriveAndVolumeInfoTests.cs
     MonitorInfoTests.cs
     RegistryUtilsTests.cs

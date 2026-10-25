@@ -11,8 +11,8 @@ namespace ToolBelt.Windows.Tests
 
         public void FirstOwns_SecondDoesNot()
         {
-            // A named mutex is owned per-thread and is reentrant, so the contended caller must run on a
-            // different thread (mirroring the real cross-process single-instance scenario).
+            // The contended caller runs on a different thread, mirroring the real cross-process scenario
+            // (the same thread asking twice is covered in WindowsReview2Tests).
             string name = UniqueName();
             using var first = SingleInstance.TryAcquire(name);
             Check.True(first.IsOwned, "first acquires");

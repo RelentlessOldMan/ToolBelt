@@ -71,7 +71,7 @@ namespace ToolBelt.Windows
                 return true; // continue enumeration
             };
 
-            IntPtr previous = SetThreadDpiAwarenessContext(new IntPtr(-4));     // per-monitor v2: physical pixels
+            IntPtr previous = TrySetThreadDpiAwarenessContext(new IntPtr(-4));  // per-monitor v2: physical pixels
             try
             {
                 if (!EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, callback, IntPtr.Zero))
@@ -127,6 +127,13 @@ namespace ToolBelt.Windows
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFOEX lpmi);
+
+        // Before Windows 10 1607 (Server 2012 R2) the function doesn't exist: the thread's own awareness applies.
+        private static IntPtr TrySetThreadDpiAwarenessContext(IntPtr context)
+        {
+            try { return SetThreadDpiAwarenessContext(context); }
+            catch (EntryPointNotFoundException) { return IntPtr.Zero; }
+        }
 
         [DllImport("user32.dll")]
         private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);

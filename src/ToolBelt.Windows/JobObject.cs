@@ -14,7 +14,8 @@ namespace ToolBelt.Windows
     /// can run while its children are still wanted (after the last use of the object, not the end of its scope).
     /// Assign a process with <see cref="AssignProcess(System.Diagnostics.Process)"/> right after starting it. Limits —
     /// per-process or whole-job memory caps, a process-count cap and a hard CPU-rate cap — apply to everything in the job,
-    /// and <see cref="QueryAccounting"/> reports CPU time and peak memory.
+    /// and <see cref="QueryAccounting"/> reports CPU time and peak memory. Setting limits from several threads is safe; do not
+    /// race <see cref="Dispose"/> with other calls.
     /// </summary>
     public sealed class JobObject : IDisposable
     {
@@ -111,6 +112,8 @@ namespace ToolBelt.Windows
         private void SetMemoryLimit(long bytes, uint flag)
         {
             if (bytes < 1 << 20) throw new ArgumentOutOfRangeException(nameof(bytes), bytes, "Limit must be at least 1 MiB.");
+            if (IntPtr.Size == 4 && bytes > uint.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(bytes), bytes, "A 32-bit process can set a limit of at most 4 GiB.");
             UpdateExtended(b =>
             {
                 b.Info.BasicLimitInformation.LimitFlags |= flag;
@@ -119,8 +122,16 @@ namespace ToolBelt.Windows
             });
         }
 
-        // Read-modify-write so setting one limit keeps the others (and kill-on-close).
+        private readonly object _limitsGate = new object();
+
+        // Read-modify-write so setting one limit keeps the others (and kill-on-close); under a lock, so two threads setting
+        // different limits at once don't each write back the other's old value.
         private void UpdateExtended(Action<JobLimitsBox> change)
+        {
+            lock (_limitsGate) UpdateExtendedLocked(change);
+        }
+
+        private void UpdateExtendedLocked(Action<JobLimitsBox> change)
         {
             ThrowIfDisposed();
             var box = new JobLimitsBox { Info = QueryExtended() };

@@ -16,34 +16,60 @@ namespace ToolBelt.Windows
     {
         /// <summary>
         /// Reads a value, converting it to <typeparamref name="T"/> (strings parse culture-invariantly; a DWORD or QWORD
-        /// reads as <c>uint</c>/<c>ulong</c> bit for bit); returns <paramref name="defaultValue"/> if absent or not convertible.
+        /// converts as the unsigned number it is, so DWORD 0x80000000 reads as 2147483648 into <c>uint</c>, <c>long</c> or
+        /// <c>double</c>; <c>int</c> for a DWORD and <c>long</c> for a QWORD still read the stored bits as they are).
+        /// Nullable and enum targets work (an enum from its name or number). Returns
+        /// <paramref name="defaultValue"/> if absent, not convertible, or the key cannot be read.
         /// </summary>
         public static T? GetValue<T>(RegistryHive hive, string subKey, string name, T? defaultValue = default)
         {
             object? raw = GetValue(hive, subKey, name, null);
             if (raw is null) return defaultValue;
             if (raw is T typed) return typed;
+            Type target = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
             try
             {
-                // .NET returns REG_DWORD as int and REG_QWORD as long; reinterpret rather than range-check the high bit away.
-                if (typeof(T) == typeof(uint) && raw is int dword) return (T)(object)unchecked((uint)dword);
-                if (typeof(T) == typeof(ulong) && raw is long qword) return (T)(object)unchecked((ulong)qword);
-                return (T)Convert.ChangeType(raw, typeof(T), CultureInfo.InvariantCulture);
+                // .NET returns REG_DWORD as int and REG_QWORD as long. They are unsigned: widen them first, or the high bit
+                // read as negative and failed (or went negative) for every wider or floating-point target.
+                if (raw is int dword) raw = (long)unchecked((uint)dword);
+                else if (raw is long qword && qword < 0) raw = unchecked((ulong)qword);
+                if (target.IsEnum)
+                {
+                    object value = raw is string text
+                        ? Enum.Parse(target, text.Trim(), ignoreCase: true)
+                        : Enum.ToObject(target, Convert.ChangeType(raw, Enum.GetUnderlyingType(target), CultureInfo.InvariantCulture)!);
+                    return (T)value;
+                }
+                // ChangeType rejects Nullable<T> targets, so convert to the underlying type (boxing it is a boxed T?).
+                return (T)Convert.ChangeType(raw, target, CultureInfo.InvariantCulture);
             }
-            catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException)
+            catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentException)
             {
                 return defaultValue;
             }
         }
 
-        /// <summary>Reads a raw value, or <paramref name="defaultValue"/> if the key/value is absent.</summary>
+        /// <summary>Reads a raw value, or <paramref name="defaultValue"/> if the key/value is absent or the key cannot be read.</summary>
         public static object? GetValue(RegistryHive hive, string subKey, string name, object? defaultValue = null)
         {
             if (subKey is null) throw new ArgumentNullException(nameof(subKey));
             if (name is null) throw new ArgumentNullException(nameof(name));
             using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Default);
-            using RegistryKey? key = baseKey.OpenSubKey(subKey, writable: false);
+            using RegistryKey? key = OpenForRead(baseKey, subKey, out _);
             return key?.GetValue(name, defaultValue) ?? defaultValue;
+        }
+
+        // Opens a subkey for reading; a key that exists but this account may not read (HKLM\SECURITY, other users' hives)
+        // threw SecurityException out of every read helper. It reads as null, with denied telling the two cases apart.
+        private static RegistryKey? OpenForRead(RegistryKey baseKey, string subKey, out bool denied)
+        {
+            denied = false;
+            try { return baseKey.OpenSubKey(subKey, writable: false); }
+            catch (Exception ex) when (ex is System.Security.SecurityException || ex is UnauthorizedAccessException)
+            {
+                denied = true;
+                return null;
+            }
         }
 
         /// <summary>Writes a value, creating the subkey if necessary.</summary>
@@ -86,30 +112,30 @@ namespace ToolBelt.Windows
             return true;
         }
 
-        /// <summary>True if the subkey exists.</summary>
+        /// <summary>True if the subkey exists (including one this account may not read).</summary>
         public static bool KeyExists(RegistryHive hive, string subKey)
         {
             if (subKey is null) throw new ArgumentNullException(nameof(subKey));
             using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Default);
-            using RegistryKey? key = baseKey.OpenSubKey(subKey, writable: false);
-            return key is not null;
+            using RegistryKey? key = OpenForRead(baseKey, subKey, out bool denied);
+            return key is not null || denied;
         }
 
-        /// <summary>The value names directly under the subkey (empty if the key is absent).</summary>
+        /// <summary>The value names directly under the subkey (empty if the key is absent or cannot be read).</summary>
         public static IReadOnlyList<string> GetValueNames(RegistryHive hive, string subKey)
         {
             if (subKey is null) throw new ArgumentNullException(nameof(subKey));
             using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Default);
-            using RegistryKey? key = baseKey.OpenSubKey(subKey, writable: false);
+            using RegistryKey? key = OpenForRead(baseKey, subKey, out _);
             return key is null ? Array.Empty<string>() : key.GetValueNames();
         }
 
-        /// <summary>The immediate child subkey names (empty if the key is absent).</summary>
+        /// <summary>The immediate child subkey names (empty if the key is absent or cannot be read).</summary>
         public static IReadOnlyList<string> GetSubKeyNames(RegistryHive hive, string subKey)
         {
             if (subKey is null) throw new ArgumentNullException(nameof(subKey));
             using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Default);
-            using RegistryKey? key = baseKey.OpenSubKey(subKey, writable: false);
+            using RegistryKey? key = OpenForRead(baseKey, subKey, out _);
             return key is null ? Array.Empty<string>() : key.GetSubKeyNames();
         }
     }

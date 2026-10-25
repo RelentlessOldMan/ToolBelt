@@ -23,6 +23,8 @@ namespace ToolBelt.Windows
             // so an unsigned subtraction handles the ~49.7-day wrap correctly.
             uint now = unchecked((uint)Environment.TickCount);
             uint idleMs = unchecked(now - info.dwTime);
+            // A last-input tick slightly ahead of TickCount wrapped to ~49.7 days idle; it means no idle time.
+            if (idleMs > uint.MaxValue - 60_000) idleMs = 0;
             return TimeSpan.FromMilliseconds(idleMs);
         }
 

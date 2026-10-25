@@ -61,7 +61,8 @@ namespace ToolBelt.Windows
     {
         /// <summary>
         /// Describes the device behind the volume containing <paramref name="path"/> (a drive letter or any path on it,
-        /// including <c>\\?\C:\…</c> device paths; a folder that is a volume mount point describes the mounted volume).
+        /// including <c>\\?\C:\…</c> device paths and <c>\\?\Volume{…}\</c> volume names; a folder that is a volume
+        /// mount point describes the mounted volume). A network path or mapped network drive throws <see cref="ArgumentException"/>.
         /// </summary>
         public static StorageDevice Describe(string path)
         {
@@ -74,13 +75,20 @@ namespace ToolBelt.Windows
                 full = full.Substring(4);
                 if (full.Length == 2) full += @"\";
             }
-            if (full.StartsWith(@"\\", StringComparison.Ordinal)) throw new ArgumentException("Network paths have no local storage device.", nameof(path));
+            // \\?\Volume{…}\ (or \\.\Volume{…}\) names a local volume directly; it was rejected as a network path.
+            if (full.StartsWith(@"\\.\Volume{", StringComparison.OrdinalIgnoreCase)) full = @"\\?\" + full.Substring(4);
+            bool volumeName = full.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase);
+            if (!volumeName && full.StartsWith(@"\\", StringComparison.Ordinal)) throw new ArgumentException("Network paths have no local storage device.", nameof(path));
 
             // The volume that holds the path: its drive root, or the mount folder of a volume mounted inside another.
             var mount = new StringBuilder(1024);
             if (!GetVolumePathNameW(full, mount, mount.Capacity))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), $"Could not find the volume of {full}.");
             string root = mount.ToString();
+            // A mapped network drive (Z:\) reached the device query and failed with an unrelated Win32 error.
+            if ((root.StartsWith(@"\\", StringComparison.Ordinal) && !root.StartsWith(@"\\?\", StringComparison.Ordinal))
+                || GetDriveTypeW(root) == DRIVE_REMOTE)
+                throw new ArgumentException("Network paths have no local storage device.", nameof(path));
             string volume = root.TrimEnd('\\');
             string device = @"\\.\" + volume;
             if (volume.Length > 2)
@@ -94,6 +102,10 @@ namespace ToolBelt.Windows
             if (h.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), $"Could not open volume {volume}.");
 
             byte[] desc = Query(h, StorageDeviceProperty, 1024, out _);
+            // STORAGE_DEVICE_DESCRIPTOR.Size is the whole descriptor; one with long strings did not fit the first buffer and
+            // its trailing vendor/product/serial were cut off.
+            int needed = BitConverter.ToInt32(desc, 4);
+            if (needed > desc.Length && needed <= 1 << 16) desc = Query(h, StorageDeviceProperty, needed, out _);
             // STORAGE_DEVICE_DESCRIPTOR: Version, Size, DeviceType(1), DeviceTypeModifier(1), RemovableMedia(1), CommandQueueing(1),
             // VendorIdOffset, ProductIdOffset, ProductRevisionOffset, SerialNumberOffset, BusType ...
             bool removable = desc[10] != 0;
@@ -121,8 +133,10 @@ namespace ToolBelt.Windows
         {
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path is required.", nameof(path));
             string full = Path.GetFullPath(path);
-            // Device paths are local unless they name a UNC share: \\?\UNC\server\share → \\server\share; \\?\C:\x → C:\x.
-            if (full.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase)) return @"\\" + full.Substring(8);
+            // Device paths are local unless they name a UNC share: \\?\UNC\server\share (or \\.\UNC\…) → \\server\share;
+            // \\?\C:\x → C:\x.
+            if (full.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase) || full.StartsWith(@"\\.\UNC\", StringComparison.OrdinalIgnoreCase))
+                return @"\\" + full.Substring(8);
             if (full.StartsWith(@"\\?\", StringComparison.Ordinal) || full.StartsWith(@"\\.\", StringComparison.Ordinal))
             {
                 full = full.Substring(4);
@@ -170,6 +184,10 @@ namespace ToolBelt.Windows
 
         private const uint IOCTL_STORAGE_QUERY_PROPERTY = 0x002D1400, FILE_SHARE_READ = 1, FILE_SHARE_WRITE = 2, OPEN_EXISTING = 3;
         private const int StorageDeviceProperty = 0, StorageDeviceSeekPenaltyProperty = 7;
+        private const uint DRIVE_REMOTE = 4;
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        private static extern uint GetDriveTypeW(string rootPathName);
         private const int ERROR_MORE_DATA = 234, ERROR_NOT_CONNECTED = 2250, ERROR_BAD_DEVICE = 1200, ERROR_NO_NETWORK = 1222, ERROR_CONNECTION_UNAVAIL = 1201;
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]

@@ -40,7 +40,9 @@ namespace ToolBelt.Windows
     /// </code>
     /// <see cref="SecondInstanceStarted"/> is raised on a thread-pool thread, one launch at a time, in arrival order;
     /// marshal to the UI thread. An exception thrown by a handler is dropped (it cannot reach the launch that caused it).
-    /// The instance name and the pipe are per user, so another account cannot block or receive this user's launches.
+    /// The instance name and the pipe are per user, so another account cannot block or receive this user's launches. The
+    /// pipe accepts only clients owned by the same account; an elevated and a non-elevated launch of one user can count as
+    /// different owners, so such a launch may not reach the primary (it then reports <see cref="ForwardedToPrimary"/> false).
     /// </summary>
     public sealed class SingleInstanceApp : IDisposable
     {
@@ -94,7 +96,9 @@ namespace ToolBelt.Windows
         /// <summary>
         /// Claims the instance named <paramref name="appId"/> for this user session, or forwards <paramref name="args"/>
         /// to the instance that already holds it (waiting up to <paramref name="forwardTimeout"/>, default 5 s, for a
-        /// primary that is still starting up).
+        /// primary that is still starting up; <see cref="Timeout.InfiniteTimeSpan"/> or <see cref="TimeSpan.MaxValue"/>
+        /// waits without limit). If the forward fails because the primary exited meanwhile, this launch becomes the
+        /// primary instead (<see cref="IsPrimary"/> true), so it handles its own arguments.
         /// </summary>
         public static SingleInstanceApp Start(string appId, IReadOnlyList<string> args, TimeSpan? forwardTimeout = null)
         {
@@ -104,6 +108,9 @@ namespace ToolBelt.Windows
             if (appId.Length > MaxAppIdLength)
                 throw new ArgumentException($"App id may be at most {MaxAppIdLength} characters.", nameof(appId));
             if (args is null) throw new ArgumentNullException(nameof(args));
+            TimeSpan timeout = forwardTimeout ?? TimeSpan.FromSeconds(5);
+            if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
+                throw new ArgumentOutOfRangeException(nameof(forwardTimeout), forwardTimeout, "Timeout must be non-negative or Timeout.InfiniteTimeSpan.");
             // Per session and per user (SID), so another account cannot sit on the name.
             string user;
             using (var identity = System.Security.Principal.WindowsIdentity.GetCurrent())
@@ -112,9 +119,18 @@ namespace ToolBelt.Windows
             using (var self = System.Diagnostics.Process.GetCurrentProcess())
                 session = self.SessionId;
             string pipe = "ToolBelt.SingleInstance." + appId + "." + session + "." + user;
-            var gate = SingleInstance.TryAcquire(@"Local\ToolBelt.SingleInstance." + appId + "." + user);
+            string gateName = @"Local\ToolBelt.SingleInstance." + appId + "." + user;
+            var gate = SingleInstance.TryAcquire(gateName);
             if (gate.IsOwned) return new SingleInstanceApp(gate, pipe, primary: true, forwarded: false);
-            bool forwarded = Forward(pipe, args, forwardTimeout ?? TimeSpan.FromSeconds(5));
+            bool forwarded = Forward(pipe, args, timeout);
+            if (!forwarded)
+            {
+                // A primary that exited (or crashed) while this launch waited for it leaves nobody to forward to: take over
+                // rather than lose the launch. A primary that is alive still holds the gate, so this changes nothing then.
+                gate.Dispose();
+                gate = SingleInstance.TryAcquire(gateName);
+                if (gate.IsOwned) return new SingleInstanceApp(gate, pipe, primary: true, forwarded: false);
+            }
             return new SingleInstanceApp(gate, pipe, primary: false, forwarded);
         }
 
@@ -138,17 +154,20 @@ namespace ToolBelt.Windows
                 if (!TryWriteString(message, a ?? "")) return false;
             if (message.Length > MaxMessageBytes) return false;
 
-            var deadline = DateTime.UtcNow + timeout;
+            // Infinite (or MaxValue, which overflowed a DateTime deadline) means no deadline; a Stopwatch ignores clock steps.
+            bool unlimited = timeout == Timeout.InfiniteTimeSpan || timeout == TimeSpan.MaxValue;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            long RemainingMs() => unlimited ? int.MaxValue : Math.Max(0, (long)(timeout - clock.Elapsed).TotalMilliseconds);
             while (true)
             {
                 bool sent = false;
                 try
                 {
                     using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.CurrentUserOnly | PipeOptions.Asynchronous);
-                    int remaining = (int)Math.Max(1, (deadline - DateTime.UtcNow).TotalMilliseconds);
-                    client.Connect(Math.Min(remaining, 1000));
-                    // Pipes don't support ReadTimeout; bound the reads with a token so a hung primary can't hang this launch.
-                    using var replyTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    client.Connect((int)Math.Max(1, Math.Min(RemainingMs(), 1000)));
+                    // Pipes don't support ReadTimeout; bound the reads with a token so a hung primary can't hang this launch,
+                    // and by what is left of the forward timeout, which a stalled primary otherwise stretched to 5 s more.
+                    using var replyTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(Math.Max(1, Math.Min(RemainingMs(), 5000))));
                     int primaryPid = ReadInt32Async(client, replyTimeout.Token).GetAwaiter().GetResult();
                     AllowSetForegroundWindow(primaryPid);                             // let the primary come to the front
                     message.Position = 0;
@@ -166,7 +185,7 @@ namespace ToolBelt.Windows
                 catch (Exception ex) when (ex is TimeoutException || ex is IOException || ex is OperationCanceledException)
                 {
                     // Once the message is out, the primary may have delivered it: resending could open the file twice.
-                    if (sent || DateTime.UtcNow >= deadline) return false;
+                    if (sent || RemainingMs() == 0) return false;
                     Thread.Sleep(50);                                                 // primary still starting its listener
                 }
             }
@@ -209,9 +228,12 @@ namespace ToolBelt.Windows
                         if (count < 0 || count > MaxArgs) throw new InvalidDataException("Implausible argument count.");
                         var received = new string[count];
                         for (int i = 0; i < count; i++) received[i] = await ReadStringAsync(server, budget, t).ConfigureAwait(false);
-                        await server.WriteAsync(new byte[] { 1 }, t).ConfigureAwait(false);
+                        // Acknowledge only a launch that will be kept: one past the pre-subscription cap was acknowledged and
+                        // then dropped. (Only this loop adds to the queue, so room found here is still there below.)
+                        bool accept = CanAccept();
+                        await server.WriteAsync(new byte[] { accept ? (byte)1 : (byte)0 }, t).ConfigureAwait(false);
                         await server.FlushAsync(t).ConfigureAwait(false);
-                        Deliver(new SecondInstanceEventArgs(received, cwd, pid));
+                        if (accept) Deliver(new SecondInstanceEventArgs(received, cwd, pid));
                     }
                     catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
                     catch (Exception) when (!ct.IsCancellationRequested)
@@ -222,13 +244,20 @@ namespace ToolBelt.Windows
             }
         }
 
+        private const int MaxQueued = 100;
+
+        private bool CanAccept()
+        {
+            lock (_deliveryGate) return Volatile.Read(ref _disposed) == 0 && (_handlers != null || _queued.Count < MaxQueued);
+        }
+
         private void Deliver(SecondInstanceEventArgs e)
         {
             lock (_deliveryGate)
             {
                 if (_handlers is null)
                 {
-                    if (_queued.Count < 100) _queued.Add(e);                           // nobody subscribed yet: keep it
+                    if (_queued.Count < MaxQueued) _queued.Add(e);                     // nobody subscribed yet: keep it
                     return;
                 }
                 EnqueueLocked(_handlers, e);
@@ -251,7 +280,8 @@ namespace ToolBelt.Windows
                 (EventHandler<SecondInstanceEventArgs> Handlers, SecondInstanceEventArgs Args) next;
                 lock (_deliveryGate)
                 {
-                    if (_pending.Count == 0) { _draining = false; return; }
+                    // Once disposed, the app is shutting down: handlers no longer run.
+                    if (_pending.Count == 0 || Volatile.Read(ref _disposed) != 0) { _pending.Clear(); _draining = false; return; }
                     next = _pending.Dequeue();
                 }
                 try { next.Handlers(this, next.Args); }
@@ -296,8 +326,8 @@ namespace ToolBelt.Windows
         }
 
         /// <summary>
-        /// Stops listening and releases the instance name. Call it on the thread that called <see cref="Start"/>: the name is
-        /// a thread-owned mutex, and releasing it from another thread fails (it is then freed only when that thread exits).
+        /// Stops listening, stops delivering launches not yet handed to a handler, and releases the instance name. Safe from
+        /// any thread.
         /// </summary>
         public void Dispose()
         {
