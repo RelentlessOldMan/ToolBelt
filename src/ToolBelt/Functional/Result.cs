@@ -81,7 +81,7 @@ namespace ToolBelt.Functional
             return _ok ? onSuccess(_value) : onFailure(Error);
         }
 
-        public override string ToString() => _ok ? $"Success({_value})" : $"Failure({_error})";
+        public override string ToString() => _ok ? $"Success({_value})" : $"Failure({Error})"; // default(Result<T>) printed "Failure()"
     }
 
     /// <summary>Factory helpers for <see cref="Result{T}"/> with type inference.</summary>

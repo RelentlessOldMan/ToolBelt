@@ -154,7 +154,8 @@ namespace ToolBelt.Tests.Objects
         {
             Check.False(DeepEquals.Equals((1, 2), (3, 4)));
             Check.True(DeepEquals.Equals((1, "x"), (1, "x")));
-            Check.Equal(1, PropertyDiff.Compare((1, 2), (3, 4)).Count);
+            // Since round 20 a struct's fields are always compared, so each differing field is reported.
+            Check.Equal("Item1,Item2", string.Join(",", PropertyDiff.Compare((1, 2), (3, 4)).Select(d => d.Path)));
             Check.True(DeepEquals.Equals((1, 2), (3, 4), new ObjectComparisonOptions { IncludeFields = true }) == false);
         }
 

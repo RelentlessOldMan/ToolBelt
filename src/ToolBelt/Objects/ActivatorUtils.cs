@@ -32,7 +32,9 @@ namespace ToolBelt.Objects
             if (type is null) throw new ArgumentNullException(nameof(type));
             args ??= Array.Empty<object?>();
 
-            if (type.IsAbstract || type.IsInterface || type.ContainsGenericParameters)
+            // By-ref, pointer and by-ref-like types (Span) cannot be boxed: invoking their constructors threw.
+            if (type.IsAbstract || type.IsInterface || type.ContainsGenericParameters
+                || type.IsByRef || type.IsPointer || type == typeof(void) || IsByRefLike(type))
             {
                 instance = null;
                 return false;
@@ -50,7 +52,8 @@ namespace ToolBelt.Objects
 
             if (best is null)
             {
-                if (type.IsValueType && args.Length == 0)
+                // Not Nullable<T>: its default boxes to null, which Create returned as an instance.
+                if (type.IsValueType && args.Length == 0 && Nullable.GetUnderlyingType(type) is null)
                 {
                     instance = Activator.CreateInstance(type);   // a struct's implicit parameterless constructor
                     return true;
@@ -70,8 +73,17 @@ namespace ToolBelt.Objects
             return true;
         }
 
-        // Lower is closer: for each argument, the inheritance distance from its type to the parameter type (an
-        // interface or object parameter counts as far); a null argument adds nothing.
+        // Lower is closer: for each argument, the inheritance distance from its type to the parameter type; an interface
+        // or Nullable parameter counts as far, and an object parameter (which accepts anything) as farther still, as in
+        // C# overload resolution. A null argument adds nothing.
+        private static bool IsByRefLike(Type type)
+        {
+            if (!type.IsValueType) return false;
+            foreach (object a in type.GetCustomAttributes(false))
+                if (a.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute") return true;
+            return false;
+        }
+
         private static int Score(ParameterInfo[] parameters, object?[] args)
         {
             int score = 0;
@@ -82,7 +94,8 @@ namespace ToolBelt.Objects
                 int distance = 0;
                 Type? t = args[i]!.GetType();
                 while (t != null && t != pt) { t = t.BaseType; distance++; }
-                score += t == pt ? distance : 1000;   // reached only through an interface (or boxing to Nullable)
+                if (pt == typeof(object) && distance > 0) score += 2000;
+                else score += t == pt ? distance : 1000;   // reached only through an interface (or boxing to Nullable)
             }
             return score;
         }

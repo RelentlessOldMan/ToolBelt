@@ -22,7 +22,10 @@ namespace ToolBelt.Objects
     /// member, assert not-equal, and the two features validate each other.
     /// <para>
     /// Sets (<see cref="ISet{T}"/>) compare as sets, using the first set's element comparer; multi-dimensional arrays
-    /// must have the same shape; a struct with no readable members (a value tuple, say) compares with its own Equals.
+    /// must have the same shape; a struct's public fields are always compared, since many structs keep their value there
+    /// (Quaternion, Matrix4x4, value tuples), and a struct with no readable members compares with its own Equals. A
+    /// <see cref="System.IO.FileSystemInfo"/> compares by type and full path (its Root, Parent and Directory getters
+    /// return a new object every call, which no cycle check can end).
     /// The walk uses an explicit stack, so a deep graph (a long linked list) cannot overflow the call stack. A property
     /// getter that throws propagates its exception.
     /// </para>
@@ -86,8 +89,11 @@ namespace ToolBelt.Objects
 
             if (ta != tb) return false;
 
-            var ma = new List<(string Name, object? Value)>(ObjectMembers.Read(a, opt.IncludeFields));
-            var mb = new List<(string Name, object? Value)>(ObjectMembers.Read(b, opt.IncludeFields));
+            // A struct's public fields are always read: Quaternion and Matrix4x4 keep their value there, and their
+            // properties alone (IsIdentity) made every pair of quaternions equal.
+
+            var ma = new List<(string Name, object? Value)>(ObjectMembers.Read(a, opt.IncludeFields || ta.IsValueType));
+            var mb = new List<(string Name, object? Value)>(ObjectMembers.Read(b, opt.IncludeFields || ta.IsValueType));
             if (ma.Count == 0 && ta.IsValueType) return a.Equals(b);
             for (int i = ma.Count - 1; i >= 0; i--) work.Push((ma[i].Value, mb[i].Value));
             return true;
@@ -95,6 +101,9 @@ namespace ToolBelt.Objects
 
         internal static bool LeafEquals(object a, object b, ObjectComparisonOptions opt)
         {
+            // FileSystemInfo does not override Equals: two instances for one path were never equal.
+            if (a is System.IO.FileSystemInfo fsa && b is System.IO.FileSystemInfo fsb)
+                return a.GetType() == b.GetType() && string.Equals(fsa.FullName, fsb.FullName, StringComparison.Ordinal);
             if (opt.FloatTolerance > 0)
             {
                 // Equals first: infinities and NaN equal themselves, but their difference is NaN.

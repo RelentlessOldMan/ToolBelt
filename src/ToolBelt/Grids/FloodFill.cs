@@ -85,9 +85,14 @@ namespace ToolBelt.Grids
             if (!belongs(row, col))
                 return result;
 
-            var visited = new bool[rows, cols];
+            // A visited map for up to 2^24 cells; past that, a set of the cells reached, so a small region of a huge
+            // predicate grid (100000²) does not allocate a 10 GB map.
+            bool dense = (long)rows * cols <= 1 << 24;
+            var visited = dense ? new bool[rows, cols] : null;
+            var visitedSet = dense ? null : new HashSet<long>();
             var queue = new Queue<Cell>();
-            visited[row, col] = true;
+            if (dense) visited![row, col] = true;
+            else visitedSet!.Add((long)row * cols + col);
             queue.Enqueue(new Cell(row, col));
 
             int dirs = connectivity == Connectivity.Eight ? 8 : 4;
@@ -100,9 +105,10 @@ namespace ToolBelt.Grids
                     int nr = cell.Row + DRow[d];
                     int nc = cell.Col + DCol[d];
                     if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
-                    if (visited[nr, nc]) continue;
+                    if (dense ? visited![nr, nc] : visitedSet!.Contains((long)nr * cols + nc)) continue;
                     if (!belongs(nr, nc)) continue;
-                    visited[nr, nc] = true;
+                    if (dense) visited![nr, nc] = true;
+                    else visitedSet!.Add((long)nr * cols + nc);
                     queue.Enqueue(new Cell(nr, nc));
                 }
             }

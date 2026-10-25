@@ -54,13 +54,13 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 1 | 26 / 26 | re-queue (1 severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 1 | 32 / 32 | re-queue (3 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 1 | 39 / 39 | re-queue (4 severe) |
-| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 1 | 44 / 44 | re-queue (7 severe) |
+| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 2 | 19 / 63 | re-queue (4 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 1 | 35 / 35 | re-queue (7 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 1 | 21 / 21 | re-queue (1 severe) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14, 10, 15, 3, 8, 9, 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 14**
+5 (done, round 19), 14 (done, round 20), 10, 15, 3, 8, 9, 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 10**
 
 ## Releases
 
@@ -88,6 +88,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.17.0 | 17 | WinForms satellite, tooling, docs | 24 | (see tag) |
 | v0.18.0 | 18 | Numerics core, second pass | 28 | (see tag) |
 | v0.19.0 | 19 | Charts, second pass | 28 | (see tag) |
+| v0.20.0 | 20 | Objects, functional, grids, graphs, intervals, second pass | 19 | (see tag) |
 
 ## Round log
 
@@ -981,3 +982,31 @@ Reviewers: one for correctness and one for robustness, fresh to the section (re-
   null Group (already an ArgumentNullException), a Log10 tick-count limit.
 - **Checked build:** the same 8 failures as round 18 (Net ×5, Guards, ArrayPoolScope, Palette); nothing new.
 - **Re-queued:** yes (28 bugs, 5 severe).
+
+### Round 20 — 2026-10-25 — Objects, functional, grids, graphs, intervals, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 14 with 7 severe).
+**19 confirmed bugs**, each with a failing-first regression test in `ObjectsGraphsReview2Tests`.
+
+- **Severe:**
+  - `PropertyDiff` re-walked shared subgraphs on every path: equal diamond chains 40 deep never finished. Pairs found
+    equal are now remembered; a differing shared node is still reported on each path.
+  - `FileInfo` / `DirectoryInfo` hung `DeepEquals`, `PropertyDiff` and `Flatten` (Root/Parent/Directory return a new
+    object each call, so the cycle check never fired). They are leaves now, compared by type and full path.
+  - `DeepEquals` / `PropertyDiff` called any two `Quaternion`s or `Matrix4x4`s equal (only properties were read).
+    A struct's public fields are now always compared.
+  - `TypeUtils.TryConvert` to an enum from double/float reinterpreted the bits (1.0 became Sunday) and accepted
+    bool/char; only integers and whole, in-range floating values convert now.
+- **Moderate / minor:** `TryConvert` parsed "1,5" as 15 for floating targets and threw for `void`/open generics;
+  `ActivatorUtils` "created" `int?` with no arguments (null), invoked by-ref-like/pointer types, and preferred an
+  `object` parameter over an interface or `Nullable` one; `ExpressionAccessor` missed base-interface members, wrote a
+  struct setter into a copy of the box, and threw NullReferenceException for a typed null into a value member;
+  `ObjectMapper` read the hidden base property instead of the `new` one; `PropertyPath` array index out of range
+  escaped `TryGet` as IndexOutOfRangeException; `ShortestPath.Dijkstra` reported +∞-weight targets as found and missed
+  negative edges the search never reached; `FloodFill` and `GridPathfinding` allocated per-cell arrays for the whole
+  grid (10+ GB for a short path on a huge predicate grid); `default(Result<T>).ToString()` printed "Failure()".
+- **Behaviour change:** `PropertyDiff` on a value tuple now reports each differing field (`Item1`, `Item2`) rather than
+  one difference for the whole tuple.
+- **Declined / doc-only:** static reflection caches pinning collectible assemblies; `Regex` / `StringBuilder` comparing
+  equal by their public properties (by contract); grid `Dijkstra` negative cost (doc now says it throws when reached).
+- **Checked build:** the same 8 failures as round 19 (Net ×5, Guards, ArrayPoolScope, Palette); nothing new.
+- **Re-queued:** yes (19 bugs, 4 severe).

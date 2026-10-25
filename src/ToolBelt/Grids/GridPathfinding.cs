@@ -37,7 +37,9 @@ namespace ToolBelt.Grids
     /// <see cref="Connectivity.Eight"/>, the <c>allowCornerCutting</c> flag controls diagonal moves: when
     /// false, a diagonal step is disallowed if <em>either</em> of the two orthogonal cells it passes between
     /// is blocked (so the path never cuts a wall corner); when true (the default), diagonals are always
-    /// allowed as long as the destination is walkable.
+    /// allowed as long as the destination is walkable. Search state is per-cell arrays on a grid of up to 2^24
+    /// cells; on a larger one it is kept only for the cells the search reaches, so a short path on a huge grid
+    /// stays cheap.
     /// </summary>
     public static class GridPathfinding
     {
@@ -50,14 +52,12 @@ namespace ToolBelt.Grids
             if (!passable(start.Row, start.Col) || !passable(goal.Row, goal.Col))
                 return NotFound();
 
-            int n = rows * cols;
-            var prev = NewPrev(n);
-            var seen = new bool[n];
+            var state = new SearchState(rows * cols);
             int startIdx = start.Row * cols + start.Col;
             int goalIdx = goal.Row * cols + goal.Col;
 
             var queue = new Queue<int>();
-            seen[startIdx] = true;
+            state.SetDone(startIdx);
             queue.Enqueue(startIdx);
             bool found = startIdx == goalIdx;
 
@@ -74,17 +74,17 @@ namespace ToolBelt.Grids
                     if (d >= 4 && !allowCornerCutting && (!passable(ur, vc) || !passable(vr, uc))) continue;
 
                     int v = vr * cols + vc;
-                    if (seen[v]) continue;
-                    seen[v] = true;
-                    prev[v] = u;
+                    if (state.Done(v)) continue;
+                    state.SetDone(v);
+                    state.SetPrev(v, u);
                     if (v == goalIdx) { found = true; break; }
                     queue.Enqueue(v);
                 }
             }
 
-            if (!seen[goalIdx])
+            if (!state.Done(goalIdx))
                 return NotFound();
-            var path = Reconstruct(prev, goalIdx, cols);
+            var path = Reconstruct(state, goalIdx, cols);
             return new GridPath(true, path, path.Count - 1);
         }
 
@@ -118,7 +118,8 @@ namespace ToolBelt.Grids
         /// <summary>
         /// Least-cost path for arbitrary non-negative entry costs. <paramref name="enterCost"/> gives the
         /// cost to step onto a cell; a diagonal move additionally multiplies that by √2. A negative cost
-        /// throws <see cref="InvalidOperationException"/> (Dijkstra requires non-negative weights).
+        /// throws <see cref="InvalidOperationException"/> when the search reaches that cell (Dijkstra requires
+        /// non-negative weights); cells the search never reaches are not asked for their cost.
         /// </summary>
         public static GridPath Dijkstra(
             int rows, int cols, Cell start, Cell goal, Func<int, int, bool> passable, Func<int, int, double> enterCost,
@@ -166,24 +167,19 @@ namespace ToolBelt.Grids
             if (!passable(start.Row, start.Col) || !passable(goal.Row, goal.Col))
                 return NotFound();
 
-            int n = rows * cols;
-            var dist = new double[n];
-            for (int i = 0; i < n; i++) dist[i] = double.PositiveInfinity;
-            var prev = NewPrev(n);
-            var closed = new bool[n];
-
+            var state = new SearchState(rows * cols);
             int startIdx = start.Row * cols + start.Col;
             int goalIdx = goal.Row * cols + goal.Col;
-            dist[startIdx] = 0.0;
+            state.SetDist(startIdx, 0.0);
 
-            var heap = new MinHeap(Math.Min(n, 16));
+            var heap = new MinHeap(16);
             heap.Push(startIdx, heuristic?.Invoke(start.Row, start.Col) ?? 0.0);
 
             int dirs = connectivity == Connectivity.Eight ? 8 : 4;
             while (heap.TryPop(out int u, out _))
             {
-                if (closed[u]) continue; // stale heap entry (lazy decrease-key)
-                closed[u] = true;
+                if (state.Done(u)) continue; // stale heap entry (lazy decrease-key)
+                state.SetDone(u);
                 if (u == goalIdx) break;
 
                 int ur = u / cols, uc = u % cols;
@@ -195,33 +191,26 @@ namespace ToolBelt.Grids
                     if (d >= 4 && !allowCornerCutting && (!passable(ur, vc) || !passable(vr, uc))) continue;
 
                     int v = vr * cols + vc;
-                    if (closed[v]) continue;
-                    double nd = dist[u] + step(ur, uc, vr, vc);
-                    if (nd < dist[v])
+                    if (state.Done(v)) continue;
+                    double nd = state.Dist(u) + step(ur, uc, vr, vc);
+                    if (nd < state.Dist(v))
                     {
-                        dist[v] = nd;
-                        prev[v] = u;
+                        state.SetDist(v, nd);
+                        state.SetPrev(v, u);
                         heap.Push(v, nd + (heuristic?.Invoke(vr, vc) ?? 0.0));
                     }
                 }
             }
 
-            if (double.IsPositiveInfinity(dist[goalIdx]))
+            if (double.IsPositiveInfinity(state.Dist(goalIdx)))
                 return NotFound();
-            return new GridPath(true, Reconstruct(prev, goalIdx, cols), dist[goalIdx]);
+            return new GridPath(true, Reconstruct(state, goalIdx, cols), state.Dist(goalIdx));
         }
 
-        private static int[] NewPrev(int n)
-        {
-            var prev = new int[n];
-            for (int i = 0; i < n; i++) prev[i] = -1;
-            return prev;
-        }
-
-        private static List<Cell> Reconstruct(int[] prev, int goalIdx, int cols)
+        private static List<Cell> Reconstruct(SearchState state, int goalIdx, int cols)
         {
             var path = new List<Cell>();
-            for (int cur = goalIdx; cur != -1; cur = prev[cur])
+            for (int cur = goalIdx; cur != -1; cur = state.Prev(cur))
                 path.Add(new Cell(cur / cols, cur % cols));
             path.Reverse();
             return path;
@@ -240,6 +229,71 @@ namespace ToolBelt.Grids
                 throw new ArgumentOutOfRangeException(nameof(start), start, "Start is outside the grid.");
             if (goal.Row < 0 || goal.Row >= rows || goal.Col < 0 || goal.Col >= cols)
                 throw new ArgumentOutOfRangeException(nameof(goal), goal, "Goal is outside the grid.");
+        }
+
+        /// <summary>
+        /// Per-cell search state: the predecessor, the best distance, and a done flag (seen for breadth-first, closed
+        /// for the cost searches). Arrays for up to 2^24 cells; past that, dictionaries holding only the cells reached:
+        /// arrays over a 46340² grid took 12 GB for a one-step path.
+        /// </summary>
+        private sealed class SearchState
+        {
+            private const int DenseLimit = 1 << 24;
+            private readonly int[]? _prev;
+            private double[]? _dist; // allocated on first use: breadth-first never needs it
+            private readonly int _n;
+            private readonly bool[]? _done;
+            private readonly Dictionary<int, int>? _prevMap;
+            private readonly Dictionary<int, double>? _distMap;
+            private readonly HashSet<int>? _doneSet;
+
+            public SearchState(int n)
+            {
+                if (n <= DenseLimit)
+                {
+                    _prev = new int[n];
+                    for (int i = 0; i < n; i++) _prev[i] = -1;
+                    _done = new bool[n];
+                    _n = n;
+                }
+                else
+                {
+                    _prevMap = new Dictionary<int, int>();
+                    _distMap = new Dictionary<int, double>();
+                    _doneSet = new HashSet<int>();
+                }
+            }
+
+            public int Prev(int i) => _prev != null ? _prev[i] : _prevMap!.TryGetValue(i, out int p) ? p : -1;
+
+            public void SetPrev(int i, int p)
+            {
+                if (_prev != null) _prev[i] = p;
+                else _prevMap![i] = p;
+            }
+
+            public double Dist(int i) =>
+                _distMap is null ? (_dist is null ? double.PositiveInfinity : _dist[i])
+                : _distMap.TryGetValue(i, out double d) ? d : double.PositiveInfinity;
+
+            public void SetDist(int i, double d)
+            {
+                if (_distMap != null) { _distMap[i] = d; return; }
+                if (_dist is null)
+                {
+                    _dist = new double[_n];
+                    for (int k = 0; k < _n; k++) _dist[k] = double.PositiveInfinity;
+                }
+                _dist[i] = d;
+            }
+
+            public bool Done(int i) => _done != null ? _done[i] : _doneSet!.Contains(i);
+
+            public void SetDone(int i)
+            {
+                if (_done != null) _done[i] = true;
+                else _doneSet!.Add(i);
+            }
         }
 
         // The first four entries are the orthogonal neighbours; the last four are the diagonals.

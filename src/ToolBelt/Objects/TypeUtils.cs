@@ -145,9 +145,23 @@ namespace ToolBelt.Objects
             {
                 if (underlying.IsEnum)
                 {
-                    result = value is string s
-                        ? Enum.Parse(underlying, s, ignoreCase: true)
-                        : Enum.ToObject(underlying, value);
+                    if (value is string s)
+                    {
+                        result = Enum.Parse(underlying, s, ignoreCase: true);
+                        return true;
+                    }
+                    // Enum.ToObject reinterprets a double's bits on .NET 8 (1.0 became Sunday) and takes bool and char;
+                    // only integers, and floating values that are whole numbers, convert.
+                    if (!EnumNumber(value, out object? number)) return Fail(targetType, out result);
+                    result = Enum.ToObject(underlying, number!);
+                    return true;
+                }
+                // A floating target parses without thousands separators: the invariant "1,5" was 15, not a failure.
+                if (value is string text && (underlying == typeof(double) || underlying == typeof(float) || underlying == typeof(decimal)))
+                {
+                    result = underlying == typeof(double) ? double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture)
+                        : underlying == typeof(float) ? float.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture)
+                        : (object)decimal.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
                     return true;
                 }
                 result = Convert.ChangeType(value, underlying, CultureInfo.InvariantCulture);
@@ -155,9 +169,50 @@ namespace ToolBelt.Objects
             }
             catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentException)
             {
-                result = DefaultValue(targetType);
-                return false;
+                return Fail(targetType, out result);
             }
+        }
+
+        // The failure result: the type's default, or null for a type that has none (void, open generic, by-ref), which
+        // made DefaultValue throw out of a method that promises not to.
+        private static bool Fail(Type targetType, out object? result)
+        {
+            result = targetType == typeof(void) || targetType.ContainsGenericParameters || targetType.IsByRef || targetType.IsPointer
+                ? null
+                : DefaultValue(targetType);
+            return false;
+        }
+
+        private static bool EnumNumber(object value, out object? number)
+        {
+            number = null;
+            switch (value)
+            {
+                case Enum _:
+                case sbyte _: case byte _: case short _: case ushort _:
+                case int _: case uint _: case long _: case ulong _:
+                    number = value;
+                    return true;
+                case float f:
+                    return WholeLong(f, out number);
+                case double d:
+                    return WholeLong(d, out number);
+                case decimal m:
+                    if (decimal.Truncate(m) != m || m < long.MinValue || m > long.MaxValue) return false;
+                    number = decimal.ToInt64(m);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool WholeLong(double d, out object? number)
+        {
+            number = null;
+            // −2^63 ≤ d < 2^63, a whole number (NaN fails both tests).
+            if (!(d >= -9223372036854775808.0 && d < 9223372036854775808.0) || Math.Floor(d) != d) return false;
+            number = (long)d;
+            return true;
         }
 
         /// <summary>Converts if possible, otherwise returns <paramref name="fallback"/>.</summary>

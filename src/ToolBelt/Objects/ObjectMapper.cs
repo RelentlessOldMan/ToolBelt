@@ -54,17 +54,27 @@ namespace ToolBelt.Objects
             MapInto(source, target);
         }
 
+        // True if a more derived property of the same name hides p (`new`): reflection lists both, and the base one,
+        // listed last, overwrote the derived one.
+        private static bool Hidden(PropertyInfo p, Type type)
+        {
+            foreach (PropertyInfo other in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                if (other.Name == p.Name && other.DeclaringType != p.DeclaringType && other.GetIndexParameters().Length == 0
+                    && other.DeclaringType!.IsSubclassOf(p.DeclaringType!)) return true;
+            return false;
+        }
+
         private void MapInto(TSource source, object target)
         {
             var sourceProps = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
             foreach (PropertyInfo p in typeof(TSource).GetProperties(BindingFlags.Public | BindingFlags.Instance))
-                if (p.CanRead && p.GetIndexParameters().Length == 0)
+                if (p.CanRead && p.GetIndexParameters().Length == 0 && !Hidden(p, typeof(TSource)))
                     sourceProps[p.Name] = p;
 
             foreach (PropertyInfo targetProp in typeof(TTarget).GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
                 if (targetProp.GetSetMethod() is null || targetProp.GetIndexParameters().Length != 0
-                    || _ignored.Contains(targetProp.Name)) continue;
+                    || _ignored.Contains(targetProp.Name) || Hidden(targetProp, typeof(TTarget))) continue;
 
                 object? value;
                 if (_custom.TryGetValue(targetProp.Name, out var selector))

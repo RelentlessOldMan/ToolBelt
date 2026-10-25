@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
@@ -12,8 +13,9 @@ namespace ToolBelt.Objects
         /// <summary>
         /// True for types treated as a single comparable/printable value rather than a graph to descend into: primitives,
         /// enums, string, decimal, the date/time types, Guid, any other formattable struct (BigInteger, Complex, DateOnly…,
-        /// whose public properties do not determine the value), Uri, and reflection objects (Type, MemberInfo, Assembly,
-        /// Module), whose properties throw for many instances.
+        /// whose public properties do not determine the value), Uri, reflection objects (Type, MemberInfo, Assembly,
+        /// Module), whose properties throw for many instances, and FileInfo / DirectoryInfo, whose Root, Parent and
+        /// Directory getters build a new object on every call (a walk never met the same reference twice and never ended).
         /// </summary>
         public static bool IsLeaf(Type type)
         {
@@ -26,6 +28,7 @@ namespace ToolBelt.Objects
                 || type == typeof(Guid)
                 || (type.IsValueType && typeof(IFormattable).IsAssignableFrom(type))
                 || type == typeof(Uri)
+                || typeof(FileSystemInfo).IsAssignableFrom(type)
                 || typeof(MemberInfo).IsAssignableFrom(type)
                 || typeof(Assembly).IsAssignableFrom(type)
                 || typeof(Module).IsAssignableFrom(type);

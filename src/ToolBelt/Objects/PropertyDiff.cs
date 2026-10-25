@@ -31,9 +31,11 @@ namespace ToolBelt.Objects
     /// hand-rolled versions omit.
     /// <para>
     /// Sets (<see cref="ISet{T}"/>) that differ are reported as one difference at the set's path; multi-dimensional
-    /// arrays of different shapes likewise; a struct with no readable members (a value tuple, say) compares with its own
-    /// Equals. The walk uses an explicit stack, so a deep graph cannot overflow the call stack. A property getter that
-    /// throws propagates its exception.
+    /// arrays of different shapes likewise; a struct's public fields are always compared (Quaternion, Matrix4x4 and value
+    /// tuples keep their value there), and a struct with no readable members compares with its own Equals. A FileInfo or
+    /// DirectoryInfo compares by type and full path. An object reached along several paths is reported on each path
+    /// where it differs, but a pair found equal is not walked again. The walk uses an explicit stack, so a deep graph
+    /// cannot overflow the call stack. A property getter that throws propagates its exception.
     /// </para>
     /// </summary>
     public static class PropertyDiff
@@ -79,6 +81,7 @@ namespace ToolBelt.Objects
             public PathNode? Path;
             public object? A;
             public object? B;
+            public int Reported; // for an Exit: the number of differences when the pair was entered
         }
 
         public static IReadOnlyList<Difference> Compare(object? a, object? b, ObjectComparisonOptions? options = null)
@@ -87,6 +90,9 @@ namespace ToolBelt.Objects
             var result = new List<Difference>();
             // Pairs on the current path; a pair met again below itself is a cycle and is not descended.
             var visiting = new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance);
+            // Pairs whose walk found no difference. A shared object met again along another path is skipped: re-walking
+            // it took time exponential in the depth of a graph whose nodes share children (equal diamond chains).
+            var equal = new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance);
             var work = new Stack<Frame>();
             work.Push(new Frame { Kind = Kind.Visit, A = a, B = b });
             var children = new List<Frame>();
@@ -98,13 +104,14 @@ namespace ToolBelt.Objects
                 {
                     case Kind.Exit:
                         visiting.Remove((f.A!, f.B!));
+                        if (result.Count == f.Reported) equal.Add((f.A!, f.B!));
                         break;
                     case Kind.Report:
                         result.Add(new Difference(f.Path?.ToString() ?? "", f.A, f.B));
                         break;
                     default:
                         children.Clear();
-                        Visit(f.Path, f.A, f.B, opt, visiting, children);
+                        Visit(f.Path, f.A, f.B, opt, visiting, equal, result.Count, children);
                         // Push in reverse so the children are handled in order, as a recursive walk would.
                         for (int i = children.Count - 1; i >= 0; i--) work.Push(children[i]);
                         break;
@@ -115,7 +122,7 @@ namespace ToolBelt.Objects
 
         // Emits, in order, the frames that handle this pair: reports, child visits, and an exit for a pair it enters.
         private static void Visit(PathNode? path, object? a, object? b, ObjectComparisonOptions opt,
-            HashSet<(object, object)> visiting, List<Frame> output)
+            HashSet<(object, object)> visiting, HashSet<(object, object)> equal, int reported, List<Frame> output)
         {
             if (ReferenceEquals(a, b)) return;
             if (a is null || b is null) { output.Add(Report(path, a, b)); return; }
@@ -131,6 +138,7 @@ namespace ToolBelt.Objects
             bool tracked = !ta.IsValueType && !tb.IsValueType;
             if (tracked)
             {
+                if (equal.Contains((na, nb))) return; // already walked, and equal
                 if (!visiting.Add((na, nb))) return; // cycle
             }
 
@@ -175,8 +183,8 @@ namespace ToolBelt.Objects
             }
             else
             {
-                var ma = new List<(string Name, object? Value)>(ObjectMembers.Read(na, opt.IncludeFields));
-                var mb = new List<(string Name, object? Value)>(ObjectMembers.Read(nb, opt.IncludeFields));
+                var ma = new List<(string Name, object? Value)>(ObjectMembers.Read(na, opt.IncludeFields || ta.IsValueType));
+                var mb = new List<(string Name, object? Value)>(ObjectMembers.Read(nb, opt.IncludeFields || ta.IsValueType));
                 if (ma.Count == 0 && ta.IsValueType)
                 {
                     if (!na.Equals(nb)) output.Add(Report(path, a, b));
@@ -188,7 +196,7 @@ namespace ToolBelt.Objects
                 }
             }
 
-            if (tracked) output.Add(new Frame { Kind = Kind.Exit, A = na, B = nb });
+            if (tracked) output.Add(new Frame { Kind = Kind.Exit, A = na, B = nb, Reported = reported });
         }
 
         private static Frame Report(PathNode? path, object? a, object? b) => new Frame { Kind = Kind.Report, Path = path, A = a, B = b };

@@ -129,21 +129,24 @@ namespace ToolBelt.Objects
                     return dict[key];
                 }
                 if (target is IList list)
-                    return list[ParseIndex(fullPath)];
+                    return list[ParseIndex(list, fullPath)];
                 throw new ArgumentException($"Segment '[{_token}]' requires a list or dictionary, got {target.GetType().Name} (path '{fullPath}').");
             }
 
             public override void Write(object target, object? value, string fullPath)
             {
                 if (target is IDictionary dict) { dict[ConvertKey(dict, _token, fullPath)] = value; return; }
-                if (target is IList list) { list[ParseIndex(fullPath)] = value; return; }
+                if (target is IList list) { list[ParseIndex(list, fullPath)] = value; return; }
                 throw new ArgumentException($"Segment '[{_token}]' requires a list or dictionary, got {target.GetType().Name} (path '{fullPath}').");
             }
 
-            private int ParseIndex(string fullPath)
+            // Range-checked here: an array threw IndexOutOfRangeException, which is not an ArgumentException and escaped TryGet.
+            private int ParseIndex(IList list, string fullPath)
             {
                 if (!int.TryParse(_token, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index))
                     throw new ArgumentException($"Index '[{_token}]' is not an integer (path '{fullPath}').");
+                if (index < 0 || index >= list.Count)
+                    throw new ArgumentOutOfRangeException(nameof(index), index, $"Index '[{_token}]' is out of range for {list.Count} item(s) (path '{fullPath}').");
                 return index;
             }
 

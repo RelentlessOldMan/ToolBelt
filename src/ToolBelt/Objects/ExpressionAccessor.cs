@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -15,9 +16,10 @@ namespace ToolBelt.Objects
     ///
     /// <para>The <c>object</c>-based accessors box value-type members. The strongly-typed
     /// <see cref="Getter{TTarget, TValue}(string)"/> / <see cref="Setter{TTarget, TValue}(string)"/> avoid
-    /// boxing entirely. Note that, like plain reflection, a setter invoked on a <b>value-type</b> instance
-    /// mutates only the boxed/copied instance, not the original variable — these accessors are intended for
-    /// reference types.</para>
+    /// boxing entirely. On a <b>value-type</b> instance the <c>object</c>-based setter writes into the box it is
+    /// given (as <see cref="PropertyInfo.SetValue(object, object)"/> does), not into the variable the box was copied
+    /// from; the typed setter takes its struct by value, so its write is lost — these accessors are intended for
+    /// reference types. On an interface type, members inherited from base interfaces are found.</para>
     /// </summary>
     public static class ExpressionAccessor
     {
@@ -96,6 +98,11 @@ namespace ToolBelt.Objects
                     Expression source = member.Type != typeof(TValue)
                         ? (Expression)Expression.Convert(value, member.Type)
                         : value;
+                    // A null TValue (object, say) into a non-nullable value-type member: unboxing threw
+                    // NullReferenceException; store the default, as the untyped setter does.
+                    if (!typeof(TValue).IsValueType && member.Type.IsValueType && Nullable.GetUnderlyingType(member.Type) is null)
+                        source = Expression.Condition(
+                            Expression.Equal(value, Expression.Constant(null, typeof(TValue))), Expression.Default(member.Type), source);
                     Expression body = Expression.Assign(member, source);
                     return Expression.Lambda<Action<TTarget, TValue>>(body, instance, value).Compile();
                 });
@@ -113,7 +120,9 @@ namespace ToolBelt.Objects
         {
             var instance = Expression.Parameter(typeof(object), "instance");
             var value = Expression.Parameter(typeof(object), "value");
-            MemberExpression member = Member(Expression.Convert(instance, type), type, memberName, write: true);
+            // Unbox, not Convert, for a struct: Convert copied it out, so the write never reached the box.
+            Expression target = type.IsValueType ? Expression.Unbox(instance, type) : Expression.Convert(instance, type);
+            MemberExpression member = Member(target, type, memberName, write: true);
             Expression castValue = Expression.Convert(value, member.Type);
             if (member.Type.IsValueType && Nullable.GetUnderlyingType(member.Type) is null)
             {
@@ -128,7 +137,11 @@ namespace ToolBelt.Objects
         // The public instance property (most derived, not an indexer) or else field named exactly memberName.
         private static MemberExpression Member(Expression instance, Type type, string memberName, bool write)
         {
-            for (Type? t = type; t != null; t = t.BaseType)
+            // An interface has no BaseType: its inherited members are on the interfaces it extends.
+            var search = new List<Type>();
+            for (Type? t = type; t != null; t = t.BaseType) search.Add(t);
+            if (type.IsInterface) search.AddRange(type.GetInterfaces());
+            foreach (Type t in search)
             {
                 foreach (PropertyInfo p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
                 {

@@ -69,6 +69,10 @@ namespace ToolBelt.Graphs
             if (!graph.ContainsVertex(source)) throw new KeyNotFoundException($"Source '{source}' is not in the graph.");
             if (!graph.ContainsVertex(target)) throw new KeyNotFoundException($"Target '{target}' is not in the graph.");
 
+            // Checked up front: met only while relaxing, a negative edge the search never reached passed silently.
+            foreach (Edge<T> e in graph.Edges)
+                if (e.Weight < 0) throw new InvalidOperationException("Dijkstra does not support negative edge weights.");
+
             var cmp = graph.Comparer;
             var dist = new Dictionary<T, double>(cmp) { [source] = 0.0 };
             var prev = new Dictionary<T, T>(cmp);
@@ -85,9 +89,8 @@ namespace ToolBelt.Graphs
 
                 foreach (var (to, weight) in graph.Neighbors(u))
                 {
-                    if (weight < 0)
-                        throw new InvalidOperationException("Dijkstra does not support negative edge weights.");
                     double nd = entry.Distance + weight;
+                    if (double.IsPositiveInfinity(nd)) continue; // an infinite weight is no edge: unreachable, not found at ∞
                     if (!dist.TryGetValue(to, out double old) || nd < old)
                     {
                         dist[to] = nd;
