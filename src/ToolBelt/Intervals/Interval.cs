@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace ToolBelt.Intervals
 {
@@ -9,7 +10,7 @@ namespace ToolBelt.Intervals
     /// semantics make adjacent intervals coalesce cleanly ([a,b) followed by [b,c) is [a,c)), which is why
     /// the range structures in this namespace use it. <see cref="Start"/> may equal <see cref="End"/> (an
     /// empty interval that contains nothing and overlaps nothing); <see cref="Start"/> after
-    /// <see cref="End"/> is rejected.
+    /// <see cref="End"/> is rejected, as is a NaN endpoint (NaN sorts below every number, so it acted as −∞).
     /// </summary>
     public readonly struct Interval<TKey> : IEquatable<Interval<TKey>> where TKey : IComparable<TKey>
     {
@@ -18,6 +19,8 @@ namespace ToolBelt.Intervals
 
         public Interval(TKey start, TKey end)
         {
+            if (IsNaN(start)) throw new ArgumentException("Interval start must not be NaN.", nameof(start));
+            if (IsNaN(end)) throw new ArgumentException("Interval end must not be NaN.", nameof(end));
             if (Compare(start, end) > 0)
                 throw new ArgumentException($"Interval start '{start}' must not be greater than end '{end}'.");
             Start = start;
@@ -39,6 +42,8 @@ namespace ToolBelt.Intervals
 
         internal static int Compare(TKey a, TKey b) => Comparer<TKey>.Default.Compare(a, b);
 
+        internal static bool IsNaN(TKey key) => (key is double d && double.IsNaN(d)) || (key is float f && float.IsNaN(f));
+
         /// <summary>
         /// Equal when the endpoints are equal by <see cref="EqualityComparer{T}.Default"/>, which agrees with
         /// <see cref="GetHashCode"/> (comparing with CompareTo would make keys that sort equal but hash differently equal).
@@ -54,6 +59,6 @@ namespace ToolBelt.Intervals
             unchecked { return (Start?.GetHashCode() ?? 0) * 397 ^ (End?.GetHashCode() ?? 0); }
         }
 
-        public override string ToString() => $"[{Start}, {End})";
+        public override string ToString() => string.Format(CultureInfo.InvariantCulture, "[{0}, {1})", Start, End);
     }
 }

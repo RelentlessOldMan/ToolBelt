@@ -26,8 +26,11 @@ namespace ToolBelt.Objects
     /// (Quaternion, Matrix4x4, value tuples), and a struct with no readable members compares with its own Equals. A
     /// <see cref="System.IO.FileSystemInfo"/> compares by type and full path (its Root, Parent and Directory getters
     /// return a new object every call, which no cycle check can end).
+    /// Dictionaries are equal when each holds every key of the other, whichever argument comes first. A property that
+    /// returns a new object of its owner's type on every read (a struct's Perpendicular, a class's Reciprocal) is followed
+    /// at most three levels along a path and assumed equal beyond: such a chain never meets the same object twice.
     /// The walk uses an explicit stack, so a deep graph (a long linked list) cannot overflow the call stack. A property
-    /// getter that throws propagates its exception.
+    /// getter that throws propagates its own exception.
     /// </para>
     /// </summary>
     public static class DeepEquals
@@ -38,22 +41,24 @@ namespace ToolBelt.Objects
             // Pairs already taken up are assumed equal: any difference reachable from them is found through their
             // first visit. That also ends cycles, through objects and collections alike.
             var seen = new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance);
-            var work = new Stack<(object? A, object? B)>();
-            work.Push((a, b));
+            // Computed: how many computed members (ObjectMembers.Read) the path to the pair followed.
+            var work = new Stack<(object? A, object? B, int Computed)>();
+            work.Push((a, b, 0));
             while (work.Count > 0)
             {
-                var (x, y) = work.Pop();
-                if (!Step(x, y, opt, seen, work)) return false;
+                var (x, y, computed) = work.Pop();
+                if (!Step(x, y, computed, opt, seen, work)) return false;
             }
             return true;
         }
 
         // Compares what can be decided at this pair and pushes the child pairs; false on a difference.
-        private static bool Step(object? a, object? b, ObjectComparisonOptions opt,
-            HashSet<(object, object)> seen, Stack<(object?, object?)> work)
+        private static bool Step(object? a, object? b, int computed, ObjectComparisonOptions opt,
+            HashSet<(object, object)> seen, Stack<(object?, object?, int)> work)
         {
             if (ReferenceEquals(a, b)) return true;
             if (a is null || b is null) return false;
+            if (computed > ObjectMembers.MaxComputedDepth) return true;
             a = ObjectMembers.Normalize(a);
             b = ObjectMembers.Normalize(b);
 
@@ -69,8 +74,11 @@ namespace ToolBelt.Objects
                 foreach (DictionaryEntry entry in da)
                 {
                     if (!db.Contains(entry.Key)) return false;
-                    work.Push((entry.Value, db[entry.Key]));
+                    work.Push((entry.Value, db[entry.Key], computed));
                 }
+                // With different key comparers, a's keys can all be found in b while b holds a key a lacks.
+                foreach (DictionaryEntry entry in db)
+                    if (!da.Contains(entry.Key)) return false;
                 return true;
             }
 
@@ -83,7 +91,7 @@ namespace ToolBelt.Objects
                 var la = ObjectMembers.ToList(ea);
                 var lb = ObjectMembers.ToList(eb);
                 if (la.Count != lb.Count) return false;
-                for (int i = la.Count - 1; i >= 0; i--) work.Push((la[i], lb[i]));
+                for (int i = la.Count - 1; i >= 0; i--) work.Push((la[i], lb[i], computed));
                 return true;
             }
 
@@ -92,10 +100,11 @@ namespace ToolBelt.Objects
             // A struct's public fields are always read: Quaternion and Matrix4x4 keep their value there, and their
             // properties alone (IsIdentity) made every pair of quaternions equal.
 
-            var ma = new List<(string Name, object? Value)>(ObjectMembers.Read(a, opt.IncludeFields || ta.IsValueType));
-            var mb = new List<(string Name, object? Value)>(ObjectMembers.Read(b, opt.IncludeFields || ta.IsValueType));
+            var ma = new List<(string Name, object? Value, bool Computed)>(ObjectMembers.Read(a, opt.IncludeFields || ta.IsValueType));
+            var mb = new List<(string Name, object? Value, bool Computed)>(ObjectMembers.Read(b, opt.IncludeFields || ta.IsValueType));
             if (ma.Count == 0 && ta.IsValueType) return a.Equals(b);
-            for (int i = ma.Count - 1; i >= 0; i--) work.Push((ma[i].Value, mb[i].Value));
+            for (int i = ma.Count - 1; i >= 0; i--)
+                work.Push((ma[i].Value, mb[i].Value, computed + (ma[i].Computed || mb[i].Computed ? 1 : 0)));
             return true;
         }
 

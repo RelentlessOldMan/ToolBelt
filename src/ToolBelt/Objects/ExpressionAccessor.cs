@@ -76,7 +76,7 @@ namespace ToolBelt.Objects
                     var instance = Expression.Parameter(typeof(TTarget), "instance");
                     Expression member = Member(instance, typeof(TTarget), memberName, write: false);
                     if (member.Type != typeof(TValue))
-                        member = Expression.Convert(member, typeof(TValue));
+                        member = ConvertTo(member, typeof(TValue), memberName);
                     return Expression.Lambda<Func<TTarget, TValue>>(member, instance).Compile();
                 });
         }
@@ -96,7 +96,7 @@ namespace ToolBelt.Objects
                     var value = Expression.Parameter(typeof(TValue), "value");
                     MemberExpression member = Member(instance, typeof(TTarget), memberName, write: true);
                     Expression source = member.Type != typeof(TValue)
-                        ? (Expression)Expression.Convert(value, member.Type)
+                        ? ConvertTo(value, member.Type, memberName)
                         : value;
                     // A null TValue (object, say) into a non-nullable value-type member: unboxing threw
                     // NullReferenceException; store the default, as the untyped setter does.
@@ -106,6 +106,16 @@ namespace ToolBelt.Objects
                     Expression body = Expression.Assign(member, source);
                     return Expression.Lambda<Action<TTarget, TValue>>(body, instance, value).Compile();
                 });
+        }
+
+        // A conversion between the member's type and TValue; none existing is the caller's type argument at fault.
+        private static Expression ConvertTo(Expression value, Type type, string memberName)
+        {
+            try { return Expression.Convert(value, type); }
+            catch (InvalidOperationException ex)
+            {
+                throw new ArgumentException($"Member '{memberName}' does not convert between {value.Type.Name} and {type.Name}.", "TValue", ex);
+            }
         }
 
         private static Func<object, object?> BuildGetter(Type type, string memberName)
@@ -146,9 +156,10 @@ namespace ToolBelt.Objects
                 foreach (PropertyInfo p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
                 {
                     if (p.Name != memberName || p.GetIndexParameters().Length != 0) continue;
-                    if (write ? p.GetSetMethod() is null : p.GetGetMethod() is null)
+                    MethodInfo? accessor = PublicAccessor(p, setter: write);
+                    if (accessor is null)
                         throw new InvalidOperationException($"Member '{memberName}' is not {(write ? "writable" : "readable")}.");
-                    return Expression.Property(instance, p);
+                    return Expression.Property(instance, accessor);
                 }
             }
             FieldInfo? f = type.GetField(memberName, BindingFlags.Public | BindingFlags.Instance);
@@ -159,6 +170,28 @@ namespace ToolBelt.Objects
                 return Expression.Field(instance, f);
             }
             throw new ArgumentException($"{type.Name} has no public instance property or field named '{memberName}'.", nameof(memberName));
+        }
+
+        // The public get (or set) accessor of p. An override that declares only the other accessor inherits this one from
+        // the property it overrides, which reflection does not report on the override; a non-public accessor counts as none.
+        private static MethodInfo? PublicAccessor(PropertyInfo p, bool setter)
+        {
+            for (PropertyInfo? q = p; q != null; q = OverriddenProperty(q))
+            {
+                MethodInfo? m = setter ? q.GetSetMethod(true) : q.GetGetMethod(true);
+                if (m != null) return m.IsPublic ? m : null;
+            }
+            return null;
+        }
+
+        private static PropertyInfo? OverriddenProperty(PropertyInfo p)
+        {
+            MethodInfo? accessor = p.GetGetMethod(true) ?? p.GetSetMethod(true);
+            if (accessor is null || accessor.GetBaseDefinition().DeclaringType == accessor.DeclaringType) return null;
+            for (Type? t = p.DeclaringType!.BaseType; t != null; t = t.BaseType)
+                foreach (PropertyInfo q in t.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+                    if (q.Name == p.Name && q.GetIndexParameters().Length == 0) return q;
+            return null;
         }
     }
 }

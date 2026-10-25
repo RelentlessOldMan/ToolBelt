@@ -24,6 +24,9 @@ namespace ToolBelt.Grids
         {
             if (grid is null) throw new ArgumentNullException(nameof(grid));
             int rows = grid.GetLength(0), cols = grid.GetLength(1);
+            if (grid.GetLowerBound(0) != 0 || grid.GetLowerBound(1) != 0)
+                throw new ArgumentException("The grid's dimensions must start at index 0.", nameof(grid));
+            CheckConnectivity(connectivity);
             if (row < 0 || row >= rows) throw new ArgumentOutOfRangeException(nameof(row), row, "Row is outside the grid.");
             if (col < 0 || col >= cols) throw new ArgumentOutOfRangeException(nameof(col), col, "Column is outside the grid.");
             comparer ??= EqualityComparer<T>.Default;
@@ -45,6 +48,9 @@ namespace ToolBelt.Grids
         {
             if (grid is null) throw new ArgumentNullException(nameof(grid));
             int rows = grid.GetLength(0), cols = grid.GetLength(1);
+            if (grid.GetLowerBound(0) != 0 || grid.GetLowerBound(1) != 0)
+                throw new ArgumentException("The grid's dimensions must start at index 0.", nameof(grid));
+            CheckConnectivity(connectivity);
             if (row < 0 || row >= rows) throw new ArgumentOutOfRangeException(nameof(row), row, "Row is outside the grid.");
             if (col < 0 || col >= cols) throw new ArgumentOutOfRangeException(nameof(col), col, "Column is outside the grid.");
             comparer ??= EqualityComparer<T>.Default;
@@ -71,11 +77,18 @@ namespace ToolBelt.Grids
             Connectivity connectivity = Connectivity.Four)
         {
             if (belongs is null) throw new ArgumentNullException(nameof(belongs));
+            CheckConnectivity(connectivity);
             if (rows < 0) throw new ArgumentOutOfRangeException(nameof(rows), rows, "Row count must not be negative.");
             if (cols < 0) throw new ArgumentOutOfRangeException(nameof(cols), cols, "Column count must not be negative.");
             if (row < 0 || row >= rows) throw new ArgumentOutOfRangeException(nameof(row), row, "Row is outside the grid.");
             if (col < 0 || col >= cols) throw new ArgumentOutOfRangeException(nameof(col), col, "Column is outside the grid.");
             return Collect(rows, cols, row, col, connectivity, belongs);
+        }
+
+        private static void CheckConnectivity(Connectivity connectivity)
+        {
+            if (connectivity != Connectivity.Four && connectivity != Connectivity.Eight)
+                throw new ArgumentOutOfRangeException(nameof(connectivity), connectivity, "Connectivity must be Four or Eight.");
         }
 
         private static IReadOnlyList<Cell> Collect(

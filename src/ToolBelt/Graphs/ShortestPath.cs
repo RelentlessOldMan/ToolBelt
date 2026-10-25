@@ -36,6 +36,8 @@ namespace ToolBelt.Graphs
         public static ShortestPathResult<T> BreadthFirst<T>(Graph<T> graph, T source, T target) where T : notnull
         {
             if (graph is null) throw new ArgumentNullException(nameof(graph));
+            if (source is null) throw new ArgumentNullException(nameof(source));
+            if (target is null) throw new ArgumentNullException(nameof(target));
             if (!graph.ContainsVertex(source)) throw new KeyNotFoundException($"Source '{source}' is not in the graph.");
             if (!graph.ContainsVertex(target)) throw new KeyNotFoundException($"Target '{target}' is not in the graph.");
 
@@ -66,6 +68,8 @@ namespace ToolBelt.Graphs
         public static ShortestPathResult<T> Dijkstra<T>(Graph<T> graph, T source, T target) where T : notnull
         {
             if (graph is null) throw new ArgumentNullException(nameof(graph));
+            if (source is null) throw new ArgumentNullException(nameof(source));
+            if (target is null) throw new ArgumentNullException(nameof(target));
             if (!graph.ContainsVertex(source)) throw new KeyNotFoundException($"Source '{source}' is not in the graph.");
             if (!graph.ContainsVertex(target)) throw new KeyNotFoundException($"Target '{target}' is not in the graph.");
 
@@ -89,8 +93,10 @@ namespace ToolBelt.Graphs
 
                 foreach (var (to, weight) in graph.Neighbors(u))
                 {
+                    // An infinite weight is no edge. A finite path whose total overflows to ∞ is still a path: it was
+                    // reported unreachable.
+                    if (double.IsPositiveInfinity(weight)) continue;
                     double nd = entry.Distance + weight;
-                    if (double.IsPositiveInfinity(nd)) continue; // an infinite weight is no edge: unreachable, not found at ∞
                     if (!dist.TryGetValue(to, out double old) || nd < old)
                     {
                         dist[to] = nd;

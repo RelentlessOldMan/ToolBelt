@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 
 namespace ToolBelt.Objects
 {
@@ -15,7 +16,8 @@ namespace ToolBelt.Objects
         /// enums, string, decimal, the date/time types, Guid, any other formattable struct (BigInteger, Complex, DateOnly…,
         /// whose public properties do not determine the value), Uri, reflection objects (Type, MemberInfo, Assembly,
         /// Module), whose properties throw for many instances, and FileInfo / DirectoryInfo, whose Root, Parent and
-        /// Directory getters build a new object on every call (a walk never met the same reference twice and never ended).
+        /// Directory getters build a new object on every call (a walk never met the same reference twice and never ended),
+        /// and IPAddress / EndPoint, whose ScopeId or Address getters throw for some addresses.
         /// </summary>
         public static bool IsLeaf(Type type)
         {
@@ -31,8 +33,15 @@ namespace ToolBelt.Objects
                 || typeof(FileSystemInfo).IsAssignableFrom(type)
                 || typeof(MemberInfo).IsAssignableFrom(type)
                 || typeof(Assembly).IsAssignableFrom(type)
-                || typeof(Module).IsAssignableFrom(type);
+                || typeof(Module).IsAssignableFrom(type)
+                || typeof(System.Net.IPAddress).IsAssignableFrom(type)
+                || typeof(System.Net.EndPoint).IsAssignableFrom(type);
         }
+
+        /// <summary>
+        /// How many computed members (see <see cref="Read"/>) a walk follows along one path before it stops descending.
+        /// </summary>
+        public const int MaxComputedDepth = 3;
 
         /// <summary>
         /// The value to walk in place of <paramref name="value"/>: a <c>Memory&lt;T&gt;</c> or <c>ReadOnlyMemory&lt;T&gt;</c>
@@ -55,18 +64,63 @@ namespace ToolBelt.Objects
 
         /// <summary>
         /// Readable public instance properties (no indexers, and none of a by-ref-like type such as Span, which reflection
-        /// cannot box), optionally followed by public fields. A getter that throws propagates its exception.
+        /// cannot box), optionally followed by public fields. A property is read through its public getter: an override
+        /// declaring only a setter reads through the getter it inherits, and a private getter is not readable. A getter that
+        /// throws propagates its own exception. <c>Computed</c> marks a property whose value is a new object of the owner's
+        /// own type: a struct (which cannot contain itself) or a reference that a second read does not return again, such
+        /// as a Perpendicular or Reciprocal property. Following those never meets the same object twice, so a walk follows
+        /// at most <see cref="MaxComputedDepth"/> of them along a path.
         /// </summary>
-        public static IEnumerable<(string Name, object? Value)> Read(object obj, bool includeFields)
+        public static IEnumerable<(string Name, object? Value, bool Computed)> Read(object obj, bool includeFields)
         {
             Type type = obj.GetType();
             foreach (PropertyInfo p in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-                if (p.CanRead && p.GetIndexParameters().Length == 0 && IsReadableType(p.PropertyType))
-                    yield return (p.Name, p.GetValue(obj));
+            {
+                if (p.GetIndexParameters().Length != 0 || !IsReadableType(p.PropertyType)) continue;
+                MethodInfo? getter = PublicAccessor(p, setter: false);
+                if (getter is null) continue;
+                object? value = Invoke(getter, obj);
+                bool computed = value != null && value.GetType() == type
+                    && (type.IsValueType || !ReferenceEquals(value, Invoke(getter, obj)));
+                yield return (p.Name, value, computed);
+            }
             if (includeFields)
                 foreach (FieldInfo f in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
                     if (IsReadableType(f.FieldType))
-                        yield return (f.Name, f.GetValue(obj));
+                        yield return (f.Name, f.GetValue(obj), false);
+        }
+
+        // Calls a getter, rethrowing what it threw rather than the TargetInvocationException reflection wraps it in.
+        private static object? Invoke(MethodInfo getter, object obj)
+        {
+            try { return getter.Invoke(obj, null); }
+            catch (TargetInvocationException ex) when (ex.InnerException != null)
+            {
+                ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
+            }
+        }
+
+        // The public get (or set) accessor of p. An override that declares only the other accessor inherits this one from
+        // the property it overrides, which reflection does not report on the override; a non-public accessor counts as none.
+        private static MethodInfo? PublicAccessor(PropertyInfo p, bool setter)
+        {
+            for (PropertyInfo? q = p; q != null; q = OverriddenProperty(q))
+            {
+                MethodInfo? m = setter ? q.GetSetMethod(true) : q.GetGetMethod(true);
+                if (m != null) return m.IsPublic ? m : null;
+            }
+            return null;
+        }
+
+        private static PropertyInfo? OverriddenProperty(PropertyInfo p)
+        {
+            MethodInfo? accessor = p.GetGetMethod(true) ?? p.GetSetMethod(true);
+            if (accessor is null || accessor.GetBaseDefinition().DeclaringType == accessor.DeclaringType) return null;
+            for (Type? t = p.DeclaringType!.BaseType; t != null; t = t.BaseType)
+                foreach (PropertyInfo q in t.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+                    if (q.Name == p.Name && q.GetIndexParameters().Length == 0) return q;
+            return null;
         }
 
         private static bool IsReadableType(Type type)

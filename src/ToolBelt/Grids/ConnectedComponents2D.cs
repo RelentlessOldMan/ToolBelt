@@ -97,6 +97,8 @@ namespace ToolBelt.Grids
         public static ComponentLabeling Label(bool[,] mask, Connectivity connectivity = Connectivity.Four)
         {
             if (mask is null) throw new ArgumentNullException(nameof(mask));
+            if (mask.GetLowerBound(0) != 0 || mask.GetLowerBound(1) != 0)
+                throw new ArgumentException("The grid's dimensions must start at index 0.", nameof(mask));
             int rows = mask.GetLength(0), cols = mask.GetLength(1);
             return LabelCore(rows, cols, connectivity, foregroundOnly: true,
                 belongs: (r, c) => mask[r, c],
@@ -113,6 +115,8 @@ namespace ToolBelt.Grids
             T[,] grid, Connectivity connectivity = Connectivity.Four, IEqualityComparer<T>? comparer = null)
         {
             if (grid is null) throw new ArgumentNullException(nameof(grid));
+            if (grid.GetLowerBound(0) != 0 || grid.GetLowerBound(1) != 0)
+                throw new ArgumentException("The grid's dimensions must start at index 0.", nameof(grid));
             int rows = grid.GetLength(0), cols = grid.GetLength(1);
             comparer ??= EqualityComparer<T>.Default;
             return LabelCore(rows, cols, connectivity, foregroundOnly: false,
@@ -124,6 +128,9 @@ namespace ToolBelt.Grids
             int rows, int cols, Connectivity connectivity, bool foregroundOnly,
             Func<int, int, bool> belongs, Func<int, int, int, int, bool> sameRegion)
         {
+            // Any other value was labelled as Four.
+            if (connectivity != Connectivity.Four && connectivity != Connectivity.Eight)
+                throw new ArgumentOutOfRangeException(nameof(connectivity), connectivity, "Connectivity must be Four or Eight.");
             var labels = new int[rows, cols];
             var components = new List<GridComponent>();
             int dirs = connectivity == Connectivity.Eight ? 8 : 4;

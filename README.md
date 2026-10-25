@@ -792,6 +792,7 @@ tests/
       TypeUtilsTests.cs
       ObjectsGraphsReviewTests.cs (round 14 review regressions: deep graphs, sets/shapes/value tuples, paths, accessors, mapper, cycles, range maps)
       ObjectsGraphsReview2Tests.cs (second-pass regressions: shared subgraphs, FileSystemInfo leaves, struct fields, enum conversion, huge grids)
+      ObjectsGraphsReview3Tests.cs (third-pass regressions: computed self-typed properties, overridden accessors, enum ranges, overflowing paths, argument validation)
     Identifiers/
       NanoIdTests.cs
       ShortGuidTests.cs

@@ -48,7 +48,7 @@ namespace ToolBelt.Grids
             int rows, int cols, Cell start, Cell goal, Func<int, int, bool> passable,
             Connectivity connectivity = Connectivity.Four, bool allowCornerCutting = true)
         {
-            Validate(rows, cols, start, goal, passable);
+            Validate(rows, cols, start, goal, passable, connectivity);
             if (!passable(start.Row, start.Col) || !passable(goal.Row, goal.Col))
                 return NotFound();
 
@@ -97,7 +97,7 @@ namespace ToolBelt.Grids
             int rows, int cols, Cell start, Cell goal, Func<int, int, bool> passable,
             Connectivity connectivity = Connectivity.Four, bool allowCornerCutting = true)
         {
-            Validate(rows, cols, start, goal, passable);
+            Validate(rows, cols, start, goal, passable, connectivity);
             double sqrt2 = Math.Sqrt(2.0);
             Func<int, int, int, int, double> step = (fr, fc, tr, tc) => (fr != tr && fc != tc) ? sqrt2 : 1.0;
 
@@ -125,7 +125,7 @@ namespace ToolBelt.Grids
             int rows, int cols, Cell start, Cell goal, Func<int, int, bool> passable, Func<int, int, double> enterCost,
             Connectivity connectivity = Connectivity.Four, bool allowCornerCutting = true)
         {
-            Validate(rows, cols, start, goal, passable);
+            Validate(rows, cols, start, goal, passable, connectivity);
             if (enterCost is null) throw new ArgumentNullException(nameof(enterCost));
             double sqrt2 = Math.Sqrt(2.0);
             Func<int, int, int, int, double> step = (fr, fc, tr, tc) =>
@@ -145,6 +145,8 @@ namespace ToolBelt.Grids
             Connectivity connectivity = Connectivity.Four, bool allowCornerCutting = true)
         {
             if (passable is null) throw new ArgumentNullException(nameof(passable));
+            if (passable.GetLowerBound(0) != 0 || passable.GetLowerBound(1) != 0)
+                throw new ArgumentException("The grid's dimensions must start at index 0.", nameof(passable));
             return BreadthFirst(passable.GetLength(0), passable.GetLength(1), start, goal,
                 (r, c) => passable[r, c], connectivity, allowCornerCutting);
         }
@@ -155,6 +157,8 @@ namespace ToolBelt.Grids
             Connectivity connectivity = Connectivity.Four, bool allowCornerCutting = true)
         {
             if (passable is null) throw new ArgumentNullException(nameof(passable));
+            if (passable.GetLowerBound(0) != 0 || passable.GetLowerBound(1) != 0)
+                throw new ArgumentException("The grid's dimensions must start at index 0.", nameof(passable));
             return AStar(passable.GetLength(0), passable.GetLength(1), start, goal,
                 (r, c) => passable[r, c], connectivity, allowCornerCutting);
         }
@@ -192,8 +196,12 @@ namespace ToolBelt.Grids
 
                     int v = vr * cols + vc;
                     if (state.Done(v)) continue;
-                    double nd = state.Dist(u) + step(ur, uc, vr, vc);
-                    if (nd < state.Dist(v))
+                    double cost = step(ur, uc, vr, vc);
+                    if (double.IsPositiveInfinity(cost)) continue; // an infinite cost is no move
+                    // A cell not yet reached (no predecessor) is taken even at a total that overflowed to ∞: it was
+                    // never less than the ∞ placeholder, so a finite path was reported as none.
+                    double nd = state.Dist(u) + cost;
+                    if (nd < state.Dist(v) || state.Prev(v) == -1)
                     {
                         state.SetDist(v, nd);
                         state.SetPrev(v, u);
@@ -202,7 +210,7 @@ namespace ToolBelt.Grids
                 }
             }
 
-            if (double.IsPositiveInfinity(state.Dist(goalIdx)))
+            if (goalIdx != startIdx && state.Prev(goalIdx) == -1)
                 return NotFound();
             return new GridPath(true, Reconstruct(state, goalIdx, cols), state.Dist(goalIdx));
         }
@@ -218,8 +226,11 @@ namespace ToolBelt.Grids
 
         private static GridPath NotFound() => new GridPath(false, Array.Empty<Cell>(), double.PositiveInfinity);
 
-        private static void Validate(int rows, int cols, Cell start, Cell goal, Func<int, int, bool> passable)
+        private static void Validate(int rows, int cols, Cell start, Cell goal, Func<int, int, bool> passable, Connectivity connectivity)
         {
+            // Any other value was searched as Four.
+            if (connectivity != Connectivity.Four && connectivity != Connectivity.Eight)
+                throw new ArgumentOutOfRangeException(nameof(connectivity), connectivity, "Connectivity must be Four or Eight.");
             if (rows <= 0) throw new ArgumentOutOfRangeException(nameof(rows), rows, "Grid must have at least one row.");
             if (cols <= 0) throw new ArgumentOutOfRangeException(nameof(cols), cols, "Grid must have at least one column.");
             if ((long)rows * cols > int.MaxValue)

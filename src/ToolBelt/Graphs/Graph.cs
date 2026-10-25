@@ -62,6 +62,9 @@ namespace ToolBelt.Graphs
         /// </summary>
         public void AddEdge(T from, T to, double weight = 1.0)
         {
+            // Checked before anything is added: a null `to` left `from` added, and was reported as "vertex".
+            if (from is null) throw new ArgumentNullException(nameof(from));
+            if (to is null) throw new ArgumentNullException(nameof(to));
             if (double.IsNaN(weight)) throw new ArgumentException("Edge weight must not be NaN.", nameof(weight));
             AddVertex(from);
             AddVertex(to);
@@ -71,11 +74,12 @@ namespace ToolBelt.Graphs
             _edges.Add(new Edge<T>(from, to, weight));
         }
 
-        public bool ContainsVertex(T vertex) => _adjacency.ContainsKey(vertex);
+        public bool ContainsVertex(T vertex) => !(vertex is null) && _adjacency.ContainsKey(vertex);
 
         /// <summary>The outgoing neighbors of <paramref name="vertex"/> (both directions for undirected graphs).</summary>
         public IEnumerable<(T To, double Weight)> Neighbors(T vertex)
         {
+            if (vertex is null) throw new ArgumentNullException(nameof(vertex));
             if (!_adjacency.TryGetValue(vertex, out var list))
                 throw new KeyNotFoundException($"Vertex '{vertex}' is not in the graph.");
             return list;
@@ -83,6 +87,7 @@ namespace ToolBelt.Graphs
 
         public int OutDegree(T vertex)
         {
+            if (vertex is null) throw new ArgumentNullException(nameof(vertex));
             if (!_adjacency.TryGetValue(vertex, out var list))
                 throw new KeyNotFoundException($"Vertex '{vertex}' is not in the graph.");
             return list.Count;
@@ -91,6 +96,7 @@ namespace ToolBelt.Graphs
         /// <summary>Breadth-first vertex order from <paramref name="start"/> (start included).</summary>
         public IEnumerable<T> BreadthFirst(T start)
         {
+            if (start is null) throw new ArgumentNullException(nameof(start));
             if (!_adjacency.ContainsKey(start))
                 throw new KeyNotFoundException($"Vertex '{start}' is not in the graph.");
             return BreadthFirstIterator(start);

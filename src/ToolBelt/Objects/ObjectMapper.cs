@@ -10,7 +10,9 @@ namespace ToolBelt.Objects
     /// compatible types along the way, with an ignore list and per-property custom projections. Replaces
     /// the walls of hand-written assignments at every boundary — which are tedious and quietly go stale when
     /// a member is added. Names match case-insensitively; unconvertible or missing members are skipped, as are target
-    /// properties without a public setter, indexers, and a null bound for a non-nullable value-type property. A
+    /// properties without a public setter, indexers, and a null bound for a non-nullable value-type property. A property
+    /// overridden with only one accessor keeps the other it inherits; an interface source includes the properties of the
+    /// interfaces it extends. A
     /// value-type <typeparamref name="TTarget"/> works with <see cref="Map(TSource)"/> only: the in-place overload would
     /// fill a copy, so it throws.
     /// </summary>
@@ -66,14 +68,21 @@ namespace ToolBelt.Objects
 
         private void MapInto(TSource source, object target)
         {
-            var sourceProps = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
+            var sourceProps = new Dictionary<string, MethodInfo>(StringComparer.OrdinalIgnoreCase);
             foreach (PropertyInfo p in typeof(TSource).GetProperties(BindingFlags.Public | BindingFlags.Instance))
-                if (p.CanRead && p.GetIndexParameters().Length == 0 && !Hidden(p, typeof(TSource)))
-                    sourceProps[p.Name] = p;
+                if (p.GetIndexParameters().Length == 0 && !Hidden(p, typeof(TSource)) && PublicAccessor(p, setter: false) is MethodInfo g)
+                    sourceProps[p.Name] = g;
+            // An interface's GetProperties lists only its own: the ones it inherits are on the interfaces it extends.
+            if (typeof(TSource).IsInterface)
+                foreach (Type i in typeof(TSource).GetInterfaces())
+                    foreach (PropertyInfo p in i.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                        if (p.GetIndexParameters().Length == 0 && !sourceProps.ContainsKey(p.Name) && PublicAccessor(p, setter: false) is MethodInfo g)
+                            sourceProps[p.Name] = g;
 
             foreach (PropertyInfo targetProp in typeof(TTarget).GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
-                if (targetProp.GetSetMethod() is null || targetProp.GetIndexParameters().Length != 0
+                MethodInfo? setter = PublicAccessor(targetProp, setter: true);
+                if (setter is null || targetProp.GetIndexParameters().Length != 0
                     || _ignored.Contains(targetProp.Name) || Hidden(targetProp, typeof(TTarget))) continue;
 
                 object? value;
@@ -81,9 +90,9 @@ namespace ToolBelt.Objects
                 {
                     value = selector(source);
                 }
-                else if (sourceProps.TryGetValue(targetProp.Name, out PropertyInfo? sp))
+                else if (sourceProps.TryGetValue(targetProp.Name, out MethodInfo? getter))
                 {
-                    value = sp.GetValue(source);
+                    value = getter.Invoke(source, null);
                 }
                 else
                 {
@@ -100,8 +109,30 @@ namespace ToolBelt.Objects
                     if (!TypeUtils.TryConvert(value, targetProp.PropertyType, out value))
                         continue; // unconvertible; leave target default
                 }
-                targetProp.SetValue(target, value);
+                setter.Invoke(target, new[] { value });
             }
+        }
+
+        // The public get (or set) accessor of p. An override that declares only the other accessor inherits this one from
+        // the property it overrides, which reflection does not report on the override; a non-public accessor counts as none.
+        private static MethodInfo? PublicAccessor(PropertyInfo p, bool setter)
+        {
+            for (PropertyInfo? q = p; q != null; q = OverriddenProperty(q))
+            {
+                MethodInfo? m = setter ? q.GetSetMethod(true) : q.GetGetMethod(true);
+                if (m != null) return m.IsPublic ? m : null;
+            }
+            return null;
+        }
+
+        private static PropertyInfo? OverriddenProperty(PropertyInfo p)
+        {
+            MethodInfo? accessor = p.GetGetMethod(true) ?? p.GetSetMethod(true);
+            if (accessor is null || accessor.GetBaseDefinition().DeclaringType == accessor.DeclaringType) return null;
+            for (Type? t = p.DeclaringType!.BaseType; t != null; t = t.BaseType)
+                foreach (PropertyInfo q in t.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+                    if (q.Name == p.Name && q.GetIndexParameters().Length == 0) return q;
+            return null;
         }
     }
 }

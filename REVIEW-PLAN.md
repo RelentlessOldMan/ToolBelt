@@ -54,7 +54,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 2 | 12 / 38 | re-queue (12 bugs) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 2 | 17 / 49 | re-queue (17 bugs, 1 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 2 | 17 / 56 | re-queue (17 bugs) |
-| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 2 | 19 / 63 | re-queue (4 severe) |
+| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 3 | 19 / 82 | re-queue (19 bugs, 3 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 2 | 26 / 61 | re-queue (1 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 2 | 17 / 38 | re-queue (17 bugs) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 2 | 12 / 36 | re-queue (12 bugs) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14, 2, 8, 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 14**
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2, 8, 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 2**
 
 ## Releases
 
@@ -109,6 +109,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.35.0 | 35 | Documents & config, third pass | 17 | (see tag) |
 | v0.36.0 | 36 | Numerics core, third pass | 24 | (see tag) |
 | v0.37.0 | 37 | Charts, third pass | 21 | (see tag) |
+| v0.38.0 | 38 | Objects, functional, grids, graphs, intervals, third pass | 19 | (see tag) |
 
 ## Round log
 
@@ -1620,3 +1621,42 @@ tests, all failing on the old code).
 - **Not fixed:** time labels at ±1e308 seconds are very long (correct, just unwieldy).
 - **Verify:** all green (core 2821). Checked build: the same 7 baseline failures.
 - **Re-queued:** yes (21 bugs, 2 severe).
+
+### Round 38 — 2026-10-25 — Objects, functional, grids, graphs, intervals, third pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 20 with 19 bugs, 4
+severe). **19 confirmed bugs, 3 severe**, plus one doc fix, each with a regression test in `ObjectsGraphsReview3Tests`
+(13 tests, all failing on the old code).
+
+- **Computed self-typed properties (severe ×2):** a property returning a new object of its owner's type on every read
+  (a struct's Perpendicular, a class's Reciprocal) never met the same reference twice: DeepEquals and PropertyDiff hung,
+  and Flatten grew past 6 GB. ObjectMembers.Read now flags such members (a struct, or a reference that a second read
+  does not return again), and the walks follow at most three of them along a path: DeepEquals assumes equal beyond,
+  PropertyDiff stops, and Flatten records the value as-is. Linked lists (identity-stable Next) are unaffected.
+- **TryConvert to an enum (severe):** out-of-range numbers wrapped (2^32 + 1 to DayOfWeek was Monday; 256 and −1 to a
+  byte enum were 0 and 255). They are range-checked against the enum's underlying type. Also: "1e400" was ∞ on .NET 8
+  and a failure on .NET Framework (it fails on both; "Infinity" still parses); text did not convert to Guid, TimeSpan,
+  DateTimeOffset, Version or Uri, nor Guid to text; a by-ref-like target (Span) threw from TryConvert and DefaultValue.
+- **Overridden accessors:** a property overridden with only a setter (or only a getter) lost the accessor it inherits:
+  DeepEquals, PropertyDiff and Flatten skipped it, ExpressionAccessor and PropertyPath threw, and ObjectMapper skipped
+  it. All resolve the inherited public accessor; a private getter no longer counts as readable. ObjectMapper with an
+  interface source now includes the properties of the interfaces it extends.
+- **PropertyDiff and DeepEquals:** a pair found equal while a cycle cut its walk short was memoized, so a second path to
+  it hid real differences (only P.V was reported, not C2.Up.V); a pair is memoized only when no cycle from inside it led
+  above it. DeepEquals of two dictionaries with different key comparers depended on argument order.
+- **IPAddress and EndPoint** are values: their ScopeId/Address getters threw a wrapped SocketException out of
+  DeepEquals, PropertyDiff and Flatten. A throwing getter now surfaces its own exception, not TargetInvocationException.
+- **Shortest paths:** a finite path whose total overflows to ∞ (edges of 1e308) was reported unreachable, in
+  ShortestPath.Dijkstra and GridPathfinding.Dijkstra/AStar. Only an infinite edge or cost is no edge.
+- **Validation:** Interval and RangeMap accepted NaN endpoints (which acted as −∞); Graph.AddEdge(from, null) named
+  "vertex" and left `from` added, and null vertices elsewhere named "key"; an invalid Connectivity was treated as Four
+  in FloodFill, ConnectedComponents2D and GridPathfinding; a grid with non-zero lower bounds threw
+  IndexOutOfRangeException; a wrong-typed array element in PropertyPath.Set threw InvalidCastException; a typed
+  ExpressionAccessor with no conversion threw InvalidOperationException (now ArgumentException naming TValue);
+  Unflatten with a null key threw FormatException.
+- **Smaller:** Interval.ToString followed the current culture ("[1,5, 2,5)"); PropertyPath now indexes an
+  `IDictionary<string, object>` such as ExpandoObject.
+- **Doc fix:** PropertyPath.Set on a struct root writes into the box it is given (as PropertyInfo.SetValue does), now
+  documented rather than rejected.
+- **Not fixed:** a cycle between computed objects of two different types (A.ToB.ToA…) is still unbounded.
+- **Verify:** all green (core 2834). Checked build: the same 7 baseline failures.
+- **Re-queued:** yes (19 bugs, 3 severe).

@@ -98,13 +98,16 @@ namespace ToolBelt.Objects
 
         /// <summary>
         /// The value of <c>default(T)</c> for a runtime <see cref="Type"/>. Throws <see cref="ArgumentException"/> for a type
-        /// that has no values: void, an open generic type, or a by-ref type.
+        /// that has no values (void, an open generic type, or a by-ref type) or whose default cannot be boxed (a by-ref-like
+        /// struct such as <c>Span&lt;T&gt;</c>).
         /// </summary>
         public static object? DefaultValue(Type type)
         {
             if (type is null) throw new ArgumentNullException(nameof(type));
             if (type == typeof(void) || type.ContainsGenericParameters || type.IsByRef)
                 throw new ArgumentException($"{type} has no default value.", nameof(type));
+            if (IsByRefLike(type))
+                throw new ArgumentException($"{type} is a by-ref-like type; its default cannot be boxed.", nameof(type));
             return type.IsValueType && Nullable.GetUnderlyingType(type) == null
                 ? Activator.CreateInstance(type)
                 : null;
@@ -124,7 +127,12 @@ namespace ToolBelt.Objects
             return NumericTypes.Contains(UnwrapNullable(type));
         }
 
-        /// <summary>Attempts to convert <paramref name="value"/> to <paramref name="targetType"/>, with no exception on failure.</summary>
+        /// <summary>
+        /// Attempts to convert <paramref name="value"/> to <paramref name="targetType"/>, with no exception on failure. Text
+        /// parses with the invariant culture, including to Guid, TimeSpan, DateTimeOffset, Version and Uri, and those types
+        /// (like any formattable value) convert to text. A number converts to an enum only if it fits the enum's underlying
+        /// type, and text converts to a floating type only if it is in range (or is an infinity).
+        /// </summary>
         public static bool TryConvert(object? value, Type targetType, out object? result)
         {
             if (targetType is null) throw new ArgumentNullException(nameof(targetType));
@@ -153,15 +161,28 @@ namespace ToolBelt.Objects
                     // Enum.ToObject reinterprets a double's bits on .NET 8 (1.0 became Sunday) and takes bool and char;
                     // only integers, and floating values that are whole numbers, convert.
                     if (!EnumNumber(value, out object? number)) return Fail(targetType, out result);
-                    result = Enum.ToObject(underlying, number!);
+                    // Enum.ToObject wraps a number too wide for the enum (2^32 + 1 became Monday): range-check it first.
+                    object fitted = Convert.ChangeType(number!, Enum.GetUnderlyingType(underlying), CultureInfo.InvariantCulture);
+                    result = Enum.ToObject(underlying, fitted);
                     return true;
                 }
+                if (underlying == typeof(string) && (value is IFormattable || value is Uri || value is Version))
+                {
+                    // Guid, TimeSpan, Version and Uri are not IConvertible, so ChangeType failed for them.
+                    result = value is IFormattable f ? f.ToString(null, CultureInfo.InvariantCulture) : value.ToString();
+                    return true;
+                }
+                if (value is string str && ParseSpecial(str, underlying, out result)) return true;
                 // A floating target parses without thousands separators: the invariant "1,5" was 15, not a failure.
                 if (value is string text && (underlying == typeof(double) || underlying == typeof(float) || underlying == typeof(decimal)))
                 {
                     result = underlying == typeof(double) ? double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture)
                         : underlying == typeof(float) ? float.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture)
                         : (object)decimal.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
+                    // .NET Core parses an out-of-range "1e400" to infinity where .NET Framework throws: fail on both.
+                    bool infinite = result is double dr ? double.IsInfinity(dr) : result is float fr && float.IsInfinity(fr);
+                    if (infinite && text.IndexOf("Infinity", StringComparison.OrdinalIgnoreCase) < 0 && text.IndexOf('\u221E') < 0)
+                        return Fail(targetType, out result);
                     return true;
                 }
                 result = Convert.ChangeType(value, underlying, CultureInfo.InvariantCulture);
@@ -178,9 +199,31 @@ namespace ToolBelt.Objects
         private static bool Fail(Type targetType, out object? result)
         {
             result = targetType == typeof(void) || targetType.ContainsGenericParameters || targetType.IsByRef || targetType.IsPointer
+                || IsByRefLike(targetType)
                 ? null
                 : DefaultValue(targetType);
             return false;
+        }
+
+        // Span<T> and other ref structs: Activator cannot create one, and no value of one can be boxed.
+        private static bool IsByRefLike(Type type)
+        {
+            if (!type.IsValueType) return false;
+            foreach (object a in type.GetCustomAttributes(false))
+                if (a.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute") return true;
+            return false;
+        }
+
+        // Text to the common value types ChangeType does not parse (it has no IConvertible route to them).
+        private static bool ParseSpecial(string text, Type type, out object? result)
+        {
+            result = null;
+            if (type == typeof(Guid)) result = Guid.Parse(text);
+            else if (type == typeof(TimeSpan)) result = TimeSpan.Parse(text, CultureInfo.InvariantCulture);
+            else if (type == typeof(DateTimeOffset)) result = DateTimeOffset.Parse(text, CultureInfo.InvariantCulture);
+            else if (type == typeof(Version)) result = Version.Parse(text);
+            else if (type == typeof(Uri)) result = new Uri(text, UriKind.RelativeOrAbsolute);
+            return result != null;
         }
 
         private static bool EnumNumber(object value, out object? number)

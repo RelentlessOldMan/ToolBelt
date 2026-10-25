@@ -16,7 +16,12 @@ namespace ToolBelt.Objects
     /// A missing dictionary key throws <see cref="KeyNotFoundException"/>; an index token that does not convert to the
     /// dictionary's key type, or a list index out of range, throws <see cref="ArgumentException"/>. <see cref="TryGet"/>
     /// returns false for all of these; an exception thrown by a property getter itself still propagates. Setting through a
-    /// struct-valued member writes the modified copy back, so <c>Set(holder, "Point.X", 5)</c> changes the holder.
+    /// struct-valued member writes the modified copy back, so <c>Set(holder, "Point.X", 5)</c> changes the holder. A struct
+    /// root is written in the box it is passed in, as <see cref="PropertyInfo.SetValue(object, object)"/> does: keep that
+    /// box, since a struct variable passed directly is boxed as a copy the caller never sees. A property overridden with
+    /// only one accessor keeps the other it inherits; a non-public accessor does not count. An
+    /// <c>IDictionary&lt;string, object&gt;</c> such as ExpandoObject is indexed like any dictionary, and a value that does
+    /// not fit an array's element type throws <see cref="ArgumentException"/>.
     /// </para>
     /// </summary>
     public static class PropertyPath
@@ -89,15 +94,41 @@ namespace ToolBelt.Objects
                 PropertyInfo? p = FindProperty(target.GetType(), _name);
                 if (p is null)
                     throw new ArgumentException($"Segment '{_name}' is not a public property of {target.GetType().Name} (path '{fullPath}').");
-                return p.GetValue(target);
+                MethodInfo? getter = PublicAccessor(p, setter: false);
+                if (getter is null)
+                    throw new ArgumentException($"Segment '{_name}' is not a readable property of {target.GetType().Name} (path '{fullPath}').");
+                return getter.Invoke(target, null);
             }
 
             public override void Write(object target, object? value, string fullPath)
             {
                 PropertyInfo? p = FindProperty(target.GetType(), _name);
-                if (p is null || p.GetSetMethod() is null)
+                MethodInfo? setter = p is null ? null : PublicAccessor(p, setter: true);
+                if (setter is null)
                     throw new ArgumentException($"Segment '{_name}' is not a writable property of {target.GetType().Name} (path '{fullPath}').");
-                p.SetValue(target, value);
+                setter.Invoke(target, new[] { value });
+            }
+
+            // The public get (or set) accessor of p. An override that declares only the other accessor inherits this one from
+            // the property it overrides, which reflection does not report on the override; a non-public accessor counts as none.
+            private static MethodInfo? PublicAccessor(PropertyInfo p, bool setter)
+            {
+                for (PropertyInfo? q = p; q != null; q = OverriddenProperty(q))
+                {
+                    MethodInfo? m = setter ? q.GetSetMethod(true) : q.GetGetMethod(true);
+                    if (m != null) return m.IsPublic ? m : null;
+                }
+                return null;
+            }
+
+            private static PropertyInfo? OverriddenProperty(PropertyInfo p)
+            {
+                MethodInfo? accessor = p.GetGetMethod(true) ?? p.GetSetMethod(true);
+                if (accessor is null || accessor.GetBaseDefinition().DeclaringType == accessor.DeclaringType) return null;
+                for (Type? t = p.DeclaringType!.BaseType; t != null; t = t.BaseType)
+                    foreach (PropertyInfo q in t.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+                        if (q.Name == p.Name && q.GetIndexParameters().Length == 0) return q;
+                return null;
             }
 
             // The most derived public, non-indexed property of that name (a "new" property hides its base's, which
@@ -128,6 +159,12 @@ namespace ToolBelt.Objects
                         throw new KeyNotFoundException($"Key '[{_token}]' is not in the dictionary (path '{fullPath}').");
                     return dict[key];
                 }
+                if (target is IDictionary<string, object?> named)
+                {
+                    if (!named.TryGetValue(_token, out object? found))
+                        throw new KeyNotFoundException($"Key '[{_token}]' is not in the dictionary (path '{fullPath}').");
+                    return found;
+                }
                 if (target is IList list)
                     return list[ParseIndex(list, fullPath)];
                 throw new ArgumentException($"Segment '[{_token}]' requires a list or dictionary, got {target.GetType().Name} (path '{fullPath}').");
@@ -136,7 +173,17 @@ namespace ToolBelt.Objects
             public override void Write(object target, object? value, string fullPath)
             {
                 if (target is IDictionary dict) { dict[ConvertKey(dict, _token, fullPath)] = value; return; }
-                if (target is IList list) { list[ParseIndex(list, fullPath)] = value; return; }
+                if (target is IDictionary<string, object?> named) { named[_token] = value; return; }
+                if (target is IList list)
+                {
+                    int index = ParseIndex(list, fullPath);
+                    try { list[index] = value; }
+                    catch (Exception ex) when (ex is InvalidCastException || ex is ArrayTypeMismatchException)
+                    {
+                        throw new ArgumentException($"The value does not fit the elements of {target.GetType().Name} (path '{fullPath}').", nameof(value), ex);
+                    }
+                    return;
+                }
                 throw new ArgumentException($"Segment '[{_token}]' requires a list or dictionary, got {target.GetType().Name} (path '{fullPath}').");
             }
 

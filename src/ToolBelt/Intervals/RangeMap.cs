@@ -44,6 +44,7 @@ namespace ToolBelt.Intervals
         /// <summary>Assigns <paramref name="value"/> across [start, end). An empty range is a no-op.</summary>
         public void Set(TKey start, TKey end, TValue value)
         {
+            CheckNotNaN(start, end);
             if (Cmp(start, end) > 0)
                 throw new ArgumentException($"Range start '{start}' must not be greater than end '{end}'.");
             if (Cmp(start, end) == 0) return; // empty
@@ -57,6 +58,7 @@ namespace ToolBelt.Intervals
         /// <summary>Clears any assignment across [start, end), splitting partially covered ranges.</summary>
         public void Remove(TKey start, TKey end)
         {
+            CheckNotNaN(start, end);
             if (Cmp(start, end) > 0)
                 throw new ArgumentException($"Range start '{start}' must not be greater than end '{end}'.");
             if (Cmp(start, end) == 0) return;
@@ -133,5 +135,12 @@ namespace ToolBelt.Intervals
         }
 
         private static int Cmp(TKey a, TKey b) => Comparer<TKey>.Default.Compare(a, b);
+
+        // NaN sorts below every number: a range from NaN covered everything below its end.
+        private static void CheckNotNaN(TKey start, TKey end)
+        {
+            if (Interval<TKey>.IsNaN(start)) throw new ArgumentException("Range start must not be NaN.", nameof(start));
+            if (Interval<TKey>.IsNaN(end)) throw new ArgumentException("Range end must not be NaN.", nameof(end));
+        }
     }
 }
