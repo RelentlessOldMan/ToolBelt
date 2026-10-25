@@ -59,7 +59,7 @@ namespace ToolBelt.Documents
         {
             if (items is null) throw new ArgumentNullException(nameof(items));
             var sb = new StringBuilder();
-            foreach (var item in items) sb.Append("- ").Append((item ?? "").Trim()).Append('\n');
+            foreach (var item in items) sb.Append("- ").Append(ItemText(item, 2)).Append('\n');
             if (sb.Length > 0) Block(sb.ToString().TrimEnd('\n'));
             return this;
         }
@@ -69,7 +69,7 @@ namespace ToolBelt.Documents
         {
             if (items is null) throw new ArgumentNullException(nameof(items));
             var sb = new StringBuilder();
-            foreach (var item in items) sb.Append("1. ").Append((item ?? "").Trim()).Append('\n');
+            foreach (var item in items) sb.Append("1. ").Append(ItemText(item, 3)).Append('\n');
             if (sb.Length > 0) Block(sb.ToString().TrimEnd('\n'));
             return this;
         }
@@ -153,16 +153,38 @@ namespace ToolBelt.Documents
             return this;
         }
 
-        /// <summary>Bold inline span.</summary>
-        public static string Bold(string text) => "**" + Escape(text) + "**";
-        /// <summary>Italic inline span.</summary>
-        public static string Italic(string text) => "*" + Escape(text) + "*";
+        /// <summary>Bold inline span (edge whitespace stays outside the markers, which must touch the text; empty gives "").</summary>
+        public static string Bold(string text) => Span(text, "**");
+        /// <summary>Italic inline span (edge whitespace stays outside the markers, which must touch the text; empty gives "").</summary>
+        public static string Italic(string text) => Span(text, "*");
+
+        private static string Span(string text, string marker)
+        {
+            text ??= "";
+            string core = text.Trim();
+            if (core.Length == 0) return text;   // "****" would be a thematic break
+            int lead = text.IndexOf(core, StringComparison.Ordinal);
+            return text.Substring(0, lead) + marker + Escape(core) + marker + text.Substring(lead + core.Length);
+        }
+
+        // A multi-line item: continuation lines are indented to the item's content column, so a blank line inside it
+        // continues the item rather than ending the list.
+        private static string ItemText(string? item, int indent)
+        {
+            string text = (item ?? "").Trim().Replace("\r\n", "\n").Replace('\r', '\n');
+            if (text.IndexOf('\n') < 0) return text;
+            string pad = new string(' ', indent);
+            var lines = text.Split('\n');
+            for (int i = 1; i < lines.Length; i++) if (lines[i].Length > 0) lines[i] = pad + lines[i];
+            return string.Join("\n", lines);
+        }
         /// <summary>Inline code span.</summary>
         public static string Code(string text)
         {
             // Backslash escapes don't work inside a code span: use a longer delimiter, padded when the text touches a
             // backtick (CommonMark strips one space from each side).
             text ??= "";
+            if (text.Length == 0) return "";   // two backticks are not a code span
             string fence = new string('`', LongestRun(text, '`') + 1);
             bool pad = text.Length > 0 && (text[0] == '`' || text[text.Length - 1] == '`'
                        || (text[0] == ' ' && text[text.Length - 1] == ' ' && text.Trim().Length > 0));

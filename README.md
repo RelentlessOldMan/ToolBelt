@@ -727,6 +727,7 @@ tests/
       ReportTemplatesTests.cs
       DocumentsConfigReviewTests.cs  (review round 7 regressions: documents + configuration)
       DocumentsConfigReview2Tests.cs (second-pass regressions: binder errors and decimal commas, rows split across PDF pages, AFM widths, GitHub slugs, Markdown escaping)
+      DocumentsConfigReview3Tests.cs (third-pass regressions: get-only settings, silent binder drops, layer lookups, PDF indents, Markdown TOC and lists)
     Enums/
       EnumExtensionsTests.cs
       EnumFlagsTests.cs

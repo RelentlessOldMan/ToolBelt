@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace ToolBelt.Configuration
 {
@@ -17,6 +18,8 @@ namespace ToolBelt.Configuration
     /// <see cref="LoadWarning"/>) rather than crashing the app on every launch, and a file that can't be read at all
     /// (locked, no permission) also yields defaults with a warning, left in place; unknown properties from newer
     /// versions are ignored and missing ones keep their defaults; NaN and ±∞ in floating-point settings round-trip.
+    /// Get-only properties load too: a collection (<c>List&lt;string&gt; Recent { get; } = new()</c>) is cleared and refilled
+    /// from the file, and an object is filled in place. Only public properties are stored, not fields.
     /// Not thread-safe — save from one place.
     /// </summary>
     public sealed class SettingsStore<T> where T : class, new()
@@ -144,7 +147,54 @@ namespace ToolBelt.Configuration
                 NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,   // NaN is a common "unset"
             };
             o.Converters.Add(new JsonStringEnumConverter());
+            // System.Text.Json saves get-only properties but skips them when loading, so `List<string> Recent { get; }`
+            // would come back empty and the next save would erase it.
+            o.TypeInfoResolver = new DefaultJsonTypeInfoResolver { Modifiers = { LoadGetOnlyProperties } };
             return o;
+        }
+
+        private static void LoadGetOnlyProperties(JsonTypeInfo info)
+        {
+            if (info.Kind != JsonTypeInfoKind.Object) return;
+            foreach (JsonPropertyInfo p in info.Properties)
+            {
+                if (p.Set != null || p.Get == null || p.PropertyType.IsValueType || p.PropertyType == typeof(string)) continue;
+                Func<object, object?> get = p.Get;
+                if (ClearAndAdd(p.PropertyType) is Action<object, object> refill)
+                    p.Set = (owner, value) => { if (get(owner) is object target && value != null) refill(target, value); };
+                else if (!p.PropertyType.IsAbstract && !typeof(System.Collections.IEnumerable).IsAssignableFrom(p.PropertyType))
+                    p.ObjectCreationHandling = JsonObjectCreationHandling.Populate;   // a nested settings object
+            }
+        }
+
+        // Replace semantics for a get-only collection, like a settable property: clear it, then add the loaded items.
+        private static Action<object, object>? ClearAndAdd(Type type)
+        {
+            if (typeof(System.Collections.IList).IsAssignableFrom(type))
+                return (target, value) =>
+                {
+                    var list = (System.Collections.IList)target;
+                    list.Clear();
+                    foreach (object? item in (System.Collections.IEnumerable)value) list.Add(item);
+                };
+            if (typeof(System.Collections.IDictionary).IsAssignableFrom(type))
+                return (target, value) =>
+                {
+                    var map = (System.Collections.IDictionary)target;
+                    map.Clear();
+                    foreach (System.Collections.DictionaryEntry e in (System.Collections.IDictionary)value) map[e.Key] = e.Value;
+                };
+            foreach (Type i in type.GetInterfaces())
+            {
+                if (!i.IsGenericType || i.GetGenericTypeDefinition() != typeof(System.Collections.Generic.ICollection<>)) continue;
+                MethodInfo clear = i.GetMethod("Clear")!, add = i.GetMethod("Add")!;
+                return (target, value) =>
+                {
+                    clear.Invoke(target, null);
+                    foreach (object? item in (System.Collections.IEnumerable)value) add.Invoke(target, new[] { item });
+                };
+            }
+            return null;
         }
     }
 }

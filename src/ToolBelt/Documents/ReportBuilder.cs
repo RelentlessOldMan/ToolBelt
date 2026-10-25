@@ -267,8 +267,16 @@ namespace ToolBelt.Documents
                     case Kind.Toc:
                     {
                         var sb = new StringBuilder("**Contents**\n\n");
+                        // Nest by depth under the actual parent, not by absolute level: a skipped level (a TOC that starts
+                        // at level 3) would otherwise indent by 4+ spaces, which Markdown reads as a code block.
+                        var open = new Stack<int>();
                         foreach (var h in headings)
-                            sb.Append(new string(' ', (h.Level - 1) * 2)).Append("- [").Append(EscMdLine(h.Text)).Append("](#").Append(h.Id).Append(")\n");
+                        {
+                            while (open.Count > 0 && open.Peek() >= h.Level) open.Pop();
+                            sb.Append(new string(' ', open.Count * 2));
+                            open.Push(h.Level);
+                            sb.Append("- [").Append(EscMdLine(h.Text)).Append("](#").Append(h.Id).Append(")\n");
+                        }
                         md.Raw(sb.ToString());
                         break;
                     }
@@ -313,6 +321,8 @@ namespace ToolBelt.Documents
         /// </summary>
         public byte[] ToPdf(PdfPageSize pageSize = PdfPageSize.Letter, double fontSize = 10)
         {
+            if (!(fontSize > 0) || double.IsInfinity(fontSize * 1.9))
+                throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be positive and finite.");
             var pdf = new PdfWriter(pageSize, 54, PdfFont.Helvetica, fontSize) { Title = Title, PageNumbers = true };
             var headings = CollectHeadings(new Anchors());
 

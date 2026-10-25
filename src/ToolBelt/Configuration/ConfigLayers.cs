@@ -9,7 +9,8 @@ namespace ToolBelt.Configuration
     /// then command-line overrides, for example) into one flat key space, and records which source supplied
     /// each final value. Sources added later win. That provenance report is the part everyone wishes they
     /// had while debugging a deployment. Keys are compared case-insensitively. The caller supplies each
-    /// source explicitly — nothing is read from the environment implicitly.
+    /// source explicitly — nothing is read from the environment implicitly. Each source is copied when added, so later
+    /// changes to the dictionary are not seen; a lookup costs O(layers).
     /// </summary>
     public sealed class ConfigLayers
     {
@@ -21,7 +22,10 @@ namespace ToolBelt.Configuration
         {
             if (sourceName is null) throw new ArgumentNullException(nameof(sourceName));
             if (values is null) throw new ArgumentNullException(nameof(values));
-            _layers.Add((sourceName, values));
+            // A case-insensitive copy: when the source holds a key in two casings, the last enumerated wins, as it did.
+            var copy = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in values) copy[kv.Key] = kv.Value;
+            _layers.Add((sourceName, copy));
             return this;
         }
 
@@ -45,11 +49,24 @@ namespace ToolBelt.Configuration
             return result;
         }
 
-        public bool TryGet(string key, out string? value)
-            => Resolve().TryGetValue(key, out value); // case-insensitive, highest-priority value
+        /// <summary>The winning value for <paramref name="key"/> (case-insensitive); false if no source sets it.</summary>
+        public bool TryGet(string key, out string? value) => Find(key, out value) >= 0;
 
         /// <summary>The source that supplied the winning value for <paramref name="key"/>, or null if unset.</summary>
         public string? SourceOf(string key)
-            => Provenance().TryGetValue(key, out string? source) ? source : null;
+        {
+            int layer = Find(key, out _);
+            return layer >= 0 ? _layers[layer].Source : null;
+        }
+
+        // The last layer holding the key, without building Resolve() for every lookup.
+        private int Find(string key, out string? value)
+        {
+            if (key is null) throw new ArgumentNullException(nameof(key));
+            for (int i = _layers.Count - 1; i >= 0; i--)
+                if (_layers[i].Values.TryGetValue(key, out value)) return i;
+            value = null;
+            return -1;
+        }
     }
 }

@@ -47,7 +47,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 2 | 28 / 71 | re-queue (5 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 2 | 28 / 61 | re-queue (5 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 2 | 10 / 29 | re-queue (10 bugs) |
-| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 2 | 20 / 47 | re-queue (20 bugs, 6 severe) |
+| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 3 | 17 / 64 | re-queue (17 bugs, 2 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 2 | 22 / 67 | re-queue (22 bugs, 2 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 2 | 11 / 39 | re-queue (11 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 2 | 25 / 65 | re-queue (1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7, 4, 5, 14, 2, 8, 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 7**
+7 (done, round 35), 4, 5, 14, 2, 8, 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 4**
 
 ## Releases
 
@@ -106,6 +106,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.32.0 | 32 | Text & small types, second pass | 12 | (see tag) |
 | v0.33.0 | 33 | WPF satellite, second pass | 17 | (see tag) |
 | v0.34.0 | 34 | WinForms + tooling + docs, second pass | 12 | (see tag) |
+| v0.35.0 | 35 | Documents & config, third pass | 17 | (see tag) |
 
 ## Round log
 
@@ -1518,3 +1519,35 @@ bug with a failing-first regression test in `WinFormsReview2Tests` (12 tests, al
   wide-dash annotation test hit its time budget once.
 - **Verify:** all green (WinForms 82). Checked build skipped (core unchanged).
 - **Re-queued:** yes (12 bugs). This completes the second pass; the third pass starts with section 7.
+
+### Round 35 — 2026-10-25 — Documents & config, third pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 26 with 20 bugs, 6
+severe). **17 confirmed bugs, 2 severe**, each with a regression test in `DocumentsConfigReview3Tests` (17 tests; 16
+fail on the old code, the duration one only on .NET Framework).
+
+- **SettingsStore (severe):** get-only properties (`List<string> Recent { get; } = new()`, dictionaries, nested
+  objects) were saved but skipped on load, so the next save erased them. A type-info modifier now clears and refills
+  a get-only collection and populates a get-only object.
+- **ConfigBinder (severe):** a configured get-only scalar, and a section for a null get-only class property, were
+  dropped silently despite the doc's "never dropped silently"; both are errors now. Also errors now: a list given one
+  value ("Hosts=a,b") or a non-numeric index ("Hosts:first"), a section under an `object` property, and float/double
+  overflow ("1e400" was ∞ on net8 but an error on net48). A property of the class's own type (Node.Next) was skipped
+  by the cycle guard; it binds now, since each level needs a longer configured key.
+- **ConfigLayers:** TryGet/SourceOf rebuilt the whole merged view per call (20k keys × 2 layers: 43 s). Sources are
+  copied case-insensitively on Add (later changes to the dictionary aren't seen, now documented) and a lookup walks
+  the layers.
+- **EnvironmentVariables:** the longest duration ("922337203685477ms") threw OverflowException on .NET Framework
+  instead of parsing; ticks are computed directly.
+- **PdfWriter:** Wrap dropped leading spaces (Lines, Paragraph, cells, bullets); a table at a tiny font size
+  overflowed the lines-per-page count and put one line per page; a very thin image got a singular (zero) matrix.
+- **ReportBuilder:** ToPdf(fontSize: 1e308) failed inside Heading with ParamName "size"; it is checked up front. The
+  Markdown TOC indented by absolute level, so a TOC starting at level 3 became a code block; it nests by depth.
+- **MarkdownReport:** a list item containing a blank line split the list (continuation lines are now indented);
+  Bold/Italic with edge spaces rendered literal asterisks (spaces now go outside the markers); Bold("") gave "****" (a
+  thematic break) and Code("") two backticks; both give "".
+- **Not fixed:** env ParseBool takes y/n while the binder doesn't, and duration formats differ slightly; SettingsStore
+  ignores public fields (now documented); ToDocx of a corrupt PNG, DocxWriter.Image height cap, ImagePng's
+  InvalidDataException contract, a null value in a later ConfigLayers layer overriding a real one, "Infinity%" from
+  ReportTemplates, and SettingsStore's empty-file/invalid-UTF-8 handling (not reproduced or by design).
+- **Verify:** all green (core 2793). Checked build: the same 7 baseline failures.
+- **Re-queued:** yes (17 bugs, 2 severe).

@@ -33,7 +33,9 @@ namespace ToolBelt.Configuration
     /// indexes must run 0, 1, 2, ... without gaps. A get-only list property is filled in place.</item>
     /// <item>Numbers are invariant: "0,5" is an error, not 5.</item>
     /// <item>A configured key is never dropped silently: a type the binder doesn't handle (a dictionary, a list of
-    /// objects, <see cref="Uri"/>), a read-only property, or a setter that throws is reported as an error.</item>
+    /// objects, <see cref="Uri"/>), a read-only property, a list given one value ("Hosts=a,b") or a non-numeric index, or a
+    /// setter that throws is reported as an error.</item>
+    /// <item>A class may contain its own type (a fallback <c>Opts</c> inside <c>Opts</c>): each configured level is bound.</item>
     /// </list>
     /// </summary>
     public static class ConfigBinder
@@ -50,13 +52,13 @@ namespace ToolBelt.Configuration
 
             var result = new T();
             object boxed = result!;
-            BindInto(boxed, typeof(T), lookup, "", separator, new HashSet<Type> { typeof(T) }, errors);
+            BindInto(boxed, typeof(T), lookup, "", separator, errors);
             if (errors.Count > 0) throw new ConfigBindingException(errors);
             return (T)boxed;
         }
 
         private static void BindInto(object obj, Type type, Dictionary<string, string?> values, string prefix, string sep,
-            HashSet<Type> path, List<string> errors)
+            List<string> errors)
         {
             foreach (PropertyInfo prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
@@ -66,16 +68,23 @@ namespace ToolBelt.Configuration
 
                 if (IsScalar(pt))
                 {
-                    if (prop.CanWrite && values.TryGetValue(key, out string? raw))
+                    if (values.TryGetValue(key, out string? raw))
                     {
-                        if (TryConvertScalar(raw, pt, out object? value)) TrySet(prop, obj, value, key, errors);
+                        if (!prop.CanWrite) errors.Add($"'{key}': the property is read-only, so it cannot be bound.");
+                        else if (TryConvertScalar(raw, pt, out object? value)) TrySet(prop, obj, value, key, errors);
                         else errors.Add($"'{key}': cannot convert '{raw}' to {FriendlyName(pt)}.");
                     }
                 }
                 else if (TryGetElementType(pt, out Type elementType))
                 {
                     object? sequence = BindSequence(pt, elementType, values, key, sep, errors);
-                    if (sequence == null) continue;
+                    if (sequence == null)
+                    {
+                        // "Hosts=a,b": a list is not split from one value (EnvironmentVariables.GetList does that).
+                        if (values.TryGetValue(key, out string? whole) && !string.IsNullOrEmpty(whole))
+                            errors.Add($"'{key}': a list takes indexed keys ('{key}{sep}0', '{key}{sep}1', ...), not one value.");
+                        continue;
+                    }
                     if (prop.CanWrite) { TrySet(prop, obj, sequence, key, errors); continue; }
                     // A get-only list (List<string> Hosts { get; } = new()) is filled in place rather than skipped.
                     if (prop.CanRead && TryGet(prop, obj, key, errors, out object? existing))
@@ -99,15 +108,21 @@ namespace ToolBelt.Configuration
                     if (IsConfigured(values, key, sep))
                         errors.Add($"'{key}': {FriendlyName(pt)} is not a supported setting type (scalars, lists of scalars and classes are).");
                 }
-                else if (!path.Contains(pt) && HasSection(values, key + sep))
+                else if (HasSection(values, key + sep))
                 {
+                    // A type may contain itself (Opts.Fallback is an Opts): recursion still ends, because each level needs
+                    // a configured key one section longer.
                     // Only a section that is actually configured is bound: an untouched property keeps its default
                     // (an initializer's object, or null), and a type the binder can't construct is never instantiated.
                     object? target = null;
                     if (prop.CanRead && !TryGet(prop, obj, key, errors, out target)) continue;
                     if (target == null)
                     {
-                        if (!prop.CanWrite) continue;
+                        if (!prop.CanWrite)
+                        {
+                            errors.Add($"'{key}': the property is read-only and null, so its section cannot be bound.");
+                            continue;
+                        }
                         if (pt.IsAbstract || pt.GetConstructor(Type.EmptyTypes) == null)
                         {
                             errors.Add($"'{key}': {FriendlyName(pt)} has no public parameterless constructor, so its section cannot be bound.");
@@ -116,10 +131,7 @@ namespace ToolBelt.Configuration
                         try { target = Activator.CreateInstance(pt)!; }
                         catch (TargetInvocationException ex) { errors.Add($"'{key}': {(ex.InnerException ?? ex).Message}"); continue; }
                     }
-                    // Guard against a cyclic type reference on the current path (would recurse forever).
-                    path.Add(pt);
-                    BindInto(target, pt, values, key, sep, path, errors);
-                    path.Remove(pt);
+                    BindInto(target, pt, values, key, sep, errors);
                     if (prop.CanWrite) TrySet(prop, obj, target, key, errors);
                 }
                 else if (values.TryGetValue(key, out string? whole) && !string.IsNullOrEmpty(whole))
@@ -146,7 +158,7 @@ namespace ToolBelt.Configuration
 
         // A class with properties to bind into: not a delegate or a collection (a dictionary or a list of objects).
         private static bool IsBindableClass(Type type)
-            => type.IsClass && !typeof(Delegate).IsAssignableFrom(type) && !typeof(System.Collections.IEnumerable).IsAssignableFrom(type);
+            => type.IsClass && type != typeof(object) && !typeof(Delegate).IsAssignableFrom(type) && !typeof(System.Collections.IEnumerable).IsAssignableFrom(type);
 
         private static bool IsConfigured(Dictionary<string, string?> values, string key, string sep)
             => (values.TryGetValue(key, out string? v) && !string.IsNullOrEmpty(v)) || HasSection(values, key + sep);
@@ -178,7 +190,16 @@ namespace ToolBelt.Configuration
                 string index = k.Substring(itemPrefix.Length);
                 bool digits = true;
                 foreach (char ch in index) if (ch < '0' || ch > '9') { digits = false; break; }
-                if (!digits) continue;
+                int nested = index.IndexOf(sep, StringComparison.Ordinal);
+                string first = nested < 0 ? index : index.Substring(0, nested);
+                bool firstDigits = first.Length > 0;
+                foreach (char ch in first) if (ch < '0' || ch > '9') { firstDigits = false; break; }
+                if (!digits && firstDigits) continue;   // "Items:0:Name" is a list of objects, reported where its type is
+                if (!digits)
+                {
+                    errors.Add($"'{k}': list items are addressed by index ('{itemPrefix}0', '{itemPrefix}1', ...).");
+                    continue;
+                }
                 if (!int.TryParse(index, NumberStyles.None, CultureInfo.InvariantCulture, out int n) || n >= contiguous
                     || n.ToString(CultureInfo.InvariantCulture) != index)
                     errors.Add($"'{k}': list indexes must run 0, 1, 2, ... without gaps (found {contiguous} contiguous item(s)).");
@@ -195,6 +216,10 @@ namespace ToolBelt.Configuration
             foreach (object? item in array) add.Invoke(list, new[] { item });
             return list;
         }
+
+        // "1e400" overflows to ∞ on .NET Core but fails on .NET Framework: an error on both. "Infinity" itself is allowed.
+        private static bool Overflowed(string s, double v)
+            => double.IsInfinity(v) && s.IndexOf("Infinity", StringComparison.OrdinalIgnoreCase) < 0 && s.IndexOf('\u221E') < 0;
 
         private static Type Unwrap(Type type) => Nullable.GetUnderlyingType(type) ?? type;
 
@@ -249,12 +274,12 @@ namespace ToolBelt.Configuration
             // Floating point without AllowThousands: "0,5" (a decimal comma) is an error, not 5.
             if (t == typeof(double))
             {
-                if (double.TryParse(s, NumberStyles.Float, inv, out double d)) { value = d; return true; }
+                if (double.TryParse(s, NumberStyles.Float, inv, out double d) && !Overflowed(s, d)) { value = d; return true; }
                 return false;
             }
             if (t == typeof(float))
             {
-                if (float.TryParse(s, NumberStyles.Float, inv, out float fl)) { value = fl; return true; }
+                if (float.TryParse(s, NumberStyles.Float, inv, out float fl) && !Overflowed(s, fl)) { value = fl; return true; }
                 return false;
             }
             if (t == typeof(decimal))

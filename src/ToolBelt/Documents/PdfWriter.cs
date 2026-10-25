@@ -291,6 +291,10 @@ namespace ToolBelt.Documents
             dw = Math.Min(dw, UsableWidth);
             double dh = dw * height / width, maxH = _pageHeight - 2 * _margin;
             if (dh > maxH) { dw *= maxH / dh; dh = maxH; }
+            // A very thin image (1 × 2,000,000 px, or a 1e-9 pt width) would round to a zero, singular matrix: invisible,
+            // and some viewers complain. Keep each side at least 0.01 pt.
+            dw = Math.Max(dw, 0.01);
+            dh = Math.Max(dh, 0.01);
             if (_y - dh < _margin) NewPage();
 
             var img = new PdfImage { Width = width, Height = height, Rgb = new byte[width * height * 3] };
@@ -528,16 +532,22 @@ namespace ToolBelt.Documents
         {
             var lines = new List<string>();
             if (text.Length == 0) { lines.Add(""); return lines; }
-            var line = new StringBuilder();
+            // Leading spaces are kept (indented Lines output, aligned columns): they start the first line.
+            int indent = 0;
+            while (indent < text.Length && text[indent] == ' ') indent++;
+            var line = new StringBuilder(text, 0, indent, text.Length);
+            bool started = false;   // the line holds a word (not just the indent)
             int[]? table = Widths(bold);
-            foreach (var word in text.Split(' '))
+            foreach (var word in text.Substring(indent).Split(' '))
             {
                 string w = word;
                 // A word wider than the line is hard-split, in one pass over its characters (re-measuring the remaining
                 // tail for every piece made a long unbroken string, such as a base-64 blob, quadratic).
                 if (Measure(w, size, bold) > width && w.Length > 1)
                 {
-                    if (line.Length > 0) { lines.Add(line.ToString()); line.Clear(); }
+                    if (started) lines.Add(line.ToString());
+                    line.Clear();
+                    started = false;
                     int start = 0;
                     while (true)
                     {
@@ -556,9 +566,10 @@ namespace ToolBelt.Documents
                         start = end;
                     }
                 }
-                string candidate = line.Length == 0 ? w : line + " " + w;
-                if (line.Length == 0 || Measure(candidate, size, bold) <= width) { line.Clear(); line.Append(candidate); }
+                string candidate = started ? line + " " + w : line + w;
+                if (!started || Measure(candidate, size, bold) <= width) { line.Clear(); line.Append(candidate); }
                 else { lines.Add(line.ToString()); line.Clear(); line.Append(w); }
+                started = true;
             }
             if (line.Length > 0) lines.Add(line.ToString());
             return lines;
@@ -591,7 +602,7 @@ namespace ToolBelt.Documents
             }
             for (int done = 0; ;)
             {
-                int fit = (int)Math.Max(0, Math.Floor((_y - _margin - 2 * pad) / lead + 1e-9));
+                int fit = (int)Math.Max(0, Math.Min(int.MaxValue, Math.Floor((_y - _margin - 2 * pad) / lead + 1e-9)));
                 bool atTop = _y >= _pageHeight - _margin - 1;
                 if (fit == 0 && !atTop)
                 {

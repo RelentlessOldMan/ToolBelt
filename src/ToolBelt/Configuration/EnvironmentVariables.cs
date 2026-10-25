@@ -144,7 +144,10 @@ namespace ToolBelt.Configuration
                 if (unit == "s" && number.EndsWith("m", StringComparison.OrdinalIgnoreCase)) continue;   // "ms" handled first
                 if (!double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) || !(v >= 0) || double.IsInfinity(v)) return null;   // !(v >= 0) also rejects NaN
                 double ms = unit switch { "ms" => v, "s" => v * 1e3, "m" => v * 6e4, "h" => v * 3.6e6, _ => v * 8.64e7 };
-                return ms > TimeSpan.MaxValue.TotalMilliseconds ? (TimeSpan?)null : TimeSpan.FromMilliseconds(ms);
+                // Whole ticks, computed here: .NET Framework's FromMilliseconds rounds to whole ms (0.5ms became 0) and
+                // overflowed on the maximum itself.
+                double ticks = Math.Floor(ms * TimeSpan.TicksPerMillisecond);
+                return ticks >= 9.2233720368547758e18 ? (TimeSpan?)null : TimeSpan.FromTicks((long)ticks);
             }
             // Only a colon form ("00:05:00", "1.02:00:00"): a bare "30" would parse as 30 days.
             return s.IndexOf(':') >= 0 && TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out TimeSpan t) && t >= TimeSpan.Zero
