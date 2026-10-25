@@ -83,15 +83,26 @@ namespace ToolBelt.Threading
         {
             if (tasks is null) throw new ArgumentNullException(nameof(tasks));
             var all = new List<Task<TResult>>(tasks);
-            var pending = new List<Task<TResult>>(all);
-            while (pending.Count > 0)
+            if (all.Count == 0) return Array.Empty<TResult>();
+            // One continuation per task into a shared completion: WhenAny over the pending list each round was quadratic
+            // (40000 tasks took seconds).
+            var first = new TaskCompletionSource<Task<TResult>?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            int remaining = all.Count;
+            foreach (Task<TResult> task in all)
             {
-                Task<TResult> done = await Task.WhenAny(pending).ConfigureAwait(false);
+                if (task is null) throw new ArgumentException("Tasks must not be null.", nameof(tasks));
+                _ = task.ContinueWith(t =>
+                {
+                    if (t.IsFaulted || t.IsCanceled) first.TrySetResult(t);
+                    else if (Interlocked.Decrement(ref remaining) == 0) first.TrySetResult(null);
+                }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+            Task<TResult>? done = await first.Task.ConfigureAwait(false);
+            if (done != null)
+            {
                 if (done.IsFaulted)
                     throw done.Exception!.GetBaseException();
-                if (done.IsCanceled)
-                    throw new TaskCanceledException(done);
-                pending.Remove(done);
+                throw new TaskCanceledException(done);
             }
             var results = new TResult[all.Count];
             for (int i = 0; i < all.Count; i++)

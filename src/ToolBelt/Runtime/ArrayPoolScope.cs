@@ -80,13 +80,13 @@ namespace ToolBelt.Runtime
             get
             {
                 T[] array = Array;
-                if ((uint)index >= (uint)Length) throw new ArgumentOutOfRangeException(nameof(index));
+                if (unchecked((uint)index >= (uint)Length)) throw new ArgumentOutOfRangeException(nameof(index));
                 return array[index];
             }
             set
             {
                 T[] array = Array;
-                if ((uint)index >= (uint)Length) throw new ArgumentOutOfRangeException(nameof(index));
+                if (unchecked((uint)index >= (uint)Length)) throw new ArgumentOutOfRangeException(nameof(index));
                 array[index] = value;
             }
         }

@@ -71,15 +71,15 @@ namespace ToolBelt.Threading
         private sealed class Releaser : IDisposable
         {
             private readonly AsyncLock _owner;
-            private bool _released;
+            private int _released;
 
             public Releaser(AsyncLock owner) => _owner = owner;
 
             public void Dispose()
             {
-                if (_released)
-                    return; // idempotent — releasing twice would corrupt the semaphore count
-                _released = true;
+                // Idempotent, even for two threads at once: releasing twice would corrupt the semaphore count.
+                if (Interlocked.Exchange(ref _released, 1) == 1)
+                    return;
                 _owner.Release();
             }
         }

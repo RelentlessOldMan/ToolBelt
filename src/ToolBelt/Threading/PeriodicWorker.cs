@@ -20,9 +20,11 @@ namespace ToolBelt.Threading
         private readonly Action<Exception>? _onError;
         private readonly Func<TimeSpan, CancellationToken, Task> _delay;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
+        private readonly object _gate = new object();
         private Task? _loop;
         private int _started;
         private int _disposed;
+        [ThreadStatic] private static PeriodicWorker? t_reporting; // the worker whose onError this thread is running
 
         public PeriodicWorker(
             Func<CancellationToken, Task> work,
@@ -39,15 +41,22 @@ namespace ToolBelt.Threading
             _delay = delay ?? ((ts, ct) => Task.Delay(ts, ct));
         }
 
-        /// <summary>Starts the loop. Throws if already started.</summary>
+        /// <summary>Starts the loop. Throws if already started, or <see cref="ObjectDisposedException"/> once disposed.</summary>
         public void Start()
         {
-            if (Interlocked.Exchange(ref _started, 1) == 1)
-                throw new InvalidOperationException("The worker has already been started.");
-            // On the pool, not the caller's thread: a zero interval with synchronous work would otherwise never
-            // return, and work resuming on a UI context would deadlock Dispose called from that thread.
-            CancellationToken ct = _cts.Token;
-            _loop = Task.Run(() => RunAsync(ct));
+            // Under the gate with Dispose: a Dispose between starting the loop and publishing it neither waited for
+            // it nor stopped it before the token source was disposed.
+            lock (_gate)
+            {
+                if (Volatile.Read(ref _disposed) == 1)
+                    throw new ObjectDisposedException(nameof(PeriodicWorker));
+                if (Interlocked.Exchange(ref _started, 1) == 1)
+                    throw new InvalidOperationException("The worker has already been started.");
+                // On the pool, not the caller's thread: a zero interval with synchronous work would otherwise never
+                // return, and work resuming on a UI context would deadlock Dispose called from that thread.
+                CancellationToken ct = _cts.Token;
+                _loop = Task.Run(() => RunAsync(ct));
+            }
         }
 
         private async Task RunAsync(CancellationToken ct)
@@ -85,19 +94,31 @@ namespace ToolBelt.Threading
 
         private void Report(Exception ex)
         {
+            PeriodicWorker? outer = t_reporting;
+            t_reporting = this;
             try { _onError?.Invoke(ex); }
             catch { /* a throwing error sink must not kill the loop */ }
+            finally { t_reporting = outer; }
         }
 
         /// <summary>
         /// Stops the loop and waits for the in-flight iteration to finish. Do not call from within the work
-        /// callback itself — that would wait on the loop that is calling it.
+        /// callback itself — that would wait on the loop that is calling it. Called from the <c>onError</c> callback
+        /// it stops the loop without waiting, since the loop is the caller.
         /// </summary>
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
+            Task? loop;
+            lock (_gate)
+            {
+                if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
+                loop = _loop;
+            }
             _cts.Cancel();
-            try { _loop?.Wait(); }
+            // From onError the loop is this thread: waiting for it deadlocked. It stops once onError returns; the
+            // token source stays undisposed because the loop still reads its token.
+            if (ReferenceEquals(t_reporting, this)) return;
+            try { loop?.Wait(); }
             catch (AggregateException) { /* cancellation surfaces here; ignore */ }
             _cts.Dispose();
         }

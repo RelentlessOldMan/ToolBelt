@@ -905,6 +905,7 @@ tests/
       AsyncCountdownEventTests.cs
       ConcurrentPipelineTests.cs
       ConcurrencyReviewTests.cs (review round 10 regressions: process timeouts and callbacks, pipeline completion, worker loops, dispose races)
+      ConcurrencyReview2Tests.cs (second-pass regressions: backoff, breaker generations, clock steps, hedging, dispose from onError)
       KeyedLockTests.cs
       ParallelUtilsTests.cs
       PeriodicWorkerTests.cs

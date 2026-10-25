@@ -66,7 +66,12 @@ namespace ToolBelt.Process
         }
 
         public int ExitCode { get; }
+        /// <summary>
+        /// Standard output, captured line by line: each line ends in <see cref="Environment.NewLine"/>, whatever the
+        /// child wrote (\n, \r\n or none at the end), so this is text, not a byte-faithful copy.
+        /// </summary>
         public string StandardOutput { get; }
+        /// <summary>Standard error, captured line by line as for <see cref="StandardOutput"/>.</summary>
         public string StandardError { get; }
         public TimeSpan Elapsed { get; }
         public bool TimedOut { get; }
@@ -139,6 +144,8 @@ namespace ToolBelt.Process
         {
             options ??= new ProcessRunOptions();
             int timeoutMs = TimeoutMilliseconds(options.Timeout);
+            // Before starting: an already-cancelled token still launched the child, which then ran unobserved.
+            cancellationToken.ThrowIfCancellationRequested();
             var run = Start(fileName, arguments, options);
 
             bool exited = await CompletesWithin(run.Exited, timeoutMs, cancellationToken).ConfigureAwait(false);
@@ -237,7 +244,10 @@ namespace ToolBelt.Process
                 end.TrySetResult(true);
                 return;
             }
-            lock (buffer) buffer.AppendLine(line);
+            // Capture can fail too (OutOfMemoryException past the StringBuilder's 2 GB limit); escaping here would
+            // crash the host, so it is reported the same way.
+            try { lock (buffer) buffer.AppendLine(line); }
+            catch (Exception ex) { Interlocked.CompareExchange(ref run.CallbackError, ex, null); }
             if (callback is null) return;
             try { callback(line); }
             catch (Exception ex) { Interlocked.CompareExchange(ref run.CallbackError, ex, null); }

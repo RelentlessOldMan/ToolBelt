@@ -33,14 +33,19 @@ namespace ToolBelt.Threading
         /// <summary>
         /// Hedged request: starts <paramref name="attempt"/>, and if it hasn't succeeded after <paramref name="hedgeDelay"/>
         /// starts another, up to <paramref name="maxAttempts"/> in flight; returns the first success and cancels the rest.
-        /// Trims tail latency at the cost of occasional duplicate work. The attempt number (0-based) is passed in.
+        /// Trims tail latency at the cost of occasional duplicate work. The attempt number (0-based) is passed in. Hedges
+        /// start one <paramref name="hedgeDelay"/> apart whatever happens to the attempts in between; a delay of
+        /// <see cref="Timeout.InfiniteTimeSpan"/>, or one longer than <see cref="Task.Delay(TimeSpan)"/> accepts (about
+        /// 24.8 days), never hedges (a further attempt then starts only when every running one has failed).
         /// </summary>
         public static async Task<T> Hedged<T>(Func<int, CancellationToken, Task<T>> attempt, TimeSpan hedgeDelay, int maxAttempts = 2,
             CancellationToken cancellationToken = default)
         {
             if (attempt is null) throw new ArgumentNullException(nameof(attempt));
             if (maxAttempts < 1) throw new ArgumentOutOfRangeException(nameof(maxAttempts), maxAttempts, "Need at least one attempt.");
-            if (hedgeDelay < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(hedgeDelay), hedgeDelay, "Delay must not be negative.");
+            if (hedgeDelay < TimeSpan.Zero && hedgeDelay != Timeout.InfiniteTimeSpan)
+                throw new ArgumentOutOfRangeException(nameof(hedgeDelay), hedgeDelay, "Delay must not be negative (use Timeout.InfiniteTimeSpan to never hedge).");
+            bool hedges = hedgeDelay != Timeout.InfiniteTimeSpan && hedgeDelay.TotalMilliseconds <= int.MaxValue;
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var running = new List<Task<T>>();
             var failures = new List<Exception>();
@@ -48,13 +53,14 @@ namespace ToolBelt.Threading
             {
                 running.Add(Start(() => attempt(0, cts.Token)));
                 int started = 1;
+                // One timer per hedge, started with the attempt before it: a failure in between used to restart it.
+                Task? timer = null;
                 while (true)
                 {
                     var waitFor = new List<Task>(running);
-                    Task? timer = null;
-                    if (started < maxAttempts)
+                    if (started < maxAttempts && hedges)
                     {
-                        timer = Task.Delay(hedgeDelay, cts.Token);
+                        timer ??= Task.Delay(hedgeDelay, cts.Token);
                         waitFor.Add(timer);
                     }
                     if (waitFor.Count == 0) throw new AggregateException("Every attempt failed.", failures);
@@ -62,6 +68,7 @@ namespace ToolBelt.Threading
                     if (done == timer)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+                        timer = null;
                         int n = started++;
                         running.Add(Start(() => attempt(n, cts.Token)));
                         continue;
@@ -75,6 +82,7 @@ namespace ToolBelt.Threading
                     if (running.Count == 0)
                     {
                         // Nothing in flight: start the next hedge immediately rather than waiting out the delay.
+                        timer = null;
                         int n = started++;
                         running.Add(Start(() => attempt(n, cts.Token)));
                     }

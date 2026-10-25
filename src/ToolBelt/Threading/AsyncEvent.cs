@@ -33,13 +33,23 @@ namespace ToolBelt.Threading
             get { lock (_gate) return _handlers.Count; }
         }
 
-        /// <summary>Invokes handlers one at a time, in subscription order.</summary>
+        /// <summary>
+        /// Invokes handlers one at a time, in subscription order. Failures are collected and thrown together as an
+        /// <see cref="AggregateException"/>; a cancellation stops before the next handler, and is added to the
+        /// failures already collected (or thrown alone if there are none).
+        /// </summary>
         public async Task InvokeSequentialAsync(TArgs args, CancellationToken cancellationToken = default)
         {
             var exceptions = new List<Exception>();
             foreach (var handler in Snapshot())
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    // A bare OperationCanceledException discarded the failures of the handlers before it.
+                    if (exceptions.Count == 0) throw new OperationCanceledException(cancellationToken);
+                    exceptions.Add(new OperationCanceledException(cancellationToken));
+                    throw new AggregateException(exceptions);
+                }
                 try { await handler(args, cancellationToken).ConfigureAwait(false); }
                 catch (Exception ex) { exceptions.Add(ex); }
             }

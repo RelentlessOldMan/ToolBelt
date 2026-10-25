@@ -31,7 +31,9 @@ namespace ToolBelt.Threading
             using var throttle = new SemaphoreSlim(maxConcurrency);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var exceptions = new ConcurrentBag<Exception>();
-            var running = new List<Task>();
+            // Bodies in flight, plus one for the enumeration; a list of every started task grew with the source.
+            int inFlight = 1;
+            var allDone = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             try
             {
@@ -47,7 +49,8 @@ namespace ToolBelt.Threading
                     }
 
                     T captured = item;
-                    running.Add(Task.Run(async () =>
+                    Interlocked.Increment(ref inFlight);
+                    _ = Task.Run(async () =>
                     {
                         try
                         {
@@ -66,19 +69,22 @@ namespace ToolBelt.Threading
                         finally
                         {
                             throttle.Release();
+                            if (Interlocked.Decrement(ref inFlight) == 0) allDone.TrySetResult(true);
                         }
-                    }));
+                    });
                 }
             }
             catch
             {
                 // Enumerating the source threw: stop the started bodies and wait for them before rethrowing.
                 linked.Cancel();
-                await Task.WhenAll(running).ConfigureAwait(false);
+                if (Interlocked.Decrement(ref inFlight) == 0) allDone.TrySetResult(true);
+                await allDone.Task.ConfigureAwait(false);
                 throw;
             }
 
-            await Task.WhenAll(running).ConfigureAwait(false);
+            if (Interlocked.Decrement(ref inFlight) == 0) allDone.TrySetResult(true);
+            await allDone.Task.ConfigureAwait(false);
 
             if (!exceptions.IsEmpty)
                 throw new AggregateException(exceptions);

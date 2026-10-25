@@ -83,7 +83,7 @@ namespace ToolBelt.Threading
             private readonly KeyedLock<TKey> _owner;
             private readonly TKey _key;
             private readonly Entry _entry;
-            private bool _released;
+            private int _released;
 
             public Releaser(KeyedLock<TKey> owner, TKey key, Entry entry)
             {
@@ -94,9 +94,9 @@ namespace ToolBelt.Threading
 
             public void Dispose()
             {
-                if (_released)
+                // Interlocked: two threads disposing at once both released, double-decrementing the entry's count.
+                if (Interlocked.Exchange(ref _released, 1) == 1)
                     return;
-                _released = true;
                 _owner.Release(_key, _entry);
             }
         }

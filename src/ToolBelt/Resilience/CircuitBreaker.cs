@@ -28,8 +28,10 @@ namespace ToolBelt.Resilience
     /// for <c>resetTimeout</c>, then allows one trial call ("half-open"). A success closes it and resets
     /// the failure count; a failure while half-open reopens it and restarts the timer. While the trial runs,
     /// other calls are short-circuited. A call that started before the circuit opened and finishes later
-    /// doesn't change the state, and a cancellation the caller requested isn't counted as a failure. Time
-    /// is read through an injectable clock so tests are deterministic. Not thread-safe.
+    /// doesn't change the state, even after the circuit has closed again, and a cancellation the caller requested
+    /// isn't counted as a failure. Time is read through an injectable clock so tests are deterministic; if that clock
+    /// steps back while the circuit is open, the reset timeout restarts from the new time rather than waiting out
+    /// the jump. Not thread-safe.
     /// </summary>
     public sealed class CircuitBreaker
     {
@@ -41,6 +43,7 @@ namespace ToolBelt.Resilience
         private int _consecutiveFailures;
         private DateTimeOffset _openedAt;
         private bool _trialInFlight;
+        private int _generation; // bumped each time the circuit opens; a call counts only in the closed period it started in
 
         public CircuitBreaker(int failureThreshold, TimeSpan resetTimeout, Func<DateTimeOffset>? clock = null)
         {
@@ -76,6 +79,7 @@ namespace ToolBelt.Resilience
             if (_state == CircuitState.Open)
                 throw new CircuitOpenException();
             bool trial = _state == CircuitState.HalfOpen;
+            int generation = _generation;
             if (trial)
             {
                 if (_trialInFlight) throw new CircuitOpenException();
@@ -85,7 +89,7 @@ namespace ToolBelt.Resilience
             try
             {
                 T result = await operation(cancellationToken).ConfigureAwait(false);
-                OnSuccess(trial);
+                OnSuccess(trial, generation);
                 return result;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -94,7 +98,7 @@ namespace ToolBelt.Resilience
             }
             catch (Exception)
             {
-                OnFailure(_clock(), trial);
+                OnFailure(_clock(), trial, generation);
                 throw;
             }
             finally
@@ -116,28 +120,33 @@ namespace ToolBelt.Resilience
 
         private void ApplyElapsedTimeout(DateTimeOffset now)
         {
-            if (_state == CircuitState.Open && now - _openedAt >= _resetTimeout)
+            if (_state != CircuitState.Open) return;
+            if (now < _openedAt) _openedAt = now; // the clock stepped back: restart the timeout, don't wait out the jump
+            if (now - _openedAt >= _resetTimeout)
                 _state = CircuitState.HalfOpen;
         }
 
-        // Only the trial, or a call while closed, decides the state: a stale call that started before the
-        // circuit opened must not close it or restart the timer.
-        private void OnSuccess(bool trial)
+        // Only the trial, or a call that started in the current closed period, decides the state: a stale call that
+        // started before the circuit opened must not close it, restart the timer, or reopen it once it has re-closed.
+        private bool Stale(bool trial, int generation) => !trial && (_state != CircuitState.Closed || generation != _generation);
+
+        private void OnSuccess(bool trial, int generation)
         {
-            if (!trial && _state != CircuitState.Closed) return;
+            if (Stale(trial, generation)) return;
             _consecutiveFailures = 0;
             _state = CircuitState.Closed;
         }
 
-        private void OnFailure(DateTimeOffset now, bool trial)
+        private void OnFailure(DateTimeOffset now, bool trial, int generation)
         {
-            if (!trial && _state != CircuitState.Closed) return;
+            if (Stale(trial, generation)) return;
             _consecutiveFailures++;
             // A half-open trial that fails reopens immediately; otherwise open once the threshold is hit.
             if (trial || _consecutiveFailures >= _failureThreshold)
             {
                 _state = CircuitState.Open;
                 _openedAt = now;
+                _generation++;
             }
         }
     }

@@ -38,6 +38,7 @@ namespace ToolBelt.Threading
         private long _dropped;
         private int _completed;
         private int _disposed;
+        [ThreadStatic] private static object? t_reporting; // the pipeline whose onError this thread is running
 
         public ConcurrentPipeline(
             Func<T, CancellationToken, Task> consumer,
@@ -61,8 +62,9 @@ namespace ToolBelt.Threading
         /// <summary>
         /// Offers an item. Returns false if it was dropped (DropNewest on a full pipeline). For the Block
         /// policy this waits for space and always returns true. Throws <see cref="InvalidOperationException"/>
-        /// once <see cref="CompleteAsync"/> has been called, including for a producer still waiting for space;
-        /// an item for which this returned true is always processed (unless the pipeline is disposed).
+        /// once <see cref="CompleteAsync"/> has been called, including for a producer still waiting for space.
+        /// An item for which this returned true is processed unless the pipeline is disposed first, or, under
+        /// <see cref="PipelineOverflowPolicy.DropOldest"/>, a later item evicts it while it is still buffered.
         /// </summary>
         public bool TryEnqueue(T item)
         {
@@ -85,6 +87,7 @@ namespace ToolBelt.Threading
                 return true;
             }
 
+            bool evicted = false;
             lock (_gate)
             {
                 if (_completed == 1)
@@ -98,10 +101,12 @@ namespace ToolBelt.Threading
                     }
                     _queue.Dequeue(); // DropOldest
                     _dropped++;
+                    evicted = true;
                 }
                 _queue.Enqueue(item);
             }
-            _signal.Release();
+            // Replacing an item adds nothing to wake for: a release per eviction piled up one wake-up per drop.
+            if (!evicted) _signal.Release();
             return true;
         }
 
@@ -134,7 +139,11 @@ namespace ToolBelt.Threading
                     _space?.Release(); // the slot frees when the item leaves the buffer, as for the drop policies
                     try { await _consumer(item, ct).ConfigureAwait(false); }
                     catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
-                    catch (Exception ex) { Report(ex); }
+                    catch (Exception ex)
+                    {
+                        Report(ex);
+                        if (ct.IsCancellationRequested) return; // onError disposed the pipeline
+                    }
                 }
 
                 lock (_gate)
@@ -142,20 +151,27 @@ namespace ToolBelt.Threading
             }
         }
 
-        /// <summary>
-        /// Cancels processing and waits for the consumer to stop. Do not call from within the consumer
-        /// callback itself. For an orderly drain of buffered items, call <see cref="CompleteAsync"/> first.
-        /// </summary>
         private void Report(Exception ex)
         {
+            object? outer = t_reporting;
+            t_reporting = this;
             try { _onError?.Invoke(ex); }
             catch { /* a throwing error sink must not kill the consumer and strand blocked producers */ }
+            finally { t_reporting = outer; }
         }
 
+        /// <summary>
+        /// Cancels processing and waits for the consumer to stop. Do not call from within the consumer
+        /// callback itself. Called from the <c>onError</c> callback it cancels without waiting, since the consumer is
+        /// the caller. For an orderly drain of buffered items, call <see cref="CompleteAsync"/> first.
+        /// </summary>
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
             _cts.Cancel();
+            // From onError the consumer is this thread: waiting for it deadlocked. It stops when onError returns, and
+            // its cancellation source and semaphores are left to the collector (they hold no handles here).
+            if (ReferenceEquals(t_reporting, this)) return;
             try { _loop.Wait(); }
             catch (AggregateException) { /* cancellation */ }
             _cts.Dispose();

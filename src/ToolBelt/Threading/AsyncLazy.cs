@@ -9,8 +9,8 @@ namespace ToolBelt.Threading
     /// <summary>
     /// Lazily runs an asynchronous factory exactly once and caches the resulting task. Concurrent callers
     /// all observe the same in-flight (or completed) task, so the factory never runs twice. The result —
-    /// including a faulted outcome — is cached; the factory is not retried after a failure. Supports
-    /// <c>await lazy</c> directly.
+    /// including a faulted outcome — is cached; the factory is not retried after a failure. A factory that throws
+    /// before returning its task gives the same cached faulted task. Supports <c>await lazy</c> directly.
     /// </summary>
     public sealed class AsyncLazy<T>
     {
@@ -21,7 +21,12 @@ namespace ToolBelt.Threading
             if (factory is null)
                 throw new ArgumentNullException(nameof(factory));
             // ExecutionAndPublication guarantees the factory is invoked at most once across threads.
-            _lazy = new Lazy<Task<T>>(factory, LazyThreadSafetyMode.ExecutionAndPublication);
+            // A synchronous throw becomes the faulted task: Lazy rethrew it from Value instead.
+            _lazy = new Lazy<Task<T>>(() =>
+            {
+                try { return factory(); }
+                catch (Exception ex) { return Task.FromException<T>(ex); }
+            }, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
         /// <summary>The shared task producing the value; starts the factory on first access.</summary>

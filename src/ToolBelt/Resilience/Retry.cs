@@ -70,6 +70,8 @@ namespace ToolBelt.Resilience
         {
             Guard.Positive(attempt);
             Validate();
+            // A zero base stays zero: 0 · 2^1024 is NaN, which mapped to the cap (or to forever with no cap).
+            if (BaseDelay == TimeSpan.Zero) return TimeSpan.Zero;
             double baseMs = BaseDelay.TotalMilliseconds;
             double ms = Backoff switch
             {
@@ -85,7 +87,9 @@ namespace ToolBelt.Resilience
             TimeSpan cap = MaxDelay == Timeout.InfiniteTimeSpan ? TimeSpan.MaxValue : MaxDelay;
             if (double.IsNaN(ms) || ms >= cap.TotalMilliseconds)
                 return cap;
-            return TimeSpan.FromMilliseconds(ms);
+            // From ticks: FromMilliseconds rounds to whole milliseconds on .NET Framework (0.4 ms became 0).
+            double ticks = ms * TimeSpan.TicksPerMillisecond;
+            return ticks >= cap.Ticks ? cap : TimeSpan.FromTicks((long)ticks);
         }
     }
 

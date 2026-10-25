@@ -8,7 +8,8 @@ namespace ToolBelt.Resilience
     /// A token-bucket rate limiter. The bucket holds up to <c>capacity</c> tokens and refills
     /// continuously at <c>refillTokensPerSecond</c>. Each <see cref="TryAcquire"/> refills for the time
     /// elapsed since the last call, then consumes tokens if enough are available. Time is read through an
-    /// injectable clock so behavior is deterministic in tests. Not thread-safe.
+    /// injectable clock so behavior is deterministic in tests; if that clock steps back, refilling resumes from the
+    /// new time rather than after the clock passes the old one. Not thread-safe.
     /// </summary>
     public sealed class TokenBucketRateLimiter
     {
@@ -47,10 +48,15 @@ namespace ToolBelt.Resilience
             }
         }
 
-        /// <summary>Attempts to consume <paramref name="count"/> tokens. Returns false (consuming nothing) if too few are available.</summary>
+        /// <summary>
+        /// Attempts to consume <paramref name="count"/> tokens. Returns false (consuming nothing) if too few are available.
+        /// A count above the capacity throws <see cref="ArgumentOutOfRangeException"/>: the bucket can never hold that many.
+        /// </summary>
         public bool TryAcquire(int count = 1)
         {
             Guard.Positive(count);
+            if (count > _capacity)
+                throw new ArgumentOutOfRangeException(nameof(count), count, "Count exceeds the bucket's capacity; it could never be acquired.");
             Refill(_clock());
 
             if (_tokens >= count)
@@ -65,10 +71,9 @@ namespace ToolBelt.Resilience
         {
             double elapsedSeconds = (now - _lastRefill).TotalSeconds;
             if (elapsedSeconds > 0)
-            {
                 _tokens = Math.Min(_capacity, _tokens + elapsedSeconds * _refillPerSecond);
-                _lastRefill = now;
-            }
+            // Moved back too when the clock stepped back; kept, nothing refilled until it passed the old time again.
+            if (elapsedSeconds != 0) _lastRefill = now;
         }
     }
 }

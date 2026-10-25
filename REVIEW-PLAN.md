@@ -50,7 +50,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 1 | 27 / 27 | re-queue (5 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 1 | 45 / 45 | re-queue (6 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 1 | 28 / 28 | re-queue (6 severe) |
-| 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 1 | 40 / 40 | re-queue (7 severe) |
+| 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 2 | 25 / 65 | re-queue (1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 1 | 26 / 26 | re-queue (1 severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 1 | 32 / 32 | re-queue (3 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 1 | 39 / 39 | re-queue (4 severe) |
@@ -60,7 +60,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14 (done, round 20), 10, 15, 3, 8, 9, 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 10**
+5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15, 3, 8, 9, 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 15**
 
 ## Releases
 
@@ -89,6 +89,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.18.0 | 18 | Numerics core, second pass | 28 | (see tag) |
 | v0.19.0 | 19 | Charts, second pass | 28 | (see tag) |
 | v0.20.0 | 20 | Objects, functional, grids, graphs, intervals, second pass | 19 | (see tag) |
+| v0.21.0 | 21 | Concurrency, second pass | 25 | (see tag) |
 
 ## Round log
 
@@ -1010,3 +1011,37 @@ Reviewers: one for correctness and one for robustness, fresh to the section (re-
   equal by their public properties (by contract); grid `Dijkstra` negative cost (doc now says it throws when reached).
 - **Checked build:** the same 8 failures as round 19 (Net ×5, Guards, ArrayPoolScope, Palette); nothing new.
 - **Re-queued:** yes (19 bugs, 4 severe).
+
+### Round 21 — 2026-10-25 — Concurrency, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 10 with 7 severe).
+**25 confirmed bugs**, each with a failing-first regression test in `ConcurrencyReview2Tests` except where noted.
+
+- **Severe:** `RetryPolicy.DelayForAttempt` with a zero base and exponential backoff returned the cap from attempt 1025
+  on (0 · 2^1024 is NaN), or waited forever with an infinite cap. A zero base now stays zero.
+- **Moderate / minor:**
+  - `Retry` delays were rounded to whole milliseconds on .NET Framework (now built from ticks; by inspection).
+  - `CircuitBreaker`: a call started before the circuit opened could reopen it after it had re-closed (an open
+    generation is now tracked); a clock stepping back kept it open for the length of the jump.
+  - `Throttle` and `TokenBucketRateLimiter`: a clock stepping back refused or stopped refilling for the length of the
+    jump; `Throttle.TimeUntilNext` overflowed with a `MaxValue` interval; `TokenBucket.TryAcquire` with a count above
+    capacity starved forever (it now throws).
+  - `TaskExtensions.WhenAllOrFirstException` was quadratic (40000 tasks took 12 s).
+  - `TaskRace.Hedged` restarted the hedge timer on every failure, and rejected `Timeout.InfiniteTimeSpan` (and threw for
+    delays over 24.8 days); those now never hedge.
+  - `ProcessRunner.RunAsync` started the child for an already-cancelled token; an exception capturing output (2 GB
+    StringBuilder limit) escaped on the reader thread (by inspection).
+  - `WhichExe` skipped quoted PATH entries on Windows, and threw for a path `GetFullPath` rejects.
+  - `ParallelUtils.ForEachAsync` kept every started task alive until the end (25 MB for 300000 items).
+  - `ConcurrentPipeline`: DropOldest added a wake-up per eviction (100000 drops left 99999 pending); `Dispose` from
+    `onError` deadlocked.
+  - `PeriodicWorker`: `Dispose` from `onError` deadlocked; a `Start` racing `Dispose` could run the loop on a disposed
+    token source (by inspection).
+  - `AsyncLazy`: a factory throwing synchronously threw from `Value` instead of caching a faulted task.
+  - `AsyncEvent.InvokeSequentialAsync`: a cancellation discarded earlier handlers' failures.
+  - `AsyncLock` / `KeyedLock` releasers: two threads disposing at once both released (by inspection).
+  - `ArrayPoolScope` indexer overflowed under checked arithmetic (covered by the checked build).
+- **Declined / doc-only:** an `EnqueueAsync` for the Block policy (feature request); process output is captured as text
+  lines, not bytes (documented); `WhichExe` doesn't check the Unix exec bit or limit matches to PATHEXT; pipeline
+  `TryEnqueue` doc now says DropOldest can evict an accepted item, and the misplaced `Dispose` doc is back on `Dispose`.
+- **Checked build:** 7 failures (Net ×5, Guards, Palette); `ArrayPoolScope` is fixed; nothing new.
+- **Re-queued:** yes (25 bugs, 1 severe).

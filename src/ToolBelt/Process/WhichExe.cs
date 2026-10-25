@@ -25,12 +25,18 @@ namespace ToolBelt.Process
             // A name that already includes a directory is resolved directly.
             if (name.IndexOf(Path.DirectorySeparatorChar) >= 0 || name.IndexOf(Path.AltDirectorySeparatorChar) >= 0)
             {
-                return Resolve(Path.GetFullPath(name), tryAsIs, windows);
+                string full;
+                try { full = Path.GetFullPath(name); }
+                catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+                { return null; } // an invalid path names nothing (.NET Framework threw for "a\b|c")
+                return Resolve(full, tryAsIs, windows);
             }
 
             string pathVar = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-            foreach (string dir in pathVar.Split(Path.PathSeparator))
+            foreach (string entry in pathVar.Split(Path.PathSeparator))
             {
+                // Windows allows a quoted entry ("C:\Some Dir"), as cmd and CreateProcess do; quotes can't be in a name.
+                string dir = windows ? entry.Replace("\"", string.Empty) : entry;
                 if (dir.Length == 0) continue;
                 string candidate;
                 try { candidate = Path.Combine(dir, name); }

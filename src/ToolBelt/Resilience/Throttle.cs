@@ -6,8 +6,9 @@ namespace ToolBelt.Resilience
     /// <summary>
     /// A leading-edge throttle: <see cref="TryAcquire"/> succeeds at most once per <c>interval</c>. The
     /// first call always succeeds; subsequent calls succeed only once the interval has elapsed since the
-    /// last success. Time is read through an injectable clock so behavior is deterministic in tests. Not
-    /// thread-safe.
+    /// last success. Time is read through an injectable clock so behavior is deterministic in tests; if that clock
+    /// steps back, the interval restarts from the new time rather than refusing calls for the length of the jump.
+    /// Not thread-safe.
     /// </summary>
     public sealed class Throttle
     {
@@ -27,6 +28,7 @@ namespace ToolBelt.Resilience
         public bool TryAcquire()
         {
             var now = _clock();
+            if (_lastAcquired != null && now < _lastAcquired.Value) _lastAcquired = now; // the clock stepped back
             if (_lastAcquired is null || now - _lastAcquired.Value >= _interval)
             {
                 _lastAcquired = now;
@@ -43,6 +45,7 @@ namespace ToolBelt.Resilience
                 if (_lastAcquired is null)
                     return TimeSpan.Zero;
                 var elapsed = _clock() - _lastAcquired.Value;
+                if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero; // clock stepped back; MaxValue − negative overflowed
                 var remaining = _interval - elapsed;
                 return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
             }
