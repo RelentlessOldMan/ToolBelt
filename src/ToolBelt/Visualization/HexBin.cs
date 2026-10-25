@@ -118,6 +118,8 @@ namespace ToolBelt.Visualization
             if (points is null) throw new ArgumentNullException(nameof(points));
             var o = options ?? new HexBinOptions();
             if (o.Colormap is null) throw new ArgumentException("Colormap must not be null.", nameof(options));
+            // In pixels: ∞ and 1e-300 silently drew no hexes, and NaN failed naming "radius".
+            if (!(o.Radius >= 0.01) || o.Radius > 1e6) throw new ArgumentOutOfRangeException(nameof(options), "Radius must be in [0.01, 1e6] pixels.");
             var finite = points.Where(p => !double.IsNaN(p.X) && !double.IsNaN(p.Y) && !double.IsInfinity(p.X) && !double.IsInfinity(p.Y)).ToArray();
             double xmin = o.XMin ?? (finite.Length > 0 ? finite.Min(p => p.X) : 0), xmax = o.XMax ?? (finite.Length > 0 ? finite.Max(p => p.X) : 1);
             double ymin = o.YMin ?? (finite.Length > 0 ? finite.Min(p => p.Y) : 0), ymax = o.YMax ?? (finite.Length > 0 ? finite.Max(p => p.Y) : 1);

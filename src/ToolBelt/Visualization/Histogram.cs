@@ -65,14 +65,25 @@ namespace ToolBelt.Visualization
                 else if (double.IsInfinity(lo)) lo = hi - 1;
                 else hi = lo + 1;
             }
-            if (hi <= lo) { hi = lo + 0.5; lo -= 0.5; }                             // degenerate range
+            if (hi <= lo)
+            {
+                // One explicit bound at or past all the data stays, and the other side opens beyond it: centring moved
+                // min = 5 to 4.5 and counted 4.7 and 4.8, both below it.
+                if (min.HasValue && !max.HasValue) hi = Math.Min(double.MaxValue, lo + Math.Max(1, Math.Abs(lo) * 0.1));
+                else if (max.HasValue && !min.HasValue) lo = Math.Max(-double.MaxValue, hi - Math.Max(1, Math.Abs(hi) * 0.1));
+                else { hi = lo + 0.5; lo -= 0.5; }                                    // degenerate range
+            }
 
             // Scaled by bins first so ±1e308 ranges do not overflow.
             double width = hi / bins - lo / bins;
             var edges = new double[bins + 1];
             edges[0] = lo; // lo + 0·width was NaN for one bin over ±1e308 (width ∞)
+            // lo + span·i/bins puts decimal edges where expected (lo + i·width made the 0.3 edge 0.30000000000000004, so
+            // 0.3 fell in the bin below); i·width only when span·bins overflows (ranges near ±double.MaxValue).
+            double span = hi - lo;
+            bool exact = !double.IsInfinity(span * bins);
             for (int i = 1; i < bins; i++)
-                edges[i] = width > 0 ? lo + i * width : lo + (hi - lo) * i / bins; // a subnormal range: width underflowed to 0
+                edges[i] = exact ? lo + span * i / bins : lo + i * width;
             edges[bins] = hi;
 
             var counts = new int[bins];
@@ -99,6 +110,8 @@ namespace ToolBelt.Visualization
             var image = new ImageBuffer(width, height, options.Background);
 
             int m = options.Margin;
+            // A negative margin put the plot area outside the image (SetPixel threw "x", or int.MinValue overflowed).
+            if (m < 0) throw new ArgumentOutOfRangeException(nameof(options), m, "Margin must not be negative.");
             int left = m, right = width - 1 - m, top = m, bottom = height - 1 - m;
             if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.");
 

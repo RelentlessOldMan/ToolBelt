@@ -84,7 +84,9 @@ namespace ToolBelt.Visualization
                 values.Add(v);
             }
             var labels = new List<string>(values.Count);
-            foreach (double v in values) labels.Add(FormatLinear(v, step, decimals));
+            // One format for the whole axis, from its largest magnitude: per tick, 0..1.2e7 read 0|5000000|1E+7|1.5E+7.
+            double axisMag = values.Count == 0 ? 0 : Math.Max(Math.Abs(values[0]), Math.Abs(values[values.Count - 1]));
+            foreach (double v in values) labels.Add(FormatLinear(v, step, decimals, axisMag));
             return loose
                 ? new TickSet(values, labels, step, Math.Min(values[0], min), Math.Max(values[values.Count - 1], max))
                 : new TickSet(values, labels, step, min, max);
@@ -132,8 +134,15 @@ namespace ToolBelt.Visualization
         {
             Normalize(ref minSeconds, ref maxSeconds, maxTicks);
             double step = double.NaN;
-            foreach (double candidate in TimeSteps)
-                if (CountTicks(minSeconds, maxSeconds, candidate) <= maxTicks) { step = candidate; break; }
+            // As Linear: once the step reaches the largest magnitude no larger one has fewer ticks, so stop there
+            // (Time(−1, 1, 2) fell through to day-wide ticks).
+            double reach = Math.Max(Math.Abs(minSeconds), Math.Abs(maxSeconds));
+            // Below a second the table is the 1-2-5 decimal series, which Linear continues past its 1 ms end:
+            // [0.0001, 0.0002] got no tight ticks at all, and a loose [0, 0.001] axis.
+            double fine = Linear(minSeconds, maxSeconds, maxTicks, loose).Step;
+            if (fine < TimeSteps[0]) step = fine;
+            else foreach (double candidate in TimeSteps)
+                if (CountTicks(minSeconds, maxSeconds, candidate) <= maxTicks || candidate >= reach) { step = candidate; break; }
             if (double.IsNaN(step))
             {
                 // Beyond the table (multi-day spans): fall back to whole multiples of a day on a nice 1-2-5 scale.
@@ -251,9 +260,9 @@ namespace ToolBelt.Visualization
             return v == 0 ? 0 : v; // no negative zero
         }
 
-        private static string FormatLinear(double value, double step, int decimals)
+        private static string FormatLinear(double value, double step, int decimals, double axisMag)
         {
-            double mag = Math.Max(Math.Abs(value), step);
+            double mag = Math.Max(axisMag, step);
             if (mag >= 1e7 || step < 1e-5)
             {
                 if (value == 0) return "0";

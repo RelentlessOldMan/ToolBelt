@@ -155,14 +155,18 @@ namespace ToolBelt.Visualization
             // Capped like Width (the hatch steps across LaneHeight too: 1e17 never ended), and above the 2 × 3 px insets,
             // which made a negative rect height and drew 1 below 0.
             if (!(o.LaneHeight > 6) || o.LaneHeight > 1e6) throw new ArgumentOutOfRangeException(nameof(options), "LaneHeight must be in (6, 1e6].");
-            if (!(o.LaneGap >= 0) || double.IsInfinity(o.LaneGap)) throw new ArgumentOutOfRangeException(nameof(options), "LaneGap must be non-negative and finite.");
+            // Capped like LaneHeight: the lane sum overflowed (LaneGap = 1e308 with two signals).
+            if (!(o.LaneGap >= 0) || o.LaneGap > 1e6) throw new ArgumentOutOfRangeException(nameof(options), "LaneGap must be in [0, 1e6].");
+            if (o.Markers is null) // was a NullReferenceException
+                throw new ArgumentException("Markers must not be null.", nameof(options));
             double nameWidth = Math.Max(60, signals.Max(s => SvgUtils.EstimateTextWidth(s.Name, 12)) + 18);
             double left = nameWidth, right = 16, top = o.Title != null ? 40 : 16;
             double plotW = o.Width - left - right;
             if (plotW < 50) throw new ArgumentException("Width leaves no room for the diagram.");
             double lanesH = signals.Count * o.LaneHeight + (signals.Count - 1) * o.LaneGap;
             double axisY = top + lanesH + 8, height = axisY + 34;
-            double X(double t) => left + (Math.Max(t0, Math.Min(t1, t)) - t0) / (t1 - t0) * plotW;
+            // Halved: t1 − t0 overflowed to ∞ for finite times near ±double.MaxValue.
+            double X(double t) => left + (0.5 * Math.Max(t0, Math.Min(t1, t)) - 0.5 * t0) / (0.5 * t1 - 0.5 * t0) * plotW;
 
             var sb = new StringBuilder();
             sb.Append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"").Append(SvgUtils.Number(o.Width)).Append("\" height=\"").Append(SvgUtils.Number(height))
@@ -173,7 +177,7 @@ namespace ToolBelt.Visualization
                 sb.Append("<text x=\"").Append(SvgUtils.Number(left)).Append("\" y=\"22\" font-size=\"14\" font-weight=\"bold\">").Append(SvgUtils.EscapeText(o.Title)).Append("</text>\n");
 
             TickSet ticks = AxisTicks.Linear(t0, t1, maxTicks: Math.Max(2, (int)(plotW / 90)), loose: false);
-            var tickLabels = ticks.Values.Select(fmt).ToList();
+            var tickLabels = ticks.Values.Select(v => fmt(v) ?? "").ToList(); // a null label failed as "text"
             if (o.FormatTime is null)
             {
                 // Far from zero (e.g. epoch timestamps) neighbouring ticks rounded to the same label; then label the
@@ -300,6 +304,8 @@ namespace ToolBelt.Visualization
         /// <summary>Seconds with an SI prefix: 0.0015 → "1.5 ms", 2e-6 → "2 µs", 0 → "0".</summary>
         public static string FormatSeconds(double seconds)
         {
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds)) // gave "NaN ps" and "Infinity s"
+                throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "Seconds must be finite.");
             if (seconds == 0) return "0";
             double a = Math.Abs(seconds);
             (double scale, string unit) = a >= 1 ? (1, "s") : a >= 1e-3 ? (1e3, "ms") : a >= 1e-6 ? (1e6, "µs") : a >= 1e-9 ? (1e9, "ns") : (1e12, "ps");

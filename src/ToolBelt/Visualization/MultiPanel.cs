@@ -46,8 +46,12 @@ namespace ToolBelt.Visualization
         /// <summary>Same for y: one common range, labels only on the first panel of each row.</summary>
         public bool ShareY { get; set; }
 
+        /// <summary>The figure title's base size (it is drawn at 1.25×). Panels use their own options' FontSize.</summary>
         public double FontSize { get; set; } = 13;
+
+        /// <summary>The figure's default font (the title's). Panels use their own options' FontFamily.</summary>
         public string FontFamily { get; set; } = "sans-serif";
+
         public Rgba Background { get; set; } = Rgba.White;
     }
 
@@ -150,6 +154,9 @@ namespace ToolBelt.Visualization
             if (o.Columns < 1) throw new ArgumentOutOfRangeException("options", "Columns must be positive.");
             if (!(o.PanelWidth > 0) || !(o.PanelHeight > 0)) throw new ArgumentOutOfRangeException("options", "Panel size must be positive.");
             if (!(o.Gap >= 0) || double.IsInfinity(o.Gap)) throw new ArgumentOutOfRangeException("options", "Gap must be non-negative and finite.");
+            // As SvgChart: a null font failed inside SvgUtils as "text".
+            if (o.FontFamily is null) throw new ArgumentException("FontFamily must not be null.", "options");
+            if (!(o.FontSize > 0) || double.IsInfinity(o.FontSize)) throw new ArgumentOutOfRangeException("options", "FontSize must be positive and finite.");
             for (int i = 0; i < panels.Count; i++)
                 if (panels[i] is null) throw new ArgumentException($"Panel {i} is null.", nameof(panels));
 

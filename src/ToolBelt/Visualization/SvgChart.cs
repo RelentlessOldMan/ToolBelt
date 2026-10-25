@@ -145,6 +145,8 @@ namespace ToolBelt.Visualization
             if (!(o.Width > 0) || !(o.Height > 0)) throw new ArgumentOutOfRangeException("options", "Width and height must be positive.");
             if (!(o.FontSize > 0)) throw new ArgumentOutOfRangeException("options", "FontSize must be positive.");
             if (o.FontFamily is null) throw new ArgumentException("FontFamily must not be null.", "options");
+            if (o.MaxXTicks < 2 || o.MaxYTicks < 2) // failed inside AxisTicks as "maxTicks"
+                throw new ArgumentOutOfRangeException("options", "MaxXTicks and MaxYTicks must be at least 2.");
 
             // Data extents (finite values only; non-positive values cannot appear on a log axis).
             double? dxMin = null, dxMax = null, dyMin = null, dyMax = null;

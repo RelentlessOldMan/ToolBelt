@@ -44,9 +44,13 @@ namespace ToolBelt.Visualization
             // An infinite bound made the range ∞, which put every value on the bottom row.
             if (options.Min is double mn && !IsFinite(mn) || options.Max is double mx && !IsFinite(mx))
                 throw new ArgumentOutOfRangeException(nameof(options), "Min and Max must be finite.");
+            // Min ≥ Max drew the band on the centre row as if it were in range.
+            if (options.Min >= options.Max) throw new ArgumentOutOfRangeException(nameof(options), "Min must be below Max.");
 
             var image = new ImageBuffer(width, height, options.Background);
             int m = options.Margin;
+            // A negative margin put the plot area outside the image (SetPixel threw "x", or int.MinValue overflowed).
+            if (m < 0) throw new ArgumentOutOfRangeException(nameof(options), m, "Margin must not be negative.");
             int left = m, right = width - 1 - m, top = m, bottom = height - 1 - m;
             if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.");
             if (options.DrawFrame)
@@ -65,6 +69,7 @@ namespace ToolBelt.Visualization
                         if (options.Max is null && v > maxV) maxV = v;
                     }
             }
+            OpenPastLimit(ref minV, ref maxV, options.Min.HasValue, options.Max.HasValue);
             double range = maxV - minV;
             double MapX(int i) => n > 1 ? left + (double)i / (n - 1) * (right - left) : (left + right) / 2;
             double MapY(double v) => range > 0 ? bottom - Fraction(v, minV, maxV) * (bottom - top) : (top + bottom) / 2;
@@ -117,6 +122,15 @@ namespace ToolBelt.Visualization
         }
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        // One explicit limit past all the data (or with no data at all) opens the axis beyond it, as SvgChart's and
+        // HexBin's axes do: Min = 100 over data 0..10 drew a reversed 100..10 axis.
+        private static void OpenPastLimit(ref double lo, ref double hi, bool explicitMin, bool explicitMax)
+        {
+            if (explicitMin == explicitMax || lo < hi) return;
+            if (explicitMin) { hi = lo + Math.Max(1, Math.Abs(lo) * 0.1); if (double.IsInfinity(hi)) hi = double.MaxValue; }
+            else { lo = hi - Math.Max(1, Math.Abs(hi) * 0.1); if (double.IsInfinity(lo)) lo = -double.MaxValue; }
+        }
 
         // (v − min) / (max − min), halved when the span overflows (±1e308 data mapped everything to one row).
         private static double Fraction(double v, double min, double max)

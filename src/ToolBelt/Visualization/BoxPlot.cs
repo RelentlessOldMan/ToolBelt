@@ -112,11 +112,17 @@ namespace ToolBelt.Visualization
             if (datasets.Count == 0) throw new ArgumentException("Provide at least one dataset.", nameof(datasets));
             options ??= new BoxPlotOptions();
 
+            // NaN or ∞ limits, or Min ≥ Max, drew every box on the centre row as if it were in range.
+            if (options.Min is double mn && (double.IsNaN(mn) || double.IsInfinity(mn)) || options.Max is double mx && (double.IsNaN(mx) || double.IsInfinity(mx)))
+                throw new ArgumentOutOfRangeException(nameof(options), "Min and Max must be finite.");
+            if (options.Min >= options.Max) throw new ArgumentOutOfRangeException(nameof(options), "Min must be below Max.");
             var stats = new BoxStats[datasets.Count];
             for (int i = 0; i < datasets.Count; i++) stats[i] = Compute(datasets[i], options.WhiskerReach);
 
             var image = new ImageBuffer(width, height, options.Background);
             int m = options.Margin;
+            // A negative margin put the plot area outside the image (SetPixel threw "x", or int.MinValue overflowed).
+            if (m < 0) throw new ArgumentOutOfRangeException(nameof(options), m, "Margin must not be negative.");
             int left = m, right = width - 1 - m, top = m, bottom = height - 1 - m;
             if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.");
             if (options.DrawFrame)
@@ -133,6 +139,7 @@ namespace ToolBelt.Visualization
                         if (options.Max is null && v > maxV) maxV = v;
                     }
             }
+            OpenPastLimit(ref minV, ref maxV, options.Min.HasValue, options.Max.HasValue);
             double range = maxV - minV;
             int plotHeight = bottom - top;
             // Doubles, clipped when drawn: a value outside an explicit Min/Max overflowed the int cast.
@@ -175,6 +182,15 @@ namespace ToolBelt.Visualization
             return image;
         }
 
+        // One explicit limit past all the data (or with no data at all) opens the axis beyond it, as SvgChart's and
+        // HexBin's axes do: Min = 100 over data 0..10 drew a reversed 100..10 axis.
+        private static void OpenPastLimit(ref double lo, ref double hi, bool explicitMin, bool explicitMax)
+        {
+            if (explicitMin == explicitMax || lo < hi) return;
+            if (explicitMin) { hi = lo + Math.Max(1, Math.Abs(lo) * 0.1); if (double.IsInfinity(hi)) hi = double.MaxValue; }
+            else { lo = hi - Math.Max(1, Math.Abs(hi) * 0.1); if (double.IsInfinity(lo)) lo = -double.MaxValue; }
+        }
+
         // R-7 / Excel linear-interpolation percentile on already-sorted data.
         private static double Percentile(double[] sorted, double p)
         {
@@ -185,6 +201,7 @@ namespace ToolBelt.Visualization
             double a = sorted[lo], b = sorted[hi], f = rank - lo;
             // Weighted, not a + f·(b − a): the difference was ∞ − ∞ = NaN between infinities and overflowed for ±1e308.
             if (lo == hi || a == b) return a;
+            if (double.IsInfinity(a) && double.IsInfinity(b)) return f < 0.5 ? a : b; // −∞ to +∞ (was NaN), as Percentile
             return (1 - f) * a + f * b;
         }
     }

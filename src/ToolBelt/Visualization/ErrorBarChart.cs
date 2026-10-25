@@ -49,9 +49,14 @@ namespace ToolBelt.Visualization
             foreach (double? bound in new[] { options.MinX, options.MaxX, options.MinY, options.MaxY })
                 if (bound is double b && !IsFinite(b))
                     throw new ArgumentOutOfRangeException(nameof(options), "MinX, MaxX, MinY and MaxY must be finite.");
+            // A reversed or empty range drew everything on the centre line as if it were in range.
+            if (options.MinX >= options.MaxX || options.MinY >= options.MaxY)
+                throw new ArgumentOutOfRangeException(nameof(options), "MinX must be below MaxX and MinY below MaxY.");
 
             var image = new ImageBuffer(width, height, options.Background);
             int m = options.Margin;
+            // A negative margin put the plot area outside the image (SetPixel threw "x", or int.MinValue overflowed).
+            if (m < 0) throw new ArgumentOutOfRangeException(nameof(options), m, "Margin must not be negative.");
             int left = m, right = width - 1 - m, top = m, bottom = height - 1 - m;
             if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.");
             if (options.DrawFrame)
@@ -70,6 +75,8 @@ namespace ToolBelt.Visualization
                 if (options.MinY is null) minY = Math.Min(minY, y[i] - e);
                 if (options.MaxY is null) maxY = Math.Max(maxY, y[i] + e);
             }
+            OpenPastLimit(ref minX, ref maxX, options.MinX.HasValue, options.MaxX.HasValue);
+            OpenPastLimit(ref minY, ref maxY, options.MinY.HasValue, options.MaxY.HasValue);
             double rangeX = maxX - minX, rangeY = maxY - minY;
             double MapX(double v) => rangeX > 0 ? left + Fraction(v, minX, maxX) * (right - left) : (left + right) / 2;
             double MapY(double v) => rangeY > 0 ? bottom - Fraction(v, minY, maxY) * (bottom - top) : (top + bottom) / 2;
@@ -98,6 +105,15 @@ namespace ToolBelt.Visualization
         }
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        // One explicit limit past all the data (or with no data at all) opens the axis beyond it, as SvgChart's and
+        // HexBin's axes do: Min = 100 over data 0..10 drew a reversed 100..10 axis.
+        private static void OpenPastLimit(ref double lo, ref double hi, bool explicitMin, bool explicitMax)
+        {
+            if (explicitMin == explicitMax || lo < hi) return;
+            if (explicitMin) { hi = lo + Math.Max(1, Math.Abs(lo) * 0.1); if (double.IsInfinity(hi)) hi = double.MaxValue; }
+            else { lo = hi - Math.Max(1, Math.Abs(hi) * 0.1); if (double.IsInfinity(lo)) lo = -double.MaxValue; }
+        }
 
         // (v − min) / (max − min), halved when the span overflows (±1e308 data mapped everything to one edge).
         private static double Fraction(double v, double min, double max)

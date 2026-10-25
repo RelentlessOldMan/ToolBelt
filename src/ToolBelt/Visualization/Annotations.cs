@@ -422,7 +422,10 @@ namespace ToolBelt.Visualization
 
         private static Rgba Opaque(Rgba c) => new Rgba(c.R, c.G, c.B, 255);
 
-        private static string? DashArray(LineDash dash, double width) => dash switch
+        // The pattern is capped where 6 × width would overflow (width = 1e308 failed as "value"); it is still wider than any plot.
+        private static string? DashArray(LineDash dash, double width) => DashArrayOf(dash, Math.Min(width, 1e300));
+
+        private static string? DashArrayOf(LineDash dash, double width) => dash switch
         {
             LineDash.Dashed => SvgUtils.Number(6 * width) + " " + SvgUtils.Number(4 * width),
             LineDash.Dotted => SvgUtils.Number(width) + " " + SvgUtils.Number(2 * width),

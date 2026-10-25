@@ -130,9 +130,11 @@ namespace ToolBelt.Visualization
             var (vMin, vMax) = ValueRange(data, options);
             ImageBuffer cells = CellImage(data, options, vMin, vMax, options.CellSize);
             if (!options.RasterColorbar) return cells;
-            if (options.ColorbarWidth < 1) throw new ArgumentOutOfRangeException(nameof(options), "ColorbarWidth must be at least 1.");
-
             const int gutter = 4;
+            // The image width overflowed int (ColorbarWidth = int.MaxValue failed as "width").
+            if (options.ColorbarWidth < 1 || options.ColorbarWidth > int.MaxValue - gutter - cells.Width)
+                throw new ArgumentOutOfRangeException(nameof(options), "ColorbarWidth must be at least 1 and fit the image.");
+
             var image = new ImageBuffer(cells.Width + gutter + options.ColorbarWidth, cells.Height, options.Background);
             image.Blit(cells, 0, 0);
             image.Blit(Colorbar.Render(options.ColorbarWidth, cells.Height, options.Colormap), cells.Width + gutter, 0);
@@ -148,6 +150,9 @@ namespace ToolBelt.Visualization
         {
             options ??= new WaterfallOptions();
             if (data is null) throw new ArgumentNullException(nameof(data));
+            // NaN surfaced from AxisTicks as "min", and +∞ was silently dropped.
+            if (options.ValueMin is double vmn && (double.IsNaN(vmn) || double.IsInfinity(vmn)) || options.ValueMax is double vmx && (double.IsNaN(vmx) || double.IsInfinity(vmx)))
+                throw new ArgumentOutOfRangeException(nameof(options), "ValueMin and ValueMax must be finite.");
             double min = double.PositiveInfinity, max = double.NegativeInfinity;
             if (options.ValueMin is null || options.ValueMax is null)
                 foreach (double v in data)
@@ -304,7 +309,8 @@ namespace ToolBelt.Visualization
                 for (int i = 0; i < l.ValueTicks.Count; i++)
                 {
                     double v = l.ValueTicks.Values[i];
-                    double py = f.Bottom - (v - l.VMin) / range * f.Height;
+                    // Halved: the span of finite values near ±double.MaxValue overflowed to ∞ (0/∞, ∞/∞).
+                    double py = f.Bottom - (0.5 * v - 0.5 * l.VMin) / (0.5 * l.VMax - 0.5 * l.VMin) * f.Height;
                     Tick(sb, x + BarWidth, py, x + BarWidth + 4, py, axis);
                     Text(sb, x + BarWidth + 6, py + fs * 0.35, l.ValueTicks.Labels[i], "start", ink);
                 }
@@ -341,6 +347,11 @@ namespace ToolBelt.Visualization
                 throw new ArgumentOutOfRangeException("options", "TimeStep must be positive and finite.");
             if (double.IsNaN(o.FrequencyStart) || double.IsInfinity(o.FrequencyStart) || double.IsNaN(o.TimeStart) || double.IsInfinity(o.TimeStart))
                 throw new ArgumentOutOfRangeException("options", "FrequencyStart and TimeStart must be finite.");
+            // The axis ends, not just the steps: FrequencyStep = 1e308 overflowed the end to ∞ inside AxisTicks.
+            double fEnd = o.FrequencyStart + (data.GetLength(1) - 0.5) * o.FrequencyStep, tEnd = o.TimeStart + data.GetLength(0) * o.TimeStep;
+            if (double.IsInfinity(fEnd) || double.IsInfinity(o.FrequencyStart - o.FrequencyStep / 2) || double.IsInfinity(tEnd))
+                throw new ArgumentOutOfRangeException("options", "The frequency or time axis overflows; reduce the step or start.");
+            if (o.FontFamily is null) throw new ArgumentException("FontFamily must not be null.", "options");
         }
     }
 }

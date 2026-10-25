@@ -959,6 +959,7 @@ tests/
       LinePlotTests.cs
       ChartsReviewTests.cs  (review regressions: far out-of-range data clipped, non-finite values, overflow-safe ranges and ticks, option validation)
       ChartsReview2Tests.cs (second-pass regressions: subnormal and ±1e308 ranges, exact decimal ticks, one explicit limit past the data, bounded work)
+      ChartsReview3Tests.cs (third-pass regressions: sub-millisecond time ticks, one bound past the data, overflowing spans, option validation)
       DocsVizReviewRegressionTests.cs  (2026-10-05 review regressions: Documents and Visualization)
     Resilience/
       RetryTests.cs

@@ -62,6 +62,8 @@ namespace ToolBelt.Visualization
             var image = new ImageBuffer(width, height, options.Background);
 
             int m = options.Margin;
+            // A negative margin put the plot area outside the image (SetPixel threw "x", or int.MinValue overflowed).
+            if (m < 0) throw new ArgumentOutOfRangeException(nameof(options), m, "Margin must not be negative.");
             int left = m, right = width - 1 - m, top = m, bottom = height - 1 - m;
             if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.");
 
@@ -122,15 +124,28 @@ namespace ToolBelt.Visualization
             if (width < 1) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
             if (height < 1) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
             int m = options.Margin;
+            // A negative margin put the plot area outside the image (SetPixel threw "x", or int.MinValue overflowed).
+            if (m < 0) throw new ArgumentOutOfRangeException(nameof(options), m, "Margin must not be negative.");
             int left = m, right = width - 1 - m, top = m, bottom = height - 1 - m;
             if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.");
             Bounds(series, options, out double minX, out double maxX, out double minY, out double maxY);
+            OpenPastLimit(ref minX, ref maxX, options.MinX.HasValue, options.MaxX.HasValue);
+            OpenPastLimit(ref minY, ref maxY, options.MinY.HasValue, options.MaxY.HasValue);
             if (double.IsInfinity(minX) || double.IsInfinity(maxX)) { minX = 0; maxX = 1; }
             if (double.IsInfinity(minY) || double.IsInfinity(maxY)) { minY = 0; maxY = 1; }
             return new PlotFrame(left, top, right - left, bottom - top, minX, maxX, minY, maxY);
         }
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        // One explicit limit past all the data (or with no data at all) opens the axis beyond it, as SvgChart's and
+        // HexBin's axes do: Min = 100 over data 0..10 drew a reversed 100..10 axis.
+        private static void OpenPastLimit(ref double lo, ref double hi, bool explicitMin, bool explicitMax)
+        {
+            if (explicitMin == explicitMax || lo < hi) return;
+            if (explicitMin) { hi = lo + Math.Max(1, Math.Abs(lo) * 0.1); if (double.IsInfinity(hi)) hi = double.MaxValue; }
+            else { lo = hi - Math.Max(1, Math.Abs(hi) * 0.1); if (double.IsInfinity(lo)) lo = -double.MaxValue; }
+        }
 
         private static void CheckSeries(IReadOnlyList<Series> series)
         {

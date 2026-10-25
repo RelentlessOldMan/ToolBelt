@@ -45,7 +45,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 2 | 23 / 47 | re-queue (23 bugs, 2 severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 2 | 22 / 53 | re-queue (22 bugs) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 3 | 24 / 95 | re-queue (24 bugs, 2 severe) |
-| 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 2 | 28 / 61 | re-queue (5 severe) |
+| 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 3 | 21 / 82 | re-queue (21 bugs, 2 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 2 | 10 / 29 | re-queue (10 bugs) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 3 | 17 / 64 | re-queue (17 bugs, 2 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 2 | 22 / 67 | re-queue (22 bugs, 2 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5, 14, 2, 8, 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 5**
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14, 2, 8, 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 14**
 
 ## Releases
 
@@ -108,6 +108,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.34.0 | 34 | WinForms + tooling + docs, second pass | 12 | (see tag) |
 | v0.35.0 | 35 | Documents & config, third pass | 17 | (see tag) |
 | v0.36.0 | 36 | Numerics core, third pass | 24 | (see tag) |
+| v0.37.0 | 37 | Charts, third pass | 21 | (see tag) |
 
 ## Round log
 
@@ -1588,3 +1589,34 @@ failing on the old code).
 - **Verify:** all green (core 2810). One Windows test failed once in a verify run and passed on two reruns (unrelated
   to Numerics). Checked build: the same 7 baseline failures.
 - **Re-queued:** yes (24 bugs, 2 severe).
+
+### Round 37 — 2026-10-25 — Charts, third pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 19 with 28 bugs, 5
+severe). **21 confirmed bugs, 2 severe**, plus one doc fix, each with a regression test in `ChartsReview3Tests` (11
+tests, all failing on the old code).
+
+- **AxisTicks (severe):** time axes below a millisecond got no ticks: the step table stopped at 1 ms, so
+  Time(0.0001, 0.0002) had no tight ticks and a loose [0, 0.001] axis, and SvgChart and Waterfall time labels were lost.
+  Below a second the 1-2-5 linear steps continue the table. Also: one axis mixed plain and E-notation labels (the
+  format now follows the largest tick), and Time with two ticks across zero picked too coarse a step (Time(−1, 1, 2) now steps by 1 s).
+- **Histogram (severe):** one explicit bound past all the data was centred away (Bin({4.7, 4.8}, min: 5) moved min to
+  4.5 and counted both). The bound stays and the other side opens beyond it. Decimal edges were off by an ulp (0.3
+  fell in the bin below its own); edges are lo + span·i/bins when that cannot overflow.
+- **Raster charts:** one limit past the data (LinePlot MinY = 100 over 0..3, BoxPlot, BandChart, ErrorBarChart) drew
+  the data as if in range; the other side of the axis now opens past the limit. Reversed or empty explicit ranges in
+  BoxPlot, BandChart and ErrorBarChart, and NaN or ∞ BoxPlot limits, are rejected (LinePlot's reversed axes stay
+  allowed). A negative Margin put the plot outside the image in all five raster charts; it throws, naming options.
+- **Spans overflowing to ∞:** finite data near ±1e308 gave NaN coordinates in Waterfall lines, TimingDiagram, and
+  ScatterMatrix ticks, points and diagonal histograms (spans are halved); an Annotations line of width 1e308 overflowed
+  its SVG dash pattern (capped).
+- **Option validation, naming options:** ScatterMatrix CellSize, Gap, PointRadius, PointOpacity and Bins (int.MaxValue
+  ran out of memory); HexBin Radius (∞ and 1e-300 drew nothing); Waterfall ValueMin/ValueMax non-finite, axis ends
+  that overflow, and an overflowing ColorbarWidth; TimingDiagram LaneGap (capped at 1e6) and null Markers; SvgChart
+  MaxXTicks/MaxYTicks below 2; null FontFamily in Waterfall and MultiPanel (and MultiPanel FontSize).
+- **Smaller:** a ScatterMatrix null group label threw a bare NullReferenceException; a FormatTime returning null failed
+  as "text" (now an empty label); FormatSeconds of NaN or ∞ gave "NaN ps"/"Infinity s" (throws); BoxPlot quartiles of
+  [−∞, +∞] were NaN. The ScatterMatrix doc said "lower-triangle panels" (it draws every off-diagonal panel), and
+  MultiPanel's FontSize and FontFamily now say they style only the figure title.
+- **Not fixed:** time labels at ±1e308 seconds are very long (correct, just unwieldy).
+- **Verify:** all green (core 2821). Checked build: the same 7 baseline failures.
+- **Re-queued:** yes (21 bugs, 2 severe).

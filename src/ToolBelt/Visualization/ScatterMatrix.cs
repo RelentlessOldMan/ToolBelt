@@ -25,7 +25,7 @@ namespace ToolBelt.Visualization
 
         public IReadOnlyList<Rgba> Palette { get; set; } = Palettes.OkabeItoNoBlack;
 
-        /// <summary>Show Pearson r in each upper-triangle panel's corner.</summary>
+        /// <summary>Show Pearson r in the corner of every off-diagonal panel.</summary>
         public bool ShowCorrelation { get; set; } = true;
 
         public string? Title { get; set; }
@@ -51,7 +51,15 @@ namespace ToolBelt.Visualization
             if (columns.Any(c => c.Count != n)) throw new ArgumentException("All columns must have the same length.");
             var o = options ?? new ScatterMatrixOptions();
             if (o.Groups != null && o.Groups.Count != n) throw new ArgumentException("Groups must have one entry per row.");
-            if (o.Bins < 1) throw new ArgumentOutOfRangeException(nameof(options), "Bins must be positive.");
+            if (o.Groups != null && o.Groups.Any(g => g is null)) // threw from inside a dictionary as "key"
+                throw new ArgumentException("Groups must not contain null labels.", nameof(options));
+            // Checked here so a bad value names the option (they failed inside SvgUtils as "value" or "width"); Bins is
+            // capped as each diagonal panel allocates them (int.MaxValue ran out of memory).
+            if (o.Bins < 1 || o.Bins > 100_000) throw new ArgumentOutOfRangeException(nameof(options), "Bins must be in [1, 100000].");
+            if (!(o.CellSize > 0) || o.CellSize > 1e6) throw new ArgumentOutOfRangeException(nameof(options), "CellSize must be in (0, 1e6].");
+            if (!(o.Gap >= 0) || o.Gap > 1e6) throw new ArgumentOutOfRangeException(nameof(options), "Gap must be in [0, 1e6].");
+            if (!(o.PointRadius >= 0) || o.PointRadius > 1e6) throw new ArgumentOutOfRangeException(nameof(options), "PointRadius must be in [0, 1e6].");
+            if (!(o.PointOpacity >= 0 && o.PointOpacity <= 1)) throw new ArgumentOutOfRangeException(nameof(options), "PointOpacity must be in [0, 1].");
 
             var ticks = new TickSet[k];
             for (int v = 0; v < k; v++)
@@ -61,8 +69,9 @@ namespace ToolBelt.Visualization
                 if (hi <= lo) { lo -= 0.5; hi += 0.5; }
                 // Pad 5% and label only ticks strictly inside: "nice" outer ticks sit on the panel edges, where adjacent
                 // panels' labels collide and points are half-clipped by the frame.
-                double pad = (hi - lo) * 0.05;
-                ticks[v] = AxisTicks.Linear(lo - pad, hi + pad, maxTicks: 6, loose: false);
+                // Halved, and clamped: (hi − lo) overflowed to ∞ for finite columns spanning ±1e308.
+                double pad = 0.05 * hi - 0.05 * lo;
+                ticks[v] = AxisTicks.Linear(Math.Max(-double.MaxValue, lo - pad), Math.Min(double.MaxValue, hi + pad), maxTicks: 6, loose: false);
             }
             var groupNames = o.Groups?.Distinct().ToArray() ?? Array.Empty<string>();
             var groupIndex = groupNames.Select((g, i) => (g, i)).ToDictionary(t => t.g, t => t.i);
@@ -115,7 +124,7 @@ namespace ToolBelt.Visualization
                     if (row == k - 1)
                         for (int t = 0; t < xt.Count; t++)
                         {
-                            double px = x0 + (xt.Values[t] - xt.Min) / (xt.Max - xt.Min) * size;
+                            double px = x0 + (0.5 * xt.Values[t] - 0.5 * xt.Min) / (0.5 * xt.Max - 0.5 * xt.Min) * size; // halved: no ∞ span
                             sb.Append("<line x1=\"").Append(SvgUtils.Number(px)).Append("\" y1=\"").Append(SvgUtils.Number(y0 + size)).Append("\" x2=\"").Append(SvgUtils.Number(px))
                               .Append("\" y2=\"").Append(SvgUtils.Number(y0 + size + 4)).Append("\" stroke=\"#444\"/>\n<text x=\"").Append(SvgUtils.Number(px)).Append("\" y=\"")
                               .Append(SvgUtils.Number(y0 + size + 15)).Append("\" text-anchor=\"middle\">").Append(SvgUtils.EscapeText(xt.Labels[t])).Append("</text>\n");
@@ -125,7 +134,7 @@ namespace ToolBelt.Visualization
                         var yt = ticks[row];
                         for (int t = 0; t < yt.Count; t++)
                         {
-                            double py = y0 + size - (yt.Values[t] - yt.Min) / (yt.Max - yt.Min) * size;
+                            double py = y0 + size - (0.5 * yt.Values[t] - 0.5 * yt.Min) / (0.5 * yt.Max - 0.5 * yt.Min) * size;
                             sb.Append("<line x1=\"").Append(SvgUtils.Number(x0 - 4)).Append("\" y1=\"").Append(SvgUtils.Number(py)).Append("\" x2=\"").Append(SvgUtils.Number(x0))
                               .Append("\" y2=\"").Append(SvgUtils.Number(py)).Append("\" stroke=\"#444\"/>\n<text x=\"").Append(SvgUtils.Number(x0 - 6)).Append("\" y=\"")
                               .Append(SvgUtils.Number(py + 3.5)).Append("\" text-anchor=\"end\">").Append(SvgUtils.EscapeText(yt.Labels[t])).Append("</text>\n");
@@ -155,7 +164,7 @@ namespace ToolBelt.Visualization
             foreach (double v in values)
             {
                 if (!IsFinite(v)) continue;
-                int b = (int)((v - lo) / (hi - lo) * bins);
+                int b = (int)((0.5 * v - 0.5 * lo) / (0.5 * hi - 0.5 * lo) * bins);
                 counts[Math.Max(0, Math.Min(bins - 1, b))]++;
             }
             int max = Math.Max(1, counts.Max());
