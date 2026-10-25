@@ -21,7 +21,10 @@ fix the bugs → cut a release → move on to the next round. This file is the t
    - all test suites green;
    - both core TFMs build with 0 warnings;
    - the SciPy reference generators re-run if their outputs are touched;
-   - the README updated if the public API changed.
+   - the README updated if the public API changed;
+   - the section's files still pass their tests when the library is built with `CheckForOverflowUnderflow=true`
+     (drop-in users may have it on). Build in a scratch worktree with the property added to
+     `src/ToolBelt/ToolBelt.csproj` only, so test-side arithmetic stays unchecked.
 4. **Release.** Bump the version, commit (`Review round N: <section>`), push, tag `v0.N.0`, and create a GitHub
    release (`gh release create`) whose notes list the fixes.
 5. **Record.** Update the tracker table and the round log below, then start the next round.
@@ -43,8 +46,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 1 | 31 / 31 | re-queue (7 severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 1 | 43 / 43 | re-queue (8 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 1 | 33 / 33 | re-queue (8 severe) |
-| 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 0 | – / 0 | **next** |
-| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 0 | – / 0 | queued |
+| 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 1 | 19 / 19 | re-queue (3 severe) |
+| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 0 | – / 0 | **next** |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 0 | – / 0 | queued |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 0 | – / 0 | queued |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 0 | – / 0 | queued |
@@ -70,6 +73,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.3.0 | 3 | Statistics | 31 | (see tag) |
 | v0.4.0 | 4 | Numerics core | 43 | (see tag) |
 | v0.5.0 | 5 | Charts | 33 | (see tag) |
+| v0.6.0 | 6 | Binary formats & images | 19 | (see tag) |
 
 ## Round log
 
@@ -320,3 +324,44 @@ choice, 0 rejected.
   or nothing instead of `options`, `y2`, `changes`.
 - **Left by choice:** `BoxStats.Outliers` stays a public `double[]` (changing it breaks the API).
 - **Re-queued:** yes (8 severe, 33 bugs).
+
+### Round 6 — 2026-10-25 — Binary formats & images
+
+Reviewers: one for correctness (11 findings) and one for robustness (16), about 22 distinct issues after overlap.
+**19 confirmed bugs** (18 with a failing-first regression test in `BinaryImagesReviewTests`; the checked-arithmetic
+bug was confirmed with a checked build), 2 doc-only, 2 hardening items left, 0 rejected.
+
+- **Severe:**
+  - `VarInt.DecodeUnsigned` accepted a 10th byte with bits above bit 63 and silently dropped them (wrong value).
+  - `QuotedPrintable.Decode` cast each literal character to a byte, so 'Ł' (U+0141) became 'A'. Characters
+    outside ASCII now throw.
+  - The section broke when dropped into a project built with `CheckForOverflowUnderflow=true`: `Fnv1a`, `Crc16`,
+    `Base85`, `Bits.PopCount`, `EndianConverter.Write*`, `VarInt.EncodeSigned`, the PNG/BMP byte packing and
+    `ImageBuffer`'s `(uint)` bounds checks all threw `OverflowException`. Wrapping arithmetic is now `unchecked`.
+- **Moderate:**
+  - `PngReader`: a wide 16-bit image (40M × 1 RGBA16, under `MaxPixels`) wrapped `rowBytes` negative after
+    inflating; the size is now checked in long before any decompression.
+  - `Bmp.Encode` computed `w × 32` in int (negative stride for w ≥ 2^26); `PngWriter` computed the scanline buffer
+    size in int (wraps near the 2 GB limit, fixed by inspection — the test would need a 2 GB image).
+  - `SvgDocument` wrote NaN/∞ as "NaN"/"Infinity" and tiny negatives as "-0", accepted an infinite canvas, and
+    passed control characters and lone surrogates into the XML. It now matches `SvgUtils` (inlined, drop-in law).
+  - Segment range checks (`offset + count > length`) overflowed in `Crc32`, `Crc32Hasher`, `Crc16Hasher`,
+    `Adler32Hasher` and `EndianConverter`, so a huge count passed the check.
+  - `ImageBuffer.Blit(this, …)` with an offset smeared (read pixels it had already overwritten).
+- **Minor:**
+  - `Base32` ignored everything after the first '=' and, like `CrockfordBase32`, accepted lengths no encoder
+    produces (1, 3 or 6 symbols in the last group).
+  - `CrockfordBase32` folded case with `ToUpperInvariant`, so U+017F (long s) decoded as 'S'.
+  - `Base64Url` let `Convert` accept '+', '/' and whitespace.
+  - `QuotedPrintable` rejected transport padding after a soft-break '=' and kept trailing whitespace before a hard
+    line break (RFC 2045 says drop it).
+  - `SvgDocument.Text` threw NullReferenceException for a null fill, anchor or font family; `SvgUtils` transforms
+    and `StrokeAttributes` named every bad argument `value`.
+- **Doc-only:** `Crc16` said XMODEM (it is CCITT-FALSE / IBM-3740, check 0x29B1); `Base64Url` said it accepts
+  padding (it rejects it, and the tests assert that).
+- **Hardening left:** `Base58.Decode` is quadratic (1.3 s for 80k characters); `PngReader.MaxPixels` is a const and
+  a missing IEND is accepted.
+- **Cross-cutting (not this section):** a library-only checked build still fails 57 tests elsewhere — Grids (26),
+  Collections (13), Net (5), Numerics (4, including `DeterministicRandom`), Documents (2), Guards, Runtime and
+  Charts' `Palettes`. Each later round now runs the checked build for its own section (see the protocol).
+- **Re-queued:** yes (3 severe, 19 bugs).

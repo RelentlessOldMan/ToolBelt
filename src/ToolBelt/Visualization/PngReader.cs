@@ -48,7 +48,7 @@ namespace ToolBelt.Visualization
                 int length = Be32(data, pos);
                 if (length < 0 || pos + 12L + length > data.Length) throw new InvalidDataException("Truncated PNG chunk.");
                 string type = System.Text.Encoding.ASCII.GetString(data, pos + 4, 4);
-                if (Crc32(data, pos + 4, length + 4) != (uint)Be32(data, pos + 8 + length)) throw new InvalidDataException($"CRC mismatch in PNG chunk {type}.");
+                if (Crc32(data, pos + 4, length + 4) != unchecked((uint)Be32(data, pos + 8 + length))) throw new InvalidDataException($"CRC mismatch in PNG chunk {type}.");
                 int body = pos + 8;
                 switch (type)
                 {
@@ -112,6 +112,9 @@ namespace ToolBelt.Visualization
             int bitsPerPixel = channels * bitDepth;
             long expected = 0;
             foreach (var p in passes) if (p.W > 0 && p.H > 0) expected += (long)p.H * (1 + ((long)p.W * bitsPerPixel + 7) / 8);
+            // A row of a wide 16-bit RGBA image (W × 64 bits) overflows int long before MaxPixels does.
+            if ((long)width * bitsPerPixel + 7 > int.MaxValue || expected > int.MaxValue)
+                throw new InvalidDataException($"PNG image {width}x{height} is too large.");
             byte[] raw = Inflate(idat.ToArray(), expected);
 
             var image = new ImageBuffer(width, height);
@@ -141,24 +144,27 @@ namespace ToolBelt.Visualization
 
         private static void Unfilter(byte filter, byte[] cur, byte[] prev, int bpp)
         {
-            int n = cur.Length;
-            switch (filter)
+            unchecked
             {
-                case 0: return;
-                case 1: for (int i = bpp; i < n; i++) cur[i] += cur[i - bpp]; return;
-                case 2: for (int i = 0; i < n; i++) cur[i] += prev[i]; return;
-                case 3:
-                    for (int i = 0; i < n; i++) cur[i] += (byte)(((i >= bpp ? cur[i - bpp] : 0) + prev[i]) >> 1);
-                    return;
-                case 4:
-                    for (int i = 0; i < n; i++)
-                    {
-                        int a = i >= bpp ? cur[i - bpp] : 0, b = prev[i], c = i >= bpp ? prev[i - bpp] : 0;
-                        int pa = Math.Abs(b - c), pb = Math.Abs(a - c), pc = Math.Abs(a + b - 2 * c);
-                        cur[i] += (byte)(pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
-                    }
-                    return;
-                default: throw new InvalidDataException($"Bad PNG filter type {filter}.");
+                int n = cur.Length;
+                switch (filter)
+                {
+                    case 0: return;
+                    case 1: for (int i = bpp; i < n; i++) cur[i] += cur[i - bpp]; return;
+                    case 2: for (int i = 0; i < n; i++) cur[i] += prev[i]; return;
+                    case 3:
+                        for (int i = 0; i < n; i++) cur[i] += (byte)(((i >= bpp ? cur[i - bpp] : 0) + prev[i]) >> 1);
+                        return;
+                    case 4:
+                        for (int i = 0; i < n; i++)
+                        {
+                            int a = i >= bpp ? cur[i - bpp] : 0, b = prev[i], c = i >= bpp ? prev[i - bpp] : 0;
+                            int pa = Math.Abs(b - c), pb = Math.Abs(a - c), pc = Math.Abs(a + b - 2 * c);
+                            cur[i] += (byte)(pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+                        }
+                        return;
+                    default: throw new InvalidDataException($"Bad PNG filter type {filter}.");
+                }
             }
         }
 
@@ -218,7 +224,7 @@ namespace ToolBelt.Visualization
             if ((flg & 0x20) != 0) throw new InvalidDataException("Preset zlib dictionaries are not allowed in PNG.");
             if (expected > int.MaxValue) throw new InvalidDataException("PNG image too large.");
             byte[] output = InflateExactly(new DeflateStream(new MemoryStream(zlib, 2, zlib.Length - 6), CompressionMode.Decompress), (int)expected);
-            uint adler = (uint)Be32(zlib, zlib.Length - 4);
+            uint adler = unchecked((uint)Be32(zlib, zlib.Length - 4));
             if (Adler32(output) != adler) throw new InvalidDataException("zlib checksum mismatch in PNG data.");
             return output;
         }
@@ -242,7 +248,7 @@ namespace ToolBelt.Visualization
             }
         }
 
-        private static int Be32(byte[] b, int i) => (b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3];
+        private static int Be32(byte[] b, int i) => unchecked((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]);
 
         private static readonly uint[] CrcTable = BuildCrcTable();
 

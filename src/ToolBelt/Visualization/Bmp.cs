@@ -17,11 +17,13 @@ namespace ToolBelt.Visualization
             if (image is null) throw new ArgumentNullException(nameof(image));
             int w = image.Width, h = image.Height;
             int bpp = includeAlpha ? 32 : 24;
-            int stride = (w * bpp / 8 + 3) & ~3;
+            // In long: w × 32 wrapped int for wide images, giving a negative stride.
+            long wideStride = ((long)w * bpp / 8 + 3) & ~3L;
             int headerSize = includeAlpha ? 108 : 40;                       // BITMAPV4HEADER : BITMAPINFOHEADER
             int offset = 14 + headerSize;
-            long size = offset + (long)stride * h;
+            long size = offset + wideStride * h;
             if (size > int.MaxValue) throw new ArgumentException("Image too large for BMP.", nameof(image));
+            int stride = (int)wideStride;
             var data = new byte[size];
 
             // BITMAPFILEHEADER
@@ -86,9 +88,9 @@ namespace ToolBelt.Visualization
             if (bpp == 32 && compression == 3)
             {
                 if (data.Length < 66 || (headerSize >= 56 && data.Length < 70)) throw new InvalidDataException("Truncated BMP channel masks.");
-                uint r = (uint)Le32(data, 54), g = (uint)Le32(data, 58), b = (uint)Le32(data, 62);
+                uint r = unchecked((uint)Le32(data, 54)), g = unchecked((uint)Le32(data, 58)), b = unchecked((uint)Le32(data, 62));
                 if (r != 0x00FF0000 || g != 0x0000FF00 || b != 0x000000FF) throw new InvalidDataException("Unsupported BMP channel masks.");
-                hasAlpha = headerSize >= 56 && (uint)Le32(data, 66) == 0xFF000000;
+                hasAlpha = headerSize >= 56 && unchecked((uint)Le32(data, 66)) == 0xFF000000;
             }
             else if (bpp == 32) hasAlpha = false;                            // BI_RGB 32-bit: the 4th byte is unused by spec
 
@@ -132,9 +134,9 @@ namespace ToolBelt.Visualization
 
         public static ImageBuffer Load(string path) => Decode(File.ReadAllBytes(path ?? throw new ArgumentNullException(nameof(path))));
 
-        private static void Le32(byte[] b, int i, int v) { b[i] = (byte)v; b[i + 1] = (byte)(v >> 8); b[i + 2] = (byte)(v >> 16); b[i + 3] = (byte)(v >> 24); }
-        private static void Le16(byte[] b, int i, int v) { b[i] = (byte)v; b[i + 1] = (byte)(v >> 8); }
-        private static int Le32(byte[] b, int i) => b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24);
+        private static void Le32(byte[] b, int i, int v) { unchecked { b[i] = (byte)v; b[i + 1] = (byte)(v >> 8); b[i + 2] = (byte)(v >> 16); b[i + 3] = (byte)(v >> 24); } }
+        private static void Le16(byte[] b, int i, int v) { unchecked { b[i] = (byte)v; b[i + 1] = (byte)(v >> 8); } }
+        private static int Le32(byte[] b, int i) => unchecked(b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24));
         private static int Le16(byte[] b, int i) => b[i] | (b[i + 1] << 8);
     }
 }

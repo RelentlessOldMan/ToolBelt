@@ -40,6 +40,9 @@ namespace ToolBelt.Binary
                 if (i >= data.Length)
                     throw new FormatException("Truncated LEB128: ran out of bytes before the terminator.");
                 byte b = data[i++];
+                // The 10th byte holds only bit 63: anything more used to be shifted out silently (wrong value).
+                if (shift == 63 && (b & 0x7E) != 0)
+                    throw new FormatException("LEB128 value is too large for a 64-bit integer.");
                 result |= (ulong)(b & 0x7F) << shift;
                 if ((b & 0x80) == 0)
                     break;
@@ -54,7 +57,7 @@ namespace ToolBelt.Binary
         /// <summary>Encodes a signed value using ZigZag mapping followed by LEB128.</summary>
         public static byte[] EncodeSigned(long value)
         {
-            ulong zigzag = (ulong)((value << 1) ^ (value >> 63));
+            ulong zigzag = unchecked((ulong)((value << 1) ^ (value >> 63)));
             return EncodeUnsigned(zigzag);
         }
 
@@ -62,7 +65,7 @@ namespace ToolBelt.Binary
         public static long DecodeSigned(byte[] data, out int bytesRead)
         {
             ulong zigzag = DecodeUnsigned(data, out bytesRead);
-            return (long)(zigzag >> 1) ^ -(long)(zigzag & 1);
+            return unchecked((long)(zigzag >> 1) ^ -(long)(zigzag & 1));
         }
     }
 }

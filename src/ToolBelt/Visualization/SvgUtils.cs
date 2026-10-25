@@ -33,10 +33,13 @@ namespace ToolBelt.Visualization
         /// negative zero. Throws for NaN or infinity, which SVG cannot represent — a non-finite coordinate is
         /// always a bug upstream, so it fails here rather than producing an unrenderable document.
         /// </summary>
-        public static string Number(double value)
+        public static string Number(double value) => Number(value, nameof(value));
+
+        // Same, naming the caller's argument in the exception.
+        internal static string Number(double value, string paramName)
         {
             if (double.IsNaN(value) || double.IsInfinity(value))
-                throw new ArgumentOutOfRangeException(nameof(value), value, "SVG numbers must be finite.");
+                throw new ArgumentOutOfRangeException(paramName, value, "SVG numbers must be finite.");
             string s = value.ToString("0.######", CultureInfo.InvariantCulture);
             return s == "-0" ? "0" : s;
         }
@@ -71,7 +74,7 @@ namespace ToolBelt.Visualization
             if (stroke is null) return string.Empty;
             Rgba c = stroke.Value;
             var sb = new StringBuilder();
-            sb.Append("stroke=\"").Append(Color(c)).Append("\" stroke-width=\"").Append(Number(width)).Append('"');
+            sb.Append("stroke=\"").Append(Color(c)).Append("\" stroke-width=\"").Append(Number(width, nameof(width))).Append('"');
             if (c.A != 255) sb.Append(" stroke-opacity=\"").Append(Opacity(c)).Append('"');
             if (!string.IsNullOrEmpty(dashArray)) sb.Append(" stroke-dasharray=\"").Append(EscapeAttribute(dashArray!)).Append('"');
             return sb.ToString();
@@ -79,18 +82,19 @@ namespace ToolBelt.Visualization
 
         // ---------- transforms ----------
 
-        public static string Translate(double x, double y) => "translate(" + Number(x) + " " + Number(y) + ")";
+        public static string Translate(double x, double y) => "translate(" + Number(x, nameof(x)) + " " + Number(y, nameof(y)) + ")";
 
-        public static string Scale(double sx, double sy) => "scale(" + Number(sx) + " " + Number(sy) + ")";
+        public static string Scale(double sx, double sy) => "scale(" + Number(sx, nameof(sx)) + " " + Number(sy, nameof(sy)) + ")";
 
         /// <summary>Rotation in degrees, optionally about (cx, cy).</summary>
         public static string Rotate(double degrees, double cx = 0, double cy = 0)
             => cx == 0 && cy == 0
-                ? "rotate(" + Number(degrees) + ")"
-                : "rotate(" + Number(degrees) + " " + Number(cx) + " " + Number(cy) + ")";
+                ? "rotate(" + Number(degrees, nameof(degrees)) + ")"
+                : "rotate(" + Number(degrees, nameof(degrees)) + " " + Number(cx, nameof(cx)) + " " + Number(cy, nameof(cy)) + ")";
 
         public static string Matrix(double a, double b, double c, double d, double e, double f)
-            => "matrix(" + Number(a) + " " + Number(b) + " " + Number(c) + " " + Number(d) + " " + Number(e) + " " + Number(f) + ")";
+            => "matrix(" + Number(a, nameof(a)) + " " + Number(b, nameof(b)) + " " + Number(c, nameof(c)) + " "
+               + Number(d, nameof(d)) + " " + Number(e, nameof(e)) + " " + Number(f, nameof(f)) + ")";
 
         /// <summary>Joins transforms; SVG applies them right-to-left (the last listed acts first).</summary>
         public static string Combine(params string[] transforms)

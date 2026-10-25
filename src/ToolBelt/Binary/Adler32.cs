@@ -55,7 +55,7 @@ namespace ToolBelt.Binary
         {
             if (data is null)
                 throw new ArgumentNullException(nameof(data));
-            if (offset < 0 || count < 0 || offset + count > data.Length)
+            if (offset < 0 || count < 0 || count > data.Length - offset)
                 throw new ArgumentOutOfRangeException(nameof(count), "The segment lies outside the array.");
 
             for (int i = offset; i < offset + count; i++)

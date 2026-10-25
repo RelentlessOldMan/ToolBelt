@@ -8,7 +8,8 @@ namespace ToolBelt.Binary
     /// <summary>
     /// RFC 4648 Base32 encoding and decoding (the standard <c>A–Z 2–7</c> alphabet). Encoding pads to a
     /// multiple of eight characters with <c>'='</c> by default. Decoding is case-insensitive, tolerates
-    /// padding and interior whitespace, and rejects any other character.
+    /// padding and interior whitespace, and rejects any other character, data after padding, and lengths
+    /// no encoder can produce (1, 3 or 6 symbols in the final group).
     /// </summary>
     public static class Base32
     {
@@ -65,13 +66,20 @@ namespace ToolBelt.Binary
             var bytes = new List<byte>(text.Length * 5 / 8 + 1);
             int buffer = 0;
             int bits = 0;
+            int symbols = 0;
+            bool padded = false;
 
             foreach (char c in text)
             {
-                if (c == '=')
-                    break; // padding: only ever trails, so stop
                 if (char.IsWhiteSpace(c))
                     continue;
+                if (c == '=')
+                {
+                    padded = true; // padding only ever trails
+                    continue;
+                }
+                if (padded)
+                    throw new FormatException("Base32 data after '=' padding.");
 
                 int value = c < Reverse.Length ? Reverse[c] : -1;
                 if (value < 0)
@@ -79,6 +87,7 @@ namespace ToolBelt.Binary
 
                 buffer = (buffer << 5) | value;
                 bits += 5;
+                symbols++;
                 if (bits >= 8)
                 {
                     bits -= 8;
@@ -86,6 +95,9 @@ namespace ToolBelt.Binary
                 }
             }
 
+            int tail = symbols % 8;
+            if (tail == 1 || tail == 3 || tail == 6)
+                throw new FormatException($"Invalid Base32 length ({symbols} symbols).");
             return bytes.ToArray();
         }
 

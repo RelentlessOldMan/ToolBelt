@@ -11,19 +11,25 @@ namespace ToolBelt.Binary
         /// <summary>Number of set bits.</summary>
         public static int PopCount(uint x)
         {
-            x -= (x >> 1) & 0x55555555u;
-            x = (x & 0x33333333u) + ((x >> 2) & 0x33333333u);
-            x = (x + (x >> 4)) & 0x0F0F0F0Fu;
-            return (int)((x * 0x01010101u) >> 24);
+            unchecked
+            {
+                x -= (x >> 1) & 0x55555555u;
+                x = (x & 0x33333333u) + ((x >> 2) & 0x33333333u);
+                x = (x + (x >> 4)) & 0x0F0F0F0Fu;
+                return (int)((x * 0x01010101u) >> 24);
+            }
         }
 
         /// <summary>Number of set bits.</summary>
         public static int PopCount(ulong x)
         {
-            x -= (x >> 1) & 0x5555555555555555UL;
-            x = (x & 0x3333333333333333UL) + ((x >> 2) & 0x3333333333333333UL);
-            x = (x + (x >> 4)) & 0x0F0F0F0F0F0F0F0FUL;
-            return (int)((x * 0x0101010101010101UL) >> 56);
+            unchecked
+            {
+                x -= (x >> 1) & 0x5555555555555555UL;
+                x = (x & 0x3333333333333333UL) + ((x >> 2) & 0x3333333333333333UL);
+                x = (x + (x >> 4)) & 0x0F0F0F0F0F0F0F0FUL;
+                return (int)((x * 0x0101010101010101UL) >> 56);
+            }
         }
 
         /// <summary>Number of leading zero bits (32 if <paramref name="x"/> is 0).</summary>

@@ -6,7 +6,8 @@ namespace ToolBelt.Binary
     /// <summary>
     /// Base64url encoding (RFC 4648 §5): the URL- and filename-safe alphabet where <c>+</c> becomes
     /// <c>-</c> and <c>/</c> becomes <c>_</c>, with padding <c>=</c> omitted on output. Decoding accepts
-    /// input with or without padding. This is the encoding used by JWT and many web APIs.
+    /// only unpadded input in the URL-safe alphabet (no <c>=</c>, <c>+</c>, <c>/</c> or whitespace), as JWT
+    /// requires. This is the encoding used by JWT and many web APIs.
     /// </summary>
     public static class Base64Url
     {
@@ -37,7 +38,7 @@ namespace ToolBelt.Binary
             return new string(chars);
         }
 
-        /// <summary>Decodes a base64url string (padding optional). Throws <see cref="FormatException"/> on invalid input.</summary>
+        /// <summary>Decodes an unpadded base64url string. Throws <see cref="FormatException"/> on invalid input.</summary>
         public static byte[] Decode(string text)
         {
             if (text is null)
@@ -53,7 +54,9 @@ namespace ToolBelt.Binary
                     '-' => '+',
                     '_' => '/',
                     '=' => throw new FormatException("base64url input must not contain padding."),
-                    _ => c,
+                    // Convert.FromBase64CharArray would accept these (standard alphabet, whitespace).
+                    _ when (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') => c,
+                    _ => throw new FormatException($"Invalid base64url character '{c}' at index {i}."),
                 };
             }
 

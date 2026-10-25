@@ -46,7 +46,11 @@ namespace ToolBelt.Binary
             return output.ToString();
         }
 
-        /// <summary>Decodes a quoted-printable string back to the original bytes. Throws on a malformed escape.</summary>
+        /// <summary>
+        /// Decodes a quoted-printable string back to the original bytes. Throws on a malformed escape or a character
+        /// outside ASCII (encoded text is 7-bit; a literal 'é' has no single byte to stand for). Per RFC 2045, spaces
+        /// and tabs at the end of a line (transport padding) are dropped, including after a soft-break '='.
+        /// </summary>
         public static byte[] Decode(string text)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
@@ -57,13 +61,15 @@ namespace ToolBelt.Binary
                 char c = text[i];
                 if (c == '=')
                 {
-                    // Soft line break: '=' immediately followed by a line ending is a continuation — drop it.
-                    if (i + 1 < text.Length && text[i + 1] == '\n') { i += 1; continue; }
-                    if (i + 1 < text.Length && text[i + 1] == '\r')
+                    // Soft line break: '=' followed (after any transport padding) by a line ending is a continuation.
+                    int j = SkipBlanks(text, i + 1);
+                    if (j < text.Length && text[j] == '\n') { i = j; continue; }
+                    if (j < text.Length && text[j] == '\r')
                     {
-                        if (i + 2 < text.Length && text[i + 2] == '\n') { i += 2; continue; } // =\r\n
-                        i += 1; continue;                                                      // =\r (lenient)
+                        if (j + 1 < text.Length && text[j + 1] == '\n') { i = j + 1; continue; } // =\r\n
+                        i = j; continue;                                                        // =\r (lenient)
                     }
+                    if (j == text.Length && j > i + 1) { i = j - 1; continue; }                // "=  " at the end
                     // Otherwise an =XX hex escape.
                     if (i + 2 >= text.Length)
                         throw new FormatException("Truncated '=' escape in quoted-printable input.");
@@ -74,8 +80,17 @@ namespace ToolBelt.Binary
                     bytes.Add((byte)((hi << 4) | lo));
                     i += 2;
                 }
+                else if (c == ' ' || c == '\t')
+                {
+                    // Trailing whitespace before a line break (or the end) is transport padding, not data.
+                    int j = SkipBlanks(text, i);
+                    if (j == text.Length || text[j] == '\r' || text[j] == '\n') { i = j - 1; continue; }
+                    bytes.Add((byte)c);
+                }
                 else
                 {
+                    if (c > 0x7E)
+                        throw new FormatException($"Character U+{(int)c:X4} at index {i} is not valid in quoted-printable input.");
                     bytes.Add((byte)c);
                 }
             }
@@ -104,6 +119,12 @@ namespace ToolBelt.Binary
                 line.Length -= 1;
                 line.Append('=').Append(Hex[b >> 4]).Append(Hex[b & 0xF]);
             }
+        }
+
+        private static int SkipBlanks(string text, int i)
+        {
+            while (i < text.Length && (text[i] == ' ' || text[i] == '\t')) i++;
+            return i;
         }
 
         private static int HexValue(char c)

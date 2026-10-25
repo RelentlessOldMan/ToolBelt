@@ -645,6 +645,7 @@ tests/
       Base58Tests.cs
       Base64UrlTests.cs
       Base85Tests.cs
+      BinaryImagesReviewTests.cs  (review regressions: VarInt overflow, strict Base32/Base64url/QP decoding, overflow-safe range checks, PNG/BMP sizes, SVG escaping)
       BitsTests.cs
       Crc16Tests.cs
       Crc32Tests.cs

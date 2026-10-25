@@ -5,7 +5,8 @@ namespace ToolBelt.Binary
 {
     /// <summary>
     /// CRC-16/CCITT-FALSE checksum (polynomial 0x1021, initial value 0xFFFF, no reflection, no final
-    /// XOR) — the variant used by XMODEM-style protocols and many embedded devices. Provides a one-shot
+    /// XOR; also catalogued as CRC-16/IBM-3740, check value 0x29B1 for "123456789") — used by many embedded
+    /// devices. Not XMODEM, which starts from 0x0000 (check 0x31C3). Provides a one-shot
     /// <see cref="Compute(byte[])"/> and an incremental <see cref="Crc16Hasher"/>; both agree.
     /// </summary>
     public static class Crc16
@@ -36,18 +37,21 @@ namespace ToolBelt.Binary
 
         public void Append(byte[] data, int offset, int count)
         {
-            if (data is null) throw new ArgumentNullException(nameof(data));
-            if (offset < 0 || count < 0 || offset + count > data.Length)
-                throw new ArgumentOutOfRangeException(nameof(count), "The segment lies outside the array.");
-
-            ushort crc = _crc;
-            for (int i = offset; i < offset + count; i++)
+            unchecked
             {
-                crc ^= (ushort)(data[i] << 8);
-                for (int bit = 0; bit < 8; bit++)
-                    crc = (crc & 0x8000) != 0 ? (ushort)((crc << 1) ^ Crc16.Polynomial) : (ushort)(crc << 1);
+                if (data is null) throw new ArgumentNullException(nameof(data));
+                if (offset < 0 || count < 0 || count > data.Length - offset)
+                    throw new ArgumentOutOfRangeException(nameof(count), "The segment lies outside the array.");
+
+                ushort crc = _crc;
+                for (int i = offset; i < offset + count; i++)
+                {
+                    crc ^= (ushort)(data[i] << 8);
+                    for (int bit = 0; bit < 8; bit++)
+                        crc = (crc & 0x8000) != 0 ? (ushort)((crc << 1) ^ Crc16.Polynomial) : (ushort)(crc << 1);
+                }
+                _crc = crc;
             }
-            _crc = crc;
         }
 
         /// <summary>The CRC-16 of everything appended so far.</summary>

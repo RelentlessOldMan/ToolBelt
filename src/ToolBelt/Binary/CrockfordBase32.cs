@@ -9,7 +9,8 @@ namespace ToolBelt.Binary
     /// Crockford's Base32 encoding — a human-friendly base-32 alphabet
     /// (<c>0-9 A-Z</c> excluding I, L, O, U) designed to survive transcription. Encoding is uppercase
     /// with no padding; decoding is case-insensitive, treats <c>I</c>/<c>L</c> as <c>1</c> and <c>O</c>
-    /// as <c>0</c>, and ignores hyphens used as visual separators.
+    /// as <c>0</c>, and ignores hyphens used as visual separators. Lengths no encoder can produce (1, 3 or 6
+    /// symbols in the final group of eight) are rejected.
     /// </summary>
     public static class CrockfordBase32
     {
@@ -45,7 +46,7 @@ namespace ToolBelt.Binary
             if (text is null) throw new ArgumentNullException(nameof(text));
 
             var bytes = new List<byte>(text.Length * 5 / 8 + 1);
-            int buffer = 0, bits = 0;
+            int buffer = 0, bits = 0, symbols = 0;
             foreach (char raw in text)
             {
                 if (raw == '-')
@@ -58,18 +59,23 @@ namespace ToolBelt.Binary
 
                 buffer = (buffer << 5) | value;
                 bits += 5;
+                symbols++;
                 if (bits >= 8)
                 {
                     bits -= 8;
                     bytes.Add((byte)((buffer >> bits) & 0xFF));
                 }
             }
+            int tail = symbols % 8;
+            if (tail == 1 || tail == 3 || tail == 6)
+                throw new FormatException($"Invalid Crockford Base32 length ({symbols} symbols).");
             return bytes.ToArray();
         }
 
         private static char Normalize(char c)
         {
-            c = char.ToUpperInvariant(c);
+            // ASCII only: ToUpperInvariant folded U+017F (long s) to 'S' and U+0131 (dotless i) to 'I'.
+            if (c >= 'a' && c <= 'z') c = (char)(c - 32);
             return c switch
             {
                 'O' => '0',

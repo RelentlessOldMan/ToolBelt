@@ -79,7 +79,7 @@ namespace ToolBelt.Visualization
         /// <summary>Draws a line with Bresenham's algorithm, clipping to the canvas.</summary>
         public void DrawLine(int x0, int y0, int x1, int y1, Rgba color)
         {
-            if ((uint)x0 >= (uint)Width || (uint)y0 >= (uint)Height || (uint)x1 >= (uint)Width || (uint)y1 >= (uint)Height)
+            if (x0 < 0 || x0 >= Width || y0 < 0 || y0 >= Height || x1 < 0 || x1 >= Width || y1 < 0 || y1 >= Height)
             {
                 // Cut to the canvas first: stepping a far off-canvas line pixel by pixel hung, and Math.Abs of an
                 // int.MinValue difference threw.
@@ -159,6 +159,12 @@ namespace ToolBelt.Visualization
         public void Blit(ImageBuffer source, int destX, int destY)
         {
             if (source is null) throw new ArgumentNullException(nameof(source));
+            // Blitting an image onto itself with an offset read pixels it had already overwritten (smearing).
+            if (ReferenceEquals(source, this))
+            {
+                source = new ImageBuffer(Width, Height);
+                Buffer.BlockCopy(_pixels, 0, source._pixels, 0, _pixels.Length);
+            }
             for (int sy = 0; sy < source.Height; sy++)
                 for (int sx = 0; sx < source.Width; sx++)
                     PutClipped(destX + sx, destY + sy, source.GetPixel(sx, sy));
@@ -177,8 +183,8 @@ namespace ToolBelt.Visualization
 
         private void CheckBounds(int x, int y)
         {
-            if ((uint)x >= (uint)Width) throw new ArgumentOutOfRangeException(nameof(x), x, $"x must be in [0, {Width}).");
-            if ((uint)y >= (uint)Height) throw new ArgumentOutOfRangeException(nameof(y), y, $"y must be in [0, {Height}).");
+            if (x < 0 || x >= Width) throw new ArgumentOutOfRangeException(nameof(x), x, $"x must be in [0, {Width}).");
+            if (y < 0 || y >= Height) throw new ArgumentOutOfRangeException(nameof(y), y, $"y must be in [0, {Height}).");
         }
     }
 }

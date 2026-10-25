@@ -58,7 +58,10 @@ namespace ToolBelt.Visualization
         {
             int rowBytes = image.Width * 4;
             byte[] pixels = image.Pixels;
-            var output = new byte[image.Height * (rowBytes + 1)];
+            // One filter byte per row on top of the pixels: in int this wrapped for images near the 2 GB limit.
+            long size = (long)image.Height * (rowBytes + 1);
+            if (size > int.MaxValue) throw new ArgumentException($"A {image.Width} × {image.Height} image is too large for PNG.", nameof(image));
+            var output = new byte[size];
             for (int y = 0; y < image.Height; y++)
             {
                 int dst = y * (rowBytes + 1);
@@ -104,10 +107,13 @@ namespace ToolBelt.Visualization
 
         private static void WriteBe32(byte[] buffer, int offset, uint value)
         {
-            buffer[offset] = (byte)(value >> 24);
-            buffer[offset + 1] = (byte)(value >> 16);
-            buffer[offset + 2] = (byte)(value >> 8);
-            buffer[offset + 3] = (byte)value;
+            unchecked
+            {
+                buffer[offset] = (byte)(value >> 24);
+                buffer[offset + 1] = (byte)(value >> 16);
+                buffer[offset + 2] = (byte)(value >> 8);
+                buffer[offset + 3] = (byte)value;
+            }
         }
 
         // ---- checksums (inlined to keep this file drop-in self-contained) ----

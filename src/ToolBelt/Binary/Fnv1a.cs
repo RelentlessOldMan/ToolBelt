@@ -18,26 +18,32 @@ namespace ToolBelt.Binary
 
         public static uint Hash32(byte[] data)
         {
-            if (data is null) throw new ArgumentNullException(nameof(data));
-            uint hash = Offset32;
-            foreach (byte b in data)
+            unchecked
             {
-                hash ^= b;
-                hash *= Prime32;
+                if (data is null) throw new ArgumentNullException(nameof(data));
+                uint hash = Offset32;
+                foreach (byte b in data)
+                {
+                    hash ^= b;
+                    hash *= Prime32;
+                }
+                return hash;
             }
-            return hash;
         }
 
         public static ulong Hash64(byte[] data)
         {
-            if (data is null) throw new ArgumentNullException(nameof(data));
-            ulong hash = Offset64;
-            foreach (byte b in data)
+            unchecked
             {
-                hash ^= b;
-                hash *= Prime64;
+                if (data is null) throw new ArgumentNullException(nameof(data));
+                ulong hash = Offset64;
+                foreach (byte b in data)
+                {
+                    hash ^= b;
+                    hash *= Prime64;
+                }
+                return hash;
             }
-            return hash;
         }
 
         /// <summary>Hashes the UTF-8 bytes of <paramref name="text"/>.</summary>

@@ -9,7 +9,8 @@ namespace ToolBelt.Visualization
     /// <summary>
     /// A fluent builder for SVG vector graphics — the resolution-independent counterpart to the raster
     /// <see cref="ImageBuffer"/>. Emits well-formed SVG 1.1 with a <c>viewBox</c>; coordinates are always
-    /// formatted with the invariant culture (so no comma-decimal surprises) and text is XML-escaped.
+    /// formatted with the invariant culture (so no comma-decimal surprises) and text is XML-escaped (characters
+    /// XML 1.0 forbids become U+FFFD). A NaN or infinite coordinate throws: SVG cannot represent it.
     /// </summary>
     public sealed class SvgDocument
     {
@@ -20,8 +21,8 @@ namespace ToolBelt.Visualization
         /// <summary>Creates a canvas of the given size (user units, which map 1:1 to the viewBox).</summary>
         public SvgDocument(double width, double height)
         {
-            if (!(width > 0)) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
-            if (!(height > 0)) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
+            if (!(width > 0) || double.IsInfinity(width)) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive and finite.");
+            if (!(height > 0) || double.IsInfinity(height)) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive and finite.");
             _width = width;
             _height = height;
         }
@@ -85,6 +86,9 @@ namespace ToolBelt.Visualization
             double fontSize = 12, string fill = "black", string anchor = "start", string fontFamily = "sans-serif")
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
+            if (fill is null) throw new ArgumentNullException(nameof(fill));
+            if (anchor is null) throw new ArgumentNullException(nameof(anchor));
+            if (fontFamily is null) throw new ArgumentNullException(nameof(fontFamily));
             _body.Append("<text x=\"").Append(F(x)).Append("\" y=\"").Append(F(y))
                  .Append("\" font-size=\"").Append(F(fontSize)).Append("\" font-family=\"").Append(EscapeAttr(fontFamily))
                  .Append("\" fill=\"").Append(EscapeAttr(fill)).Append("\" text-anchor=\"").Append(EscapeAttr(anchor))
@@ -141,24 +145,46 @@ namespace ToolBelt.Visualization
                 _body.Append(" stroke=\"").Append(EscapeAttr(stroke)).Append("\" stroke-width=\"").Append(F(strokeWidth)).Append('"');
         }
 
-        private static string F(double value) => value.ToString("0.######", CultureInfo.InvariantCulture);
+        // NaN/∞ used to be written as "NaN"/"Infinity" (an unrenderable document) and -0.0000001 as "-0".
+        private static string F(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                throw new ArgumentOutOfRangeException(nameof(value), value, "SVG numbers must be finite.");
+            string s = value.ToString("0.######", CultureInfo.InvariantCulture);
+            return s == "-0" ? "0" : s;
+        }
 
-        private static string EscapeText(string text)
+        private static string EscapeText(string text) => Escape(text, attribute: false);
+
+        private static string EscapeAttr(string text) => Escape(text, attribute: true);
+
+        private static string Escape(string text, bool attribute)
         {
             var sb = new StringBuilder(text.Length);
-            foreach (char ch in text)
+            for (int i = 0; i < text.Length; i++)
             {
+                char ch = text[i];
                 switch (ch)
                 {
                     case '&': sb.Append("&amp;"); break;
                     case '<': sb.Append("&lt;"); break;
                     case '>': sb.Append("&gt;"); break;
-                    default: sb.Append(ch); break;
+                    case '"' when attribute: sb.Append("&quot;"); break;
+                    default: sb.Append(IsXmlIllegal(text, i) ? '\uFFFD' : ch); break;   // e.g. an ANSI escape in a label
                 }
             }
             return sb.ToString();
         }
 
-        private static string EscapeAttr(string text) => EscapeText(text).Replace("\"", "&quot;");
+        // Characters XML 1.0 forbids: C0 controls other than tab/LF/CR, U+FFFE/U+FFFF, and unpaired surrogates.
+        private static bool IsXmlIllegal(string s, int i)
+        {
+            char c = s[i];
+            if (c < 0x20) return c != '\t' && c != '\n' && c != '\r';
+            if (c == '\uFFFE' || c == '\uFFFF') return true;
+            if (char.IsHighSurrogate(c)) return i + 1 >= s.Length || !char.IsLowSurrogate(s[i + 1]);
+            if (char.IsLowSurrogate(c)) return i == 0 || !char.IsHighSurrogate(s[i - 1]);
+            return false;
+        }
     }
 }

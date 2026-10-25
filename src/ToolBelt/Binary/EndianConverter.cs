@@ -24,16 +24,22 @@ namespace ToolBelt.Binary
 
         public static void WriteUInt16BigEndian(byte[] buffer, int offset, ushort value)
         {
-            CheckRange(buffer, offset, 2);
-            buffer[offset] = (byte)(value >> 8);
-            buffer[offset + 1] = (byte)value;
+            unchecked
+            {
+                CheckRange(buffer, offset, 2);
+                buffer[offset] = (byte)(value >> 8);
+                buffer[offset + 1] = (byte)value;
+            }
         }
 
         public static void WriteUInt16LittleEndian(byte[] buffer, int offset, ushort value)
         {
-            CheckRange(buffer, offset, 2);
-            buffer[offset] = (byte)value;
-            buffer[offset + 1] = (byte)(value >> 8);
+            unchecked
+            {
+                CheckRange(buffer, offset, 2);
+                buffer[offset] = (byte)value;
+                buffer[offset + 1] = (byte)(value >> 8);
+            }
         }
 
         public static uint ReadUInt32BigEndian(byte[] buffer, int offset)
@@ -52,20 +58,26 @@ namespace ToolBelt.Binary
 
         public static void WriteUInt32BigEndian(byte[] buffer, int offset, uint value)
         {
-            CheckRange(buffer, offset, 4);
-            buffer[offset] = (byte)(value >> 24);
-            buffer[offset + 1] = (byte)(value >> 16);
-            buffer[offset + 2] = (byte)(value >> 8);
-            buffer[offset + 3] = (byte)value;
+            unchecked
+            {
+                CheckRange(buffer, offset, 4);
+                buffer[offset] = (byte)(value >> 24);
+                buffer[offset + 1] = (byte)(value >> 16);
+                buffer[offset + 2] = (byte)(value >> 8);
+                buffer[offset + 3] = (byte)value;
+            }
         }
 
         public static void WriteUInt32LittleEndian(byte[] buffer, int offset, uint value)
         {
-            CheckRange(buffer, offset, 4);
-            buffer[offset] = (byte)value;
-            buffer[offset + 1] = (byte)(value >> 8);
-            buffer[offset + 2] = (byte)(value >> 16);
-            buffer[offset + 3] = (byte)(value >> 24);
+            unchecked
+            {
+                CheckRange(buffer, offset, 4);
+                buffer[offset] = (byte)value;
+                buffer[offset + 1] = (byte)(value >> 8);
+                buffer[offset + 2] = (byte)(value >> 16);
+                buffer[offset + 3] = (byte)(value >> 24);
+            }
         }
 
         public static ulong ReadUInt64BigEndian(byte[] buffer, int offset)
@@ -86,22 +98,28 @@ namespace ToolBelt.Binary
 
         public static void WriteUInt64BigEndian(byte[] buffer, int offset, ulong value)
         {
-            CheckRange(buffer, offset, 8);
-            WriteUInt32BigEndian(buffer, offset, (uint)(value >> 32));
-            WriteUInt32BigEndian(buffer, offset + 4, (uint)value);
+            unchecked
+            {
+                CheckRange(buffer, offset, 8);
+                WriteUInt32BigEndian(buffer, offset, (uint)(value >> 32));
+                WriteUInt32BigEndian(buffer, offset + 4, (uint)value);
+            }
         }
 
         public static void WriteUInt64LittleEndian(byte[] buffer, int offset, ulong value)
         {
-            CheckRange(buffer, offset, 8);
-            WriteUInt32LittleEndian(buffer, offset, (uint)value);
-            WriteUInt32LittleEndian(buffer, offset + 4, (uint)(value >> 32));
+            unchecked
+            {
+                CheckRange(buffer, offset, 8);
+                WriteUInt32LittleEndian(buffer, offset, (uint)value);
+                WriteUInt32LittleEndian(buffer, offset + 4, (uint)(value >> 32));
+            }
         }
 
         private static void CheckRange(byte[] buffer, int offset, int size)
         {
             if (buffer is null) throw new ArgumentNullException(nameof(buffer));
-            if (offset < 0 || offset + size > buffer.Length)
+            if (offset < 0 || offset > buffer.Length - size)
                 throw new ArgumentOutOfRangeException(nameof(offset), offset,
                     $"Reading/writing {size} bytes at offset {offset} exceeds the buffer length {buffer.Length}.");
         }
