@@ -25,7 +25,7 @@ namespace ToolBelt.Signal
             ValidateArgs(fftLength, sampleRate);
             if (bin < 0 || bin > fftLength / 2)
                 throw new ArgumentOutOfRangeException(nameof(bin), bin, "Bin is outside the one-sided range [0, N/2].");
-            return bin * sampleRate / fftLength;
+            return Bin(bin, fftLength, sampleRate);
         }
 
         /// <summary>
@@ -37,8 +37,15 @@ namespace ToolBelt.Signal
             ValidateArgs(fftLength, sampleRate);
             int bins = fftLength / 2 + 1;
             var f = new double[bins];
-            for (int k = 0; k < bins; k++) f[k] = k * sampleRate / fftLength;
+            for (int k = 0; k < bins; k++) f[k] = Bin(k, fftLength, sampleRate);
             return f;
+        }
+
+        // k·fs / N, which overflowed for a huge rate although the result (≤ fs/2) is representable.
+        private static double Bin(int k, int fftLength, double sampleRate)
+        {
+            double f = k * sampleRate / fftLength;
+            return double.IsInfinity(f) ? k * (sampleRate / fftLength) : f;
         }
 
         /// <summary>

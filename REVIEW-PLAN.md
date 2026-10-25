@@ -42,7 +42,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | #  | Section | Scope (src) | ~Lines | Prior | Passes | Bugs (last / total) | Status |
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 2 | 9 / 25 | re-queue (9 bugs) |
-| 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
+| 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 2 | 23 / 47 | re-queue (23 bugs, 2 severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 2 | 22 / 53 | re-queue (22 bugs) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 2 | 28 / 71 | re-queue (5 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 2 | 28 / 61 | re-queue (5 severe) |
@@ -60,7 +60,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2, 11, 16, 17). **next: 2**
+5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11, 16, 17). **next: 11**
 
 ## Releases
 
@@ -99,6 +99,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.28.0 | 28 | Binary formats & images, second pass | 10 | (see tag) |
 | v0.29.0 | 29 | Logging, diagnostics, CLI, second pass | 17 | (see tag) |
 | v0.30.0 | 30 | Filters & control, second pass | 9 | (see tag) |
+| v0.31.0 | 31 | Signal analysis, second pass | 23 | (see tag) |
 
 ## Round log
 
@@ -1358,3 +1359,41 @@ estimates and the tuning tables against SciPy and the published references; no m
   quantized coefficients; NaN frequency in `Response`/`GroupDelay`; `FiltFilt` of an empty signal with pad 0 throws.
 - **Checked build:** same 7 baseline failures, none new.
 - **Re-queued:** yes (9 bugs).
+
+### Round 31 — 2026-10-25 — Signal analysis, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 2 with 1 severe).
+**23 confirmed bugs, 2 severe**, each with a failing-first regression test in `SignalReview2Tests` (20 tests; 19
+fail on the old code, and one checks that Savitzky-Golay edges still fit the polynomial).
+
+- **PulseMeasurements (severe):** state levels were the record's min and max, so overshoot became the top: a
+  ringing step's fall time was 75 samples instead of ~4, and its rise time threw. They are now the IEEE 181
+  histogram modes of the lower and upper halves of the range.
+- **PulseMeasurements (severe):** rise/fall paired the first low-reference crossing in the record with the first
+  high-reference one, so a glitch long before the edge gave 5.3 instead of 1.6. The low crossing is now the last
+  one before the high crossing. References of 0 and 1 were unreachable (they threw) and now count arriving at the
+  level. A NaN gave NaN levels if it came first and was ignored elsewhere; non-finite samples are now rejected.
+  Levels, mid level and crossing fractions no longer overflow near ±double.MaxValue.
+- **ZeroCrossing:** every zero sample counted as a crossing (`{1,−1,0,0,0,0,0,1}` gave six), and a touch
+  (`{1,0,1}`) counted. A run of zeros now counts once, at its middle, only if the sign changes across it. ±1e308
+  pairs and infinities no longer give 0 or NaN positions.
+- **MedianFilter:** NaN sorted first and acted as −∞; it is now left out, as in Hampel. Even-count midpoints in
+  MedianFilter and Hampel overflowed near double.MaxValue.
+- **SavitzkyGolay:** all w coefficient rows were kept (835 MB at w = 10001); now only the centre row is kept and
+  each edge row is computed into one reused buffer.
+- **TimeDelayEstimate:** inputs around 1e154 overflowed and around 1e-165 underflowed, giving lag 0; inputs are
+  now scaled to a peak of 1, with the correlation value scaled back.
+- **Overflow and underflow:** `Resample.ToRate` with an infinite step (IndexOutOfRange), `Decimate`'s block sum,
+  `CycleMeasurements` level and band, `PhaseUnwrap` (one huge jump made everything after it −∞; now rejected),
+  `FrequencyGrid` bin frequencies at huge rates, `WelchPsd` normalisation (underflowed to 0), `Fft.Inverse`
+  (`[1e308, 1e308]` gave ∞ + NaN·i; retried prescaled), `Window.CoherentGain` (∞).
+- **Validation:** `Quantizer` rejects non-finite ranges and ranges whose step is ∞ or 0; `Window.Create` rejects
+  an undefined type at length 1; `EquivalentNoiseBandwidth` of an all-zero window throws (was NaN); NaN or ∞
+  `targetFrequency` (Goertzel), NaN ratio (AmplitudeToDb/PowerToDb), ∞ sample rate (SpectralPeak, Multitaper),
+  ∞ floor (AmplitudeDb).
+- **Parameter names:** WelchPsd's invalid window ("window", was "type"), TimeDelayEstimate empty input and
+  too-long input, Fft Bluestein too long ("input"/"real"/"spectrum"), GroupDelay length mismatch ("frequencies").
+- **Not fixed:** Parabolic `2·center` overflow; a Hampel window of a ±∞ pair; WelchPsd cost at very high
+  overlap; median/Hampel O(n·w·log w); EnvelopeFollower frozen when τ·fs > 1e16; NearestBin banker's rounding;
+  CycleMeasurements first-crossing timing (documented).
+- **Checked build:** same 7 baseline failures, none new.
+- **Re-queued:** yes (23 bugs, 2 severe).

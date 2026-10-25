@@ -37,6 +37,9 @@ namespace ToolBelt.Signal
                 if (delta > tolerance) correction -= Math.Ceiling((delta - reach) / Turn) * Turn;
                 else if (delta < -tolerance) correction += Math.Ceiling((-delta - reach) / Turn) * Turn;
                 result[i] = phase[i] + correction;
+                // One jump of ±3.4e308 made the correction infinite and every later sample −∞.
+                if (double.IsInfinity(result[i]) || double.IsNaN(result[i]))
+                    throw new ArgumentException($"The jump at phase[{i}] is too large to unwrap.", nameof(phase));
             }
             return result;
         }
@@ -51,7 +54,7 @@ namespace ToolBelt.Signal
             if (unwrappedPhase is null) throw new ArgumentNullException(nameof(unwrappedPhase));
             if (frequencies is null) throw new ArgumentNullException(nameof(frequencies));
             int n = unwrappedPhase.Count;
-            if (n != frequencies.Count) throw new ArgumentException("Phase and frequency arrays must have the same length.");
+            if (n != frequencies.Count) throw new ArgumentException("Phase and frequency arrays must have the same length.", nameof(frequencies));
             if (n < 2) throw new ArgumentException("Need at least two points.", nameof(unwrappedPhase));
             for (int i = 1; i < n; i++)
                 if (!(frequencies[i] > frequencies[i - 1])) throw new ArgumentException("Frequencies must be strictly increasing.", nameof(frequencies));

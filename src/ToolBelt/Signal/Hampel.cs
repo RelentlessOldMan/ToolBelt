@@ -71,7 +71,9 @@ namespace ToolBelt.Signal
             Array.Copy(buffer, copy, count);
             Array.Sort(copy);
             int mid = count / 2;
-            return (count % 2 != 0) ? copy[mid] : 0.5 * (copy[mid - 1] + copy[mid]);
+            if (count % 2 != 0) return copy[mid];
+            double a = copy[mid - 1], b = copy[mid];                    // 0.5·(a + b) overflowed near double.MaxValue
+            return double.IsInfinity(a) || double.IsInfinity(b) ? 0.5 * (a + b) : 0.5 * a + 0.5 * b;
         }
     }
 }

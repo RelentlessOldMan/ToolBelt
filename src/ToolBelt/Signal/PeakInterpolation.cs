@@ -57,7 +57,7 @@ namespace ToolBelt.Signal
         {
             if (magnitude is null) throw new ArgumentNullException(nameof(magnitude));
             if (magnitude.Count == 0) throw new ArgumentException("Spectrum is empty.", nameof(magnitude));
-            if (!(sampleRate > 0)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive.");
+            if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
             if (fftLength < 1) throw new ArgumentOutOfRangeException(nameof(fftLength), fftLength, "FFT length must be positive.");
             int k = bin ?? ArgMax(magnitude);
             if (k < 0 || k >= magnitude.Count) throw new ArgumentOutOfRangeException(nameof(bin), bin, "Bin outside the spectrum.");

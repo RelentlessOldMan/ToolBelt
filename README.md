@@ -366,7 +366,7 @@ src/
       LevelConversions.cs   dB/amplitude/power conversions, RMS, dBFS
       MedianFilter.cs       sliding-window median (removes spikes, preserves edges)
       PhaseUnwrap.cs        removes 2π jumps from wrapped phase; group delay −dφ/dω
-      PulseMeasurements.cs  rise/fall time, pulse width, duty cycle (sub-sample crossings)
+      PulseMeasurements.cs  rise/fall time, pulse width, duty cycle (histogram state levels, sub-sample crossings)
       Quantizer.cs          uniform ADC model + ideal 6.02N+1.76 dB SNR
       Resample.cs           linear resample / rate conversion / anti-aliased decimation
       SavitzkyGolay.cs      polynomial smoothing (preserves peaks; polynomials pass through)
@@ -776,6 +776,7 @@ tests/
       WelchPsdTests.cs
       SignalExtrasTests.cs  (multitaper, peak interpolation, envelope, group delay, cycles)
       SignalReviewTests.cs  (review regressions: high-order Savitzky-Golay, overflow clamps, NaN handling, GCC-PHAT scale)
+      SignalReview2Tests.cs (second-pass regressions: pulse state levels and edges, zero runs, NaN medians, overflow and scale)
       WindowTests.cs
       ZeroCrossingTests.cs
     Objects/

@@ -24,7 +24,9 @@ namespace ToolBelt.Signal
 
             int n = data.Count;
             int half = windowSize / 2;
-            double[][] coefficients = Coefficients(windowSize, polynomialOrder);
+            // Keeping all w rows (w² doubles) took 835 MB at w = 10001; each edge row is used once, so only the centre one is kept.
+            var fit = new Fit(windowSize, polynomialOrder);
+            double[] centre = fit.Row(half, new double[windowSize]), edge = new double[windowSize];
             var result = new double[n];
 
             for (int i = 0; i < n; i++)
@@ -34,7 +36,8 @@ namespace ToolBelt.Signal
                 if (start < 0) start = 0;
                 if (start > n - windowSize) start = n - windowSize;
 
-                double[] c = coefficients[i - start];
+                int e = i - start;
+                double[] c = e == half ? centre : fit.Row(e, edge);
                 double sum = 0;
                 for (int k = 0; k < windowSize; k++) sum += c[k] * data[start + k];
                 result[i] = sum;
@@ -42,45 +45,57 @@ namespace ToolBelt.Signal
             return result;
         }
 
-        // coefficients[e][k]: the weight of window sample k in the fitted polynomial's value at window position e. The fit
-        // is linear in the data, so one least-squares solve per position replaces a fit per sample. It uses Householder QR
-        // on an abscissa scaled to [−1, 1]: normal equations on raw positions 0..w−1 lose every digit at moderate orders.
-        private static double[][] Coefficients(int w, int order)
+        // Row(e)[k]: the weight of window sample k in the fitted polynomial's value at window position e. The fit is linear in
+        // the data, so one least-squares solve per position replaces a fit per sample. It uses Householder QR on an abscissa
+        // scaled to [−1, 1]: normal equations on raw positions 0..w−1 lose every digit at moderate orders.
+        private sealed class Fit
         {
-            int m = order + 1, half = w / 2;
-            var a = new double[w, m];
-            for (int k = 0; k < w; k++)
-            {
-                double t = (k - half) / (double)half, p = 1;
-                for (int j = 0; j < m; j++) { a[k, j] = p; p *= t; }
-            }
+            private readonly int _w, _m, _half;
+            private readonly double[,] _a;
+            private readonly double[] _v0;
+            private readonly double[] _z;
 
-            // In-place Householder QR: reflectors below the diagonal (with their leading entries in v0), R on and above it.
-            var v0 = new double[m];
-            for (int j = 0; j < m; j++)
+            public Fit(int w, int order)
             {
-                double norm = 0;
-                for (int k = j; k < w; k++) norm = Hypot(norm, a[k, j]);
-                double alpha = a[j, j] > 0 ? -norm : norm;
-                v0[j] = a[j, j] - alpha;
-                a[j, j] = alpha;
-                double vv = v0[j] * v0[j];
-                for (int k = j + 1; k < w; k++) vv += a[k, j] * a[k, j];
-                if (vv == 0) continue;
-                for (int c = j + 1; c < m; c++)
+                int m = order + 1, half = w / 2;
+                _w = w; _m = m; _half = half;
+                var a = new double[w, m];
+                for (int k = 0; k < w; k++)
                 {
-                    double dot = v0[j] * a[j, c];
-                    for (int k = j + 1; k < w; k++) dot += a[k, j] * a[k, c];
-                    double s = 2 * dot / vv;
-                    a[j, c] -= s * v0[j];
-                    for (int k = j + 1; k < w; k++) a[k, c] -= s * a[k, j];
+                    double t = (k - half) / (double)half, p = 1;
+                    for (int j = 0; j < m; j++) { a[k, j] = p; p *= t; }
                 }
+
+                // In-place Householder QR: reflectors below the diagonal (with their leading entries in v0), R on and above it.
+                var v0 = new double[m];
+                for (int j = 0; j < m; j++)
+                {
+                    double norm = 0;
+                    for (int k = j; k < w; k++) norm = Hypot(norm, a[k, j]);
+                    double alpha = a[j, j] > 0 ? -norm : norm;
+                    v0[j] = a[j, j] - alpha;
+                    a[j, j] = alpha;
+                    double vv = v0[j] * v0[j];
+                    for (int k = j + 1; k < w; k++) vv += a[k, j] * a[k, j];
+                    if (vv == 0) continue;
+                    for (int c = j + 1; c < m; c++)
+                    {
+                        double dot = v0[j] * a[j, c];
+                        for (int k = j + 1; k < w; k++) dot += a[k, j] * a[k, c];
+                        double s = 2 * dot / vv;
+                        a[j, c] -= s * v0[j];
+                        for (int k = j + 1; k < w; k++) a[k, c] -= s * a[k, j];
+                    }
+                }
+
+                _a = a; _v0 = v0; _z = new double[m];
             }
 
-            var result = new double[w][];
-            var z = new double[m];
-            for (int e = 0; e < w; e++)
+            public double[] Row(int e, double[] c)
             {
+                int w = _w, m = _m, half = _half;
+                double[,] a = _a;
+                double[] v0 = _v0, z = _z;
                 // Value at t_e is p(t_e)ᵀ·R⁻¹·Qᵀ·y, so the weights are Q·(R⁻ᵀ·p(t_e)): forward-substitute, then apply Q.
                 double t = (e - half) / (double)half, p = 1;
                 for (int j = 0; j < m; j++)
@@ -90,7 +105,7 @@ namespace ToolBelt.Signal
                     z[j] = s / a[j, j];
                     p *= t;
                 }
-                var c = new double[w];
+                Array.Clear(c, 0, w);
                 for (int j = 0; j < m; j++) c[j] = z[j];
                 for (int j = m - 1; j >= 0; j--)                        // Q = H₀·H₁·…·H_{m−1}
                 {
@@ -103,9 +118,8 @@ namespace ToolBelt.Signal
                     c[j] -= s * v0[j];
                     for (int k = j + 1; k < w; k++) c[k] -= s * a[k, j];
                 }
-                result[e] = c;
+                return c;
             }
-            return result;
         }
 
         private static double Hypot(double x, double y)

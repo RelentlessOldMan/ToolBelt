@@ -18,7 +18,7 @@ namespace ToolBelt.Tests.Signal
             return x;
         }
 
-        public void StateLevels_AreMinMax()
+        public void StateLevels_OfATrapezoid()
         {
             var (lo, hi) = PulseMeasurements.StateLevels(Trapezoid());
             Check.Close(0.0, lo, 1e-12);

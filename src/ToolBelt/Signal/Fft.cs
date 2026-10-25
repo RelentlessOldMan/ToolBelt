@@ -18,7 +18,7 @@ namespace ToolBelt.Signal
             if (input is null) throw new ArgumentNullException(nameof(input));
             if (input.Length == 0) return Array.Empty<Complex>();
             var data = (Complex[])input.Clone();
-            Transform(data, inverse: false);
+            Transform(data, inverse: false, nameof(input));
             return data;
         }
 
@@ -29,7 +29,7 @@ namespace ToolBelt.Signal
             if (real.Length == 0) return Array.Empty<Complex>();
             var data = new Complex[real.Length];
             for (int i = 0; i < real.Length; i++) data[i] = new Complex(real[i], 0);
-            Transform(data, inverse: false);
+            Transform(data, inverse: false, nameof(real));
             return data;
         }
 
@@ -42,22 +42,43 @@ namespace ToolBelt.Signal
             if (spectrum is null) throw new ArgumentNullException(nameof(spectrum));
             if (spectrum.Length == 0) return Array.Empty<Complex>();
             var data = (Complex[])spectrum.Clone();
-            Transform(data, inverse: true);
+            Transform(data, inverse: true, nameof(spectrum));
             double scale = 1.0 / data.Length;
-            for (int i = 0; i < data.Length; i++) data[i] *= scale;
+            bool finite = true;
+            for (int i = 0; i < data.Length; i++)
+            {
+                data[i] *= scale;
+                finite &= IsFinite(data[i]);
+            }
+            // The unscaled sum overflowed ([1e308, 1e308] gave ∞ + NaN·i); scaling first can't, but would lose denormals,
+            // so it is only the fallback.
+            if (!finite && AllFinite(spectrum))
+            {
+                for (int i = 0; i < data.Length; i++) data[i] = spectrum[i] * scale;
+                Transform(data, inverse: true, nameof(spectrum));
+            }
             return data;
         }
 
         /// <summary>True if <paramref name="n"/> is a positive power of two.</summary>
         public static bool IsPowerOfTwo(int n) => n > 0 && (n & (n - 1)) == 0;
 
+        private static bool IsFinite(Complex c)
+            => !double.IsNaN(c.Real) && !double.IsInfinity(c.Real) && !double.IsNaN(c.Imaginary) && !double.IsInfinity(c.Imaginary);
+
+        private static bool AllFinite(Complex[] values)
+        {
+            foreach (var c in values) if (!IsFinite(c)) return false;
+            return true;
+        }
+
         // Unnormalized transform in place; dispatches by length.
-        private static void Transform(Complex[] data, bool inverse)
+        private static void Transform(Complex[] data, bool inverse, string paramName)
         {
             int n = data.Length;
             if (n <= 1) return;
             if ((n & (n - 1)) == 0) Radix2(data, inverse);
-            else Bluestein(data, inverse);
+            else Bluestein(data, inverse, paramName);
         }
 
         // Iterative in-place radix-2 Cooley–Tukey. Requires a power-of-two length. Unnormalized.
@@ -97,7 +118,7 @@ namespace ToolBelt.Signal
         }
 
         // Bluestein's chirp-z: turns an arbitrary-length DFT into a power-of-two convolution.
-        private static void Bluestein(Complex[] data, bool inverse)
+        private static void Bluestein(Complex[] data, bool inverse, string paramName)
         {
             int n = data.Length;
             double dir = inverse ? 1 : -1;
@@ -113,7 +134,7 @@ namespace ToolBelt.Signal
 
             // The convolution length is a power of two ≥ 2n − 1; past 2³⁰ it no longer fits an int (the doubling loop would
             // wrap to 0 and spin forever).
-            if (2L * n - 1 > 1 << 30) throw new ArgumentException($"A length-{n} transform that is not a power of two is too long (Bluestein needs 2n − 1 ≤ 2^30); pad it to a power of two.");
+            if (2L * n - 1 > 1 << 30) throw new ArgumentException($"A length-{n} transform that is not a power of two is too long (Bluestein needs 2n − 1 ≤ 2^30); pad it to a power of two.", paramName);
             int m = 1;
             while (m < 2 * n - 1) m <<= 1;
 

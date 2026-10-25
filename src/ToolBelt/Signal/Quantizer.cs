@@ -25,12 +25,17 @@ namespace ToolBelt.Signal
         public Quantizer(int bits, double min = -1.0, double max = 1.0)
         {
             if (bits < 1 || bits > 30) throw new ArgumentOutOfRangeException(nameof(bits), bits, "Bits must be in 1..30.");
+            if (double.IsNaN(min) || double.IsInfinity(min)) throw new ArgumentOutOfRangeException(nameof(min), min, "The range must be finite.");
+            if (double.IsNaN(max) || double.IsInfinity(max)) throw new ArgumentOutOfRangeException(nameof(max), max, "The range must be finite.");
             if (!(max > min)) throw new ArgumentException("max must exceed min.", nameof(max));
+            double step = (max - min) / (1 << bits);
+            // ±1e308 made the step ∞ (every value code 0); a denormal range made it 0.
+            if (double.IsInfinity(step) || !(step > 0)) throw new ArgumentOutOfRangeException(nameof(max), max, "The range is too wide or too narrow for this many bits.");
             Bits = bits;
             _min = min;
             _max = max;
             _levels = 1 << bits;
-            _step = (max - min) / _levels;
+            _step = step;
         }
 
         /// <summary>The integer code (0 .. 2ᴺ−1) for <paramref name="value"/>, clamped to range (±∞ included). NaN has no code.</summary>

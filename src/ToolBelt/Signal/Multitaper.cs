@@ -17,7 +17,7 @@ namespace ToolBelt.Signal
         public static (double[] Frequencies, double[] Psd) Estimate(double[] samples, double sampleRate, int tapers = 5)
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
-            if (!(sampleRate > 0)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive.");
+            if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
             int n = samples.Length;
             if (n < 2) throw new ArgumentException("Need at least two samples.", nameof(samples));
             if (tapers < 1 || tapers > n / 2) throw new ArgumentOutOfRangeException(nameof(tapers), tapers, "Use between 1 and N/2 tapers.");

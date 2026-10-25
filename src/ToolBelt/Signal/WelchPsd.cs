@@ -28,6 +28,7 @@ namespace ToolBelt.Signal
             if (segmentLength > samples.Length) throw new ArgumentException("Segment longer than the signal.", nameof(segmentLength));
             if (!(overlap >= 0 && overlap < 1)) throw new ArgumentOutOfRangeException(nameof(overlap), overlap, "Overlap must be in [0, 1).");
 
+            if (!Enum.IsDefined(typeof(WindowType), window)) throw new ArgumentOutOfRangeException(nameof(window), window, "Unknown window type.");
             var w = Window.Create(window, segmentLength);
             double windowPower = 0;
             foreach (var v in w) windowPower += v * v;
@@ -55,8 +56,8 @@ namespace ToolBelt.Signal
             }
 
             // Density normalization: divide by fs·Σw² (per segment) and by the segment count.
-            double norm = 1.0 / (sampleRate * windowPower * segments);
-            for (int k = 0; k < bins; k++) psd[k] *= norm;
+            // Divided in turn: 1 / (fs·Σw²·segments) underflowed to 0 for a huge rate although the PSD is representable.
+            for (int k = 0; k < bins; k++) psd[k] = psd[k] / (windowPower * segments) / sampleRate;
 
             return (FrequencyGrid.BinFrequencies(segmentLength, sampleRate), psd);
         }

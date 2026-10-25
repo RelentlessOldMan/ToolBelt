@@ -27,23 +27,27 @@ namespace ToolBelt.Signal
         {
             if (reference is null) throw new ArgumentNullException(nameof(reference));
             if (delayed is null) throw new ArgumentNullException(nameof(delayed));
-            if (reference.Length == 0 || delayed.Length == 0)
-                throw new ArgumentException("Both signals must be non-empty.");
+            if (reference.Length == 0) throw new ArgumentException("Both signals must be non-empty.", nameof(reference));
+            if (delayed.Length == 0) throw new ArgumentException("Both signals must be non-empty.", nameof(delayed));
             CheckFinite(reference, nameof(reference));
             CheckFinite(delayed, nameof(delayed));
 
             // Linear cross-correlation via circular convolution with padding.
-            int m = PaddedLength((long)reference.Length + delayed.Length - 1);
+            int m = PaddedLength((long)reference.Length + delayed.Length - 1, nameof(delayed));
 
-            var fa = Fft.Forward(Pad(reference, m));
-            var fb = Fft.Forward(Pad(delayed, m));
+            // Each input is scaled to a peak of 1 first: the products overflowed (NaN, so lag 0 with value −∞) from about
+            // 1e154 and underflowed (every lag 0, so lag 0) below about 1e-165. The value is scaled back at the end.
+            double sa = MaxAbs(reference), sb = MaxAbs(delayed);
+            var fa = Fft.Forward(Pad(reference, m, sa));
+            var fb = Fft.Forward(Pad(delayed, m, sb));
             var prod = new Complex[m];
             // conj(A)·B places lag k = sum_l delayed[l+k]·reference[l], so a right-shifted (later)
             // delayed copy peaks at a positive lag — the intuitive sign.
             for (int i = 0; i < m; i++) prod[i] = Complex.Conjugate(fa[i]) * fb[i];
             var corr = Fft.Inverse(prod);
 
-            return FindPeak(corr, reference.Length - 1, delayed.Length - 1);
+            var (lag, value) = FindPeak(corr, reference.Length - 1, delayed.Length - 1);
+            return (lag, value * sa * sb);
         }
 
         /// <summary>
@@ -63,10 +67,10 @@ namespace ToolBelt.Signal
             CheckFinite(b, nameof(b));
 
             int len = a.Length;
-            int m = PaddedLength(2L * len);
+            int m = PaddedLength(2L * len, nameof(a));
 
-            var fa = Fft.Forward(Pad(a, m));
-            var fb = Fft.Forward(Pad(b, m));
+            var fa = Fft.Forward(Pad(a, m, MaxAbs(a)));                 // scaled, as above: PHAT itself is scale-free
+            var fb = Fft.Forward(Pad(b, m, MaxAbs(b)));
             var cross = new Complex[m];
             double peak = 0;
             for (int i = 0; i < m; i++)
@@ -93,18 +97,25 @@ namespace ToolBelt.Signal
         }
 
         // The power of two at or above `length`, which must stay a usable array size.
-        private static int PaddedLength(long length)
+        private static int PaddedLength(long length, string paramName)
         {
-            if (length > 1 << 30) throw new ArgumentException("The signals are too long to correlate (the padded transform would exceed 2^30 points).");
+            if (length > 1 << 30) throw new ArgumentException("The signals are too long to correlate (the padded transform would exceed 2^30 points).", paramName);
             int m = 1;
             while (m < length) m <<= 1;
             return m;
         }
 
-        private static double[] Pad(double[] x, int length)
+        private static double MaxAbs(double[] x)
+        {
+            double max = 0;
+            foreach (double v in x) max = Math.Max(max, Math.Abs(v));
+            return max == 0 ? 1 : max;
+        }
+
+        private static double[] Pad(double[] x, int length, double scale)
         {
             var padded = new double[length];
-            Array.Copy(x, padded, x.Length);
+            for (int i = 0; i < x.Length; i++) padded[i] = x[i] / scale;
             return padded;
         }
 

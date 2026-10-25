@@ -31,6 +31,7 @@ namespace ToolBelt.Signal
         public static double[] Create(WindowType type, int length)
         {
             if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), length, "Length must be positive.");
+            if (!Enum.IsDefined(typeof(WindowType), type)) throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown window type.");
             var w = new double[length];
             if (length == 1) { w[0] = 1.0; return w; }
 
@@ -86,8 +87,8 @@ namespace ToolBelt.Signal
             if (window is null) throw new ArgumentNullException(nameof(window));
             if (window.Length == 0) throw new ArgumentException("Window is empty.", nameof(window));
             double sum = 0;
-            foreach (var v in window) sum += v;
-            return sum / window.Length;
+            foreach (var v in window) sum += v / window.Length;               // the plain sum overflowed for huge entries
+            return sum;
         }
 
         /// <summary>
@@ -98,8 +99,13 @@ namespace ToolBelt.Signal
         {
             if (window is null) throw new ArgumentNullException(nameof(window));
             if (window.Length == 0) throw new ArgumentException("Window is empty.", nameof(window));
+            // Scaled by the largest entry so that neither sum overflows; an all-zero window has no bandwidth (it was 0/0 = NaN).
+            double max = 0;
+            foreach (var v in window) max = Math.Max(max, Math.Abs(v));
+            if (max == 0) throw new ArgumentException("The window is all zeros.", nameof(window));
             double sum = 0, sumSq = 0;
-            foreach (var v in window) { sum += v; sumSq += v * v; }
+            foreach (var v in window) { double u = v / max; sum += u; sumSq += u * u; }
+            if (sum == 0) throw new ArgumentException("The window sums to zero.", nameof(window));
             return window.Length * sumSq / (sum * sum);
         }
     }

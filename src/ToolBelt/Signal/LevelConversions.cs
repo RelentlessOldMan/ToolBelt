@@ -13,7 +13,7 @@ namespace ToolBelt.Signal
         /// <summary>Amplitude (field) ratio to decibels: <c>20·log10(ratio)</c>.</summary>
         public static double AmplitudeToDb(double ratio)
         {
-            if (ratio <= 0) throw new ArgumentOutOfRangeException(nameof(ratio), ratio, "Ratio must be positive.");
+            if (!(ratio > 0)) throw new ArgumentOutOfRangeException(nameof(ratio), ratio, "Ratio must be positive.");   // NaN slipped past <= 0
             return 20.0 * Math.Log10(ratio);
         }
 
@@ -23,7 +23,7 @@ namespace ToolBelt.Signal
         /// <summary>Power ratio to decibels: <c>10·log10(ratio)</c>.</summary>
         public static double PowerToDb(double ratio)
         {
-            if (ratio <= 0) throw new ArgumentOutOfRangeException(nameof(ratio), ratio, "Ratio must be positive.");
+            if (!(ratio > 0)) throw new ArgumentOutOfRangeException(nameof(ratio), ratio, "Ratio must be positive.");
             return 10.0 * Math.Log10(ratio);
         }
 

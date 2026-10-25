@@ -25,6 +25,8 @@ namespace ToolBelt.Signal
             if (samples.Count == 0) throw new ArgumentException("At least one sample is required.", nameof(samples));
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
 
+            if (double.IsNaN(targetFrequency) || double.IsInfinity(targetFrequency))
+                throw new ArgumentOutOfRangeException(nameof(targetFrequency), targetFrequency, "Target frequency must be finite.");
             double omega = 2.0 * Math.PI * targetFrequency / sampleRate;
             double cosine = Math.Cos(omega);
             double coeff = 2.0 * cosine;

@@ -110,8 +110,8 @@ namespace ToolBelt.Signal
                 min = Math.Min(min, x);
                 max = Math.Max(max, x);
             }
-            double lvl = level ?? (min + max) / 2;
-            double band = hysteresis * (max - min);
+            double lvl = level ?? min / 2 + max / 2;                         // (min + max) / 2 and max − min overflowed
+            double band = 2 * hysteresis * (max / 2 - min / 2);
 
             // Crossing events at fractional sample positions. An edge is armed by the signal going beyond the band on the
             // far side, takes its time from the first level crossing after that, and is committed only when the signal
@@ -163,7 +163,7 @@ namespace ToolBelt.Signal
         private static double Cross(IReadOnlyList<double> s, int i, double level)
         {
             double a = s[i - 1], b = s[i];
-            return b == a ? i : i - 1 + (level - a) / (b - a);
+            return b == a ? i : i - 1 + (level / 2 - a / 2) / (b / 2 - a / 2);
         }
     }
 }

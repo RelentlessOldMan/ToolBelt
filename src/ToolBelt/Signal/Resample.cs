@@ -60,8 +60,8 @@ namespace ToolBelt.Signal
             int last = samples.Length - 1;
             for (int i = 0; i < newLength; i++)
             {
-                double pos = i * step;
-                if (pos >= last) { result[i] = samples[last]; continue; }
+                double pos = i * step;                                  // step = ∞ made 0·∞ = NaN, then an index out of range
+                if (!(pos < last)) { result[i] = i == 0 ? samples[0] : samples[last]; continue; }
                 int lo = (int)pos;
                 double frac = pos - lo;
                 result[i] = frac == 0 ? samples[lo] : samples[lo] * (1 - frac) + samples[lo + 1] * frac;
@@ -85,7 +85,13 @@ namespace ToolBelt.Signal
             {
                 double sum = 0;
                 for (int j = 0; j < factor; j++) sum += samples[i * factor + j];
-                result[i] = sum / factor;
+                if (double.IsInfinity(sum))                             // the sum overflowed for representable samples
+                {
+                    sum = 0;
+                    for (int j = 0; j < factor; j++) sum += samples[i * factor + j] / factor;
+                    result[i] = sum;
+                }
+                else result[i] = sum / factor;
             }
             return result;
         }
