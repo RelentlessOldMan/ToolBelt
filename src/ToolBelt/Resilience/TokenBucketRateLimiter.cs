@@ -24,10 +24,11 @@ namespace ToolBelt.Resilience
         /// <param name="clock">Time source; defaults to <see cref="DateTimeOffset.UtcNow"/>.</param>
         public TokenBucketRateLimiter(double capacity, double refillTokensPerSecond, Func<DateTimeOffset>? clock = null)
         {
-            if (capacity <= 0)
-                throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity must be positive.");
-            if (refillTokensPerSecond <= 0)
-                throw new ArgumentOutOfRangeException(nameof(refillTokensPerSecond), refillTokensPerSecond, "Refill rate must be positive.");
+            // Written so NaN fails too.
+            if (!(capacity > 0) || double.IsInfinity(capacity))
+                throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity must be positive and finite.");
+            if (!(refillTokensPerSecond > 0) || double.IsInfinity(refillTokensPerSecond))
+                throw new ArgumentOutOfRangeException(nameof(refillTokensPerSecond), refillTokensPerSecond, "Refill rate must be positive and finite.");
 
             _capacity = capacity;
             _refillPerSecond = refillTokensPerSecond;

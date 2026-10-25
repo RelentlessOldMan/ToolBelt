@@ -1,4 +1,5 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
+using System;
 using System.Threading;
 
 namespace ToolBelt.Threading
@@ -50,7 +51,9 @@ namespace ToolBelt.Threading
             {
                 double current = Interlocked.CompareExchange(ref _value, 0d, 0d);
                 double next = current + amount;
-                if (Interlocked.CompareExchange(ref _value, next, current) == current)
+                // Compare bit patterns, as the swap does: NaN never equals itself, and -0.0 equals +0.0.
+                double seen = Interlocked.CompareExchange(ref _value, next, current);
+                if (BitConverter.DoubleToInt64Bits(seen) == BitConverter.DoubleToInt64Bits(current))
                     return next;
             }
         }

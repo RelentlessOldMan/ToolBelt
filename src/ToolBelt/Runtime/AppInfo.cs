@@ -16,7 +16,7 @@ namespace ToolBelt.Runtime
     {
         private static readonly Assembly Target = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
 
-        /// <summary>The assembly (file) version, e.g. "1.2.3.0".</summary>
+        /// <summary>The assembly version ([AssemblyVersion], not the file version), e.g. "1.2.3.0".</summary>
         public static string? Version => Target.GetName().Version?.ToString();
 
         /// <summary>The informational version ([AssemblyInformationalVersion]), often a semver/build string.</summary>

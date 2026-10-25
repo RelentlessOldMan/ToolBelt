@@ -8,8 +8,9 @@ namespace ToolBelt.Threading
     /// <summary>
     /// Runs an asynchronous action repeatedly on an interval until disposed: it catches and reports handler
     /// exceptions (so one failure does not kill the loop), stops gracefully on dispose (waiting for the
-    /// in-flight iteration), and takes an injectable delay so tests are deterministic. The first run happens
-    /// immediately; subsequent runs wait one interval. Replaces the timer-plus-boolean pattern every tool
+    /// in-flight iteration), and takes an injectable delay so tests are deterministic. The loop runs on the
+    /// thread pool; the first run happens immediately and subsequent runs wait one interval. If the delay
+    /// itself fails (other than by cancellation), the failure is reported and the loop stops. Replaces the timer-plus-boolean pattern every tool
     /// improvises and gets subtly wrong.
     /// </summary>
     public sealed class PeriodicWorker : IDisposable
@@ -21,6 +22,7 @@ namespace ToolBelt.Threading
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private Task? _loop;
         private int _started;
+        private int _disposed;
 
         public PeriodicWorker(
             Func<CancellationToken, Task> work,
@@ -30,6 +32,8 @@ namespace ToolBelt.Threading
         {
             _work = work ?? throw new ArgumentNullException(nameof(work));
             if (interval < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(interval), interval, "Interval must not be negative.");
+            if (delay is null && interval.TotalMilliseconds > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(interval), interval, "Interval must be at most int.MaxValue milliseconds (about 24.8 days), the longest Task.Delay accepts.");
             _interval = interval;
             _onError = onError;
             _delay = delay ?? ((ts, ct) => Task.Delay(ts, ct));
@@ -40,7 +44,10 @@ namespace ToolBelt.Threading
         {
             if (Interlocked.Exchange(ref _started, 1) == 1)
                 throw new InvalidOperationException("The worker has already been started.");
-            _loop = RunAsync(_cts.Token);
+            // On the pool, not the caller's thread: a zero interval with synchronous work would otherwise never
+            // return, and work resuming on a UI context would deadlock Dispose called from that thread.
+            CancellationToken ct = _cts.Token;
+            _loop = Task.Run(() => RunAsync(ct));
         }
 
         private async Task RunAsync(CancellationToken ct)
@@ -57,7 +64,7 @@ namespace ToolBelt.Threading
                 }
                 catch (Exception ex)
                 {
-                    _onError?.Invoke(ex);
+                    Report(ex);
                 }
 
                 try
@@ -68,7 +75,18 @@ namespace ToolBelt.Threading
                 {
                     break;
                 }
+                catch (Exception ex)
+                {
+                    Report(ex);
+                    break;
+                }
             }
+        }
+
+        private void Report(Exception ex)
+        {
+            try { _onError?.Invoke(ex); }
+            catch { /* a throwing error sink must not kill the loop */ }
         }
 
         /// <summary>
@@ -77,6 +95,7 @@ namespace ToolBelt.Threading
         /// </summary>
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
             _cts.Cancel();
             try { _loop?.Wait(); }
             catch (AggregateException) { /* cancellation surfaces here; ignore */ }

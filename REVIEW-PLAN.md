@@ -50,8 +50,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 1 | 27 / 27 | re-queue (5 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 1 | 45 / 45 | re-queue (6 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 1 | 28 / 28 | re-queue (6 severe) |
-| 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 0 | – / 0 | **next** |
-| 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 0 | – / 0 | queued |
+| 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 1 | 40 / 40 | re-queue (7 severe) |
+| 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 0 | – / 0 | **next** |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 0 | – / 0 | queued |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 0 | – / 0 | queued |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 0 | – / 0 | queued |
@@ -77,6 +77,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.7.0 | 7 | Documents & config | 27 | (see tag) |
 | v0.8.0 | 8 | IO | 45 | (see tag) |
 | v0.9.0 | 9 | Collections | 28 | (see tag) |
+| v0.10.0 | 10 | Concurrency | 40 | (see tag) |
 
 ## Round log
 
@@ -510,3 +511,53 @@ doc-only items, 0 rejected.
   `TtlCache.Count` is O(n).
 - **Checked build:** the section is clean; 42 failures remain elsewhere (55 at v0.8.0, minus the 13 Collections ones).
 - **Re-queued:** yes (6 severe).
+
+### Round 10 — 2026-10-25 — Concurrency
+Reviewers: one for correctness and one for robustness (dispose races, cancellation, timeouts, throwing callbacks,
+child processes that never read stdin or leave grandchildren holding the pipes). **40 confirmed bugs**: 32 with
+failing-first regression tests in `ConcurrencyReviewTests` (33 tests; one crashed the test host), 8 by inspection;
+plus 4 doc-only items. Two existing timing tests in `PauseAndRaceTests` got wider margins (10–30 ms windows flaked
+when pinned to one core).
+
+- **Severe:**
+  - `ProcessRunner`: a throwing `OnOutputLine`/`OnErrorLine` callback escaped on the reader thread and crashed the
+    process. Now the run finishes and the first callback exception is rethrown to the caller.
+  - `ProcessRunner`: the timeout didn't bound the run. Writing stdin to a child that never reads it blocked before
+    the wait began, and a grandchild holding the output pipes kept `Run`/`RunAsync` waiting after the kill. Stdin is
+    now written in the background and the output drain is bounded (a second's grace after a kill).
+  - `ConcurrentPipeline`: an item accepted just as `CompleteAsync` ran could be left in the buffer unprocessed (the
+    completed check and the enqueue weren't atomic). A producer still blocked for space now throws instead.
+  - `ConcurrentPipeline`: a throwing `onError` killed the consumer, so Block producers waited forever.
+  - `PeriodicWorker`: `Start` ran the loop on the caller's thread, so a zero interval with synchronous work never
+    returned, and `Dispose` from a single-threaded (UI) context deadlocked. The loop runs on the pool now; a
+    throwing `onError` no longer kills it.
+  - `ParallelUtils.ForEachAsync`: on caller cancellation or a source-enumeration exception it returned while bodies
+    were still running (and enumeration failures skipped the waiting entirely).
+  - `CircuitBreaker` half-open admitted every caller, not one trial; a caller's own cancellation counted as a
+    failure, and a stale call finishing after the circuit opened could close it or restart the timer.
+- **Moderate:**
+  - `ProcessRunner`: `Encoding` didn't apply to stdin (UTF-8 text arrived as "??"); an invalid timeout threw only
+    after the child had started; `RunAsync` leaked its timer per call; a failed `Start` leaked the `Process`.
+  - `ShellOpen` on macOS/Linux passed the target through the argument string: a path with spaces split, quotes
+    injected arguments, and a leading '-' was read as an option.
+  - `WhichExe` on Windows returned an extensionless file (a Unix script like `npm`) ahead of `npm.cmd`.
+  - `Retry`: `MaxDelay = Timeout.InfiniteTimeSpan` capped every delay at -1 ms, which Task.Delay treats as forever; a negative `BaseDelay` failed only at the first retry, replacing the operation's exception; the default
+    delay threw past ~24.8 days (now waited in pieces).
+  - `AsyncLock`/`Bulkhead` `Dispose` disposed the semaphore under queued waiters (they hung, and a held
+    handle's release threw). Queued callers now get `ObjectDisposedException`; in-flight work finishes.
+  - `PeriodicWorker`: a failing custom delay was unobserved and silently ended the loop; an interval past
+    Task.Delay's limit failed only inside the loop.
+- **Minor:** `AtomicDouble.Add` spun forever on NaN (compared doubles, not bits); `ConcurrentPipeline` Block capacity
+  counted the in-flight item (now buffered items only, as for the drop policies); second `Dispose` on the worker and
+  pipeline threw; `AsyncEvent` parallel invoke dropped cancelled handlers; `AsyncCountdownEvent.AddCount` overflowed;
+  `WhenAllOrFirstException` ignored a cancelled member until every other task finished; `WithTimeout` named the wrong parameter;
+  `TokenBucketRateLimiter` accepted NaN and ∞; `CreateLinkedTimeout` leaked its registration when `CancelAfter`
+  threw; `PauseTokenSource.Toggle` raced (two toggles could both pause); `Jitter` lost sub-millisecond delays on
+  netstandard2.0 and its cref to `RetryPolicy` broke the drop-in law.
+- **Doc-only:** `Jitter` ranges are half-open; `MemoryPressure` on netstandard2.0 reports the heap size (deltas can
+  be negative); `AppInfo.Version` is the AssemblyVersion; the tree kill is .NET Core 3.0+ only.
+- **Not changed:** `AsyncEvent` sequential invoke stops at a cancelled handler (by design); the
+  `TaskExtensions` name clash (documented); `ProcessRunner` has no argument-list overload yet; wall-clock-based
+  timings in `StartupTiming`.
+- **Checked build:** the section is clean; the same 42 failures remain elsewhere.
+- **Re-queued:** yes (7 severe).

@@ -60,6 +60,7 @@ namespace ToolBelt.Threading
             var exceptions = new List<Exception>();
             foreach (var t in tasks)
                 if (t.Exception != null) exceptions.Add(t.Exception.GetBaseException());
+                else if (t.IsCanceled) exceptions.Add(new TaskCanceledException(t)); // as InvokeSequentialAsync reports it
             if (exceptions.Count > 0) throw new AggregateException(exceptions);
         }
 

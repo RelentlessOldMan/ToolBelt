@@ -20,7 +20,8 @@ namespace ToolBelt.Threading
     /// <summary>
     /// A bounded producer-consumer pipeline: items are buffered up to a capacity and processed by a single
     /// background consumer, with a choice of overflow policy and a count of dropped items. Generalizes the
-    /// bounded-queue-plus-background-consumer pattern (the async log sink) into a reusable primitive.
+    /// bounded-queue-plus-background-consumer pattern (the async log sink) into a reusable primitive. The
+    /// capacity counts buffered items, for every policy; the item being processed doesn't take a slot.
     /// </summary>
     public sealed class ConcurrentPipeline<T> : IDisposable
     {
@@ -36,6 +37,7 @@ namespace ToolBelt.Threading
         private readonly Task _loop;
         private long _dropped;
         private int _completed;
+        private int _disposed;
 
         public ConcurrentPipeline(
             Func<T, CancellationToken, Task> consumer,
@@ -58,23 +60,35 @@ namespace ToolBelt.Threading
 
         /// <summary>
         /// Offers an item. Returns false if it was dropped (DropNewest on a full pipeline). For the Block
-        /// policy this waits for space and always returns true.
+        /// policy this waits for space and always returns true. Throws <see cref="InvalidOperationException"/>
+        /// once <see cref="CompleteAsync"/> has been called, including for a producer still waiting for space;
+        /// an item for which this returned true is always processed (unless the pipeline is disposed).
         /// </summary>
         public bool TryEnqueue(T item)
         {
             if (Volatile.Read(ref _completed) == 1)
-                throw new InvalidOperationException("The pipeline has been completed.");
+                throw Completed();
 
             if (_policy == PipelineOverflowPolicy.Block)
             {
                 _space!.Wait(_cts.Token);
-                lock (_gate) _queue.Enqueue(item);
+                lock (_gate)
+                {
+                    if (_completed == 1)
+                    {
+                        _space.Release(); // pass the slot on to the next waiting producer
+                        throw Completed();
+                    }
+                    _queue.Enqueue(item);
+                }
                 _signal.Release();
                 return true;
             }
 
             lock (_gate)
             {
+                if (_completed == 1)
+                    throw Completed();
                 if (_queue.Count >= _capacity)
                 {
                     if (_policy == PipelineOverflowPolicy.DropNewest)
@@ -91,10 +105,13 @@ namespace ToolBelt.Threading
             return true;
         }
 
+        private static InvalidOperationException Completed() => new InvalidOperationException("The pipeline has been completed.");
+
         /// <summary>Signals that no more items will be added, then waits for the buffer to drain.</summary>
         public async Task CompleteAsync()
         {
-            Volatile.Write(ref _completed, 1);
+            // Under the gate, so no enqueue can land after the consumer has seen "completed and empty".
+            lock (_gate) Volatile.Write(ref _completed, 1);
             _signal.Release(); // wake the consumer so it can observe completion
             await _loop.ConfigureAwait(false);
         }
@@ -114,17 +131,14 @@ namespace ToolBelt.Threading
                         if (_queue.Count == 0) break;
                         item = _queue.Dequeue();
                     }
+                    _space?.Release(); // the slot frees when the item leaves the buffer, as for the drop policies
                     try { await _consumer(item, ct).ConfigureAwait(false); }
                     catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
-                    catch (Exception ex) { _onError?.Invoke(ex); }
-                    _space?.Release();
+                    catch (Exception ex) { Report(ex); }
                 }
 
-                if (Volatile.Read(ref _completed) == 1)
-                {
-                    lock (_gate)
-                        if (_queue.Count == 0) break;
-                }
+                lock (_gate)
+                    if (_completed == 1 && _queue.Count == 0) break;
             }
         }
 
@@ -132,8 +146,15 @@ namespace ToolBelt.Threading
         /// Cancels processing and waits for the consumer to stop. Do not call from within the consumer
         /// callback itself. For an orderly drain of buffered items, call <see cref="CompleteAsync"/> first.
         /// </summary>
+        private void Report(Exception ex)
+        {
+            try { _onError?.Invoke(ex); }
+            catch { /* a throwing error sink must not kill the consumer and strand blocked producers */ }
+        }
+
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
             _cts.Cancel();
             try { _loop.Wait(); }
             catch (AggregateException) { /* cancellation */ }

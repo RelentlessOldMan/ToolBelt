@@ -53,7 +53,15 @@ namespace ToolBelt.Threading
                 throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "Timeout must be non-negative or Timeout.InfiniteTimeSpan.");
 
             var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            cts.CancelAfter(timeout);
+            try
+            {
+                cts.CancelAfter(timeout); // throws above the runtime's limit (about 24.8 days on .NET Framework)
+            }
+            catch
+            {
+                cts.Dispose(); // don't leave it registered on the caller's token
+                throw;
+            }
             return cts;
         }
     }

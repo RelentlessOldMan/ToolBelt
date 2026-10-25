@@ -106,7 +106,7 @@ namespace ToolBelt.Tests.Threading
 
         public async Task FirstMatching_AndFirstToComplete()
         {
-            int m = await TaskRace.FirstMatching(new[] { After(5, 1), After(20, 7), After(40, 9) }, v => v > 5);
+            int m = await TaskRace.FirstMatching(new[] { After(5, 1), After(150, 7), After(300, 9) }, v => v > 5);
             Check.Equal(7, m);
             await Check.ThrowsAsync<AggregateException>(() => TaskRace.FirstMatching(new[] { After(5, 1) }, v => v > 5));
             await Check.ThrowsAsync<InvalidOperationException>(() => TaskRace.FirstToComplete(new[] { FailAfter<int>(5, "first"), After(200, 1) }));
@@ -129,7 +129,7 @@ namespace ToolBelt.Tests.Threading
                 lock (starts) starts.Add(n);
                 await Task.Delay(n == 0 ? 5000 : 10, ct);
                 return n;
-            }, TimeSpan.FromMilliseconds(30), maxAttempts: 3);
+            }, TimeSpan.FromMilliseconds(200), maxAttempts: 3);
             Check.Equal(1, r);
             Check.Equal("0,1", string.Join(",", starts));
 

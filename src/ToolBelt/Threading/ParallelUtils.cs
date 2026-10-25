@@ -10,7 +10,10 @@ namespace ToolBelt.Threading
     /// <summary>
     /// Bounded-concurrency asynchronous fan-out with cancellation and a choice of fail-fast or
     /// collect-all-exceptions. Modern .NET has an equivalent; the older target does not, so this fills a
-    /// genuine framework gap. At most <c>maxConcurrency</c> bodies run at once.
+    /// genuine framework gap. At most <c>maxConcurrency</c> bodies run at once, and no body outlives the
+    /// call: on cancellation, a failure, or an exception from enumerating the source, the bodies already
+    /// started are awaited first. Cancellation by the caller surfaces as <see cref="OperationCanceledException"/>
+    /// (unless a body failed for real, which surfaces as <see cref="AggregateException"/>).
     /// </summary>
     public static class ParallelUtils
     {
@@ -30,42 +33,49 @@ namespace ToolBelt.Threading
             var exceptions = new ConcurrentBag<Exception>();
             var running = new List<Task>();
 
-            foreach (T item in source)
+            try
             {
-                try
-                {
-                    await throttle.WaitAsync(linked.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    if (cancellationToken.IsCancellationRequested) throw; // external cancellation
-                    break; // fail-fast: a sibling already failed
-                }
-
-                T captured = item;
-                running.Add(Task.Run(async () =>
+                foreach (T item in source)
                 {
                     try
                     {
-                        await body(captured, linked.Token).ConfigureAwait(false);
+                        await throttle.WaitAsync(linked.Token).ConfigureAwait(false);
                     }
-                    catch (Exception ex)
+                    catch (OperationCanceledException)
                     {
-                        // Ignore cancellations we induced ourselves for fail-fast; keep real failures.
-                        bool selfInduced = ex is OperationCanceledException
-                            && linked.IsCancellationRequested
-                            && !cancellationToken.IsCancellationRequested;
-                        if (!selfInduced)
+                        break; // the caller cancelled, or a sibling failed (fail-fast); sorted out below
+                    }
+
+                    T captured = item;
+                    running.Add(Task.Run(async () =>
+                    {
+                        try
                         {
-                            exceptions.Add(ex);
-                            if (!collectAllExceptions) linked.Cancel();
+                            await body(captured, linked.Token).ConfigureAwait(false);
                         }
-                    }
-                    finally
-                    {
-                        throttle.Release();
-                    }
-                }));
+                        catch (Exception ex)
+                        {
+                            // A cancellation once the linked token has fired (the caller's or our fail-fast) is
+                            // expected; keep only real failures.
+                            if (!(ex is OperationCanceledException && linked.IsCancellationRequested))
+                            {
+                                exceptions.Add(ex);
+                                if (!collectAllExceptions) linked.Cancel();
+                            }
+                        }
+                        finally
+                        {
+                            throttle.Release();
+                        }
+                    }));
+                }
+            }
+            catch
+            {
+                // Enumerating the source threw: stop the started bodies and wait for them before rethrowing.
+                linked.Cancel();
+                await Task.WhenAll(running).ConfigureAwait(false);
+                throw;
             }
 
             await Task.WhenAll(running).ConfigureAwait(false);

@@ -7,7 +7,9 @@ namespace ToolBelt.Process
 {
     /// <summary>
     /// Resolves an executable name against the <c>PATH</c> (and, on Windows, the <c>PATHEXT</c> extension
-    /// list), returning the full path or null. Makes a "command not found" explicable instead of surfacing an
+    /// list), returning the full path or null. On Windows a name without an extension only matches through
+    /// <c>PATHEXT</c>, as the shell resolves it: an extensionless file next to <c>npm.cmd</c> (a Unix script)
+    /// can't be launched. Makes a "command not found" explicable instead of surfacing an
     /// opaque platform error from a failed launch.
     /// </summary>
     public static class WhichExe
@@ -18,16 +20,12 @@ namespace ToolBelt.Process
             if (name.Length == 0) return null;
 
             bool windows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+            bool tryAsIs = !windows || Path.HasExtension(name);
 
             // A name that already includes a directory is resolved directly.
             if (name.IndexOf(Path.DirectorySeparatorChar) >= 0 || name.IndexOf(Path.AltDirectorySeparatorChar) >= 0)
             {
-                string full = Path.GetFullPath(name);
-                if (File.Exists(full)) return full;
-                if (windows)
-                    foreach (string ext in Extensions(true))
-                        if (File.Exists(full + ext)) return full + ext;
-                return null;
+                return Resolve(Path.GetFullPath(name), tryAsIs, windows);
             }
 
             string pathVar = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
@@ -38,19 +36,22 @@ namespace ToolBelt.Process
                 try { candidate = Path.Combine(dir, name); }
                 catch (ArgumentException) { continue; } // skip malformed PATH entries
 
-                if (File.Exists(candidate)) return candidate;
-                if (windows)
-                    foreach (string ext in Extensions(true))
-                        if (File.Exists(candidate + ext)) return candidate + ext;
+                string? found = Resolve(candidate, tryAsIs, windows);
+                if (found != null) return found;
             }
             return null;
         }
 
-        private static string[] Extensions(bool windows)
+        private static string? Resolve(string path, bool tryAsIs, bool windows)
         {
-            if (!windows) return new[] { string.Empty };
-            string pathext = Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT;.COM";
-            return pathext.Split(';');
+            if (tryAsIs && File.Exists(path)) return path;
+            if (windows)
+            {
+                string pathext = Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT;.COM";
+                foreach (string ext in pathext.Split(';'))
+                    if (ext.Length > 0 && File.Exists(path + ext)) return path + ext;
+            }
+            return null;
         }
     }
 }

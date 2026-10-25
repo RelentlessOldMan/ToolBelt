@@ -54,10 +54,18 @@ namespace ToolBelt.Threading
         /// <summary>Pauses if running, resumes if paused; returns the new state.</summary>
         public bool Toggle()
         {
-            bool pause;
-            lock (_gate) pause = _resumed == null;
-            if (pause) Pause(); else Resume();
-            return pause;
+            // Decided and applied under one lock, so two racing toggles can't both report the same new state.
+            TaskCompletionSource<bool>? resumed = null;
+            bool paused;
+            lock (_gate)
+            {
+                paused = _resumed == null;
+                if (paused) _resumed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                else { resumed = _resumed; _resumed = null; }
+            }
+            resumed?.SetResult(true);
+            StateChanged?.Invoke(paused);
+            return paused;
         }
 
         internal Task WaitAsync(CancellationToken cancellationToken)

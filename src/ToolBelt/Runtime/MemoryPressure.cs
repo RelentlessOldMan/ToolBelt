@@ -15,7 +15,10 @@ namespace ToolBelt.Runtime
         }
 
         public long WorkingSetBytes { get; }
-        /// <summary>Total bytes allocated by the process so far (monotonic). Best-effort on the legacy target.</summary>
+        /// <summary>
+        /// Total bytes allocated by the process so far (monotonic) on .NET Core 3.0+ builds. On the netstandard2.0
+        /// build it is the current managed heap size instead, which can go down, so a <see cref="Delta"/> can be negative.
+        /// </summary>
         public long TotalAllocatedBytes { get; }
         /// <summary>Number of collections per GC generation, indexed by generation.</summary>
         public int[] CollectionCounts { get; }
@@ -50,7 +53,7 @@ namespace ToolBelt.Runtime
             get { using var p = DiagnosticsProcess.GetCurrentProcess(); return p.WorkingSet64; }
         }
 
-        /// <summary>Total bytes allocated by the process so far.</summary>
+        /// <summary>Total bytes allocated by the process so far; on the netstandard2.0 build, the current managed heap size.</summary>
         public static long TotalAllocatedBytes =>
 #if NETSTANDARD2_0
             GC.GetTotalMemory(forceFullCollection: false); // approximate: current managed heap size

@@ -8,16 +8,17 @@ namespace ToolBelt.Resilience
     {
         /// <summary>No jitter — the delay is returned unchanged.</summary>
         None,
-        /// <summary>Full jitter: a uniform random delay in <c>[0, delay]</c> (AWS "full jitter").</summary>
+        /// <summary>Full jitter: a uniform random delay in <c>[0, delay)</c> (AWS "full jitter").</summary>
         Full,
-        /// <summary>Equal jitter: half the delay plus a uniform random half in <c>[delay/2, delay]</c>.</summary>
+        /// <summary>Equal jitter: half the delay plus a uniform random part of the other half, so in <c>[delay/2, delay)</c>.</summary>
         Equal,
     }
 
     /// <summary>
     /// Adds randomized jitter to a backoff delay to spread out retries and avoid thundering-herd
     /// synchronization. The randomness source is injected as a function returning a value in [0, 1), so
-    /// results are deterministic in tests. Pairs with <see cref="RetryPolicy"/>.
+    /// results are deterministic in tests. Pairs with <c>RetryPolicy</c>. Computed in ticks, so sub-millisecond
+    /// delays keep their jitter on every target.
     /// </summary>
     public static class Jitter
     {
@@ -35,14 +36,15 @@ namespace ToolBelt.Resilience
             if (r < 0 || r >= 1)
                 throw new ArgumentOutOfRangeException(nameof(random), r, "Random source must return a value in [0, 1).");
 
-            double ms = delay.TotalMilliseconds;
-            double result = mode switch
+            long ticks = delay.Ticks;
+            long half = ticks / 2;
+            long result = mode switch
             {
-                JitterMode.Full => ms * r,
-                JitterMode.Equal => ms * 0.5 + ms * 0.5 * r,
-                _ => ms,
+                JitterMode.Full => (long)(ticks * r),
+                JitterMode.Equal => half + (long)((ticks - half) * r),
+                _ => ticks,
             };
-            return TimeSpan.FromMilliseconds(result);
+            return TimeSpan.FromTicks(result);
         }
     }
 }

@@ -18,7 +18,7 @@ namespace ToolBelt.Threading
         {
             if (task is null) throw new ArgumentNullException(nameof(task));
             using var cts = new CancellationTokenSource();
-            var delay = Task.Delay(timeout, cts.Token);
+            var delay = StartDelay(timeout, cts.Token);
             if (await Task.WhenAny(task, delay).ConfigureAwait(false) == task)
             {
                 cts.Cancel();
@@ -31,7 +31,7 @@ namespace ToolBelt.Threading
         {
             if (task is null) throw new ArgumentNullException(nameof(task));
             using var cts = new CancellationTokenSource();
-            var delay = Task.Delay(timeout, cts.Token);
+            var delay = StartDelay(timeout, cts.Token);
             if (await Task.WhenAny(task, delay).ConfigureAwait(false) == task)
             {
                 cts.Cancel();
@@ -39,6 +39,16 @@ namespace ToolBelt.Threading
                 return;
             }
             throw new TimeoutException($"Operation timed out after {timeout}.");
+        }
+
+        private static Task StartDelay(TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            try { return Task.Delay(timeout, cancellationToken); }
+            catch (ArgumentOutOfRangeException)
+            {
+                throw new ArgumentOutOfRangeException(nameof(timeout), timeout,
+                    "Timeout must be Timeout.InfiniteTimeSpan or between zero and the longest delay Task.Delay accepts.");
+            }
         }
 
         public static async Task<TResult> WithCancellation<TResult>(this Task<TResult> task, CancellationToken cancellationToken)
@@ -65,7 +75,10 @@ namespace ToolBelt.Threading
                 TaskScheduler.Default);
         }
 
-        /// <summary>Completes when all tasks succeed, or throws as soon as any one faults.</summary>
+        /// <summary>
+        /// Completes when all tasks succeed, or throws as soon as any one faults (its exception) or is cancelled
+        /// (a <see cref="TaskCanceledException"/>).
+        /// </summary>
         public static async Task<TResult[]> WhenAllOrFirstException<TResult>(IEnumerable<Task<TResult>> tasks)
         {
             if (tasks is null) throw new ArgumentNullException(nameof(tasks));
@@ -76,6 +89,8 @@ namespace ToolBelt.Threading
                 Task<TResult> done = await Task.WhenAny(pending).ConfigureAwait(false);
                 if (done.IsFaulted)
                     throw done.Exception!.GetBaseException();
+                if (done.IsCanceled)
+                    throw new TaskCanceledException(done);
                 pending.Remove(done);
             }
             var results = new TResult[all.Count];

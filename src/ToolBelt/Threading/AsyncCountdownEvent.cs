@@ -56,7 +56,7 @@ namespace ToolBelt.Threading
                 _tcs.TrySetResult(true);
         }
 
-        /// <summary>Increases the count. Throws if the event has already reached zero.</summary>
+        /// <summary>Increases the count. Throws if the event has already reached zero, or if the count would exceed <see cref="int.MaxValue"/>.</summary>
         public void AddCount(int addCount = 1)
         {
             if (addCount <= 0)
@@ -66,6 +66,8 @@ namespace ToolBelt.Threading
             {
                 if (_count == 0)
                     throw new InvalidOperationException("Cannot add to an event that is already set.");
+                if (_count > int.MaxValue - addCount)
+                    throw new InvalidOperationException("The count would overflow.");
                 _count += addCount;
             }
         }

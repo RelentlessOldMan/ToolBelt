@@ -13,7 +13,7 @@ namespace ToolBelt.Resilience
         Closed,
         /// <summary>Calls fail fast without invoking the operation, until the reset timeout elapses.</summary>
         Open,
-        /// <summary>A single trial call is allowed; success closes the circuit, failure reopens it.</summary>
+        /// <summary>A single trial call is allowed (others are short-circuited while it runs); success closes the circuit, failure reopens it.</summary>
         HalfOpen,
     }
 
@@ -26,8 +26,10 @@ namespace ToolBelt.Resilience
     /// <summary>
     /// A circuit breaker: after <c>failureThreshold</c> consecutive failures it "opens" and fails fast
     /// for <c>resetTimeout</c>, then allows one trial call ("half-open"). A success closes it and resets
-    /// the failure count; a failure while half-open reopens it and restarts the timer. Time is read
-    /// through an injectable clock so tests are deterministic. Not thread-safe.
+    /// the failure count; a failure while half-open reopens it and restarts the timer. While the trial runs,
+    /// other calls are short-circuited. A call that started before the circuit opened and finishes later
+    /// doesn't change the state, and a cancellation the caller requested isn't counted as a failure. Time
+    /// is read through an injectable clock so tests are deterministic. Not thread-safe.
     /// </summary>
     public sealed class CircuitBreaker
     {
@@ -38,6 +40,7 @@ namespace ToolBelt.Resilience
         private CircuitState _state = CircuitState.Closed;
         private int _consecutiveFailures;
         private DateTimeOffset _openedAt;
+        private bool _trialInFlight;
 
         public CircuitBreaker(int failureThreshold, TimeSpan resetTimeout, Func<DateTimeOffset>? clock = null)
         {
@@ -72,17 +75,31 @@ namespace ToolBelt.Resilience
 
             if (_state == CircuitState.Open)
                 throw new CircuitOpenException();
+            bool trial = _state == CircuitState.HalfOpen;
+            if (trial)
+            {
+                if (_trialInFlight) throw new CircuitOpenException();
+                _trialInFlight = true;
+            }
 
             try
             {
                 T result = await operation(cancellationToken).ConfigureAwait(false);
-                OnSuccess();
+                OnSuccess(trial);
                 return result;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw; // the caller gave up; that says nothing about the dependency
             }
             catch (Exception)
             {
-                OnFailure(_clock());
+                OnFailure(_clock(), trial);
                 throw;
+            }
+            finally
+            {
+                if (trial) _trialInFlight = false;
             }
         }
 
@@ -103,17 +120,21 @@ namespace ToolBelt.Resilience
                 _state = CircuitState.HalfOpen;
         }
 
-        private void OnSuccess()
+        // Only the trial, or a call while closed, decides the state: a stale call that started before the
+        // circuit opened must not close it or restart the timer.
+        private void OnSuccess(bool trial)
         {
+            if (!trial && _state != CircuitState.Closed) return;
             _consecutiveFailures = 0;
             _state = CircuitState.Closed;
         }
 
-        private void OnFailure(DateTimeOffset now)
+        private void OnFailure(DateTimeOffset now, bool trial)
         {
+            if (!trial && _state != CircuitState.Closed) return;
             _consecutiveFailures++;
             // A half-open trial that fails reopens immediately; otherwise open once the threshold is hit.
-            if (_state == CircuitState.HalfOpen || _consecutiveFailures >= _failureThreshold)
+            if (trial || _consecutiveFailures >= _failureThreshold)
             {
                 _state = CircuitState.Open;
                 _openedAt = now;

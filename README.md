@@ -896,6 +896,7 @@ tests/
       AsyncManualResetEventTests.cs
       AsyncCountdownEventTests.cs
       ConcurrentPipelineTests.cs
+      ConcurrencyReviewTests.cs (review round 10 regressions: process timeouts and callbacks, pipeline completion, worker loops, dispose races)
       KeyedLockTests.cs
       ParallelUtilsTests.cs
       PeriodicWorkerTests.cs
