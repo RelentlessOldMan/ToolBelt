@@ -383,6 +383,7 @@ src/
       ActivatorUtils.cs     construct by best-matching constructor; safe assembly scan-and-create
       AttributeCache.cs     cached custom-attribute lookups for types/members (thread-safe)
       DeepEquals.cs         structural graph equality (cycles, float tolerance, collections, sets; any depth)
+      ObjectMembers.cs      shared readable-member lookup (used by DeepEquals, PropertyDiff, FlattenObject)
       ExpressionAccessor.cs compiled get/set delegates by member name (cached; boxing-free typed path)
       FlattenObject.cs      object graph -> flat path->value dictionary (any depth)
       UnflattenObject.cs    flat paths -> nested dictionaries/lists (inverse of Flatten), conflicts named
@@ -630,7 +631,7 @@ src/
     LayoutSuspender.cs      using-scope SuspendLayout/ResumeLayout batch
     FormStatePersistence.cs capture/apply/serialize window placement; Apply validates vs current monitors (never off-screen)
     DataGridViewExtensions.cs  BindList<T> (DisplayName headers), AutoSizeColumns cap, selection->TSV (Excel), CSV export
-    MenuBuilder.cs          declarative MenuStrip/ToolStrip builders, ICommand items, Shortcut parse, FindItem(path)
+    MenuBuilder.cs          declarative MenuStrip/ToolStrip builders, ICommand items, MenuShortcut parse/format, FindItem(path)
     PlotPictureBox.cs       zoom/pan/fit image view (crisp pixels, flicker-free) + RGBA->Bitmap bridge
 tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
@@ -808,6 +809,7 @@ tests/
       JsonTarSecretsTests.cs (JSON/JSONL, settings recovery, hostile tars, secrets tamper sweep)
       FileWatcherTests.cs     (deterministic coalescing rules + real file-system scenarios)
       IOReviewTests.cs      (review round 8 regressions: links in zip/tar, encodings, CSV/.env parsing, overflow-safe sizes)
+      CoverageGapTests.cs   (behaviour behind coverage holes found by a coverlet run)
     Numerics/
       AngleTests.cs
       AnovaTests.cs
@@ -824,6 +826,7 @@ tests/
       InferenceAccuracyTests.cs      (worked examples + simulated coverage / false-positive rates)
       StatisticsReviewTests.cs       (review regressions: extreme tails, huge df, round-off variance, non-finite inputs, SPC)
       NumericsCoreReviewTests.cs     (review regressions: QR fit, cancellation-free roots, extreme magnitudes, NaN rejection, fast primes)
+      NumericsReviewRegressionTests.cs  (2026-10-05 review regressions: Numerics and Signal)
       StreamingQuantileTests.cs
       SamplingAndPermutationTests.cs (Poisson/gamma sampling vs pmf/CDF; exact permutation p-values)
       RegressionAndFitTests.cs       (textbook SEs, interval coverage, MLE optimality, family recovery)
@@ -881,6 +884,7 @@ tests/
       TemplateFormatterTests.cs
       TextDiffTests.cs
       TextReviewTests.cs (round 11 review regressions: Text, Identifiers, Enums, Guards)
+      MiscReviewRegressionTests.cs  (2026-10-05 review regressions: Text, Cli, Threading, Time, Diagnostics, Collections)
       TruncateTests.cs
       WordWrapTests.cs
     Net/
@@ -940,6 +944,7 @@ tests/
       BandChartTests.cs
       LinePlotTests.cs
       ChartsReviewTests.cs  (review regressions: far out-of-range data clipped, non-finite values, overflow-safe ranges and ticks, option validation)
+      DocsVizReviewRegressionTests.cs  (2026-10-05 review regressions: Documents and Visualization)
     Resilience/
       RetryTests.cs
       CircuitBreakerTests.cs
@@ -1015,6 +1020,7 @@ tests/
     ThemeManagerTests.cs
     PlotPresenterTests.cs
     WpfReviewTests.cs       (round 16 review regressions: command threading, numeric input, paging reset, regex timeouts, converters)
+    UiReviewRegressionTests.cs  (2026-10-05 review regressions: WPF satellite)
   ToolBelt.WinForms.Tests/  WinForms UI satellite tests (net8.0-windows)
     ControlExtensionsTests.cs
     ControlTreeExtensionsTests.cs
@@ -1027,6 +1033,7 @@ tests/
     DataGridViewExtensionsTests.cs
     MenuBuilderTests.cs
     PlotPictureBoxTests.cs
+    WinFormsReviewTests.cs  (round 17 review regressions: off-screen placement, disposed controls, view limits, cursor scopes, command leaks, shortcuts)
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
                             fits, root-finding, statistics)
@@ -1034,7 +1041,8 @@ tests/
                             dependency, so it is EXCLUDED from ToolBelt.sln — run it on its own.
 scripts/
   build.ps1                 build wrapper (disables the persistent build server)
-  test.ps1                  build once + launch the test exe directly
+  test.ps1                  build once + launch the test exe directly (-Configuration X; other args go to the runner)
+  coverage.ps1              line/branch coverage of the core via the coverlet.console global tool (+ HTML report)
   gen-distribution-references.py  regenerates the 40-digit distribution reference table (needs mpmath)
   gen-png-fixtures.py     regenerates the PNG decoder fixtures (needs Pillow, used as a cross-check)
   gen-filter-references.py  regenerates the IIR/FIR filter references from SciPy (butter, cheby1/2, ellip, bessel, group delay, sosfiltfilt, firwin)
@@ -1063,8 +1071,9 @@ scripts\build.ps1
 scripts\test.ps1
 
 # Filter / verbose / list
-scripts\test.ps1 -- --filter Guard --verbose
-scripts\test.ps1 -- --list
+scripts\test.ps1 --filter Guard --verbose
+scripts\test.ps1 --list
+scripts\test.ps1 -Configuration Release
 ```
 
 **Cross-check satellite.** The trickier numerics (FFT, distributions, linear algebra, least-squares

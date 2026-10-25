@@ -9,10 +9,17 @@ using System.Windows.Input;
 
 namespace ToolBelt.WinForms
 {
-    /// <summary>Parses and formats menu shortcuts such as <c>"Ctrl+Shift+S"</c> or <c>"F5"</c>.</summary>
-    public static class Shortcut
+    /// <summary>
+    /// Parses and formats menu shortcuts such as <c>"Ctrl+Shift+S"</c> or <c>"F5"</c>. Accepts exactly what a menu item's
+    /// <see cref="ToolStripMenuItem.ShortcutKeys"/> accepts (<see cref="ToolStripManager.IsValidShortcut"/>): a key with
+    /// Ctrl or Alt, or a function key, Insert or Delete on its own or with any modifiers.
+    /// </summary>
+    public static class MenuShortcut
     {
-        /// <summary>Parses modifiers (Ctrl/Control, Alt, Shift) and one key ("S", "F5", "Delete", "1", "Plus").</summary>
+        /// <summary>
+        /// Parses modifiers (Ctrl/Control, Alt, Shift) and one key ("S", "F5", "Delete", "1", "Plus", "PageDown", "/").
+        /// Throws <see cref="FormatException"/> for anything a menu item would reject.
+        /// </summary>
         public static Keys Parse(string text)
         {
             if (!TryParse(text, out Keys keys)) throw new FormatException($"'{text}' is not a valid shortcut.");
@@ -38,14 +45,19 @@ namespace ToolBelt.WinForms
                 }
             }
             string k = parts[parts.Length - 1].Trim();
-            Keys key;
+            Keys key = Keys.None;
             if (k.Length == 1 && char.IsDigit(k[0])) key = Keys.D0 + (k[0] - '0');
-            else if (k.Equals("Plus", StringComparison.OrdinalIgnoreCase)) key = Keys.Oemplus;
-            else if (k.Equals("Minus", StringComparison.OrdinalIgnoreCase)) key = Keys.OemMinus;
             else if (k.Equals("Del", StringComparison.OrdinalIgnoreCase)) key = Keys.Delete;
             else if (k.Equals("Esc", StringComparison.OrdinalIgnoreCase)) key = Keys.Escape;
-            else if (!Enum.TryParse(k, ignoreCase: true, out key) || int.TryParse(k, out _)) { keys = Keys.None; return false; }
-            if (key == Keys.None || (key & Keys.Modifiers) != 0 || key == Keys.ControlKey || key == Keys.ShiftKey || key == Keys.Menu)
+            else
+            {
+                foreach (var (fk, name) in Friendly)
+                    if (k.Equals(name, StringComparison.OrdinalIgnoreCase)) { key = fk; break; }
+                // A single enum name only: Enum.TryParse would also take "A,B" (OR-ed) and numbers.
+                if (key == Keys.None && (!IsName(k) || !Enum.TryParse(k, ignoreCase: true, out key) || !Enum.IsDefined(key)))
+                    key = Keys.None;
+            }
+            if (key == Keys.None || (key & Keys.Modifiers) != 0 || IsMouseButton(key) || !ToolStripManager.IsValidShortcut(keys | key))
             {
                 keys = Keys.None;
                 return false;
@@ -53,6 +65,26 @@ namespace ToolBelt.WinForms
             keys |= key;
             return true;
         }
+
+        // Display names for keys whose enum name is an alias or a code ("Next", "Oem2"): Format writes them, TryParse reads them.
+        private static readonly (Keys Key, string Name)[] Friendly =
+        {
+            (Keys.PageUp, "PageUp"), (Keys.PageDown, "PageDown"), (Keys.Enter, "Enter"), (Keys.CapsLock, "CapsLock"),
+            (Keys.Back, "Backspace"), (Keys.Oemplus, "Plus"), (Keys.OemMinus, "Minus"), (Keys.OemQuestion, "/"),
+            (Keys.Oemcomma, ","), (Keys.OemPeriod, "."), (Keys.OemSemicolon, ";"), (Keys.OemQuotes, "'"),
+            (Keys.OemOpenBrackets, "["), (Keys.OemCloseBrackets, "]"), (Keys.OemPipe, "\\"), (Keys.Oemtilde, "`"),
+        };
+
+        private static bool IsName(string s)
+        {
+            if (s.Length == 0 || !char.IsLetter(s[0])) return false;
+            foreach (char c in s)
+                if (!char.IsLetterOrDigit(c)) return false;
+            return true;
+        }
+
+        private static bool IsMouseButton(Keys key)
+            => key == Keys.LButton || key == Keys.RButton || key == Keys.MButton || key == Keys.XButton1 || key == Keys.XButton2;
 
         /// <summary>"Ctrl+Shift+S" style text for display.</summary>
         public static string Format(Keys keys)
@@ -62,8 +94,10 @@ namespace ToolBelt.WinForms
             if ((keys & Keys.Alt) != 0) parts.Add("Alt");
             if ((keys & Keys.Shift) != 0) parts.Add("Shift");
             Keys key = keys & Keys.KeyCode;
-            parts.Add(key >= Keys.D0 && key <= Keys.D9 ? ((int)(key - Keys.D0)).ToString(CultureInfo.InvariantCulture)
-                : key == Keys.Oemplus ? "Plus" : key == Keys.OemMinus ? "Minus" : key.ToString());
+            string? text = null;
+            foreach (var (fk, name) in Friendly)
+                if (fk == key) { text = name; break; }
+            parts.Add(text ?? (key >= Keys.D0 && key <= Keys.D9 ? ((int)(key - Keys.D0)).ToString(CultureInfo.InvariantCulture) : key.ToString()));
             return string.Join("+", parts);
         }
 
@@ -139,8 +173,8 @@ namespace ToolBelt.WinForms
             var item = new ToolStripMenuItem(text) { Name = name ?? MenuBuilder.PlainText(text), Image = image };
             if (shortcut != null)
             {
-                item.ShortcutKeys = Shortcut.Parse(shortcut);
-                item.ShortcutKeyDisplayString = Shortcut.Format(item.ShortcutKeys);
+                item.ShortcutKeys = MenuShortcut.Parse(shortcut);
+                item.ShortcutKeyDisplayString = MenuShortcut.Format(item.ShortcutKeys);
             }
             return item;
         }
@@ -311,20 +345,44 @@ namespace ToolBelt.WinForms
         }
     }
 
-    /// <summary>Wires a <see cref="ToolStripItem"/> to an <see cref="ICommand"/> and unhooks when the item is disposed.</summary>
+    /// <summary>
+    /// Wires a <see cref="ToolStripItem"/> to an <see cref="ICommand"/>. The command holds the item only weakly (a
+    /// long-lived view-model command must not keep a closed but undisposed dialog's menu alive) and is unhooked when the
+    /// item is disposed or collected.
+    /// </summary>
     internal static class CommandBinding
     {
         public static void Bind(ToolStripItem item, ICommand command, object? parameter)
         {
             if (command is null) throw new ArgumentNullException(nameof(command));
-            void Sync(object? s, EventArgs e) => item.Enabled = command.CanExecute(parameter);
+            item.Enabled = command.CanExecute(parameter); // before hooking: a throwing CanExecute leaves nothing subscribed
             item.Click += (_, __) =>
             {
                 if (command.CanExecute(parameter)) command.Execute(parameter);
             };
-            command.CanExecuteChanged += Sync;
-            item.Disposed += (_, __) => command.CanExecuteChanged -= Sync; // the command must not keep the item alive
-            Sync(null, EventArgs.Empty);
+            var sync = new WeakSync(item, command, parameter);
+            command.CanExecuteChanged += sync.Handler;
+            item.Disposed += (_, __) => command.CanExecuteChanged -= sync.Handler;
+        }
+
+        private sealed class WeakSync
+        {
+            private readonly WeakReference<ToolStripItem> _item;
+            private readonly ICommand _command;
+            private readonly object? _parameter;
+
+            public WeakSync(ToolStripItem item, ICommand command, object? parameter)
+            {
+                _item = new WeakReference<ToolStripItem>(item);
+                _command = command;
+                _parameter = parameter;
+            }
+
+            public void Handler(object? sender, EventArgs e)
+            {
+                if (_item.TryGetTarget(out ToolStripItem? item)) item.Enabled = _command.CanExecute(_parameter);
+                else _command.CanExecuteChanged -= Handler;
+            }
         }
     }
 }

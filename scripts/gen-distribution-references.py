@@ -5,6 +5,8 @@ tails, tiny x, huge or fractional degrees of freedom) where double-precision lib
 Usage: python scripts/gen-distribution-references.py   (needs mpmath; scipy only seeds root finding)
 Inputs are written with repr(float) so they round-trip to the identical doubles in C#.
 """
+import os
+
 from mpmath import mp, mpf, betainc, erfc, sqrt, findroot, gamma, hyp1f1, exp, gammainc, inf
 from scipy import stats
 
@@ -163,5 +165,5 @@ for fn, a, b, x, val in rows:
 out.append("        };")
 out.append("    }")
 out.append("}")
-open("tests/ToolBelt.Tests/Numerics/DistributionReferenceData.cs", "w", encoding="utf-8", newline="\n").write("\n".join(out) + "\n")
+open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests/ToolBelt.Tests/Numerics/DistributionReferenceData.cs"), "w", encoding="utf-8", newline="\n").write("\n".join(out) + "\n")
 print(len(rows), "reference rows written")

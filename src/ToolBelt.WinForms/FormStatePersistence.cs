@@ -16,13 +16,13 @@ namespace ToolBelt.WinForms
         public FormState(Rectangle bounds, FormWindowState windowState)
         {
             Bounds = bounds;
-            WindowState = windowState;
+            WindowState = windowState == FormWindowState.Maximized ? FormWindowState.Maximized : FormWindowState.Normal;
         }
 
         /// <summary>The form's normal (non-maximized) bounds.</summary>
         public Rectangle Bounds { get; }
 
-        /// <summary>The window state to restore (Normal or Maximized; Minimized is normalised to Normal).</summary>
+        /// <summary>The window state to restore: Normal or Maximized (anything else given to the constructor becomes Normal).</summary>
         public FormWindowState WindowState { get; }
 
         /// <summary>Serializes to <c>"x,y,w,h,state"</c> using the invariant culture.</summary>
@@ -67,7 +67,10 @@ namespace ToolBelt.WinForms
     /// </summary>
     public static class FormStatePersistence
     {
-        /// <summary>Captures the current placement of <paramref name="form"/>.</summary>
+        /// <summary>
+        /// Captures the current placement of <paramref name="form"/>. A minimized form is captured as Normal at its
+        /// restored bounds — even one that was maximized before it was minimized.
+        /// </summary>
         public static FormState Capture(Form form)
         {
             if (form is null) throw new ArgumentNullException(nameof(form));
@@ -103,9 +106,11 @@ namespace ToolBelt.WinForms
         }
 
         /// <summary>
-        /// Returns <paramref name="bounds"/> unchanged if its title-bar strip is reachable on one of the
-        /// <paramref name="workingAreas"/> (at least <paramref name="minimumVisible"/> pixels of it, or its whole
-        /// width if narrower) — a window deliberately straddling two monitors is left alone. Otherwise the window
+        /// Returns <paramref name="bounds"/> unchanged if it fits within the bounding box of all the
+        /// <paramref name="workingAreas"/> and its title-bar strip is reachable on one of them (at least
+        /// <paramref name="minimumVisible"/> pixels of it, or its whole width if narrower) — a window deliberately
+        /// straddling two monitors is left alone. (A larger window would be shrunk by Windows about its own origin,
+        /// which can move the reachable part of the caption off-screen.) Otherwise the window
         /// is relocated onto the working area it overlaps most (or, if it overlaps none, the one nearest its
         /// centre; ties go to the earliest, so pass the primary first), shrunk to fit if it is larger than that
         /// area, and clamped inside it. With no working areas the bounds are returned unchanged.
@@ -120,12 +125,16 @@ namespace ToolBelt.WinForms
             // The caption is what the user grabs to move a window, so that is the part that must be reachable.
             var caption = new Rectangle(bounds.X, bounds.Y, bounds.Width, Math.Min(bounds.Height, CaptionHeight));
             int needed = Math.Min(minimumVisible, bounds.Width);
+            Rectangle union = workingAreas[0];
             foreach (Rectangle area in workingAreas)
-            {
-                Rectangle seen = Rectangle.Intersect(caption, area);
-                if (seen.Width >= needed && seen.Height > 0)
-                    return bounds;
-            }
+                union = Rectangle.Union(union, area);
+            if (bounds.Width <= union.Width && bounds.Height <= union.Height)
+                foreach (Rectangle area in workingAreas)
+                {
+                    Rectangle seen = Rectangle.Intersect(caption, area);
+                    if (seen.Width >= needed && seen.Height > 0)
+                        return bounds;
+                }
 
             Rectangle target = PickTarget(bounds, workingAreas);
             int w = Math.Min(bounds.Width, target.Width);

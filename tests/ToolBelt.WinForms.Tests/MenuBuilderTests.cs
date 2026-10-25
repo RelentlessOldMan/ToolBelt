@@ -23,16 +23,16 @@ namespace ToolBelt.WinForms.Tests
 
         public void Shortcut_ParseAndFormat()
         {
-            Check.Equal(Keys.Control | Keys.O, Shortcut.Parse("Ctrl+O"));
-            Check.Equal(Keys.Control | Keys.Shift | Keys.S, Shortcut.Parse(" shift + control + s "));
-            Check.Equal(Keys.F5, Shortcut.Parse("F5"));
-            Check.Equal(Keys.Control | Keys.D1, Shortcut.Parse("Ctrl+1"));
-            Check.Equal(Keys.Control | Keys.Oemplus, Shortcut.Parse("Ctrl++"));
-            Check.Equal(Keys.Alt | Keys.Delete, Shortcut.Parse("Alt+Del"));
-            Check.Equal("Ctrl+Shift+S", Shortcut.Format(Keys.Control | Keys.Shift | Keys.S));
-            Check.Equal("Ctrl+1", Shortcut.Format(Keys.Control | Keys.D1));
+            Check.Equal(Keys.Control | Keys.O, MenuShortcut.Parse("Ctrl+O"));
+            Check.Equal(Keys.Control | Keys.Shift | Keys.S, MenuShortcut.Parse(" shift + control + s "));
+            Check.Equal(Keys.F5, MenuShortcut.Parse("F5"));
+            Check.Equal(Keys.Control | Keys.D1, MenuShortcut.Parse("Ctrl+1"));
+            Check.Equal(Keys.Control | Keys.Oemplus, MenuShortcut.Parse("Ctrl++"));
+            Check.Equal(Keys.Alt | Keys.Delete, MenuShortcut.Parse("Alt+Del"));
+            Check.Equal("Ctrl+Shift+S", MenuShortcut.Format(Keys.Control | Keys.Shift | Keys.S));
+            Check.Equal("Ctrl+1", MenuShortcut.Format(Keys.Control | Keys.D1));
             foreach (string bad in new[] { "", "Ctrl+", "Hyper+K", "Ctrl+Shift", "Ctrl+65", "Ctrl+Nope" })
-                Check.False(Shortcut.TryParse(bad, out _), $"'{bad}'");
+                Check.False(MenuShortcut.TryParse(bad, out _), $"'{bad}'");
         }
 
         public void PlainText_StripsMnemonics()
@@ -119,7 +119,7 @@ namespace ToolBelt.WinForms.Tests
 
         public void Validation()
         {
-            Check.Throws<FormatException>(() => Shortcut.Parse("Ctrl+"));
+            Check.Throws<FormatException>(() => MenuShortcut.Parse("Ctrl+"));
             Check.Throws<ArgumentNullException>(() => new MenuBuilder().Menu("x", null!));
             Check.Throws<ArgumentNullException>(() => new ToolStripBuilder().Button("x", (Action)null!));
             RunSta(() => Check.Throws<ArgumentNullException>(() => new ToolStripBuilder().Button("x", (ICommand)null!)));

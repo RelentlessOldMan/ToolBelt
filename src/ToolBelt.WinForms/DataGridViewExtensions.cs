@@ -39,16 +39,27 @@ namespace ToolBelt.WinForms
             return list;
         }
 
-        /// <summary>Sizes every column to its content, then caps each at <paramref name="maxWidth"/> pixels if given.</summary>
+        /// <summary>
+        /// Sizes every column to its content (<paramref name="mode"/> must be content-based, not None or Fill), then caps
+        /// each at <paramref name="maxWidth"/> pixels if given. A capped column stops auto-sizing (its
+        /// <see cref="DataGridViewColumn.AutoSizeMode"/> becomes None), so the grid's own continuous auto-size mode cannot
+        /// undo the cap.
+        /// </summary>
         public static void AutoSizeColumns(this DataGridView grid, int? maxWidth = null,
             DataGridViewAutoSizeColumnsMode mode = DataGridViewAutoSizeColumnsMode.AllCells)
         {
             if (grid is null) throw new ArgumentNullException(nameof(grid));
             if (maxWidth.HasValue && maxWidth.Value < 1) throw new ArgumentOutOfRangeException(nameof(maxWidth), maxWidth, "Must be positive.");
+            if (mode == DataGridViewAutoSizeColumnsMode.None || mode == DataGridViewAutoSizeColumnsMode.Fill)
+                throw new ArgumentOutOfRangeException(nameof(mode), mode, "Must be a content-based mode.");
             grid.AutoResizeColumns(mode);
             if (maxWidth is int cap)
                 foreach (DataGridViewColumn c in grid.Columns)
-                    if (c.Width > cap) c.Width = cap;
+                    if (c.Width > cap)
+                    {
+                        if (c.InheritedAutoSizeMode != DataGridViewAutoSizeColumnMode.None) c.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+                        c.Width = cap;
+                    }
         }
 
         /// <summary>
@@ -133,6 +144,7 @@ namespace ToolBelt.WinForms
         /// <summary>Saves the grid as CSV; UTF-8 with a byte-order mark by default, so Excel detects the encoding.</summary>
         public static void SaveCsv(this DataGridView grid, string path, Encoding? encoding = null, bool includeHeaders = true, char delimiter = ',')
         {
+            if (grid is null) throw new ArgumentNullException(nameof(grid)); // before opening: the open truncates the file
             if (path is null) throw new ArgumentNullException(nameof(path));
             using var writer = new StreamWriter(path, false, encoding ?? new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             grid.ToCsv(writer, includeHeaders, true, delimiter);

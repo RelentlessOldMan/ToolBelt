@@ -5,6 +5,8 @@ Independent route: sums of squares come from nested least-squares model fits (re
 intercept -> +part -> +operator -> +part:operator, dummy coded), not from the cell/marginal-mean formulas the C# uses;
 p-values from scipy.stats.f.sf. Variance components then follow the standard expected-mean-square equations.
 """
+import os
+
 import numpy as np
 from scipy import stats
 
@@ -96,7 +98,7 @@ for data, alpha, res in cases:
     out.append(f"                Ndc = {res['ndc']},")
     out.append("            },")
 out += ["        };", "    }", "}"]
-path = "tests/ToolBelt.Tests/Quality/GaugeRRReferenceData.cs"
+path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests/ToolBelt.Tests/Quality/GaugeRRReferenceData.cs")  # independent of the cwd
 with open(path, "w", encoding="utf-8", newline="\n") as fh:
     fh.write("\n".join(out) + "\n")
 for _, alpha, res in cases:

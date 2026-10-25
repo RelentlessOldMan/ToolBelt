@@ -1,5 +1,6 @@
 // ToolBelt.WinForms drop-in — Windows-only (net8.0-windows), self-contained (BCL + WinForms).
 using System;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace ToolBelt.WinForms
@@ -7,7 +8,8 @@ namespace ToolBelt.WinForms
     /// <summary>
     /// Populates a <see cref="ComboBox"/> with the values of an enum and reads/writes the selection as the
     /// enum type. Adds the values directly to <see cref="ComboBox.Items"/> (no data-binding context needed),
-    /// so it works before the control's handle is created.
+    /// so it works before the control's handle is created. One item per distinct value: aliases (names sharing a value)
+    /// appear once, and a <c>[Flags]</c> combination is selectable only if it is itself a named value.
     /// </summary>
     public static class ComboBoxEnumExtensions
     {
@@ -16,7 +18,7 @@ namespace ToolBelt.WinForms
         {
             if (comboBox is null) throw new ArgumentNullException(nameof(comboBox));
             comboBox.Items.Clear();
-            foreach (TEnum value in Enum.GetValues<TEnum>())
+            foreach (TEnum value in Enum.GetValues<TEnum>().Distinct())
                 comboBox.Items.Add(value);
         }
 
@@ -27,11 +29,11 @@ namespace ToolBelt.WinForms
             return comboBox.SelectedItem is TEnum value ? value : null;
         }
 
-        /// <summary>Selects the item equal to <paramref name="value"/>.</summary>
+        /// <summary>Selects the item equal to <paramref name="value"/>, or clears the selection if no item equals it.</summary>
         public static void SetSelectedEnum<TEnum>(this ComboBox comboBox, TEnum value) where TEnum : struct, Enum
         {
             if (comboBox is null) throw new ArgumentNullException(nameof(comboBox));
-            comboBox.SelectedItem = value;
+            comboBox.SelectedIndex = comboBox.Items.IndexOf(value);
         }
     }
 }

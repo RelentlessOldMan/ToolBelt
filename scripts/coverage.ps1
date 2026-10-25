@@ -35,7 +35,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 New-Item -ItemType Directory -Force $outDir | Out-Null
 
 Write-Host "Collecting coverage (production code only)..." -ForegroundColor Cyan
-coverlet $testDll --target "dotnet" --targetargs "$testDll" `
+coverlet $testDll --target "dotnet" --targetargs "`"$testDll`"" `
     --format cobertura --output $cobertura --include "[ToolBelt]*"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

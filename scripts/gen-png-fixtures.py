@@ -9,13 +9,14 @@ Run:  python scripts/gen-png-fixtures.py
 """
 import base64
 import io
+import os
 import random
 import struct
 import zlib
 
 from PIL import Image
 
-OUT = "tests/ToolBelt.Tests/Visualization/PngFixtureData.cs"
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests/ToolBelt.Tests/Visualization/PngFixtureData.cs")
 CHANNELS = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
 ADAM7 = [(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)]
 
@@ -137,14 +138,15 @@ def main():
                     trns_bytes = b"".join(struct.pack(">H", v) for v in trns_key)
                 png = encode(w, h, ctype, depth, pixels, interlace, rng, plte, trns_bytes)
                 exp = expected_rgba(w, h, ctype, depth, pixels, plte, trns_key, trns_alpha)
-                # Graded by spec only where Pillow is known to differ: 16-bit (it clips instead of shifting) and interlaced
-                # sub-8-bit greyscale with tRNS (it scales samples to 8 bits but compares the unscaled key, losing transparency;
-                # PNG spec 11.3.2.1 compares the key with the raw sample).
+                # Graded by spec only where Pillow is known to differ: 16-bit (it clips instead of shifting) and sub-8-bit
+                # greyscale with tRNS, interlaced or not (it scales samples to 8 bits but compares the unscaled key, losing
+                # transparency; PNG spec 11.3.2.1 compares the key with the raw sample).
                 pillow_quirk = depth == 16 or (trns and ctype == 0 and depth < 8)
                 if not pillow_quirk:
                     im = Image.open(io.BytesIO(png)).convert("RGBA")
-                    assert im.size == (w, h)
-                    assert im.tobytes() == exp, f"Pillow disagrees for type {ctype} depth {depth} interlace {interlace} trns {trns}"
+                    # Explicit checks, not assert: `python -O` must not skip the cross-check.
+                    if im.size != (w, h) or im.tobytes() != exp:
+                        raise SystemExit(f"Pillow disagrees for type {ctype} depth {depth} interlace {interlace} trns {trns}")
                 name = f"type{ctype}_{depth}bit{'_adam7' if interlace else ''}{'_trns' if trns else ''}"
                 fixtures.append((name, w, h, base64.b64encode(png).decode(), base64.b64encode(exp).decode()))
 

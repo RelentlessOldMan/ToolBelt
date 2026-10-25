@@ -6,6 +6,8 @@ Usage: python scripts/gen-filter-references.py   (needs numpy + scipy)
 Section ordering is SciPy's own and may differ from ours, so the IIR rows compare order-independent quantities: the
 complex response at a set of frequencies, and filter outputs on a fixed test signal (equal up to rounding).
 """
+import os
+
 import numpy as np
 from scipy import signal
 
@@ -204,7 +206,7 @@ out.append("        };")
 out.append("    }")
 out.append("}")
 
-path = "tests/ToolBelt.Tests/Signal/FilterReferenceData.cs"
+path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests/ToolBelt.Tests/Signal/FilterReferenceData.cs")  # independent of the cwd
 with open(path, "w", encoding="utf-8", newline="\n") as fh:
     fh.write("\n".join(out) + "\n")
 print(f"wrote {path}: {len(iir_rows)} response rows, {len(iir_out)} output rows, {len(fir_rows)} FIR designs")

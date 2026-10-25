@@ -1,12 +1,16 @@
 # Test wrapper for Windows. Builds once, then launches the compiled test executable DIRECTLY rather than
 # via `dotnet run` — the run command's lingering build server can make the shell/CI step appear to hang
-# long after the tests have finished. Any extra args are forwarded to the runner (e.g. -v, --filter Guard).
-[CmdletBinding()]
-param(
-    [string]$Configuration = "Debug",
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$RunnerArgs
-)
+# long after the tests have finished. `-Configuration <name>` picks the build configuration (default Debug); every
+# other argument is forwarded to the runner untouched (e.g. --filter Guard --verbose, --list, -v). A `--` separator is
+# accepted and ignored. Arguments are parsed by hand, not by a param() block: PowerShell would otherwise bind a runner
+# argument to -Configuration by position or to its own -Verbose/-Debug switches.
+$Configuration = "Debug"
+$RunnerArgs = @()
+for ($i = 0; $i -lt $args.Count; $i++) {
+    $a = [string]$args[$i]
+    if ($a -eq "-Configuration" -and $i + 1 -lt $args.Count) { $i++; $Configuration = [string]$args[$i] }
+    elseif ($a -ne "--") { $RunnerArgs += $a }
+}
 
 $ErrorActionPreference = "Stop"
 $env:DOTNET_CLI_USE_MSBUILD_SERVER = "0"

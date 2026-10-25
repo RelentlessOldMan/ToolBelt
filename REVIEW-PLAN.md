@@ -57,9 +57,9 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 1 | 44 / 44 | re-queue (7 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 1 | 35 / 35 | re-queue (7 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 1 | 21 / 21 | re-queue (1 severe) |
-| 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 0 | – / 0 | **next** |
+| 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
-After all 17: re-run the sections flagged by the re-review rule, worst first.
+After all 17: re-run the sections flagged by the re-review rule, worst first. **next**
 
 ## Releases
 
@@ -84,6 +84,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.14.0 | 14 | Objects, functional, grids, graphs, intervals | 44 | (see tag) |
 | v0.15.0 | 15 | Windows satellite | 35 | (see tag) |
 | v0.16.0 | 16 | WPF satellite | 21 | (see tag) |
+| v0.17.0 | 17 | WinForms satellite, tooling, docs | 24 | (see tag) |
 
 ## Round log
 
@@ -867,3 +868,53 @@ failure, as its doc says, and `Clear` exists.
     - with one dictionary registered for both themes, it never updated `Effective` or raised `ThemeChanged`.
 - **Checked build:** not applicable (satellite).
 - **Re-queued:** yes (21 bugs, 1 severe).
+
+### Round 17 — 2026-10-25 — WinForms satellite, tooling, docs
+Reviewers: one for correctness and one for robustness (hostile property values, disposal and handle lifetime,
+multi-monitor placement, script argument handling, generator reproducibility). **24 confirmed bugs**: 15 with
+failing-first regression tests in `WinFormsReviewTests`, 9 by repro or inspection (scripts, samples, docs). One finding
+was not acted on: no `global.json` pins the SDK. Pinning one would break machines that lack that SDK, and the build is
+green on the installed SDK 10.
+
+- **Severe:**
+  - `FormStatePersistence.EnsureOnScreen` kept a placement larger than every screen when its caption was reachable.
+    Windows then shrank the window about its own origin, so `"-2400,100,4000,900"` on one 1920-wide monitor reopened
+    fully off-screen. A placement that does not fit the working areas' bounding box is now relocated and shrunk.
+- **Moderate:**
+  - `ControlExtensions` ran the delegate inline on a disposed control, i.e. on the worker thread. The synchronous
+    helpers now throw `ObjectDisposedException`; `BeginInvokeIfRequired` drops the action, also when the handle dies
+    while it posts.
+  - `PlotPictureBox`: `WheelFactor`, `MinZoom` and `MaxZoom` accepted 0, negatives and `NaN` (a crash on the next
+    wheel event), and `PanBy(NaN)` made painting throw. All are now validated.
+  - `WaitCursorScope` restored a per-scope snapshot, so scopes disposed out of order left the wait cursor stuck on.
+    Open scopes are now counted.
+  - Menu `ICommand` binding: a long-lived command rooted every bound menu item, so a closed but undisposed dialog
+    leaked. The command now holds the item weakly.
+  - `Shortcut` clashed with `System.Windows.Forms.Shortcut` (CS0104 in any file using both namespaces). Renamed
+    `MenuShortcut`.
+  - `MenuShortcut` accepted keys a menu item rejects ("A", "Shift+A", "Esc", "Ctrl+LButton"), so the builder threw
+    `InvalidEnumArgumentException`. Parsing now follows `ToolStripManager.IsValidShortcut`.
+  - `AutoSizeColumns` cap was undone at once by a grid in a continuous auto-size mode. Capped columns now stop
+    auto-sizing.
+  - `scripts/test.ps1`: PowerShell swallowed `--` and bound the next runner argument to `-Configuration`, so the
+    README's `-- --list` built a configuration named `--list` and ran everything. `-v` bound to `-Verbose`. Arguments
+    are now parsed by hand.
+- **Minor:**
+  - `FormState`'s constructor kept `Minimized`, which `Serialize` wrote and `TryParse` rejected.
+  - `PlotPictureBox.ZoomAbout` with `minZoom` 0 could underflow to zoom 0; such a zoom now leaves the view unchanged.
+    The wheel power is clamped (by inspection). `BitmapFromRgba`'s size check overflowed `int`, and the bitmap
+    leaked if filling it threw (by inspection).
+  - `MenuShortcut.Format` showed alias names ("Ctrl+Next", "Ctrl+Oem2"); it now writes "PageDown", "/" and so on, and
+    parsing reads them back. `TryParse("Ctrl+A,B")` OR-ed the list into Ctrl+C.
+  - A throwing `CanExecute` left the command subscribed to an orphaned item.
+  - `SaveCsv` truncated the target file before checking `grid` for null.
+  - `BindEnum` listed aliased values twice; `SetSelectedEnum` with a value not in the list kept the old selection.
+  - `scripts/coverage.ps1` broke on a repo path with spaces; the `gen-*.py` generators wrote relative to the current
+    directory; `gen-png-fixtures.py` used `assert` (skipped by `python -O`) and its comment misdescribed the skip.
+  - `samples/Benchmarks` boxed results in `GC.KeepAlive`, reporting allocations for allocation-free calls.
+  - The README Layout missed `Objects/ObjectMembers.cs` (which three drop-in headers tell you to copy),
+    `scripts/coverage.ps1` and five test files.
+- **Docs only:** `PlotPictureBox.Image` must be replaced before the old image is disposed; a form maximized then
+  minimized is captured as Normal; `ControlExtensions` runs inline before a handle exists, as `InvokeRequired` does.
+- **Checked build:** not applicable (satellite and tooling).
+- **Re-queued:** yes (24 bugs, 1 severe).

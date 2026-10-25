@@ -106,7 +106,7 @@ internal static class Program
         Expect("ByteSize.TryParse garbage -> false", !ByteSize.TryParse("banana", out _));
         Expect("GlobMatcher", GlobMatcher.IsMatch("readme.txt", "*.txt"));
 
-        // Double-dispose must be safe (idempotent), a classic consumer mistake.
+        // A value just set is readable straight away (TTL sanity).
         var tmp = new TtlCache<string, int>(TimeSpan.FromMinutes(1));
         tmp.Set("k", 1);
         Expect("TtlCache hit", tmp.TryGet("k", out var v) && v == 1);

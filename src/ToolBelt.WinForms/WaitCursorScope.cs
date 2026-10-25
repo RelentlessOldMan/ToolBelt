@@ -8,17 +8,23 @@ namespace ToolBelt.WinForms
     /// A scope that shows the wait (hourglass) cursor application-wide for its lifetime, then restores the
     /// previous state. Wrap a slow synchronous operation in a <c>using</c> block:
     /// <code>using (WaitCursorScope.Begin()) { DoSlowWork(); }</code>
-    /// Restores <see cref="Application.UseWaitCursor"/> to whatever it was (so nested scopes compose).
+    /// Open scopes are counted, so they nest and may be disposed in any order: when the last one closes,
+    /// <see cref="Application.UseWaitCursor"/> returns to what it was before the first one opened.
     /// </summary>
     public sealed class WaitCursorScope : IDisposable
     {
-        private readonly bool _previous;
+        private static readonly object s_gate = new object();
+        private static int s_open;
+        private static bool s_before;
         private bool _disposed;
 
         public WaitCursorScope()
         {
-            _previous = Application.UseWaitCursor;
-            Application.UseWaitCursor = true;
+            lock (s_gate)
+            {
+                if (s_open++ == 0) s_before = Application.UseWaitCursor;
+                Application.UseWaitCursor = true;
+            }
         }
 
         /// <summary>Begins a wait-cursor scope.</summary>
@@ -26,9 +32,12 @@ namespace ToolBelt.WinForms
 
         public void Dispose()
         {
-            if (_disposed) return;
-            _disposed = true;
-            Application.UseWaitCursor = _previous;
+            lock (s_gate)
+            {
+                if (_disposed) return;
+                _disposed = true;
+                if (--s_open == 0) Application.UseWaitCursor = s_before;
+            }
         }
     }
 }

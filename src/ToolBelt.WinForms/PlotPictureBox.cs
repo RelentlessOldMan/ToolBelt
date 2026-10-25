@@ -30,7 +30,10 @@ namespace ToolBelt.WinForms
             BackColor = Color.White;
         }
 
-        /// <summary>The figure (not owned: the caller disposes it).</summary>
+        /// <summary>
+        /// The figure (not owned: the caller disposes it). Assign the next image (or null) before disposing the current
+        /// one — the control keeps painting whatever is assigned, and a disposed image cannot be drawn.
+        /// </summary>
         public Image? Image
         {
             get => _image;
@@ -51,9 +54,19 @@ namespace ToolBelt.WinForms
 
         public double Zoom { get; private set; } = 1;
         public PointF Offset { get; private set; }
-        public double MinZoom { get; set; } = 0.02;
-        public double MaxZoom { get; set; } = 64;
-        public double WheelFactor { get; set; } = 1.2;
+        /// <summary>The smallest zoom the wheel or <see cref="ZoomAt"/> reaches; positive and finite.</summary>
+        public double MinZoom { get => _minZoom; set => _minZoom = PositiveFinite(value); }
+
+        /// <summary>The largest zoom the wheel or <see cref="ZoomAt"/> reaches; positive and finite.</summary>
+        public double MaxZoom { get => _maxZoom; set => _maxZoom = PositiveFinite(value); }
+
+        /// <summary>Zoom per wheel notch; positive and finite (above 1 zooms in on wheel-up).</summary>
+        public double WheelFactor { get => _wheelFactor; set => _wheelFactor = PositiveFinite(value); }
+
+        private double _minZoom = 0.02, _maxZoom = 64, _wheelFactor = 1.2;
+
+        private static double PositiveFinite(double value)
+            => value > 0 && !double.IsInfinity(value) ? value : throw new ArgumentOutOfRangeException(nameof(value), value, "Must be positive and finite.");
 
         /// <summary>Raised whenever zoom or pan changes.</summary>
         public event EventHandler? ViewChanged;
@@ -72,6 +85,8 @@ namespace ToolBelt.WinForms
 
         public void PanBy(float dx, float dy)
         {
+            if (!float.IsFinite(dx)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Must be finite.");
+            if (!float.IsFinite(dy)) throw new ArgumentOutOfRangeException(nameof(dy), dy, "Must be finite.");
             _userAdjusted = true;
             SetView(Zoom, new PointF(Offset.X + dx, Offset.Y + dy));
         }
@@ -97,12 +112,16 @@ namespace ToolBelt.WinForms
 
         // ---------- pure view math ----------
 
-        /// <summary>The (zoom, offset) after zooming by <paramref name="factor"/> about <paramref name="at"/>, clamped to [min, max].</summary>
+        /// <summary>
+        /// The (zoom, offset) after zooming by <paramref name="factor"/> about <paramref name="at"/>, clamped to [min, max].
+        /// A zoom that would leave (0, ∞) — e.g. underflow with <paramref name="minZoom"/> 0 — leaves the view unchanged.
+        /// </summary>
         public static (double Zoom, PointF Offset) ZoomAbout(double zoom, PointF offset, PointF at, double factor, double minZoom = 0, double maxZoom = double.MaxValue)
         {
             if (!(zoom > 0)) throw new ArgumentOutOfRangeException(nameof(zoom), zoom, "Zoom must be positive.");
             if (!(factor > 0) || double.IsInfinity(factor)) throw new ArgumentOutOfRangeException(nameof(factor), factor, "Factor must be positive.");
             double target = Math.Max(minZoom, Math.Min(maxZoom, zoom * factor));
+            if (!(target > 0) || double.IsInfinity(target)) return (zoom, offset);
             double f = target / zoom;
             // The content point under `at` must stay under it: at = c·z + o = c·z' + o'.
             var o = new PointF((float)(at.X - (at.X - offset.X) * f), (float)(at.Y - (at.Y - offset.Y) * f));
@@ -123,8 +142,22 @@ namespace ToolBelt.WinForms
             if (width < 1) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
             if (height < 1) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
             if (rgba is null) throw new ArgumentNullException(nameof(rgba));
-            if (rgba.Length != width * height * 4) throw new ArgumentException("Expected width × height × 4 bytes.", nameof(rgba));
+            if (rgba.LongLength != (long)width * height * 4) throw new ArgumentException("Expected width × height × 4 bytes.", nameof(rgba));
             var bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+            try
+            {
+                Fill(bmp, width, height, rgba);
+            }
+            catch
+            {
+                bmp.Dispose();
+                throw;
+            }
+            return bmp;
+        }
+
+        private static void Fill(Bitmap bmp, int width, int height, byte[] rgba)
+        {
             BitmapData data = bmp.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
             try
             {
@@ -144,7 +177,6 @@ namespace ToolBelt.WinForms
                 }
             }
             finally { bmp.UnlockBits(data); }
-            return bmp;
         }
 
         // ---------- painting & input ----------
@@ -169,7 +201,9 @@ namespace ToolBelt.WinForms
         {
             base.OnMouseWheel(e);
             if (_image is null || e.Delta == 0) return;
-            ZoomAt(e.Location, Math.Pow(WheelFactor, e.Delta / 120.0));
+            double notches = Math.Max(-50, Math.Min(50, e.Delta / 120.0)); // a synthetic huge delta must not overflow the power
+            double factor = Math.Pow(WheelFactor, notches);
+            if (factor > 0 && !double.IsInfinity(factor)) ZoomAt(e.Location, factor);
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
