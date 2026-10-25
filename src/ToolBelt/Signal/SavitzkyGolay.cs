@@ -46,77 +46,52 @@ namespace ToolBelt.Signal
         }
 
         // Row(e)[k]: the weight of window sample k in the fitted polynomial's value at window position e. The fit is linear in
-        // the data, so one least-squares solve per position replaces a fit per sample. It uses Householder QR on an abscissa
-        // scaled to [−1, 1]: normal equations on raw positions 0..w−1 lose every digit at moderate orders.
+        // the data, so one least-squares solve per position replaces a fit per sample. The fitted values are the projection of
+        // the window onto the polynomials of degree ≤ order sampled at the window's points, so with an orthonormal basis Q of
+        // that space (w × m) the weights are row e of Q·Qᵀ. Q is built by Arnoldi (each column is t times the previous one,
+        // orthogonalised twice against all before it): a monomial basis, even under QR on an abscissa scaled to [−1, 1], is so
+        // ill-conditioned that order 40 on 41 points was off by 0.24 and order 60 on 101 points was wrong at the centre.
         private sealed class Fit
         {
-            private readonly int _w, _m, _half;
-            private readonly double[,] _a;
-            private readonly double[] _v0;
-            private readonly double[] _z;
+            private readonly int _w, _m;
+            private readonly double[,] _q;
 
             public Fit(int w, int order)
             {
                 int m = order + 1, half = w / 2;
-                _w = w; _m = m; _half = half;
-                var a = new double[w, m];
-                for (int k = 0; k < w; k++)
+                _w = w; _m = m;
+                var q = new double[w, m];
+                var t = new double[w];
+                for (int k = 0; k < w; k++) t[k] = (k - half) / (double)half;
+                double c0 = 1 / Math.Sqrt(w);
+                for (int k = 0; k < w; k++) q[k, 0] = c0;
+                var v = new double[w];
+                for (int j = 1; j < m; j++)
                 {
-                    double t = (k - half) / (double)half, p = 1;
-                    for (int j = 0; j < m; j++) { a[k, j] = p; p *= t; }
-                }
-
-                // In-place Householder QR: reflectors below the diagonal (with their leading entries in v0), R on and above it.
-                var v0 = new double[m];
-                for (int j = 0; j < m; j++)
-                {
+                    for (int k = 0; k < w; k++) v[k] = t[k] * q[k, j - 1];
+                    for (int pass = 0; pass < 2; pass++)
+                        for (int i = 0; i < j; i++)
+                        {
+                            double dot = 0;
+                            for (int k = 0; k < w; k++) dot += q[k, i] * v[k];
+                            for (int k = 0; k < w; k++) v[k] -= dot * q[k, i];
+                        }
                     double norm = 0;
-                    for (int k = j; k < w; k++) norm = Hypot(norm, a[k, j]);
-                    double alpha = a[j, j] > 0 ? -norm : norm;
-                    v0[j] = a[j, j] - alpha;
-                    a[j, j] = alpha;
-                    double vv = v0[j] * v0[j];
-                    for (int k = j + 1; k < w; k++) vv += a[k, j] * a[k, j];
-                    if (vv == 0) continue;
-                    for (int c = j + 1; c < m; c++)
-                    {
-                        double dot = v0[j] * a[j, c];
-                        for (int k = j + 1; k < w; k++) dot += a[k, j] * a[k, c];
-                        double s = 2 * dot / vv;
-                        a[j, c] -= s * v0[j];
-                        for (int k = j + 1; k < w; k++) a[k, c] -= s * a[k, j];
-                    }
+                    for (int k = 0; k < w; k++) norm = Hypot(norm, v[k]);
+                    for (int k = 0; k < w; k++) q[k, j] = v[k] / norm;
                 }
-
-                _a = a; _v0 = v0; _z = new double[m];
+                _q = q;
             }
 
             public double[] Row(int e, double[] c)
             {
-                int w = _w, m = _m, half = _half;
-                double[,] a = _a;
-                double[] v0 = _v0, z = _z;
-                // Value at t_e is p(t_e)ᵀ·R⁻¹·Qᵀ·y, so the weights are Q·(R⁻ᵀ·p(t_e)): forward-substitute, then apply Q.
-                double t = (e - half) / (double)half, p = 1;
-                for (int j = 0; j < m; j++)
+                int w = _w, m = _m;
+                double[,] q = _q;
+                for (int k = 0; k < w; k++)
                 {
-                    double s = p;
-                    for (int i = 0; i < j; i++) s -= a[i, j] * z[i];
-                    z[j] = s / a[j, j];
-                    p *= t;
-                }
-                Array.Clear(c, 0, w);
-                for (int j = 0; j < m; j++) c[j] = z[j];
-                for (int j = m - 1; j >= 0; j--)                        // Q = H₀·H₁·…·H_{m−1}
-                {
-                    double vv = v0[j] * v0[j];
-                    for (int k = j + 1; k < w; k++) vv += a[k, j] * a[k, j];
-                    if (vv == 0) continue;
-                    double dot = v0[j] * c[j];
-                    for (int k = j + 1; k < w; k++) dot += a[k, j] * c[k];
-                    double s = 2 * dot / vv;
-                    c[j] -= s * v0[j];
-                    for (int k = j + 1; k < w; k++) c[k] -= s * a[k, j];
+                    double sum = 0;
+                    for (int j = 0; j < m; j++) sum += q[e, j] * q[k, j];
+                    c[k] = sum;
                 }
                 return c;
             }

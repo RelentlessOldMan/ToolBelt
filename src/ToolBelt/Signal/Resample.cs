@@ -34,7 +34,8 @@ namespace ToolBelt.Signal
                 int lo = (int)Math.Floor(pos);
                 if (lo >= samples.Length - 1) { result[i] = samples[samples.Length - 1]; continue; }
                 double frac = pos - lo;
-                result[i] = samples[lo] * (1 - frac) + samples[lo + 1] * frac;
+                // On an input point, take it as is: 0 × a NaN or ∞ neighbour is NaN.
+                result[i] = frac == 0 ? samples[lo] : samples[lo] * (1 - frac) + samples[lo + 1] * frac;
             }
             return result;
         }

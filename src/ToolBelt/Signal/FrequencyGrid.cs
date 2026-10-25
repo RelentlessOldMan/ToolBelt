@@ -56,7 +56,10 @@ namespace ToolBelt.Signal
         {
             ValidateArgs(fftLength, sampleRate);
             if (double.IsNaN(frequency)) throw new ArgumentOutOfRangeException(nameof(frequency), frequency, "Frequency must not be NaN.");
-            double bin = Math.Round(frequency * fftLength / sampleRate);   // clamp as a double: the int cast overflows
+            double ratio = frequency * fftLength / sampleRate;
+            // f·N overflowed for a huge in-range frequency, giving N/2.
+            if (double.IsInfinity(ratio) && !double.IsInfinity(frequency)) ratio = frequency / sampleRate * fftLength;
+            double bin = Math.Round(ratio);   // clamp as a double: the int cast overflows
             int max = fftLength / 2;
             if (!(bin > 0)) return 0;
             return bin >= max ? max : (int)bin;

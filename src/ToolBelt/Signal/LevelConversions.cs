@@ -57,7 +57,11 @@ namespace ToolBelt.Signal
         {
             if (!(fullScale > 0) || double.IsInfinity(fullScale)) throw new ArgumentOutOfRangeException(nameof(fullScale), fullScale, "Full scale must be positive and finite.");
             double rms = Rms(samples);
-            return rms == 0 ? double.NegativeInfinity : 20.0 * Math.Log10(rms / fullScale);
+            if (rms == 0) return double.NegativeInfinity;
+            double ratio = rms / fullScale;
+            // The ratio under- or overflowed (1e-300 against 1e100 read −∞, which is reserved for silence).
+            if (ratio == 0 || double.IsInfinity(ratio)) return 20.0 * (Math.Log10(rms) - Math.Log10(fullScale));
+            return 20.0 * Math.Log10(ratio);
         }
     }
 }

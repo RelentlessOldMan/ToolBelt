@@ -39,8 +39,8 @@ namespace ToolBelt.Signal
                 }
             }
             // Each taper has unit energy (Σv² = 1), so the density normalisation is 1/fs per taper, averaged over K.
-            double norm = 1.0 / (sampleRate * tapers);
-            for (int b = 0; b < bins; b++) psd[b] *= norm;
+            // Divided in turn: fs·K overflowed to ∞ at a huge rate, making every density 0.
+            for (int b = 0; b < bins; b++) psd[b] = psd[b] / tapers / sampleRate;
             return (FrequencyGrid.BinFrequencies(n, sampleRate), psd);
         }
     }

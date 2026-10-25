@@ -138,8 +138,16 @@ namespace ToolBelt.Signal
             int m = 1;
             while (m < 2 * n - 1) m <<= 1;
 
+            // The convolution's spectra multiply to about n·m times the input, so large inputs overflowed (1e308 at n = 3 gave
+            // NaN in every bin) although the transform is representable: the input is scaled to at most 1 by a power of two,
+            // which is exact, and scaled back at the end.
+            double max = 0;
+            for (int k = 0; k < n; k++) max = Math.Max(max, Math.Max(Math.Abs(data[k].Real), Math.Abs(data[k].Imaginary)));
+            int exponent = max > 1 ? (int)Math.Ceiling(Math.Log(max, 2)) : 0;
+            double down = Math.Pow(2, -exponent), upHalf = Math.Pow(2, exponent / 2), upRest = Math.Pow(2, exponent - exponent / 2);
+
             var a = new Complex[m];
-            for (int k = 0; k < n; k++) a[k] = data[k] * chirp[k];
+            for (int k = 0; k < n; k++) a[k] = data[k] * down * chirp[k];
 
             var b = new Complex[m];
             b[0] = Complex.Conjugate(chirp[0]);
@@ -156,7 +164,7 @@ namespace ToolBelt.Signal
             Radix2(a, inverse: true);
 
             double scale = 1.0 / m;
-            for (int k = 0; k < n; k++) data[k] = a[k] * scale * chirp[k];
+            for (int k = 0; k < n; k++) data[k] = a[k] * scale * chirp[k] * upHalf * upRest;
         }
     }
 }

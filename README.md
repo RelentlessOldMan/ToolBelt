@@ -778,6 +778,7 @@ tests/
       SignalExtrasTests.cs  (multitaper, peak interpolation, envelope, group delay, cycles)
       SignalReviewTests.cs  (review regressions: high-order Savitzky-Golay, overflow clamps, NaN handling, GCC-PHAT scale)
       SignalReview2Tests.cs (second-pass regressions: pulse state levels and edges, zero runs, NaN medians, overflow and scale)
+      SignalReview3Tests.cs (third-pass regressions: high-order Savitzky-Golay, Bluestein and Hilbert overflow, huge-rate scaling, band edges)
       WindowTests.cs
       ZeroCrossingTests.cs
     Objects/

@@ -34,6 +34,7 @@ namespace ToolBelt.Signal
 
             // Min/max put the levels on the overshoot peaks, so a ringing step's settled top never reached the 90% reference.
             double halfRange = hi / 2 - lo / 2;
+            if (!(halfRange > 0)) return (lo, hi);   // a denormal range halves to 0: the bin index was NaN and indexed out of range
             var counts = new int[Bins];
             var means = new double[Bins];
             foreach (double v in samples)

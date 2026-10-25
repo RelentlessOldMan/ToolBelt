@@ -60,6 +60,7 @@ namespace ToolBelt.Signal
         public static double[] Apply(IReadOnlyList<double> samples, WindowType type)
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
+            if (samples.Count == 0) return Array.Empty<double>();   // Create(type, 0) threw, naming "length"
             var w = Create(type, samples.Count);
             var result = new double[samples.Count];
             for (int i = 0; i < samples.Count; i++) result[i] = samples[i] * w[i];

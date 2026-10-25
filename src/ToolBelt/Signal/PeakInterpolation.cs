@@ -68,10 +68,13 @@ namespace ToolBelt.Signal
                 (offset, peak) = method == PeakMethod.Gaussian && magnitude[k - 1] > 0 && magnitude[k] > 0 && magnitude[k + 1] > 0
                     ? Gaussian(magnitude[k - 1], magnitude[k], magnitude[k + 1])
                     : Parabolic(magnitude[k - 1], magnitude[k], magnitude[k + 1]);
-                if (Math.Abs(offset) > 1) { offset = 0; peak = magnitude[k]; }   // not a local maximum: don't extrapolate
+                // Not a local maximum (or a NaN vertex, from ∞ neighbours): don't extrapolate.
+                if (!(Math.Abs(offset) <= 1)) { offset = 0; peak = magnitude[k]; }
             }
             double fractionalBin = k + offset;
-            return (fractionalBin * sampleRate / fftLength, peak, fractionalBin);
+            double frequency = fractionalBin * sampleRate / fftLength;   // k·fs overflowed for a huge rate
+            if (double.IsInfinity(frequency)) frequency = fractionalBin * (sampleRate / fftLength);
+            return (frequency, peak, fractionalBin);
         }
 
         private static int ArgMax(IReadOnlyList<double> v)

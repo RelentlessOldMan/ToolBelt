@@ -118,27 +118,33 @@ namespace ToolBelt.Signal
             // clears the band on the near side; dropping back beyond the far side first discards it (a runt).
             var rising = new List<double>();
             var falling = new List<double>();
-            bool armedRise = samples[0] < lvl - band, armedFall = samples[0] > lvl + band;
+            // Reaching the band edge counts as clearing it (with a band): strictly, a level whose band edge is the capture's
+            // minimum or maximum (level 0.9 on a 0/1 square wave) could never arm or commit, and gave no cycles. With no band,
+            // touching the level is still not a crossing.
+            double below = lvl - band, above = lvl + band;
+            bool Below(double x) => band > 0 ? x <= below : x < below;
+            bool Above(double x) => band > 0 ? x >= above : x > above;
+            bool armedRise = Below(samples[0]), armedFall = Above(samples[0]);
             double pendingRise = double.NaN, pendingFall = double.NaN;
             for (int i = 1; i < samples.Count; i++)
             {
                 double x = samples[i], prev = samples[i - 1];
                 if (armedRise && double.IsNaN(pendingRise) && prev < lvl && x >= lvl) pendingRise = Cross(samples, i, lvl);
                 if (armedFall && double.IsNaN(pendingFall) && prev > lvl && x <= lvl) pendingFall = Cross(samples, i, lvl);
-                if (!double.IsNaN(pendingRise) && x > lvl + band)
+                if (!double.IsNaN(pendingRise) && Above(x))
                 {
                     rising.Add(pendingRise);
                     pendingRise = double.NaN;
                     armedRise = false;
                 }
-                if (!double.IsNaN(pendingFall) && x < lvl - band)
+                if (!double.IsNaN(pendingFall) && Below(x))
                 {
                     falling.Add(pendingFall);
                     pendingFall = double.NaN;
                     armedFall = false;
                 }
-                if (x < lvl - band) { armedRise = true; pendingRise = double.NaN; }
-                if (x > lvl + band) { armedFall = true; pendingFall = double.NaN; }
+                if (Below(x)) { armedRise = true; pendingRise = double.NaN; }
+                if (Above(x)) { armedFall = true; pendingFall = double.NaN; }
             }
 
             var cycles = new List<Cycle>();

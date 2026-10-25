@@ -42,7 +42,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | #  | Section | Scope (src) | ~Lines | Prior | Passes | Bugs (last / total) | Status |
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 2 | 9 / 25 | re-queue (9 bugs) |
-| 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 2 | 23 / 47 | re-queue (23 bugs, 2 severe) |
+| 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 3 | 13 / 60 | re-queue (13 bugs, 1 severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 2 | 22 / 53 | re-queue (22 bugs) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 3 | 24 / 95 | re-queue (24 bugs, 2 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 3 | 21 / 82 | re-queue (21 bugs, 2 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2, 8, 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 2**
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8, 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 8**
 
 ## Releases
 
@@ -110,6 +110,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.36.0 | 36 | Numerics core, third pass | 24 | (see tag) |
 | v0.37.0 | 37 | Charts, third pass | 21 | (see tag) |
 | v0.38.0 | 38 | Objects, functional, grids, graphs, intervals, third pass | 19 | (see tag) |
+| v0.39.0 | 39 | Signal analysis, third pass | 13 | (see tag) |
 
 ## Round log
 
@@ -1660,3 +1661,30 @@ severe). **19 confirmed bugs, 3 severe**, plus one doc fix, each with a regressi
 - **Not fixed:** a cycle between computed objects of two different types (A.ToB.ToA…) is still unbounded.
 - **Verify:** all green (core 2834). Checked build: the same 7 baseline failures.
 - **Re-queued:** yes (19 bugs, 3 severe).
+
+### Round 39 — 2026-10-25 — Signal analysis, third pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 31 with 23 bugs, 2
+severe). **13 confirmed bugs, 1 severe** (two found by both reviewers), each with a regression test in
+`SignalReview3Tests` (12 tests, all failing on the old code).
+
+- **Savitzky-Golay at high orders (severe):** the fit used a monomial basis, which loses every digit as the order grows:
+  order 40 on 41 points was off by 0.24 at the edges, order 60 on 101 points was wrong at the centre (3.48 for 5.15),
+  and order w − 1 was not the identity (off by 34 on data in [0, 1]). The weights are now rows of Q·Qᵀ for an orthonormal
+  basis built by Arnoldi (orthogonalised twice), exact to about 1e-12 at every order; ordinary orders are unchanged.
+- **FFT and Hilbert overflow:** Bluestein's convolution (every non-power-of-two length) overflowed to NaN about n times
+  sooner than radix-2 ([1e308, 0, 0] gave NaN in every bin; 1000 samples of ±1e304 failed the round trip). The input is
+  scaled to at most 1 by a power of two (exact) and scaled back. Hilbert's spectrum overflowed the same way for a large
+  tone even at a power-of-two length; it scales likewise.
+- **Hilbert with a non-finite sample:** one NaN or ∞ made the whole analytic signal NaN, and InstantaneousFrequency then
+  threw naming "phase". Samples must be finite (ArgumentException naming samples), as in the other measurements.
+- **Huge-rate scaling:** Multitaper's 1/(fs·K) underflowed to 0 at fs = 1e308 (every density 0); SpectralPeak's
+  k·fs/N overflowed to ∞; FrequencyGrid.NearestBin's f·N overflowed and gave N/2 for an in-range frequency; DbFs read −∞
+  (reserved for silence) or +∞ when rms/fullScale under- or overflowed. Each falls back to the order that stays in range.
+- **CycleMeasurements:** a level whose hysteresis band edge was exactly the capture's minimum or maximum (level 0.9 on a
+  0/1 square wave) could never arm or commit an edge and reported no cycles. Reaching the band edge now counts (with a
+  band; with none, touching the level is still not a crossing).
+- **Smaller:** PulseMeasurements on a denormal range ({0, ε}) halved the range to 0 and threw IndexOutOfRangeException;
+  Resample.Linear blended an exact input point with a NaN or ∞ neighbour (0·∞ = NaN), as ToRate no longer does;
+  SpectralPeak returned a NaN vertex for ∞ neighbours; Window.Apply on an empty list threw naming "length".
+- **Verify:** all green (core 2846). Checked build: the same 7 baseline failures.
+- **Re-queued:** yes (13 bugs, 1 severe).
