@@ -44,8 +44,15 @@ namespace ToolBelt.Objects
 
             if (type.IsArray)
             {
-                string commas = new string(',', type.GetArrayRank() - 1);
-                return FriendlyName(type.GetElementType()!) + "[" + commas + "]";
+                // C# writes the outermost rank first: int[][,] is a one-dimensional array of int[,].
+                var suffix = new StringBuilder();
+                Type element = type;
+                while (element.IsArray)
+                {
+                    suffix.Append('[').Append(',', element.GetArrayRank() - 1).Append(']');
+                    element = element.GetElementType()!;
+                }
+                return FriendlyName(element) + suffix;
             }
 
             if (Aliases.TryGetValue(type, out string? alias))
@@ -53,28 +60,51 @@ namespace ToolBelt.Objects
 
             if (type.IsGenericType)
             {
-                var sb = new StringBuilder();
-                string name = type.Name;
-                int tick = name.IndexOf('`');
-                sb.Append(tick >= 0 ? name.Substring(0, tick) : name);
-                sb.Append('<');
+                // A type nested in a generic type carries its outer type's arguments first: Outer<int>.Inner<string> has
+                // the arguments (int, string), and Outer<int>.Plain is "generic" with just (int).
                 Type[] args = type.GetGenericArguments();
-                for (int i = 0; i < args.Length; i++)
+                var chain = new List<Type>();
+                for (Type? t = type; t != null; t = t.IsNested ? t.DeclaringType : null) chain.Add(t);
+                var sb = new StringBuilder();
+                int used = 0;
+                for (int c = chain.Count - 1; c >= 0; c--)
                 {
-                    if (i > 0) sb.Append(", ");
-                    sb.Append(FriendlyName(args[i]));
+                    Type part = chain[c];
+                    int total = part.IsGenericType ? part.GetGenericArguments().Length : 0;
+                    int own = Math.Max(0, total - used);
+                    bool outerGeneric = c > 0 && total > 0;
+                    if (c > 0 && !outerGeneric && sb.Length == 0) continue;   // non-generic outer types are omitted, as before
+                    if (sb.Length > 0) sb.Append('.');
+                    string name = part.Name;
+                    int tick = name.IndexOf('`');
+                    sb.Append(tick >= 0 ? name.Substring(0, tick) : name);
+                    if (own > 0)
+                    {
+                        sb.Append('<');
+                        for (int i = used; i < used + own; i++)
+                        {
+                            if (i > used) sb.Append(", ");
+                            sb.Append(FriendlyName(args[i]));
+                        }
+                        sb.Append('>');
+                    }
+                    used += own;
                 }
-                sb.Append('>');
                 return sb.ToString();
             }
 
             return type.Name;
         }
 
-        /// <summary>The value of <c>default(T)</c> for a runtime <see cref="Type"/>.</summary>
+        /// <summary>
+        /// The value of <c>default(T)</c> for a runtime <see cref="Type"/>. Throws <see cref="ArgumentException"/> for a type
+        /// that has no values: void, an open generic type, or a by-ref type.
+        /// </summary>
         public static object? DefaultValue(Type type)
         {
             if (type is null) throw new ArgumentNullException(nameof(type));
+            if (type == typeof(void) || type.ContainsGenericParameters || type.IsByRef)
+                throw new ArgumentException($"{type} has no default value.", nameof(type));
             return type.IsValueType && Nullable.GetUnderlyingType(type) == null
                 ? Activator.CreateInstance(type)
                 : null;
@@ -134,14 +164,14 @@ namespace ToolBelt.Objects
         public static object? ConvertOrDefault(object? value, Type targetType, object? fallback = null)
             => TryConvert(value, targetType, out object? result) ? result : fallback;
 
-        /// <summary>Concrete non-abstract types in the assembly assignable to <paramref name="baseType"/>.</summary>
+        /// <summary>Concrete, non-abstract, closed (not open generic) types in the assembly assignable to <paramref name="baseType"/>.</summary>
         public static IReadOnlyList<Type> GetDerivedTypes(Type baseType, Assembly assembly)
         {
             if (baseType is null) throw new ArgumentNullException(nameof(baseType));
             if (assembly is null) throw new ArgumentNullException(nameof(assembly));
             var result = new List<Type>();
             foreach (Type t in SafeGetTypes(assembly))
-                if (t != baseType && !t.IsAbstract && !t.IsInterface && baseType.IsAssignableFrom(t))
+                if (t != baseType && !t.IsAbstract && !t.IsInterface && !t.ContainsGenericParameters && baseType.IsAssignableFrom(t))
                     result.Add(t);
             return result;
         }

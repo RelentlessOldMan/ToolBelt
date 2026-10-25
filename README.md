@@ -382,13 +382,13 @@ src/
     Objects/
       ActivatorUtils.cs     construct by best-matching constructor; safe assembly scan-and-create
       AttributeCache.cs     cached custom-attribute lookups for types/members (thread-safe)
-      DeepEquals.cs         structural graph equality (cycles, float tolerance, collections)
+      DeepEquals.cs         structural graph equality (cycles, float tolerance, collections, sets; any depth)
       ExpressionAccessor.cs compiled get/set delegates by member name (cached; boxing-free typed path)
-      FlattenObject.cs      object graph -> flat path->value dictionary
+      FlattenObject.cs      object graph -> flat path->value dictionary (any depth)
       UnflattenObject.cs    flat paths -> nested dictionaries/lists (inverse of Flatten), conflicts named
       ObjectMapper.cs       copy matching properties across types (convert / ignore / custom)
-      PropertyDiff.cs       differences between two graphs as (path, old, new)
-      PropertyPath.cs       get/set via dotted path with indexers (clear per-segment errors)
+      PropertyDiff.cs       differences between two graphs as (path, old, new) (any depth)
+      PropertyPath.cs       get/set via dotted path with indexers (clear per-segment errors; writes structs back)
       TypeUtils.cs          friendly names / default / unwrap-nullable / numeric / safe convert / scan
     Identifiers/
       NanoId.cs             compact URL-safe random ids (injectable Random, non-crypto)
@@ -783,6 +783,7 @@ tests/
       PropertyDiffTests.cs
       PropertyPathTests.cs
       TypeUtilsTests.cs
+      ObjectsGraphsReviewTests.cs (round 14 review regressions: deep graphs, sets/shapes/value tuples, paths, accessors, mapper, cycles, range maps)
     Identifiers/
       NanoIdTests.cs
       ShortGuidTests.cs

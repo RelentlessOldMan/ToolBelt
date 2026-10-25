@@ -159,7 +159,7 @@ namespace ToolBelt.Grids
                         {
                             int nr = cell.Row + DRow[d];
                             int nc = cell.Col + DCol[d];
-                            if ((uint)nr >= (uint)rows || (uint)nc >= (uint)cols) continue;
+                            if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
                             if (labels[nr, nc] != 0) continue;
                             if (foregroundOnly && !belongs(nr, nc)) continue;
                             if (!sameRegion(cell.Row, cell.Col, nr, nc)) continue;
@@ -173,7 +173,7 @@ namespace ToolBelt.Grids
                         {
                             int nr = cell.Row + DRow[d];
                             int nc = cell.Col + DCol[d];
-                            if ((uint)nr >= (uint)rows || (uint)nc >= (uint)cols || labels[nr, nc] != label)
+                            if (nr < 0 || nr >= rows || nc < 0 || nc >= cols || labels[nr, nc] != label)
                                 perimeter++;
                         }
                     }

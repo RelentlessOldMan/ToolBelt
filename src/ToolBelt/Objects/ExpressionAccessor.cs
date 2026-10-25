@@ -10,7 +10,8 @@ namespace ToolBelt.Objects
     /// Fast member access by name backed by compiled expression trees instead of reflection. The first call
     /// for a given (type, member) compiles and caches a delegate; subsequent calls reuse it, so repeated
     /// access runs at roughly field-access speed — far faster than <see cref="PropertyInfo.GetValue(object)"/>.
-    /// Works on public instance properties and fields.
+    /// Works on public instance properties and fields, matched by exact (case-sensitive) name; a property whose
+    /// setter is not public, or a read-only field, is not writable. Writing null to a value-type member stores its default.
     ///
     /// <para>The <c>object</c>-based accessors box value-type members. The strongly-typed
     /// <see cref="Getter{TTarget, TValue}(string)"/> / <see cref="Setter{TTarget, TValue}(string)"/> avoid
@@ -71,7 +72,7 @@ namespace ToolBelt.Objects
                 _ =>
                 {
                     var instance = Expression.Parameter(typeof(TTarget), "instance");
-                    Expression member = Expression.PropertyOrField(instance, memberName);
+                    Expression member = Member(instance, typeof(TTarget), memberName, write: false);
                     if (member.Type != typeof(TValue))
                         member = Expression.Convert(member, typeof(TValue));
                     return Expression.Lambda<Func<TTarget, TValue>>(member, instance).Compile();
@@ -91,11 +92,11 @@ namespace ToolBelt.Objects
                 {
                     var instance = Expression.Parameter(typeof(TTarget), "instance");
                     var value = Expression.Parameter(typeof(TValue), "value");
-                    MemberExpression member = Expression.PropertyOrField(instance, memberName);
+                    MemberExpression member = Member(instance, typeof(TTarget), memberName, write: true);
                     Expression source = member.Type != typeof(TValue)
                         ? (Expression)Expression.Convert(value, member.Type)
                         : value;
-                    Expression body = BuildAssign(member, source, memberName);
+                    Expression body = Expression.Assign(member, source);
                     return Expression.Lambda<Action<TTarget, TValue>>(body, instance, value).Compile();
                 });
         }
@@ -103,7 +104,7 @@ namespace ToolBelt.Objects
         private static Func<object, object?> BuildGetter(Type type, string memberName)
         {
             var param = Expression.Parameter(typeof(object), "instance");
-            MemberExpression member = Expression.PropertyOrField(Expression.Convert(param, type), memberName);
+            MemberExpression member = Member(Expression.Convert(param, type), type, memberName, write: false);
             var box = Expression.Convert(member, typeof(object));
             return Expression.Lambda<Func<object, object?>>(box, param).Compile();
         }
@@ -112,23 +113,39 @@ namespace ToolBelt.Objects
         {
             var instance = Expression.Parameter(typeof(object), "instance");
             var value = Expression.Parameter(typeof(object), "value");
-            MemberExpression member = Expression.PropertyOrField(Expression.Convert(instance, type), memberName);
-            var castValue = Expression.Convert(value, member.Type);
-            Expression body = BuildAssign(member, castValue, memberName);
+            MemberExpression member = Member(Expression.Convert(instance, type), type, memberName, write: true);
+            Expression castValue = Expression.Convert(value, member.Type);
+            if (member.Type.IsValueType && Nullable.GetUnderlyingType(member.Type) is null)
+            {
+                // Unboxing null would throw NullReferenceException; store default instead, as reflection does.
+                castValue = Expression.Condition(
+                    Expression.Equal(value, Expression.Constant(null)), Expression.Default(member.Type), castValue);
+            }
+            Expression body = Expression.Assign(member, castValue);
             return Expression.Lambda<Action<object, object?>>(body, instance, value).Compile();
         }
 
-        private static Expression BuildAssign(MemberExpression member, Expression source, string memberName)
+        // The public instance property (most derived, not an indexer) or else field named exactly memberName.
+        private static MemberExpression Member(Expression instance, Type type, string memberName, bool write)
         {
-            try
+            for (Type? t = type; t != null; t = t.BaseType)
             {
-                return Expression.Assign(member, source);
+                foreach (PropertyInfo p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+                {
+                    if (p.Name != memberName || p.GetIndexParameters().Length != 0) continue;
+                    if (write ? p.GetSetMethod() is null : p.GetGetMethod() is null)
+                        throw new InvalidOperationException($"Member '{memberName}' is not {(write ? "writable" : "readable")}.");
+                    return Expression.Property(instance, p);
+                }
             }
-            catch (ArgumentException ex)
+            FieldInfo? f = type.GetField(memberName, BindingFlags.Public | BindingFlags.Instance);
+            if (f != null)
             {
-                // Read-only property (no setter) or init-only / readonly field.
-                throw new InvalidOperationException($"Member '{memberName}' is not writable.", ex);
+                if (write && (f.IsInitOnly || f.IsLiteral))
+                    throw new InvalidOperationException($"Member '{memberName}' is not writable.");
+                return Expression.Field(instance, f);
             }
+            throw new ArgumentException($"{type.Name} has no public instance property or field named '{memberName}'.", nameof(memberName));
         }
     }
 }

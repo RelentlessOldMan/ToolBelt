@@ -1,4 +1,4 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Intervals/Interval.cs.
 using System;
 using System.Collections.Generic;
 
@@ -69,13 +69,16 @@ namespace ToolBelt.Intervals
         {
             if (other is null) throw new ArgumentNullException(nameof(other));
             var result = new List<Interval<TKey>>();
+            var ys = other._intervals;
+            int j = 0;   // both lists are sorted and disjoint, so a y that ends before x will end before every later x too
             foreach (var x in _intervals)
             {
                 TKey cursor = x.Start;
-                foreach (var y in other._intervals)
+                while (j < ys.Count && Cmp(ys[j].End, cursor) <= 0) j++;
+                for (int k = j; k < ys.Count; k++)
                 {
-                    if (Cmp(y.End, cursor) <= 0) continue;      // y ends before the cursor
-                    if (Cmp(y.Start, x.End) >= 0) break;        // y starts past x (lists sorted)
+                    var y = ys[k];
+                    if (Cmp(y.Start, x.End) >= 0) break;        // y starts past x
                     if (Cmp(y.Start, cursor) > 0)
                         result.Add(new Interval<TKey>(cursor, y.Start));
                     if (Cmp(y.End, cursor) > 0) cursor = y.End;

@@ -1,8 +1,9 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Objects/ObjectMembers.cs and Objects/DeepEquals.cs (for ObjectComparisonOptions).
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 
 namespace ToolBelt.Objects
 {
@@ -28,95 +29,168 @@ namespace ToolBelt.Objects
     /// descending into nested objects, collections and dictionaries. The engine behind change logs, audit
     /// trails and "what did the operator actually modify" reports, with the nesting and collection handling
     /// hand-rolled versions omit.
+    /// <para>
+    /// Sets (<see cref="ISet{T}"/>) that differ are reported as one difference at the set's path; multi-dimensional
+    /// arrays of different shapes likewise; a struct with no readable members (a value tuple, say) compares with its own
+    /// Equals. The walk uses an explicit stack, so a deep graph cannot overflow the call stack. A property getter that
+    /// throws propagates its exception.
+    /// </para>
     /// </summary>
     public static class PropertyDiff
     {
+        // A path built lazily from its parent, so a deep walk does not copy ever-longer strings at every level.
+        private sealed class PathNode
+        {
+            public PathNode(PathNode? parent, string segment, bool indexed)
+            {
+                Parent = parent;
+                Segment = segment;
+                Indexed = indexed;
+            }
+
+            public PathNode? Parent { get; }
+            public string Segment { get; }
+            public bool Indexed { get; }
+
+            public override string ToString()
+            {
+                var parts = new List<PathNode>();
+                for (PathNode? n = this; n != null; n = n.Parent) parts.Add(n);
+                var sb = new StringBuilder();
+                for (int i = parts.Count - 1; i >= 0; i--)
+                {
+                    PathNode n = parts[i];
+                    if (n.Indexed) sb.Append('[').Append(n.Segment).Append(']');
+                    else
+                    {
+                        if (sb.Length > 0) sb.Append('.');
+                        sb.Append(n.Segment);
+                    }
+                }
+                return sb.ToString();
+            }
+        }
+
+        private enum Kind { Visit, Report, Exit }
+
+        private struct Frame
+        {
+            public Kind Kind;
+            public PathNode? Path;
+            public object? A;
+            public object? B;
+        }
+
         public static IReadOnlyList<Difference> Compare(object? a, object? b, ObjectComparisonOptions? options = null)
         {
+            var opt = options ?? new ObjectComparisonOptions();
             var result = new List<Difference>();
-            Diff("", a, b, options ?? new ObjectComparisonOptions(), result,
-                 new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance));
+            // Pairs on the current path; a pair met again below itself is a cycle and is not descended.
+            var visiting = new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance);
+            var work = new Stack<Frame>();
+            work.Push(new Frame { Kind = Kind.Visit, A = a, B = b });
+            var children = new List<Frame>();
+
+            while (work.Count > 0)
+            {
+                Frame f = work.Pop();
+                switch (f.Kind)
+                {
+                    case Kind.Exit:
+                        visiting.Remove((f.A!, f.B!));
+                        break;
+                    case Kind.Report:
+                        result.Add(new Difference(f.Path?.ToString() ?? "", f.A, f.B));
+                        break;
+                    default:
+                        children.Clear();
+                        Visit(f.Path, f.A, f.B, opt, visiting, children);
+                        // Push in reverse so the children are handled in order, as a recursive walk would.
+                        for (int i = children.Count - 1; i >= 0; i--) work.Push(children[i]);
+                        break;
+                }
+            }
             return result;
         }
 
-        private static void Diff(string path, object? a, object? b, ObjectComparisonOptions opt,
-            List<Difference> result, HashSet<(object, object)> visiting)
+        // Emits, in order, the frames that handle this pair: reports, child visits, and an exit for a pair it enters.
+        private static void Visit(PathNode? path, object? a, object? b, ObjectComparisonOptions opt,
+            HashSet<(object, object)> visiting, List<Frame> output)
         {
             if (ReferenceEquals(a, b)) return;
-            if (a is null || b is null) { result.Add(new Difference(path, a, b)); return; }
+            if (a is null || b is null) { output.Add(Report(path, a, b)); return; }
+            object na = ObjectMembers.Normalize(a), nb = ObjectMembers.Normalize(b);
 
-            Type ta = a.GetType(), tb = b.GetType();
-
+            Type ta = na.GetType(), tb = nb.GetType();
             if (ObjectMembers.IsLeaf(ta) || ObjectMembers.IsLeaf(tb))
             {
-                if (!LeafEquals(a, b, opt)) result.Add(new Difference(path, a, b));
+                if (!DeepEquals.LeafEquals(na, nb, opt)) output.Add(Report(path, a, b));
                 return;
             }
 
-            if (a is IDictionary da && b is IDictionary db) { DiffDictionary(path, da, db, opt, result, visiting); return; }
-            if (a is IEnumerable ea && b is IEnumerable eb) { DiffSequence(path, ea, eb, opt, result, visiting); return; }
-
-            if (ta != tb) { result.Add(new Difference(path, a, b)); return; }
-
-            var pair = (a, b);
-            if (!visiting.Add(pair)) return; // cycle
-            try
+            bool tracked = !ta.IsValueType && !tb.IsValueType;
+            if (tracked)
             {
-                using var ma = ObjectMembers.Read(a, opt.IncludeFields).GetEnumerator();
-                using var mb = ObjectMembers.Read(b, opt.IncludeFields).GetEnumerator();
-                while (ma.MoveNext() & mb.MoveNext())
-                    Diff(Join(path, ma.Current.Name), ma.Current.Value, mb.Current.Value, opt, result, visiting);
+                if (!visiting.Add((na, nb))) return; // cycle
             }
-            finally
+
+            if (na is IDictionary da && nb is IDictionary db)
             {
-                visiting.Remove(pair);
+                var keys = new List<object>();
+                foreach (var k in da.Keys) keys.Add(k);
+                foreach (var k in db.Keys) if (!da.Contains(k)) keys.Add(k);
+
+                foreach (var key in keys)
+                {
+                    var p = new PathNode(path, Convert.ToString(key, CultureInfo.InvariantCulture) ?? "", indexed: true);
+                    bool inA = da.Contains(key), inB = db.Contains(key);
+                    if (inA && inB) output.Add(new Frame { Kind = Kind.Visit, Path = p, A = da[key], B = db[key] });
+                    else output.Add(Report(p, inA ? da[key] : null, inB ? db[key] : null));
+                }
             }
+            else if (ObjectMembers.SetEquals(na, nb) is bool setsEqual)
+            {
+                if (!setsEqual) output.Add(Report(path, a, b));
+            }
+            else if (!ObjectMembers.SameArrayShape(na, nb))
+            {
+                output.Add(Report(path, a, b));
+            }
+            else if (na is IEnumerable ea && nb is IEnumerable eb)
+            {
+                var la = ObjectMembers.ToList(ea);
+                var lb = ObjectMembers.ToList(eb);
+                int max = Math.Max(la.Count, lb.Count);
+                for (int i = 0; i < max; i++)
+                {
+                    var p = new PathNode(path, i.ToString(CultureInfo.InvariantCulture), indexed: true);
+                    if (i >= la.Count) output.Add(Report(p, null, lb[i]));
+                    else if (i >= lb.Count) output.Add(Report(p, la[i], null));
+                    else output.Add(new Frame { Kind = Kind.Visit, Path = p, A = la[i], B = lb[i] });
+                }
+            }
+            else if (ta != tb)
+            {
+                output.Add(Report(path, a, b));
+            }
+            else
+            {
+                var ma = new List<(string Name, object? Value)>(ObjectMembers.Read(na, opt.IncludeFields));
+                var mb = new List<(string Name, object? Value)>(ObjectMembers.Read(nb, opt.IncludeFields));
+                if (ma.Count == 0 && ta.IsValueType)
+                {
+                    if (!na.Equals(nb)) output.Add(Report(path, a, b));
+                }
+                else
+                {
+                    for (int i = 0; i < ma.Count; i++)
+                        output.Add(new Frame { Kind = Kind.Visit, Path = new PathNode(path, ma[i].Name, indexed: false), A = ma[i].Value, B = mb[i].Value });
+                }
+            }
+
+            if (tracked) output.Add(new Frame { Kind = Kind.Exit, A = na, B = nb });
         }
 
-        private static void DiffDictionary(string path, IDictionary a, IDictionary b, ObjectComparisonOptions opt,
-            List<Difference> result, HashSet<(object, object)> visiting)
-        {
-            var keys = new List<object>();
-            foreach (var k in a.Keys) keys.Add(k);
-            foreach (var k in b.Keys) if (!a.Contains(k)) keys.Add(k);
-
-            foreach (var key in keys)
-            {
-                string p = $"{path}[{Convert.ToString(key, CultureInfo.InvariantCulture)}]";
-                bool inA = a.Contains(key), inB = b.Contains(key);
-                if (inA && inB) Diff(p, a[key], b[key], opt, result, visiting);
-                else result.Add(new Difference(p, inA ? a[key] : null, inB ? b[key] : null));
-            }
-        }
-
-        private static void DiffSequence(string path, IEnumerable a, IEnumerable b, ObjectComparisonOptions opt,
-            List<Difference> result, HashSet<(object, object)> visiting)
-        {
-            var la = new List<object?>();
-            var lb = new List<object?>();
-            foreach (var x in a) la.Add(x);
-            foreach (var x in b) lb.Add(x);
-
-            int max = Math.Max(la.Count, lb.Count);
-            for (int i = 0; i < max; i++)
-            {
-                string p = $"{path}[{i}]";
-                if (i >= la.Count) result.Add(new Difference(p, null, lb[i]));
-                else if (i >= lb.Count) result.Add(new Difference(p, la[i], null));
-                else Diff(p, la[i], lb[i], opt, result, visiting);
-            }
-        }
-
-        private static bool LeafEquals(object a, object b, ObjectComparisonOptions opt)
-        {
-            if (opt.FloatTolerance > 0)
-            {
-                if (a is double da && b is double db) return Math.Abs(da - db) <= opt.FloatTolerance;
-                if (a is float fa && b is float fb) return Math.Abs(fa - fb) <= opt.FloatTolerance;
-            }
-            return a.Equals(b);
-        }
-
-        private static string Join(string path, string name) => path.Length == 0 ? name : path + "." + name;
+        private static Frame Report(PathNode? path, object? a, object? b) => new Frame { Kind = Kind.Report, Path = path, A = a, B = b };
     }
 }

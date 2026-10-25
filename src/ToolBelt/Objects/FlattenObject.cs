@@ -1,4 +1,4 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Objects/ObjectMembers.cs.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -10,7 +10,9 @@ namespace ToolBelt.Objects
     /// Flattens an object graph into a dictionary of dotted/indexed paths to leaf values, e.g.
     /// <c>{ "user.name": "Ada", "user.roles[0]": "admin" }</c>. This is what turns an arbitrary object into
     /// something dumpable to a table, a CSV row or a structured log line, and what a configuration binder
-    /// consumes. Reference cycles are broken (a repeated reference is not expanded again).
+    /// consumes. Reference cycles are broken (a repeated reference is not expanded again). An empty collection or
+    /// dictionary adds no key. The walk uses an explicit stack, so a deep graph cannot overflow the call stack; a
+    /// property getter that throws propagates its exception.
     /// </summary>
     public static class FlattenObject
     {
@@ -20,19 +22,31 @@ namespace ToolBelt.Objects
             if (string.IsNullOrEmpty(separator)) throw new ArgumentException("Separator must not be empty.", nameof(separator));
 
             var result = new Dictionary<string, object?>();
-            Walk("", obj, result, separator, includeFields,
-                 new HashSet<object>(ReferenceEqualityComparer.Instance));
+            var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
+            var work = new Stack<(string Path, object? Value)>();
+            var children = new List<(string, object?)>();
+            work.Push(("", obj));
+            while (work.Count > 0)
+            {
+                var (path, value) = work.Pop();
+                children.Clear();
+                Walk(path, value, result, separator, includeFields, visited, children);
+                // Push in reverse so the children are handled in order, as a recursive walk would.
+                for (int i = children.Count - 1; i >= 0; i--) work.Push(children[i]);
+            }
             return result;
         }
 
+        // Records a leaf, or lists the children to walk next.
         private static void Walk(string path, object? value, IDictionary<string, object?> result,
-            string sep, bool includeFields, HashSet<object> visited)
+            string sep, bool includeFields, HashSet<object> visited, List<(string, object?)> children)
         {
             if (value is null)
             {
                 result[path] = null;
                 return;
             }
+            value = ObjectMembers.Normalize(value);
 
             Type type = value.GetType();
             if (ObjectMembers.IsLeaf(type))
@@ -51,7 +65,7 @@ namespace ToolBelt.Objects
             if (value is IDictionary dict)
             {
                 foreach (DictionaryEntry entry in dict)
-                    Walk(Index(path, Convert.ToString(entry.Key, CultureInfo.InvariantCulture) ?? ""), entry.Value, result, sep, includeFields, visited);
+                    children.Add((Index(path, Convert.ToString(entry.Key, CultureInfo.InvariantCulture) ?? ""), entry.Value));
                 return;
             }
 
@@ -59,7 +73,7 @@ namespace ToolBelt.Objects
             {
                 int i = 0;
                 foreach (var item in enumerable)
-                    Walk(Index(path, i++.ToString(CultureInfo.InvariantCulture)), item, result, sep, includeFields, visited);
+                    children.Add((Index(path, i++.ToString(CultureInfo.InvariantCulture)), item));
                 return;
             }
 
@@ -67,7 +81,7 @@ namespace ToolBelt.Objects
             foreach (var (name, memberValue) in ObjectMembers.Read(value, includeFields))
             {
                 any = true;
-                Walk(path.Length == 0 ? name : path + sep + name, memberValue, result, sep, includeFields, visited);
+                children.Add((path.Length == 0 ? name : path + sep + name, memberValue));
             }
             if (!any) result[path] = value; // no members to descend into; record as-is
         }

@@ -20,6 +20,7 @@ namespace ToolBelt.Functional
             var cache = new Dictionary<TArg, TResult>(comparer);
             return arg =>
             {
+                if (arg is null) throw new ArgumentNullException(nameof(arg));
                 if (!cache.TryGetValue(arg, out var value))
                 {
                     value = function(arg);
@@ -60,6 +61,7 @@ namespace ToolBelt.Functional
             var gate = new object();
             return arg =>
             {
+                if (arg is null) throw new ArgumentNullException(nameof(arg));
                 lock (gate)
                 {
                     if (cache.TryGetValue(arg, out var existing))

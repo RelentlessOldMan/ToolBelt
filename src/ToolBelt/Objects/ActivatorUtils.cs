@@ -1,7 +1,8 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Objects/TypeUtils.cs.
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 
 namespace ToolBelt.Objects
 {
@@ -13,7 +14,12 @@ namespace ToolBelt.Objects
     /// </summary>
     public static class ActivatorUtils
     {
-        /// <summary>Creates an instance of <paramref name="type"/>, choosing a constructor that fits <paramref name="args"/>.</summary>
+        /// <summary>
+        /// Creates an instance of <paramref name="type"/> with the public constructor that fits <paramref name="args"/> most
+        /// closely: among those that accept them, the one whose parameter types match the arguments' types most exactly (a
+        /// string argument prefers a string parameter to an object one). A struct with no arguments is default-initialized.
+        /// An exception thrown by the constructor propagates as itself.
+        /// </summary>
         public static object Create(Type type, params object?[] args)
         {
             if (!TryCreate(type, args, out object? instance))
@@ -26,27 +32,59 @@ namespace ToolBelt.Objects
             if (type is null) throw new ArgumentNullException(nameof(type));
             args ??= Array.Empty<object?>();
 
-            if (type.IsAbstract || type.IsInterface)
+            if (type.IsAbstract || type.IsInterface || type.ContainsGenericParameters)
             {
                 instance = null;
                 return false;
             }
 
             ConstructorInfo? best = null;
+            int bestScore = int.MaxValue;
             foreach (ConstructorInfo ctor in type.GetConstructors(BindingFlags.Public | BindingFlags.Instance))
             {
                 ParameterInfo[] ps = ctor.GetParameters();
-                if (ps.Length != args.Length) continue;
-                if (Matches(ps, args)) { best = ctor; break; }
+                if (ps.Length != args.Length || !Matches(ps, args)) continue;
+                int score = Score(ps, args);
+                if (score < bestScore) { best = ctor; bestScore = score; }
             }
 
             if (best is null)
             {
+                if (type.IsValueType && args.Length == 0)
+                {
+                    instance = Activator.CreateInstance(type);   // a struct's implicit parameterless constructor
+                    return true;
+                }
                 instance = null;
                 return false;
             }
-            instance = best.Invoke(args);
+            try
+            {
+                instance = best.Invoke(args);
+            }
+            catch (TargetInvocationException ex) when (ex.InnerException != null)
+            {
+                ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
+            }
             return true;
+        }
+
+        // Lower is closer: for each argument, the inheritance distance from its type to the parameter type (an
+        // interface or object parameter counts as far); a null argument adds nothing.
+        private static int Score(ParameterInfo[] parameters, object?[] args)
+        {
+            int score = 0;
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                if (args[i] is null) continue;
+                Type pt = parameters[i].ParameterType;
+                int distance = 0;
+                Type? t = args[i]!.GetType();
+                while (t != null && t != pt) { t = t.BaseType; distance++; }
+                score += t == pt ? distance : 1000;   // reached only through an interface (or boxing to Nullable)
+            }
+            return score;
         }
 
         /// <summary>

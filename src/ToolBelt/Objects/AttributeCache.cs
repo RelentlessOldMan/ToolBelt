@@ -10,7 +10,8 @@ namespace ToolBelt.Objects
     /// Cached custom-attribute lookups for types and members. Every reflection-based feature performs the
     /// same attribute retrievals repeatedly and attribute retrieval is not cheap, so the results are cached
     /// per (member, attribute type, inherit). Thread-safe. <see cref="Type"/> derives from
-    /// <see cref="MemberInfo"/>, so the same methods serve types and members.
+    /// <see cref="MemberInfo"/>, so the same methods serve types and members. <c>inherit</c> also applies to properties
+    /// and events (which <see cref="MemberInfo.GetCustomAttributes(Type, bool)"/> ignores for them).
     /// </summary>
     public static class AttributeCache
     {
@@ -30,7 +31,7 @@ namespace ToolBelt.Objects
         {
             if (member is null) throw new ArgumentNullException(nameof(member));
             Attribute[] cached = Cache.GetOrAdd((member, typeof(TAttribute), inherit),
-                key => key.Member.GetCustomAttributes(key.Attribute, key.Inherit).Cast<Attribute>().ToArray());
+                key => Attribute.GetCustomAttributes(key.Member, key.Attribute, key.Inherit));
             // Cached as Attribute[]; project to the requested type.
             var typed = new TAttribute[cached.Length];
             for (int i = 0; i < cached.Length; i++) typed[i] = (TAttribute)cached[i];

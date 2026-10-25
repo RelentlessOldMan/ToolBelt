@@ -1,4 +1,4 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Graphs/Graph.cs.
 using System;
 using System.Collections.Generic;
 
@@ -71,7 +71,8 @@ namespace ToolBelt.Graphs
         }
 
         // DFS with white/gray/black coloring; when a back edge to a gray node is found, slice the
-        // current DFS path from that node to reconstruct the cycle.
+        // current DFS path from that node to reconstruct the cycle. The DFS keeps its own stack of
+        // (vertex, neighbor enumerator), so a long chain cannot overflow the call stack.
         private static IReadOnlyList<T> FindCycle<T>(Graph<T> graph) where T : notnull
         {
             const int White = 0, Gray = 1, Black = 2;
@@ -79,37 +80,42 @@ namespace ToolBelt.Graphs
             foreach (T v in graph.Vertices) color[v] = White;
 
             var path = new List<T>();
+            var position = new Dictionary<T, int>(graph.Comparer);   // index in path of each gray vertex
+            var stack = new Stack<IEnumerator<(T To, double Weight)>>();
 
             foreach (T start in graph.Vertices)
             {
                 if (color[start] != White) continue;
-                var found = Visit(start);
-                if (found != null) return found;
-            }
-            return Array.Empty<T>();
-
-            List<T>? Visit(T u)
-            {
-                color[u] = Gray;
-                path.Add(u);
-
-                foreach (var (w, _) in graph.Neighbors(u))
+                Enter(start);
+                while (stack.Count > 0)
                 {
-                    if (color[w] == White)
+                    var neighbors = stack.Peek();
+                    if (!neighbors.MoveNext())
                     {
-                        var found = Visit(w);
-                        if (found != null) return found;
+                        stack.Pop();
+                        T done = path[path.Count - 1];
+                        color[done] = Black;
+                        position.Remove(done);
+                        path.RemoveAt(path.Count - 1);
+                        continue;
                     }
+                    T w = neighbors.Current.To;
+                    if (color[w] == White) Enter(w);
                     else if (color[w] == Gray)
                     {
-                        int from = path.IndexOf(w);
+                        int from = position[w];
                         return path.GetRange(from, path.Count - from);
                     }
                 }
+            }
+            return Array.Empty<T>();
 
-                color[u] = Black;
-                path.RemoveAt(path.Count - 1);
-                return null;
+            void Enter(T u)
+            {
+                color[u] = Gray;
+                position[u] = path.Count;
+                path.Add(u);
+                stack.Push(graph.Neighbors(u).GetEnumerator());
             }
         }
     }

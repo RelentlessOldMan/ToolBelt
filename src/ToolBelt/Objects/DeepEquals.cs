@@ -1,4 +1,4 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Objects/ObjectMembers.cs.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -20,87 +20,88 @@ namespace ToolBelt.Objects
     /// compares collections and dictionaries by content, handles reference cycles, and supports a
     /// floating-point tolerance. The twin of a deep cloner — clone an object, assert deep-equal, mutate one
     /// member, assert not-equal, and the two features validate each other.
+    /// <para>
+    /// Sets (<see cref="ISet{T}"/>) compare as sets, using the first set's element comparer; multi-dimensional arrays
+    /// must have the same shape; a struct with no readable members (a value tuple, say) compares with its own Equals.
+    /// The walk uses an explicit stack, so a deep graph (a long linked list) cannot overflow the call stack. A property
+    /// getter that throws propagates its exception.
+    /// </para>
     /// </summary>
     public static class DeepEquals
     {
         public static bool Equals(object? a, object? b, ObjectComparisonOptions? options = null)
-            => Compare(a, b, options ?? new ObjectComparisonOptions(),
-                       new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance));
-
-        private static bool Compare(object? a, object? b, ObjectComparisonOptions opt, HashSet<(object, object)> visiting)
         {
-            if (ReferenceEquals(a, b)) return true;
-            if (a is null || b is null) return false;
-
-            Type ta = a.GetType(), tb = b.GetType();
-
-            if (ObjectMembers.IsLeaf(ta) || ObjectMembers.IsLeaf(tb))
-                return LeafEquals(a, b, opt);
-
-            if (a is IDictionary da && b is IDictionary db)
-                return DictionaryEquals(da, db, opt, visiting);
-
-            if (a is IEnumerable ea && b is IEnumerable eb)
-                return SequenceEquals(ea, eb, opt, visiting);
-
-            if (ta != tb) return false;
-
-            var pair = (a, b);
-            if (!visiting.Add(pair)) return true; // already comparing this pair on the stack (cycle)
-            try
+            var opt = options ?? new ObjectComparisonOptions();
+            // Pairs already taken up are assumed equal: any difference reachable from them is found through their
+            // first visit. That also ends cycles, through objects and collections alike.
+            var seen = new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance);
+            var work = new Stack<(object? A, object? B)>();
+            work.Push((a, b));
+            while (work.Count > 0)
             {
-                using var ma = ObjectMembers.Read(a, opt.IncludeFields).GetEnumerator();
-                using var mb = ObjectMembers.Read(b, opt.IncludeFields).GetEnumerator();
-                while (ma.MoveNext() & mb.MoveNext())
-                    if (!Compare(ma.Current.Value, mb.Current.Value, opt, visiting))
-                        return false;
-                return true;
-            }
-            finally
-            {
-                visiting.Remove(pair);
-            }
-        }
-
-        private static bool LeafEquals(object a, object b, ObjectComparisonOptions opt)
-        {
-            if (opt.FloatTolerance > 0)
-            {
-                if (a is double da && b is double db) return Math.Abs(da - db) <= opt.FloatTolerance;
-                if (a is float fa && b is float fb) return Math.Abs(fa - fb) <= opt.FloatTolerance;
-            }
-            return a.Equals(b);
-        }
-
-        private static bool DictionaryEquals(IDictionary a, IDictionary b, ObjectComparisonOptions opt, HashSet<(object, object)> visiting)
-        {
-            if (a.Count != b.Count) return false;
-            foreach (DictionaryEntry entry in a)
-            {
-                if (!b.Contains(entry.Key)) return false;
-                if (!Compare(entry.Value, b[entry.Key], opt, visiting)) return false;
+                var (x, y) = work.Pop();
+                if (!Step(x, y, opt, seen, work)) return false;
             }
             return true;
         }
 
-        private static bool SequenceEquals(IEnumerable a, IEnumerable b, ObjectComparisonOptions opt, HashSet<(object, object)> visiting)
+        // Compares what can be decided at this pair and pushes the child pairs; false on a difference.
+        private static bool Step(object? a, object? b, ObjectComparisonOptions opt,
+            HashSet<(object, object)> seen, Stack<(object?, object?)> work)
         {
-            IEnumerator ea = a.GetEnumerator(), eb = b.GetEnumerator();
-            try
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            a = ObjectMembers.Normalize(a);
+            b = ObjectMembers.Normalize(b);
+
+            Type ta = a.GetType(), tb = b.GetType();
+            if (ObjectMembers.IsLeaf(ta) || ObjectMembers.IsLeaf(tb))
+                return LeafEquals(a, b, opt);
+
+            if (!ta.IsValueType && !tb.IsValueType && !seen.Add((a, b))) return true;
+
+            if (a is IDictionary da && b is IDictionary db)
             {
-                while (true)
+                if (da.Count != db.Count) return false;
+                foreach (DictionaryEntry entry in da)
                 {
-                    bool na = ea.MoveNext(), nb = eb.MoveNext();
-                    if (na != nb) return false;      // different lengths
-                    if (!na) return true;            // both ended
-                    if (!Compare(ea.Current, eb.Current, opt, visiting)) return false;
+                    if (!db.Contains(entry.Key)) return false;
+                    work.Push((entry.Value, db[entry.Key]));
                 }
+                return true;
             }
-            finally
+
+            bool? setsEqual = ObjectMembers.SetEquals(a, b);
+            if (setsEqual.HasValue) return setsEqual.Value;
+            if (!ObjectMembers.SameArrayShape(a, b)) return false;
+
+            if (a is IEnumerable ea && b is IEnumerable eb)
             {
-                (ea as IDisposable)?.Dispose();
-                (eb as IDisposable)?.Dispose();
+                var la = ObjectMembers.ToList(ea);
+                var lb = ObjectMembers.ToList(eb);
+                if (la.Count != lb.Count) return false;
+                for (int i = la.Count - 1; i >= 0; i--) work.Push((la[i], lb[i]));
+                return true;
             }
+
+            if (ta != tb) return false;
+
+            var ma = new List<(string Name, object? Value)>(ObjectMembers.Read(a, opt.IncludeFields));
+            var mb = new List<(string Name, object? Value)>(ObjectMembers.Read(b, opt.IncludeFields));
+            if (ma.Count == 0 && ta.IsValueType) return a.Equals(b);
+            for (int i = ma.Count - 1; i >= 0; i--) work.Push((ma[i].Value, mb[i].Value));
+            return true;
+        }
+
+        internal static bool LeafEquals(object a, object b, ObjectComparisonOptions opt)
+        {
+            if (opt.FloatTolerance > 0)
+            {
+                // Equals first: infinities and NaN equal themselves, but their difference is NaN.
+                if (a is double da && b is double db) return da.Equals(db) || Math.Abs(da - db) <= opt.FloatTolerance;
+                if (a is float fa && b is float fb) return fa.Equals(fb) || Math.Abs(fa - fb) <= opt.FloatTolerance;
+            }
+            return a.Equals(b);
         }
     }
 }

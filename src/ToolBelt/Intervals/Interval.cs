@@ -39,7 +39,12 @@ namespace ToolBelt.Intervals
 
         internal static int Compare(TKey a, TKey b) => Comparer<TKey>.Default.Compare(a, b);
 
-        public bool Equals(Interval<TKey> other) => Compare(Start, other.Start) == 0 && Compare(End, other.End) == 0;
+        /// <summary>
+        /// Equal when the endpoints are equal by <see cref="EqualityComparer{T}.Default"/>, which agrees with
+        /// <see cref="GetHashCode"/> (comparing with CompareTo would make keys that sort equal but hash differently equal).
+        /// </summary>
+        public bool Equals(Interval<TKey> other)
+            => EqualityComparer<TKey>.Default.Equals(Start, other.Start) && EqualityComparer<TKey>.Default.Equals(End, other.End);
         public override bool Equals(object? obj) => obj is Interval<TKey> i && Equals(i);
         public static bool operator ==(Interval<TKey> a, Interval<TKey> b) => a.Equals(b);
         public static bool operator !=(Interval<TKey> a, Interval<TKey> b) => !a.Equals(b);

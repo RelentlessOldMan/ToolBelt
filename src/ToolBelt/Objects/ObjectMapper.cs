@@ -1,4 +1,4 @@
-// ToolBelt drop-in — fully self-contained (BCL only).
+// ToolBelt drop-in — also copy Objects/TypeUtils.cs.
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -9,7 +9,10 @@ namespace ToolBelt.Objects
     /// Copies matching public properties from a source object to a target of another type, converting
     /// compatible types along the way, with an ignore list and per-property custom projections. Replaces
     /// the walls of hand-written assignments at every boundary — which are tedious and quietly go stale when
-    /// a member is added. Names match case-insensitively; unconvertible or missing members are skipped.
+    /// a member is added. Names match case-insensitively; unconvertible or missing members are skipped, as are target
+    /// properties without a public setter, indexers, and a null bound for a non-nullable value-type property. A
+    /// value-type <typeparamref name="TTarget"/> works with <see cref="Map(TSource)"/> only: the in-place overload would
+    /// fill a copy, so it throws.
     /// </summary>
     public sealed class ObjectMapper<TSource, TTarget> where TTarget : new()
     {
@@ -35,9 +38,10 @@ namespace ToolBelt.Objects
         /// <summary>Maps into a new target instance.</summary>
         public TTarget Map(TSource source)
         {
-            var target = new TTarget();
-            Map(source, target);
-            return target;
+            if (source is null) throw new ArgumentNullException(nameof(source));
+            object target = new TTarget();   // boxed once, so a struct target is filled in place
+            MapInto(source, target);
+            return (TTarget)target;
         }
 
         /// <summary>Maps into an existing target instance.</summary>
@@ -45,7 +49,13 @@ namespace ToolBelt.Objects
         {
             if (source is null) throw new ArgumentNullException(nameof(source));
             if (target is null) throw new ArgumentNullException(nameof(target));
+            if (typeof(TTarget).IsValueType)
+                throw new InvalidOperationException($"{typeof(TTarget).Name} is a value type; mapping into it in place would change a copy. Use Map(source).");
+            MapInto(source, target);
+        }
 
+        private void MapInto(TSource source, object target)
+        {
             var sourceProps = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
             foreach (PropertyInfo p in typeof(TSource).GetProperties(BindingFlags.Public | BindingFlags.Instance))
                 if (p.CanRead && p.GetIndexParameters().Length == 0)
@@ -53,7 +63,8 @@ namespace ToolBelt.Objects
 
             foreach (PropertyInfo targetProp in typeof(TTarget).GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
-                if (!targetProp.CanWrite || _ignored.Contains(targetProp.Name)) continue;
+                if (targetProp.GetSetMethod() is null || targetProp.GetIndexParameters().Length != 0
+                    || _ignored.Contains(targetProp.Name)) continue;
 
                 object? value;
                 if (_custom.TryGetValue(targetProp.Name, out var selector))
@@ -69,7 +80,12 @@ namespace ToolBelt.Objects
                     continue; // no source for this target property
                 }
 
-                if (value != null && !targetProp.PropertyType.IsInstanceOfType(value))
+                if (value is null)
+                {
+                    if (targetProp.PropertyType.IsValueType && Nullable.GetUnderlyingType(targetProp.PropertyType) is null)
+                        continue; // null does not fit; leave the target's value
+                }
+                else if (!targetProp.PropertyType.IsInstanceOfType(value))
                 {
                     if (!TypeUtils.TryConvert(value, targetProp.PropertyType, out value))
                         continue; // unconvertible; leave target default

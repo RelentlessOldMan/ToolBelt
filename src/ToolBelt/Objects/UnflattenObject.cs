@@ -36,7 +36,6 @@ namespace ToolBelt.Objects
             {
                 if (string.IsNullOrEmpty(kv.Key)) throw new FormatException("Empty path.");
                 Node node = root;
-                string walked = "";
                 foreach (var (segment, indexed) in Parse(kv.Key, separator))
                 {
                     if (node.HasValue) throw new InvalidOperationException($"Path '{kv.Key}' conflicts with value at '{node.ValuePath}'.");
@@ -47,7 +46,6 @@ namespace ToolBelt.Objects
                         node.Order.Add(segment);
                         node.Indexed.Add(indexed);
                     }
-                    walked = walked.Length == 0 ? segment : walked + (indexed ? "[" + segment + "]" : separator + segment);
                     node = child;
                 }
                 if (node.Children.Count > 0) throw new InvalidOperationException($"Value at '{kv.Key}' conflicts with nested paths under it.");
@@ -56,22 +54,31 @@ namespace ToolBelt.Objects
                 node.Value = kv.Value;
                 node.ValuePath = kv.Key;
             }
-            return (Dictionary<string, object?>)Build(root, isRoot: true)!;
+            var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+            // Containers are created top-down and filled from a work stack, so a deep path cannot overflow the call stack.
+            var work = new Stack<(Node Node, object Container)>();
+            work.Push((root, result));
+            while (work.Count > 0)
+            {
+                var (node, container) = work.Pop();
+                foreach (string key in node.Order)
+                {
+                    Node child = node.Children[key];
+                    object? value = child.HasValue ? child.Value : NewContainer(child);
+                    if (!child.HasValue) work.Push((child, value!));
+                    if (container is List<object?> list) list[int.Parse(key, CultureInfo.InvariantCulture)] = value;
+                    else ((Dictionary<string, object?>)container)[key] = value;
+                }
+            }
+            return result;
         }
 
-        private static object? Build(Node node, bool isRoot = false)
+        // A list when the children are exactly the indices 0…n−1, else a dictionary; filled in later.
+        private static object NewContainer(Node node)
         {
-            if (node.HasValue) return node.Value;
-            bool list = !isRoot && node.Order.Count > 0 && node.Indexed.All(i => i) && IsDenseIndexRange(node.Order);
-            if (list)
-            {
-                var items = new object?[node.Order.Count];
-                foreach (string key in node.Order) items[int.Parse(key, CultureInfo.InvariantCulture)] = Build(node.Children[key]);
-                return items.ToList();
-            }
-            var dict = new Dictionary<string, object?>(StringComparer.Ordinal);
-            foreach (string key in node.Order) dict[key] = Build(node.Children[key]);
-            return dict;
+            if (node.Order.Count > 0 && node.Indexed.All(i => i) && IsDenseIndexRange(node.Order))
+                return new List<object?>(new object?[node.Order.Count]);
+            return new Dictionary<string, object?>(StringComparer.Ordinal);
         }
 
         private static bool IsDenseIndexRange(List<string> keys)
@@ -93,6 +100,7 @@ namespace ToolBelt.Objects
             var sb = new StringBuilder();
             int i = 0;
             bool expectName = true;
+            bool afterIndex = false;   // just after "]": only a separator or another "[" may follow
             while (i < path.Length)
             {
                 if (path[i] == '[')
@@ -104,6 +112,7 @@ namespace ToolBelt.Objects
                     result.Add((path.Substring(i + 1, close - i - 1), true));
                     i = close + 1;
                     expectName = false;
+                    afterIndex = true;
                     continue;
                 }
                 if (string.CompareOrdinal(path, i, sep, 0, sep.Length) == 0)
@@ -112,9 +121,11 @@ namespace ToolBelt.Objects
                     else if (expectName) throw new FormatException($"Empty segment in '{path}'.");
                     i += sep.Length;
                     expectName = true;
+                    afterIndex = false;
                     continue;
                 }
                 if (path[i] == ']') throw new FormatException($"Unexpected ']' in '{path}'.");
+                if (afterIndex) throw new FormatException($"Expected a separator or '[' after ']' in '{path}'.");
                 sb.Append(path[i++]);
                 expectName = false;
             }

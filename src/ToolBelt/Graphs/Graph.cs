@@ -56,9 +56,13 @@ namespace ToolBelt.Graphs
             return true;
         }
 
-        /// <summary>Adds an edge (creating endpoints as needed). For undirected graphs both directions are traversable.</summary>
+        /// <summary>
+        /// Adds an edge (creating endpoints as needed). For undirected graphs both directions are traversable. A NaN
+        /// weight is rejected: it would make every shortest-path and spanning-tree comparison meaningless.
+        /// </summary>
         public void AddEdge(T from, T to, double weight = 1.0)
         {
+            if (double.IsNaN(weight)) throw new ArgumentException("Edge weight must not be NaN.", nameof(weight));
             AddVertex(from);
             AddVertex(to);
             _adjacency[from].Add((to, weight));
@@ -89,7 +93,11 @@ namespace ToolBelt.Graphs
         {
             if (!_adjacency.ContainsKey(start))
                 throw new KeyNotFoundException($"Vertex '{start}' is not in the graph.");
+            return BreadthFirstIterator(start);
+        }
 
+        private IEnumerable<T> BreadthFirstIterator(T start)
+        {
             var seen = new HashSet<T>(Comparer) { start };
             var queue = new Queue<T>();
             queue.Enqueue(start);
@@ -108,7 +116,11 @@ namespace ToolBelt.Graphs
         {
             if (!_adjacency.ContainsKey(start))
                 throw new KeyNotFoundException($"Vertex '{start}' is not in the graph.");
+            return DepthFirstIterator(start);
+        }
 
+        private IEnumerable<T> DepthFirstIterator(T start)
+        {
             var seen = new HashSet<T>(Comparer);
             var stack = new Stack<T>();
             stack.Push(start);

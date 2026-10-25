@@ -54,8 +54,8 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 1 | 26 / 26 | re-queue (1 severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 1 | 32 / 32 | re-queue (3 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 1 | 39 / 39 | re-queue (4 severe) |
-| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 0 | – / 0 | **next** |
-| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 0 | – / 0 | queued |
+| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 1 | 44 / 44 | re-queue (7 severe) |
+| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 0 | – / 0 | **next** |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 0 | – / 0 | queued |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 0 | – / 0 | queued |
 
@@ -81,6 +81,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.11.0 | 11 | Text & small types | 26 | (see tag) |
 | v0.12.0 | 12 | Logging, diagnostics, CLI | 32 | (see tag) |
 | v0.13.0 | 13 | Security, net, time | 39 | (see tag) |
+| v0.14.0 | 14 | Objects, functional, grids, graphs, intervals | 44 | (see tag) |
 
 ## Round log
 
@@ -704,3 +705,48 @@ peers, huge timeouts, malformed stored hashes). **39 confirmed bugs**: 37 with f
 - **Checked build:** the section is clean; the same 42 failures remain elsewhere (one timing flake in
   `PauseAndRaceTests` under one-core low priority, which passed 3 of 3 reruns).
 - **Re-queued:** yes (4 severe).
+
+### Round 14 — 2026-10-25 — Objects, functional, grids, graphs, intervals
+Reviewers: one for correctness and one for robustness (deep and cyclic graphs, hostile types, huge inputs).
+**44 confirmed bugs**: 42 with failing-first regression tests in `ObjectsGraphsReviewTests` (37 failing-first
+tests, several covering more than one bug, plus 4 guards pinning output order and naive equivalence), 1 found by the
+checked build (the existing Grids tests fail there), 1 by inspection.
+
+- **Severe** (each crashed the process with a stack overflow):
+  - `DeepEquals`, `PropertyDiff`, `FlattenObject` and `UnflattenObject` recursed once per level, so a linked chain
+    a few thousand deep (or a 100k-segment key) killed the process. All four now walk with an explicit stack and keep
+    their old output order.
+  - `DeepEquals` and `PropertyDiff` recursed without end on a list that contains itself: collections were not
+    tracked as visited. Every non-leaf reference pair is now tracked.
+  - `TopologicalSort`'s cycle finder recursed once per vertex; a 100k-vertex cycle overflowed. It is now iterative.
+- **Severe** (checked build): `FloodFill`, `ConnectedComponents2D` and `GridPathfinding` bounds-checked neighbors with
+  `(uint)x >= (uint)n`, which throws `OverflowException` for a negative index when the drop-in is compiled with
+  checked arithmetic, so every fill, labeling and path search failed there. They now compare explicitly.
+- **Moderate:**
+  - `RangeMap.Set`/`Remove` rebuilt and re-sorted the whole map on every call (50k sets took over a minute); they
+    now binary-search the affected segments. `RangeSet.Except` was quadratic (15 s for 100k intervals); now linear.
+  - `DeepEquals`/`PropertyDiff`: infinity and NaN never equalled themselves under a float tolerance; hash sets
+    compared by enumeration order; multi-dimensional arrays ignored shape; `BigInteger` and other formattable structs,
+    `Type`/`MemberInfo`, and `ReadOnlyMemory<T>` were walked member by member (throwing, or equal when not); value
+    tuples and other field-only structs always compared equal.
+  - `PropertyPath`: a missing dictionary key was not `KeyNotFoundException`; the key type came from the concrete
+    type's generic arguments (wrong for a subclass of `Dictionary<int,…>`); `TryGet` threw on an unconvertible key;
+    `Set` through a struct member changed a copy; a `new` property threw `AmbiguousMatchException`.
+  - `ExpressionAccessor` matched names case-insensitively and reached non-public members, treated a private setter as
+    writable, named the wrong parameter for a missing member, and threw `NullReferenceException` writing null to a
+    value-type member (now stores default).
+  - `ObjectMapper`: a struct target lost every value (mapped into a copy); null into a value-type property threw; a
+    private setter was written.
+  - `ActivatorUtils` took the first fitting constructor, not the most specific; could not create a struct with no
+    arguments; threw on an open generic; wrapped constructor exceptions in `TargetInvocationException`.
+  - `TypeUtils.FriendlyName` reversed jagged array ranks and garbled types nested in generic types; `DefaultValue`
+    accepted void and open generics; `GetDerivedTypes` returned open generics (so `ScanAndCreate` reported errors).
+  - `TopologicalSort` located the cycle start with the default comparer, not the graph's (an exception for a
+    case-insensitive graph); `AttributeCache` ignored `inherit` for properties; `Interval.Equals` used `CompareTo`
+    and so disagreed with `GetHashCode`.
+- **Minor:** `UnflattenObject` accepted text straight after `]` ("a[0]b"); `Graph.BreadthFirst`/`DepthFirst`
+  validated the start vertex only when enumerated; `Graph.AddEdge` accepted a NaN weight; `Memoize` named the null
+  argument "key"; seven graph and interval drop-in headers claimed "fully self-contained" (by inspection).
+- **Checked build:** the 26 Grids failures are gone (see above); 16 failures remain in other sections, all present
+  at v0.13.0, and the `PauseAndRaceTests` timing flake did not recur.
+- **Re-queued:** yes (7 severe).

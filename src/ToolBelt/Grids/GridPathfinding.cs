@@ -69,7 +69,7 @@ namespace ToolBelt.Grids
                 for (int d = 0; d < dirs; d++)
                 {
                     int vr = ur + DRow[d], vc = uc + DCol[d];
-                    if ((uint)vr >= (uint)rows || (uint)vc >= (uint)cols) continue;
+                    if (vr < 0 || vr >= rows || vc < 0 || vc >= cols) continue;
                     if (!passable(vr, vc)) continue;
                     if (d >= 4 && !allowCornerCutting && (!passable(ur, vc) || !passable(vr, uc))) continue;
 
@@ -190,7 +190,7 @@ namespace ToolBelt.Grids
                 for (int d = 0; d < dirs; d++)
                 {
                     int vr = ur + DRow[d], vc = uc + DCol[d];
-                    if ((uint)vr >= (uint)rows || (uint)vc >= (uint)cols) continue;
+                    if (vr < 0 || vr >= rows || vc < 0 || vc >= cols) continue;
                     if (!passable(vr, vc)) continue;
                     if (d >= 4 && !allowCornerCutting && (!passable(ur, vc) || !passable(vr, uc))) continue;
 
@@ -236,9 +236,9 @@ namespace ToolBelt.Grids
             if ((long)rows * cols > int.MaxValue)
                 throw new ArgumentOutOfRangeException(nameof(rows), "Grid is too large: rows * cols must fit in an int.");
             if (passable is null) throw new ArgumentNullException(nameof(passable));
-            if ((uint)start.Row >= (uint)rows || (uint)start.Col >= (uint)cols)
+            if (start.Row < 0 || start.Row >= rows || start.Col < 0 || start.Col >= cols)
                 throw new ArgumentOutOfRangeException(nameof(start), start, "Start is outside the grid.");
-            if ((uint)goal.Row >= (uint)rows || (uint)goal.Col >= (uint)cols)
+            if (goal.Row < 0 || goal.Row >= rows || goal.Col < 0 || goal.Col >= cols)
                 throw new ArgumentOutOfRangeException(nameof(goal), goal, "Goal is outside the grid.");
         }
 

@@ -12,6 +12,12 @@ namespace ToolBelt.Objects
     /// <c>order.lines[2].price</c> or <c>settings["theme"]</c>. On failure it throws an error identifying
     /// the exact path segment that could not be resolved, rather than a null-reference somewhere inside.
     /// The single-level by-name accessor is the trivial special case.
+    /// <para>
+    /// A missing dictionary key throws <see cref="KeyNotFoundException"/>; an index token that does not convert to the
+    /// dictionary's key type, or a list index out of range, throws <see cref="ArgumentException"/>. <see cref="TryGet"/>
+    /// returns false for all of these; an exception thrown by a property getter itself still propagates. Setting through a
+    /// struct-valued member writes the modified copy back, so <c>Set(holder, "Point.X", 5)</c> changes the holder.
+    /// </para>
     /// </summary>
     public static class PropertyPath
     {
@@ -32,7 +38,8 @@ namespace ToolBelt.Objects
         public static bool TryGet(object root, string path, out object? value)
         {
             try { value = Get(root, path); return true; }
-            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException || ex is KeyNotFoundException)
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException || ex is KeyNotFoundException
+                                       || ex is FormatException || ex is OverflowException)
             {
                 value = null;
                 return false;
@@ -43,16 +50,24 @@ namespace ToolBelt.Objects
         {
             if (root is null) throw new ArgumentNullException(nameof(root));
             var steps = Parse(path);
+            // targets[i] is the object segment i is read from (or, for the last segment, written to).
+            var targets = new object[steps.Count];
             object? target = root;
             for (int i = 0; i < steps.Count - 1; i++)
             {
                 if (target is null)
                     throw new InvalidOperationException($"Path '{path}' hit a null before segment '{steps[i]}'.");
+                targets[i] = target;
                 target = steps[i].Read(target, path);
             }
             if (target is null)
                 throw new InvalidOperationException($"Path '{path}' hit a null before the final segment.");
+            targets[steps.Count - 1] = target;
             steps[steps.Count - 1].Write(target, value, path);
+
+            // A struct read along the way is a boxed copy: store each modified copy back into its parent.
+            for (int i = steps.Count - 2; i >= 0 && targets[i + 1].GetType().IsValueType; i--)
+                steps[i].Write(targets[i], targets[i + 1], path);
         }
 
         // ---- Path parsing ----
@@ -71,7 +86,7 @@ namespace ToolBelt.Objects
 
             public override object? Read(object target, string fullPath)
             {
-                PropertyInfo? p = target.GetType().GetProperty(_name, BindingFlags.Public | BindingFlags.Instance);
+                PropertyInfo? p = FindProperty(target.GetType(), _name);
                 if (p is null)
                     throw new ArgumentException($"Segment '{_name}' is not a public property of {target.GetType().Name} (path '{fullPath}').");
                 return p.GetValue(target);
@@ -79,10 +94,22 @@ namespace ToolBelt.Objects
 
             public override void Write(object target, object? value, string fullPath)
             {
-                PropertyInfo? p = target.GetType().GetProperty(_name, BindingFlags.Public | BindingFlags.Instance);
-                if (p is null || !p.CanWrite)
+                PropertyInfo? p = FindProperty(target.GetType(), _name);
+                if (p is null || p.GetSetMethod() is null)
                     throw new ArgumentException($"Segment '{_name}' is not a writable property of {target.GetType().Name} (path '{fullPath}').");
                 p.SetValue(target, value);
+            }
+
+            // The most derived public, non-indexed property of that name (a "new" property hides its base's, which
+            // GetProperty would report as ambiguous).
+            private static PropertyInfo? FindProperty(Type type, string name)
+            {
+                for (Type? t = type; t != null; t = t.BaseType)
+                {
+                    foreach (PropertyInfo p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+                        if (p.Name == name && p.GetIndexParameters().Length == 0) return p;
+                }
+                return null;
             }
         }
 
@@ -95,7 +122,12 @@ namespace ToolBelt.Objects
             public override object? Read(object target, string fullPath)
             {
                 if (target is IDictionary dict)
-                    return dict[ConvertKey(dict, _token)];
+                {
+                    object key = ConvertKey(dict, _token, fullPath);
+                    if (!dict.Contains(key))
+                        throw new KeyNotFoundException($"Key '[{_token}]' is not in the dictionary (path '{fullPath}').");
+                    return dict[key];
+                }
                 if (target is IList list)
                     return list[ParseIndex(fullPath)];
                 throw new ArgumentException($"Segment '[{_token}]' requires a list or dictionary, got {target.GetType().Name} (path '{fullPath}').");
@@ -103,7 +135,7 @@ namespace ToolBelt.Objects
 
             public override void Write(object target, object? value, string fullPath)
             {
-                if (target is IDictionary dict) { dict[ConvertKey(dict, _token)] = value; return; }
+                if (target is IDictionary dict) { dict[ConvertKey(dict, _token, fullPath)] = value; return; }
                 if (target is IList list) { list[ParseIndex(fullPath)] = value; return; }
                 throw new ArgumentException($"Segment '[{_token}]' requires a list or dictionary, got {target.GetType().Name} (path '{fullPath}').");
             }
@@ -115,14 +147,30 @@ namespace ToolBelt.Objects
                 return index;
             }
 
-            private static object ConvertKey(IDictionary dict, string token)
+            private static object ConvertKey(IDictionary dict, string token, string fullPath)
             {
-                // Convert the textual key to the dictionary's key type where it is a common one.
+                // Convert the textual key to the key type of the IDictionary<TKey, TValue> the object implements.
                 Type keyType = typeof(object);
-                foreach (var t in dict.GetType().GetGenericArguments()) { keyType = t; break; }
-                if (keyType == typeof(int)) return int.Parse(token, CultureInfo.InvariantCulture);
-                if (keyType == typeof(long)) return long.Parse(token, CultureInfo.InvariantCulture);
-                return token; // string or object key
+                foreach (Type i in dict.GetType().GetInterfaces())
+                {
+                    if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IDictionary<,>))
+                    {
+                        keyType = i.GetGenericArguments()[0];
+                        break;
+                    }
+                }
+                if (keyType == typeof(string) || keyType == typeof(object)) return token;
+                try
+                {
+                    Type underlying = Nullable.GetUnderlyingType(keyType) ?? keyType;
+                    if (underlying.IsEnum) return Enum.Parse(underlying, token, ignoreCase: true);
+                    if (underlying == typeof(Guid)) return Guid.Parse(token);
+                    return Convert.ChangeType(token, underlying, CultureInfo.InvariantCulture);
+                }
+                catch (Exception ex) when (ex is FormatException || ex is OverflowException || ex is InvalidCastException || ex is ArgumentException)
+                {
+                    throw new ArgumentException($"Key '[{token}]' does not convert to {keyType.Name} (path '{fullPath}').", ex);
+                }
             }
         }
 

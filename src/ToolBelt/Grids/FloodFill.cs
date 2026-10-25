@@ -24,8 +24,8 @@ namespace ToolBelt.Grids
         {
             if (grid is null) throw new ArgumentNullException(nameof(grid));
             int rows = grid.GetLength(0), cols = grid.GetLength(1);
-            if ((uint)row >= (uint)rows) throw new ArgumentOutOfRangeException(nameof(row), row, "Row is outside the grid.");
-            if ((uint)col >= (uint)cols) throw new ArgumentOutOfRangeException(nameof(col), col, "Column is outside the grid.");
+            if (row < 0 || row >= rows) throw new ArgumentOutOfRangeException(nameof(row), row, "Row is outside the grid.");
+            if (col < 0 || col >= cols) throw new ArgumentOutOfRangeException(nameof(col), col, "Column is outside the grid.");
             comparer ??= EqualityComparer<T>.Default;
 
             T target = grid[row, col];
@@ -45,8 +45,8 @@ namespace ToolBelt.Grids
         {
             if (grid is null) throw new ArgumentNullException(nameof(grid));
             int rows = grid.GetLength(0), cols = grid.GetLength(1);
-            if ((uint)row >= (uint)rows) throw new ArgumentOutOfRangeException(nameof(row), row, "Row is outside the grid.");
-            if ((uint)col >= (uint)cols) throw new ArgumentOutOfRangeException(nameof(col), col, "Column is outside the grid.");
+            if (row < 0 || row >= rows) throw new ArgumentOutOfRangeException(nameof(row), row, "Row is outside the grid.");
+            if (col < 0 || col >= cols) throw new ArgumentOutOfRangeException(nameof(col), col, "Column is outside the grid.");
             comparer ??= EqualityComparer<T>.Default;
 
             T target = grid[row, col];
@@ -73,8 +73,8 @@ namespace ToolBelt.Grids
             if (belongs is null) throw new ArgumentNullException(nameof(belongs));
             if (rows < 0) throw new ArgumentOutOfRangeException(nameof(rows), rows, "Row count must not be negative.");
             if (cols < 0) throw new ArgumentOutOfRangeException(nameof(cols), cols, "Column count must not be negative.");
-            if ((uint)row >= (uint)rows) throw new ArgumentOutOfRangeException(nameof(row), row, "Row is outside the grid.");
-            if ((uint)col >= (uint)cols) throw new ArgumentOutOfRangeException(nameof(col), col, "Column is outside the grid.");
+            if (row < 0 || row >= rows) throw new ArgumentOutOfRangeException(nameof(row), row, "Row is outside the grid.");
+            if (col < 0 || col >= cols) throw new ArgumentOutOfRangeException(nameof(col), col, "Column is outside the grid.");
             return Collect(rows, cols, row, col, connectivity, belongs);
         }
 
@@ -99,7 +99,7 @@ namespace ToolBelt.Grids
                 {
                     int nr = cell.Row + DRow[d];
                     int nc = cell.Col + DCol[d];
-                    if ((uint)nr >= (uint)rows || (uint)nc >= (uint)cols) continue;
+                    if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
                     if (visited[nr, nc]) continue;
                     if (!belongs(nr, nc)) continue;
                     visited[nr, nc] = true;
