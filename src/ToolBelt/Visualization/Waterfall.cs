@@ -162,6 +162,13 @@ namespace ToolBelt.Visualization
             if (double.IsInfinity(min) && double.IsInfinity(max)) { min = 0; max = 1; }
             else if (double.IsInfinity(min)) min = max - 1;
             else if (double.IsInfinity(max)) max = min + 1;
+            // One explicit limit past all the data opens the scale beyond it, as SvgChart's axes do (swapping turned
+            // ValueMin = 5 over data 0..3 into the maximum).
+            if (options.ValueMin.HasValue != options.ValueMax.HasValue && !(min < max))
+            {
+                if (options.ValueMin.HasValue) max = min + Math.Max(1, Math.Abs(min) * 0.1);
+                else min = max - Math.Max(1, Math.Abs(max) * 0.1);
+            }
             if (min > max) (min, max) = (max, min);
             return (min, max);
         }
@@ -190,8 +197,9 @@ namespace ToolBelt.Visualization
             double tLo = o.TimeStart, tHi = o.TimeStart + rows * o.TimeStep;
             var (vMin, vMax) = ValueRange(data, o);
 
-            TickSet fT = AxisTicks.Linear(fLo, fHi, o.MaxFrequencyTicks, loose: false);
-            TickSet tT = AxisTicks.Time(tLo, tHi, o.MaxTimeTicks, loose: false);
+            // Capped by the image size: 1e8 ticks built 1e8 labels before the layout could reject anything.
+            TickSet fT = AxisTicks.Linear(fLo, fHi, CapTicks(o.MaxFrequencyTicks, o.Width), loose: false);
+            TickSet tT = AxisTicks.Time(tLo, tHi, CapTicks(o.MaxTimeTicks, o.Height), loose: false);
             TickSet vT = AxisTicks.Linear(vMin, vMax, 6, loose: false);
 
             double fs = o.FontSize;
@@ -304,6 +312,9 @@ namespace ToolBelt.Visualization
             if (!string.IsNullOrEmpty(o.ValueLabel))
                 Rotated(sb, o.Width - 10 - fs * 0.4, f.Top + f.Height / 2, o.ValueLabel!, ink);
         }
+
+        private static int CapTicks(int maxTicks, double pixels)
+            => maxTicks < 2 ? maxTicks : (int)Math.Min(maxTicks, Math.Max(2, Math.Min(pixels, 10000)));
 
         private static void Tick(StringBuilder sb, double x1, double y1, double x2, double y2, string stroke)
             => sb.Append("<line x1=\"").Append(SvgUtils.Number(x1)).Append("\" y1=\"").Append(SvgUtils.Number(y1))

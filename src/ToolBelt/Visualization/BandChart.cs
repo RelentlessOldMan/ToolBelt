@@ -41,6 +41,9 @@ namespace ToolBelt.Visualization
             if (lower.Count == 0) throw new ArgumentException("Curves must be non-empty.", nameof(lower));
             if (center != null && center.Count != lower.Count) throw new ArgumentException("center length must match.", nameof(center));
             options ??= new BandOptions();
+            // An infinite bound made the range ∞, which put every value on the bottom row.
+            if (options.Min is double mn && !IsFinite(mn) || options.Max is double mx && !IsFinite(mx))
+                throw new ArgumentOutOfRangeException(nameof(options), "Min and Max must be finite.");
 
             var image = new ImageBuffer(width, height, options.Background);
             int m = options.Margin;
@@ -64,18 +67,38 @@ namespace ToolBelt.Visualization
             }
             double range = maxV - minV;
             double MapX(int i) => n > 1 ? left + (double)i / (n - 1) * (right - left) : (left + right) / 2;
-            double MapY(double v) => range > 0 ? bottom - (v - minV) / range * (bottom - top) : (top + bottom) / 2;
+            double MapY(double v) => range > 0 ? bottom - Fraction(v, minV, maxV) * (bottom - top) : (top + bottom) / 2;
 
-            // Fill a vertical span at each column between the two curves, clipped to the plot area (values
-            // outside an explicit Min/Max threw from SetPixel). A column with a NaN or ∞ edge is left empty.
-            for (int i = 0; i < n; i++)
+            // Fill a vertical span at every pixel column, clipped to the plot area (values outside an explicit Min/Max
+            // threw from SetPixel), with the curves interpolated between neighbouring samples: one column per sample
+            // left n thin lines. Between samples with a NaN or ∞ edge only a finite sample's own column is filled.
+            void Fill(int x, double a, double b)
             {
-                if (!IsFinite(lower[i]) || !IsFinite(upper[i])) continue;
-                int x = (int)Math.Round(MapX(i));
-                double yA = MapY(lower[i]), yB = MapY(upper[i]);
+                double yA = MapY(a), yB = MapY(b);
                 double lo = Math.Max(Math.Min(yA, yB), top), hi = Math.Min(Math.Max(yA, yB), bottom);
-                if (lo > hi) continue;
+                if (lo > hi) return;
                 for (int y = (int)Math.Round(lo); y <= (int)Math.Round(hi); y++) image.SetPixel(x, y, options.BandColor);
+            }
+            bool Finite(int i) => IsFinite(lower[i]) && IsFinite(upper[i]);
+            if (n == 1)
+            {
+                if (Finite(0)) Fill((int)Math.Round(MapX(0)), lower[0], upper[0]);
+            }
+            else
+            {
+                for (int x = left; x <= right; x++)
+                {
+                    double u = (double)(x - left) / (right - left) * (n - 1);
+                    int i = Math.Min(n - 2, (int)Math.Floor(u));
+                    double f = u - i;
+                    if (Finite(i) && Finite(i + 1))
+                        Fill(x, (1 - f) * lower[i] + f * lower[i + 1], (1 - f) * upper[i] + f * upper[i + 1]);
+                    else
+                    {
+                        int j = f < 0.5 ? i : i + 1;
+                        if (Finite(j) && (int)Math.Round(MapX(j)) == x) Fill(x, lower[j], upper[j]);
+                    }
+                }
             }
 
             if (center != null)
@@ -94,5 +117,9 @@ namespace ToolBelt.Visualization
         }
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        // (v − min) / (max − min), halved when the span overflows (±1e308 data mapped everything to one row).
+        private static double Fraction(double v, double min, double max)
+            => double.IsInfinity(max - min) ? (v / 2 - min / 2) / (max / 2 - min / 2) : (v - min) / (max - min);
     }
 }

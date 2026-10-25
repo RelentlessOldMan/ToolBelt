@@ -123,7 +123,10 @@ namespace ToolBelt.Visualization
                 cellH = Math.Max(cellH, panels[i].Height);
             }
             int cols = Math.Min(columns, panels.Count), rows = (panels.Count + cols - 1) / cols;
-            var image = new ImageBuffer(cols * cellW + (cols + 1) * gap, rows * cellH + (rows + 1) * gap, background ?? Rgba.White);
+            // In long: the int sizes wrapped (a huge gap gave an 8 × 8 canvas).
+            long w = (long)cols * cellW + (cols + 1L) * gap, h = (long)rows * cellH + (rows + 1L) * gap;
+            if (w > int.MaxValue || h > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(gap), gap, "The composed image is too large.");
+            var image = new ImageBuffer((int)w, (int)h, background ?? Rgba.White);
             for (int i = 0; i < panels.Count; i++)
                 image.Blit(panels[i], gap + i % cols * (cellW + gap), gap + i / cols * (cellH + gap));
             return image;
@@ -146,7 +149,7 @@ namespace ToolBelt.Visualization
             if (panels.Count == 0) throw new ArgumentException("At least one panel is required.", nameof(panels));
             if (o.Columns < 1) throw new ArgumentOutOfRangeException("options", "Columns must be positive.");
             if (!(o.PanelWidth > 0) || !(o.PanelHeight > 0)) throw new ArgumentOutOfRangeException("options", "Panel size must be positive.");
-            if (!(o.Gap >= 0)) throw new ArgumentOutOfRangeException("options", "Gap must be non-negative.");
+            if (!(o.Gap >= 0) || double.IsInfinity(o.Gap)) throw new ArgumentOutOfRangeException("options", "Gap must be non-negative and finite.");
             for (int i = 0; i < panels.Count; i++)
                 if (panels[i] is null) throw new ArgumentException($"Panel {i} is null.", nameof(panels));
 

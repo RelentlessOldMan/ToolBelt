@@ -45,6 +45,10 @@ namespace ToolBelt.Visualization
             if (x.Count != y.Count || x.Count != error.Count)
                 throw new ArgumentException("x, y and error must have the same length.");
             options ??= new ErrorBarOptions();
+            // An infinite bound made the mapping NaN: the markers vanished, or (int)NaN threw under checked arithmetic.
+            foreach (double? bound in new[] { options.MinX, options.MaxX, options.MinY, options.MaxY })
+                if (bound is double b && !IsFinite(b))
+                    throw new ArgumentOutOfRangeException(nameof(options), "MinX, MaxX, MinY and MaxY must be finite.");
 
             var image = new ImageBuffer(width, height, options.Background);
             int m = options.Margin;
@@ -67,8 +71,8 @@ namespace ToolBelt.Visualization
                 if (options.MaxY is null) maxY = Math.Max(maxY, y[i] + e);
             }
             double rangeX = maxX - minX, rangeY = maxY - minY;
-            double MapX(double v) => rangeX > 0 ? left + (v - minX) / rangeX * (right - left) : (left + right) / 2;
-            double MapY(double v) => rangeY > 0 ? bottom - (v - minY) / rangeY * (bottom - top) : (top + bottom) / 2;
+            double MapX(double v) => rangeX > 0 ? left + Fraction(v, minX, maxX) * (right - left) : (left + right) / 2;
+            double MapY(double v) => rangeY > 0 ? bottom - Fraction(v, minY, maxY) * (bottom - top) : (top + bottom) / 2;
 
             int cap = Math.Max(0, options.CapHalfWidth);
             for (int i = 0; i < x.Count; i++)
@@ -94,5 +98,9 @@ namespace ToolBelt.Visualization
         }
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        // (v − min) / (max − min), halved when the span overflows (±1e308 data mapped everything to one edge).
+        private static double Fraction(double v, double min, double max)
+            => double.IsInfinity(max - min) ? (v / 2 - min / 2) / (max / 2 - min / 2) : (v - min) / (max - min);
     }
 }

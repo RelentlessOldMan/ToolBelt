@@ -303,6 +303,12 @@ namespace ToolBelt.Visualization
                 case PlotStyle.Line:
                 {
                     var path = new PathBuilder();
+                    bool Plottable(int k)
+                    {
+                        if (k >= s.Y.Count) return false;
+                        double qx = f.MapX(s.X?[k] ?? k), qy = f.MapY(s.Y[k]);
+                        return !double.IsNaN(qx) && !double.IsNaN(qy) && !double.IsInfinity(qx) && !double.IsInfinity(qy);
+                    }
                     bool havePrev = false, penDown = false;
                     double prevX = 0, prevY = 0, penX = 0, penY = 0;
                     for (int i = 0; i < s.Y.Count; i++)
@@ -324,9 +330,11 @@ namespace ToolBelt.Visualization
                             }
                             else penDown = false;
                         }
-                        else if (s.Y.Count == 1 && Inside(px, py, f))
+                        else if (Inside(px, py, f) && !Plottable(i + 1))
                         {
-                            path.MoveTo(px, py).LineTo(px, py); // a lone point still shows (round caps)
+                            // A lone point still shows (round caps): a single sample, or one between gaps ({NaN, 5, NaN}
+                            // drew nothing for the 5).
+                            path.MoveTo(px, py).LineTo(px, py);
                         }
                         prevX = px; prevY = py; havePrev = true;
                     }
@@ -465,11 +473,15 @@ namespace ToolBelt.Visualization
         private static bool ClipSegment(ref double x0, ref double y0, ref double x1, ref double y1, PlotFrame f)
         {
             double t0 = 0, t1 = 1, dx = x1 - x0, dy = y1 - y0;
-            if (!Edge(-dx, x0 - f.Left, ref t0, ref t1)) return false;
-            if (!Edge(dx, f.Right - x0, ref t0, ref t1)) return false;
-            if (!Edge(-dy, y0 - f.Top, ref t0, ref t1)) return false;
-            if (!Edge(dy, f.Bottom - y0, ref t0, ref t1)) return false;
-            double nx0 = x0 + t0 * dx, ny0 = y0 + t0 * dy, nx1 = x0 + t1 * dx, ny1 = y0 + t1 * dy;
+            // Halved when the span overflows (finite points ±1.6e308 apart): 0·∞ was NaN. Edge only uses ratios.
+            double k = double.IsInfinity(dx) || double.IsInfinity(dy) ? 0.5 : 1;
+            if (k != 1) { dx = x1 * k - x0 * k; dy = y1 * k - y0 * k; }
+            if (!Edge(-dx, (x0 - f.Left) * k, ref t0, ref t1)) return false;
+            if (!Edge(dx, (f.Right - x0) * k, ref t0, ref t1)) return false;
+            if (!Edge(-dy, (y0 - f.Top) * k, ref t0, ref t1)) return false;
+            if (!Edge(dy, (f.Bottom - y0) * k, ref t0, ref t1)) return false;
+            double Along(double origin, double t, double d) => k == 1 ? origin + t * d : origin + t * d + t * d;
+            double nx0 = Along(x0, t0, dx), ny0 = Along(y0, t0, dy), nx1 = Along(x0, t1, dx), ny1 = Along(y0, t1, dy);
             x0 = nx0; y0 = ny0; x1 = nx1; y1 = ny1;
             return true;
         }

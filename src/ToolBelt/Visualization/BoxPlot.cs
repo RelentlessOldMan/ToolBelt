@@ -182,8 +182,10 @@ namespace ToolBelt.Visualization
             double rank = p / 100.0 * (sorted.Length - 1);
             int lo = (int)Math.Floor(rank);
             int hi = (int)Math.Ceiling(rank);
-            if (lo == hi) return sorted[lo];
-            return sorted[lo] + (rank - lo) * (sorted[hi] - sorted[lo]);
+            double a = sorted[lo], b = sorted[hi], f = rank - lo;
+            // Weighted, not a + f·(b − a): the difference was ∞ − ∞ = NaN between infinities and overflowed for ±1e308.
+            if (lo == hi || a == b) return a;
+            return (1 - f) * a + f * b;
         }
     }
 }

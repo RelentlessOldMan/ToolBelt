@@ -45,7 +45,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 1 | 31 / 31 | re-queue (7 severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 2 | 28 / 71 | re-queue (5 severe) |
-| 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 1 | 33 / 33 | re-queue (8 severe) |
+| 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 2 | 28 / 61 | re-queue (5 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 1 | 19 / 19 | re-queue (3 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 1 | 27 / 27 | re-queue (5 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 1 | 45 / 45 | re-queue (6 severe) |
@@ -60,7 +60,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 1 | 24 / 24 | re-queue (1 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
-5, 14, 10, 15, 3, 8, 9, 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 5 (Charts)**
+5 (done, round 19), 14, 10, 15, 3, 8, 9, 7, 13, 6, 12, then the 1-severe sections (1, 2, 11, 16, 17). **next: 14**
 
 ## Releases
 
@@ -87,6 +87,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.16.0 | 16 | WPF satellite | 21 | (see tag) |
 | v0.17.0 | 17 | WinForms satellite, tooling, docs | 24 | (see tag) |
 | v0.18.0 | 18 | Numerics core, second pass | 28 | (see tag) |
+| v0.19.0 | 19 | Charts, second pass | 28 | (see tag) |
 
 ## Round log
 
@@ -951,4 +952,32 @@ test framework).
   as at e8.
 - **Checked build:** numerics failures gone (DeterministicRandom ×3, Fraction); 8 remain in other sections (Net ×5,
   Guards, ArrayPoolScope, Palette); nothing new.
+- **Re-queued:** yes (28 bugs, 5 severe).
+
+### Round 19 — 2026-10-25 — Charts, second pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 5 with 8 severe).
+**28 confirmed bugs**, each with a failing-first regression test in `ChartsReview2Tests`.
+
+- **Severe:**
+  - `AxisTicks.Linear` never finished for subnormal ranges (the step underflowed to 0); spans below 1e-250 now widen
+    around their midpoint. Tiny ranges such as [1.6e-19, 1.7e-19] collapsed every tick onto 0: ticks are now parsed
+    from their exact decimal digit × 10^exponent.
+  - `Histogram.Bin` indexed at int.MinValue for subnormal ranges (NaN quotient), and one bin over ±1e308 got a NaN edge.
+  - `TimingDiagram` with a huge `LaneHeight` (1e17) hatched forever; small ones drew negative rects. `LaneHeight` must
+    now be in (6, 1e6].
+  - `Annotations` thick lines repainted the whole pen square at every step (a 2000-px line on 1000² ran for minutes);
+    only the newly covered part is painted now, and widths past int wrapped to a 1-px line.
+  - `BandChart` filled one column per sample, leaving gaps; every column between samples is filled now.
+- **Moderate:** `AxisTicks.FormatTime` rounding carry ("1:051.000") and long wrap past 9.2e18 s; `AxisTicks.Log10` at
+  the double limits; `BoxPlot` percentile NaN between infinities; `TimingDiagram` lone change at epoch-nanosecond
+  timestamps (0/0 x) and null signals; `Waterfall` tick counts uncapped and an explicit `ValueMin` past the data
+  swapped into the maximum; `HexBin` likewise; `BandChart`/`ErrorBarChart` infinite explicit bounds and ±1e308 spans;
+  `HeatMap` one limit past the data and the clamped huge span; `ScatterMatrix` Pearson r at 1e-90 / 1e200 scales;
+  `LinePlot.Render` mapped differently from the `Frame` it returns (reversed and ±1e308 ranges); `SvgChart` lone
+  point between gaps not drawn, and clipping NaN when a segment's span overflows; `Colormap` NaN for stops ±1e308
+  apart and an unstable sort reordering hard edges; `MultiPanel.Compose` size wrap and an infinite `Gap`.
+- **Minor:** `LinePlot` null series threw NullReferenceException.
+- **Declined:** a bin-count memory cap, `Series` keeping list references, Margin/FontFamily validation, ScatterMatrix
+  null Group (already an ArgumentNullException), a Log10 tick-count limit.
+- **Checked build:** the same 8 failures as round 18 (Net ×5, Guards, ArrayPoolScope, Palette); nothing new.
 - **Re-queued:** yes (28 bugs, 5 severe).

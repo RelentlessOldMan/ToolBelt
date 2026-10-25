@@ -19,8 +19,12 @@ namespace ToolBelt.Visualization
             foreach (var st in stops)
                 if (double.IsNaN(st.Position) || double.IsInfinity(st.Position)) // a NaN stop sorted anywhere
                     throw new ArgumentException("Stop positions must be finite.", nameof(stops));
-            _stops = (( double, Rgba)[])stops.Clone();
-            Array.Sort(_stops, (a, b) => a.Position.CompareTo(b.Position));
+            // A stable sort: two stops at one position (a hard edge) must keep their order, and Array.Sort is unstable.
+            var order = new int[stops.Length];
+            for (int i = 0; i < order.Length; i++) order[i] = i;
+            Array.Sort(order, (a, b) => { int c = stops[a].Position.CompareTo(stops[b].Position); return c != 0 ? c : a.CompareTo(b); });
+            _stops = new (double, Rgba)[stops.Length];
+            for (int i = 0; i < order.Length; i++) _stops[i] = stops[order[i]];
         }
 
         /// <summary>Maps <paramref name="t"/> (clamped to the stop range) to a color.</summary>
@@ -36,7 +40,10 @@ namespace ToolBelt.Visualization
                 {
                     var a = _stops[i - 1];
                     var b = _stops[i];
-                    double f = (t - a.Position) / (b.Position - a.Position);
+                    double span = b.Position - a.Position;
+                    double f = double.IsInfinity(span) // stops ±1e308 apart: ∞/∞ was NaN, a transparent black
+                        ? (t / 2 - a.Position / 2) / (b.Position / 2 - a.Position / 2)
+                        : (t - a.Position) / span;
                     return Lerp(a.Color, b.Color, f);
                 }
             }

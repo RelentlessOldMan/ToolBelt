@@ -52,8 +52,11 @@ namespace ToolBelt.Visualization
         {
             Normalize(ref min, ref max, maxTicks);
             double raw = max / (maxTicks - 1) - min / (maxTicks - 1); // max − min overflowed for ±1e308
-            double magnitude = Math.Pow(10, Math.Floor(Math.Log10(raw)));
+            // The step is digit × 10^exponent and each tick is parsed from its exact decimal (k·digit)E(exponent):
+            // rounding k·step to at most 15 decimals collapsed every tick of [1.6e-19, 1.7e-19] onto 0.
+            int exponent0 = (int)Math.Floor(Math.Log10(raw));
             double step = 0;
+            int digit = 1, exponent = exponent0;
             // Walk 1, 2, 5, 10, 20, 50 … × magnitude until the ticks fit. Once the step reaches the largest magnitude
             // on the axis the count is at its true floor — 2, or 3 when the range straddles zero (−s, 0, s) — and no
             // larger step can do better, so stop there. (Merely spanning the range is not enough: a step just wider
@@ -61,14 +64,12 @@ namespace ToolBelt.Visualization
             double reach = Math.Max(Math.Abs(min), Math.Abs(max));
             for (int i = 0; ; i++)
             {
-                double candidate = NiceMultipliers[i % 3] * magnitude * Math.Pow(10, i / 3);
-                if (double.IsInfinity(candidate)) // only near double.MaxValue: keep the last finite step
-                {
-                    step = NiceMultipliers[(i - 1) % 3] * magnitude * Math.Pow(10, (i - 1) / 3);
-                    break;
-                }
+                int d = NiceMultipliers[i % 3], e = exponent0 + i / 3;
+                double candidate = Decimal(d, e);
+                if (double.IsInfinity(candidate)) break; // only near double.MaxValue: keep the last finite step
+                step = candidate; digit = d; exponent = e;
                 if (CountTicks(min, max, candidate) <= maxTicks || (candidate >= reach && CountTicks(min, max, candidate) != long.MaxValue))
-                { step = candidate; break; }
+                    break;
             }
 
             int decimals = DecimalsFor(step);
@@ -77,7 +78,7 @@ namespace ToolBelt.Visualization
             var values = new List<double>();
             for (long k = first; k <= last; k++)
             {
-                double v = Clean(k * step, decimals);
+                double v = Decimal(k * digit, exponent);
                 if (double.IsInfinity(v)) continue; // a loose tick past double.MaxValue
                 if (!loose && (v < min - step * 1e-9 || v > max + step * 1e-9)) continue;
                 values.Add(v);
@@ -100,9 +101,11 @@ namespace ToolBelt.Visualization
                 throw new ArgumentOutOfRangeException(nameof(min), "Range must be finite.");
             if (!(min > 0) || !(max > 0)) throw new ArgumentOutOfRangeException(nameof(min), "A log axis needs a strictly positive range.");
             if (min > max) (min, max) = (max, min);
-            int lo = (int)Math.Floor(Math.Log10(min) + 1e-9);
-            int hi = (int)Math.Ceiling(Math.Log10(max) - 1e-9);
-            if (hi == lo) hi = lo + 1;
+            // Decades stay representable: 10^-324 is 0 and 10^309 is ∞ (a log frame rejects both), so the loose range
+            // ends at the data there instead.
+            int lo = Math.Max(-323, (int)Math.Floor(Math.Log10(min) + 1e-9));
+            int hi = Math.Min(308, (int)Math.Ceiling(Math.Log10(max) - 1e-9));
+            if (hi == lo) { if (hi < 308) hi++; else lo--; }
             var values = new List<double>();
             var labels = new List<string>();
             for (int e = lo; e <= hi; e++)
@@ -117,7 +120,7 @@ namespace ToolBelt.Visualization
             if (!loose && values.Count < 2)
                 return Linear(min, max, 6, loose: false); // no decade inside [2, 8] left the axis with no ticks
             return loose
-                ? new TickSet(values, labels, 10, Math.Pow(10, lo), Math.Pow(10, hi))
+                ? new TickSet(values, labels, 10, Math.Min(Math.Pow(10, lo), min), Math.Max(Math.Pow(10, hi), max))
                 : new TickSet(values, labels, 10, min, max);
         }
 
@@ -163,22 +166,24 @@ namespace ToolBelt.Visualization
         public static string FormatTime(double seconds, double span, int decimals = 0)
         {
             if (decimals < 0 || decimals > 15) throw new ArgumentOutOfRangeException(nameof(decimals), decimals, "Decimals must be in [0, 15].");
-            string sign = seconds < 0 ? "-" : "";
-            double a = Math.Abs(seconds);
+            // Rounded before splitting: the fraction rounded on its own carried into the seconds (65.9996 printed
+            // "1:051.000"), and a fraction just below zero printed "1:06-.000".
+            double a = Math.Round(Math.Abs(seconds), decimals, MidpointRounding.AwayFromZero);
+            string sign = seconds < 0 && a > 0 ? "-" : "";
             if (span < 60)
                 return sign + a.ToString(decimals == 0 ? "0" : "0." + new string('0', decimals), CultureInfo.InvariantCulture) + "s";
-            long whole = (long)Math.Floor(a + 1e-9);
-            double frac = a - whole;
-            long h = whole / 3600, m = whole / 60 % 60, s = whole % 60;
+            // In doubles: a long wrapped past 9.2e18 s. The divisions are exact (multiples of 60 below 2^53).
+            double whole = Math.Floor(a), frac = a - whole;
+            double s = whole % 60, minutes = (whole - s) / 60, m = minutes % 60, h = (minutes - m) / 60;
             string secs = s.ToString("00", CultureInfo.InvariantCulture);
             if (decimals > 0)
                 secs += frac.ToString("." + new string('0', decimals), CultureInfo.InvariantCulture).TrimStart('0');
             return span < 3600
-                ? sign + (whole / 60).ToString(CultureInfo.InvariantCulture) + ":" + secs
-                : sign + h.ToString(CultureInfo.InvariantCulture) + ":" + m.ToString("00", CultureInfo.InvariantCulture) + ":" + secs;
+                ? sign + minutes.ToString("0", CultureInfo.InvariantCulture) + ":" + secs
+                : sign + h.ToString("0", CultureInfo.InvariantCulture) + ":" + m.ToString("00", CultureInfo.InvariantCulture) + ":" + secs;
         }
 
-        private static readonly double[] NiceMultipliers = { 1, 2, 5 };
+        private static readonly int[] NiceMultipliers = { 1, 2, 5 };
 
         private static readonly double[] TimeSteps =
         {
@@ -201,6 +206,14 @@ namespace ToolBelt.Visualization
                 min -= pad;
                 max += pad;
             }
+            // A span this close to the subnormal range underflowed the step to 0, and the step search never ended
+            // ([ε, ε], [−ε, ε]). Both ends are below ~1e-234 here, so the midpoint ± 1e-250 is representable.
+            if (max - min < 1e-250)
+            {
+                double mid = min / 2 + max / 2;
+                min = mid - 1e-250;
+                max = mid + 1e-250;
+            }
         }
 
         // In doubles: the long casts wrapped once |value / step| passed 9.2e18 (epoch nanoseconds read as seconds),
@@ -216,6 +229,20 @@ namespace ToolBelt.Visualization
         {
             int d = (int)Math.Ceiling(-Math.Log10(step) - 1e-9);
             return Math.Max(0, Math.Min(15, d));
+        }
+
+        // digits × 10^exponent, correctly rounded (parsed from its decimal; .NET Framework throws on overflow).
+        private static double Decimal(long digits, int exponent)
+        {
+            try
+            {
+                return double.Parse(digits.ToString(CultureInfo.InvariantCulture) + "E" + exponent.ToString(CultureInfo.InvariantCulture),
+                    NumberStyles.Float, CultureInfo.InvariantCulture);
+            }
+            catch (OverflowException)
+            {
+                return digits < 0 ? double.NegativeInfinity : double.PositiveInfinity;
+            }
         }
 
         private static double Clean(double value, int decimals)

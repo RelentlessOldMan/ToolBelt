@@ -140,16 +140,21 @@ namespace ToolBelt.Visualization
         {
             if (signals is null) throw new ArgumentNullException(nameof(signals));
             if (signals.Count == 0) throw new ArgumentException("Need at least one signal.", nameof(signals));
+            for (int i = 0; i < signals.Count; i++)
+                if (signals[i] is null) throw new ArgumentException($"Signal {i} is null.", nameof(signals));
             var o = options ?? new TimingDiagramOptions();
             var times = signals.SelectMany(s => s.Changes.Select(c => c.Time)).ToList();
             double t0 = o.Start ?? (times.Count > 0 ? times.Min() : 0), t1 = o.End ?? (times.Count > 0 ? times.Max() : 1);
-            if (!(t1 > t0)) t1 = t0 + 1;
+            // One unit was below the spacing of doubles past 2^53 (epoch nanoseconds), so t1 == t0 and every x was 0/0.
+            if (!(t1 > t0)) t1 = t0 + Math.Max(1, Math.Abs(t0) * 1e-9);
             Func<double, string> fmt = o.FormatTime ?? FormatSeconds;
 
             // Checked here so a bad value names the option (it failed later inside SvgUtils, naming "value"), and capped:
             // the hatch loop steps 6 px at a time, so Width = 1e9 ran for minutes and 1e17 never ended (x + 6 == x).
             if (!(o.Width > 0) || o.Width > 1e6) throw new ArgumentOutOfRangeException(nameof(options), "Width must be in (0, 1e6].");
-            if (!(o.LaneHeight > 0) || double.IsInfinity(o.LaneHeight)) throw new ArgumentOutOfRangeException(nameof(options), "LaneHeight must be positive and finite.");
+            // Capped like Width (the hatch steps across LaneHeight too: 1e17 never ended), and above the 2 × 3 px insets,
+            // which made a negative rect height and drew 1 below 0.
+            if (!(o.LaneHeight > 6) || o.LaneHeight > 1e6) throw new ArgumentOutOfRangeException(nameof(options), "LaneHeight must be in (6, 1e6].");
             if (!(o.LaneGap >= 0) || double.IsInfinity(o.LaneGap)) throw new ArgumentOutOfRangeException(nameof(options), "LaneGap must be non-negative and finite.");
             double nameWidth = Math.Max(60, signals.Max(s => SvgUtils.EstimateTextWidth(s.Name, 12)) + 18);
             double left = nameWidth, right = 16, top = o.Title != null ? 40 : 16;

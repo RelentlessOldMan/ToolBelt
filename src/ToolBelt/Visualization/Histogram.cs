@@ -70,14 +70,18 @@ namespace ToolBelt.Visualization
             // Scaled by bins first so ±1e308 ranges do not overflow.
             double width = hi / bins - lo / bins;
             var edges = new double[bins + 1];
-            for (int i = 0; i < bins; i++) edges[i] = lo + i * width;
+            edges[0] = lo; // lo + 0·width was NaN for one bin over ±1e308 (width ∞)
+            for (int i = 1; i < bins; i++)
+                edges[i] = width > 0 ? lo + i * width : lo + (hi - lo) * i / bins; // a subnormal range: width underflowed to 0
             edges[bins] = hi;
 
             var counts = new int[bins];
             foreach (double v in data)
             {
                 if (double.IsNaN(v) || v < lo || v > hi) continue;
-                int idx = (int)Math.Min(bins - 1, Math.Max(0, Math.Floor(v / width - lo / width)));
+                // A NaN quotient (width 0) cast to int.MinValue and indexed below the array; start at 0 and settle.
+                double q = Math.Floor(v / width - lo / width);
+                int idx = double.IsNaN(q) ? 0 : (int)Math.Min(bins - 1, Math.Max(0, q));
                 // Settle against the returned edges, so a value equal to edge[i] is always in bin i (the
                 // quotient alone disagreed with the edges for values on them).
                 while (idx > 0 && v < edges[idx]) idx--;

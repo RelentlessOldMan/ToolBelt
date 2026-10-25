@@ -51,8 +51,14 @@ namespace ToolBelt.Visualization
             }
             if (min > max && options.Min.HasValue && options.Max.HasValue)
                 throw new ArgumentException("Min must not exceed Max.", nameof(options));
-            double range = max - min;
-            if (double.IsInfinity(range)) range = double.MaxValue; // finite extremes ±1e308: keep the cells mappable
+            // Halved when the span overflows (±1e308): clamping it to double.MaxValue skewed the mapping.
+            bool halve = double.IsInfinity(max - min);
+            double Fraction(double v)
+            {
+                // An empty range (Min = Max, or one explicit limit past all the data) put every cell at mid-colour.
+                if (!(max > min)) return v < min ? 0 : v > max ? 1 : 0.5;
+                return halve ? (v / 2 - min / 2) / (max / 2 - min / 2) : (v - min) / (max - min);
+            }
 
             int cell = options.CellSize;
             if ((long)cols * cell > int.MaxValue || (long)rows * cell > int.MaxValue)
@@ -65,7 +71,7 @@ namespace ToolBelt.Visualization
                     Rgba color = double.IsNaN(v)
                         ? options.NanColor
                         : double.IsInfinity(v) ? colormap.Map(v > 0 ? 1 : 0) // ±∞ takes the end colour
-                        : colormap.Map(range > 0 ? (v / range - min / range) : 0.5);
+                        : colormap.Map(Fraction(v));
                     image.DrawRectangle(c * cell, r * cell, cell, cell, color, filled: true);
                 }
             return image;

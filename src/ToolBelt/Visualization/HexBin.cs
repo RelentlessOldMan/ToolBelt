@@ -121,6 +121,8 @@ namespace ToolBelt.Visualization
             var finite = points.Where(p => !double.IsNaN(p.X) && !double.IsNaN(p.Y) && !double.IsInfinity(p.X) && !double.IsInfinity(p.Y)).ToArray();
             double xmin = o.XMin ?? (finite.Length > 0 ? finite.Min(p => p.X) : 0), xmax = o.XMax ?? (finite.Length > 0 ? finite.Max(p => p.X) : 1);
             double ymin = o.YMin ?? (finite.Length > 0 ? finite.Min(p => p.Y) : 0), ymax = o.YMax ?? (finite.Length > 0 ? finite.Max(p => p.Y) : 1);
+            OpenPastLimit(ref xmin, ref xmax, o.XMin.HasValue, o.XMax.HasValue);
+            OpenPastLimit(ref ymin, ref ymax, o.YMin.HasValue, o.YMax.HasValue);
             if (xmax <= xmin) { xmin -= 0.5; xmax += 0.5; }
             if (ymax <= ymin) { ymin -= 0.5; ymax += 0.5; }
             // Explicit limits are honoured exactly (inside ticks only); otherwise the axis rounds out to nice ticks.
@@ -234,6 +236,15 @@ namespace ToolBelt.Visualization
               .Append(SvgUtils.Number(f.Width)).Append("\" height=\"").Append(SvgUtils.Number(f.Height)).Append("\" fill=\"none\" stroke=\"#444\"/>\n");
             for (int k = 0; k < xt.Count; k++) sb.Append(Text(f.MapX(xt.Values[k]), f.Bottom + 15, xt.Labels[k], "middle"));
             for (int k = 0; k < yt.Count; k++) sb.Append(Text(f.Left - 6, f.MapY(yt.Values[k]) + 4, yt.Labels[k], "end"));
+        }
+
+        // One explicit limit past all the data opens the axis beyond it, as SvgChart's axes do (XMin = 100 over data
+        // 0..10 became the maximum of a 10..100 axis).
+        private static void OpenPastLimit(ref double lo, ref double hi, bool explicitMin, bool explicitMax)
+        {
+            if (explicitMin == explicitMax || lo < hi) return;
+            if (explicitMin) hi = lo + Math.Max(1, Math.Abs(lo) * 0.1);
+            else lo = hi - Math.Max(1, Math.Abs(hi) * 0.1);
         }
 
         private static string Line(double x1, double y1, double x2, double y2)

@@ -57,7 +57,7 @@ namespace ToolBelt.Visualization
     {
         public static ImageBuffer Render(int width, int height, IReadOnlyList<Series> series, PlotOptions? options = null)
         {
-            if (series is null) throw new ArgumentNullException(nameof(series));
+            CheckSeries(series);
             options ??= new PlotOptions();
             var image = new ImageBuffer(width, height, options.Background);
 
@@ -68,13 +68,14 @@ namespace ToolBelt.Visualization
             if (options.DrawFrame)
                 image.DrawRectangle(left, top, right - left + 1, bottom - top + 1, options.FrameColor);
 
-            Bounds(series, options, out double minX, out double maxX, out double minY, out double maxY);
-            double rangeX = maxX - minX, rangeY = maxY - minY;
+            // Mapped through the frame Frame() returns, so overlays line up: a local mapping centred a reversed range
+            // (MinX > MaxX) that the frame drew reversed, and divided by a ±1e308 span that overflowed.
+            PlotFrame frame = Frame(width, height, series, options);
 
             // Mapped coordinates stay doubles until they are clipped to the plot area: a NaN, ∞ or far
             // out-of-range value cast to int gave int.MinValue, and DrawLine's Math.Abs then overflowed.
-            double MapX(double x) => rangeX > 0 ? left + (x - minX) / rangeX * (right - left) : (left + right) / 2;
-            double MapY(double y) => rangeY > 0 ? bottom - (y - minY) / rangeY * (bottom - top) : (top + bottom) / 2;
+            double MapX(double x) => frame.MapX(x);
+            double MapY(double y) => frame.MapY(y);
             int Px(double v) => (int)Math.Round(v);
 
             foreach (Series s in series)
@@ -116,7 +117,7 @@ namespace ToolBelt.Visualization
         /// </summary>
         public static PlotFrame Frame(int width, int height, IReadOnlyList<Series> series, PlotOptions? options = null)
         {
-            if (series is null) throw new ArgumentNullException(nameof(series));
+            CheckSeries(series);
             options ??= new PlotOptions();
             if (width < 1) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
             if (height < 1) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
@@ -130,6 +131,13 @@ namespace ToolBelt.Visualization
         }
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        private static void CheckSeries(IReadOnlyList<Series> series)
+        {
+            if (series is null) throw new ArgumentNullException(nameof(series));
+            for (int i = 0; i < series.Count; i++)
+                if (series[i] is null) throw new ArgumentException($"Series {i} is null.", nameof(series)); // was a NullReferenceException
+        }
 
         private static double Clamp(double v, double lo, double hi) => v < lo ? lo : v > hi ? hi : v;
 

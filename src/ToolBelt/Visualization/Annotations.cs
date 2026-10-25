@@ -372,15 +372,16 @@ namespace ToolBelt.Visualization
             // Keep the dash phase of the part cut off the start.
             int step = dash == LineDash.Solid ? 0 : (int)(Math.Round(t0 * Math.Max(Math.Abs(ddx), Math.Abs(ddy))) % (on + off));
             int err = dx + dy, half = (thickness - 1) / 2;
+            bool stamped = false;
+            int lastX = 0, lastY = 0;
             while (true)
             {
                 if (dash == LineDash.Solid || step % (on + off) < on)
-                    for (int ty = -half; ty < thickness - half; ty++)
-                        for (int tx = -half; tx < thickness - half; tx++)
-                        {
-                            int x = x0 + tx, y = y0 + ty;
-                            if (x >= 0 && x < image.Width && y >= 0 && y < image.Height) image.SetPixel(x, y, color);
-                        }
+                {
+                    Stamp(image, x0, y0, half, thickness, color, stamped, lastX, lastY);
+                    stamped = true; lastX = x0; lastY = y0;
+                }
+                else stamped = false;
                 if (x0 == x1 && y0 == y1) break;
                 int e2 = 2 * err;
                 if (e2 >= dy) { err += dy; x0 += sx; }
@@ -443,7 +444,29 @@ namespace ToolBelt.Visualization
 
         private static int Px(double v) => (int)Math.Round(v, MidpointRounding.AwayFromZero);
 
-        private static int Thickness(double width) => Math.Max(1, (int)Math.Round(width, MidpointRounding.AwayFromZero));
+        // Capped before the cast: 1e10 wrapped to int.MinValue (a 1-px line), or threw under checked arithmetic.
+        private static int Thickness(double width) => Math.Max(1, (int)Math.Round(Math.Min(width, 1e6), MidpointRounding.AwayFromZero));
+
+        /// <summary>
+        /// The pen square at (<paramref name="cx"/>, <paramref name="cy"/>), clipped to the image. After a drawn step only
+        /// the part the previous square did not cover is painted: the whole square cost thickness² per step, so a
+        /// 2000-px line on a 1000 × 1000 image ran for minutes.
+        /// </summary>
+        private static void Stamp(ImageBuffer image, int cx, int cy, int half, int thickness, Rgba color, bool hasPrevious, int px, int py)
+        {
+            int xa = Math.Max(0, cx - half), xb = Math.Min(image.Width - 1, cx - half + thickness - 1);
+            int ya = Math.Max(0, cy - half), yb = Math.Min(image.Height - 1, cy - half + thickness - 1);
+            int oxa = px - half, oxb = px - half + thickness - 1, oya = py - half, oyb = py - half + thickness - 1;
+            for (int y = ya; y <= yb; y++)
+            {
+                bool covered = hasPrevious && y >= oya && y <= oyb;
+                for (int x = xa; x <= xb; x++)
+                {
+                    if (covered && x >= oxa && x <= oxb) { x = oxb; continue; }
+                    image.SetPixel(x, y, color);
+                }
+            }
+        }
 
         private Annotations Add(Item item)
         {

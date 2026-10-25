@@ -174,15 +174,26 @@ namespace ToolBelt.Visualization
         {
             if (x is null) throw new ArgumentNullException(nameof(x));
             if (y is null) throw new ArgumentNullException(nameof(y));
-            double sx = 0, sy = 0;
-            int n = 0;
-            for (int i = 0; i < Math.Min(x.Count, y.Count); i++) if (IsFinite(x[i]) && IsFinite(y[i])) { sx += x[i]; sy += y[i]; n++; }
+            // r does not depend on scale, so the deviations are halved (no overflow for ±1e308) and divided by their
+            // largest: the squares and Sqrt(sxx·syy) overflowed at 1e200 and underflowed to 0 at 1e-90 (r came out 1).
+            int count = Math.Min(x.Count, y.Count), n = 0;
+            for (int i = 0; i < count; i++) if (IsFinite(x[i]) && IsFinite(y[i])) n++;
             if (n < 3) return null;
-            double mx = sx / n, my = sy / n, sxx = 0, syy = 0, sxy = 0;
-            for (int i = 0; i < Math.Min(x.Count, y.Count); i++)
+            double mx = 0, my = 0;
+            for (int i = 0; i < count; i++) if (IsFinite(x[i]) && IsFinite(y[i])) { mx += x[i] / n; my += y[i] / n; }
+            double ax = 0, ay = 0;
+            for (int i = 0; i < count; i++)
             {
                 if (!IsFinite(x[i]) || !IsFinite(y[i])) continue;
-                double dx = x[i] - mx, dy = y[i] - my;
+                ax = Math.Max(ax, Math.Abs(x[i] / 2 - mx / 2));
+                ay = Math.Max(ay, Math.Abs(y[i] / 2 - my / 2));
+            }
+            if (!(ax > 0) || !(ay > 0)) return null;
+            double sxx = 0, syy = 0, sxy = 0;
+            for (int i = 0; i < count; i++)
+            {
+                if (!IsFinite(x[i]) || !IsFinite(y[i])) continue;
+                double dx = (x[i] / 2 - mx / 2) / ax, dy = (y[i] / 2 - my / 2) / ay;
                 sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
             }
             return sxx > 0 && syy > 0 ? Math.Max(-1, Math.Min(1, sxy / Math.Sqrt(sxx * syy))) : (double?)null;
