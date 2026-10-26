@@ -48,7 +48,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 3 | 21 / 82 | re-queue (21 bugs, 2 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 2 | 10 / 29 | re-queue (10 bugs) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 3 | 17 / 64 | re-queue (17 bugs, 2 severe) |
-| 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 2 | 22 / 67 | re-queue (22 bugs, 2 severe) |
+| 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 3 | 19 / 86 | re-queue (19 bugs, 4 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 2 | 11 / 39 | re-queue (11 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 2 | 25 / 65 | re-queue (1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 2 | 12 / 38 | re-queue (12 bugs) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8, 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 8**
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 15**
 
 ## Releases
 
@@ -111,6 +111,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.37.0 | 37 | Charts, third pass | 21 | (see tag) |
 | v0.38.0 | 38 | Objects, functional, grids, graphs, intervals, third pass | 19 | (see tag) |
 | v0.39.0 | 39 | Signal analysis, third pass | 13 | (see tag) |
+| v0.40.0 | 40 | IO, third pass | 19 | (see tag) |
 
 ## Round log
 
@@ -1688,3 +1689,48 @@ severe). **13 confirmed bugs, 1 severe** (two found by both reviewers), each wit
   SpectralPeak returned a NaN vertex for ∞ neighbours; Window.Apply on an empty list threw naming "length".
 - **Verify:** all green (core 2846). Checked build: the same 7 baseline failures.
 - **Re-queued:** yes (13 bugs, 1 severe).
+
+### Round 40 — 2026-10-25 — IO, third pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 24 with 22 bugs, 2
+severe). **19 confirmed bugs, 4 severe** (one found by both reviewers). 15 have regression tests in `IOReview3Tests`
+(20 tests, all failing on the old code; the Dispose test crashed the old test process). Four are fixed without a test
+because they can't be triggered on demand here: a timing race, a flush failure, a .NET Framework-only exception, and a
+Win32 error code.
+
+- **DirectoryUtils.Copy lost the file it was replacing (severe):** the destination was deleted before File.Copy, so a
+  copy that then failed (source locked, disk full) left neither version. Each file is now copied to a sibling temp
+  file and moved over the target. That still breaks a hard link at the target instead of writing through it.
+- **FileWatcher.Dispose could end the process (severe):** after its 5 s wait for an in-flight tick timed out, Dispose
+  disposed the wait handle. The timer signalled it when the tick ended, which threw ObjectDisposedException on the
+  timer thread. The handle is now left to the timer when the wait times out.
+- **Tar metadata bomb (severe):** TarReader allocates a PAX/GNU metadata entry's declared size (up to 2 GB) before
+  reading it, so a 1.5 KB archive could demand 1.5 GB. A forward-only guard stream now follows the headers (including
+  PAX size overrides) and rejects metadata entries over 1 MB with InvalidDataException.
+- **FileWatcher read the caller's options live (severe):** setting Filter to null after construction threw from Start,
+  or on the OS watcher's thread, which ended the process. The options are copied in the constructor, and OnRaw now
+  routes every non-fatal exception to Error.
+- **Archive create destroyed an existing archive:** Tar and Zip CreateFromDirectory opened the archive with
+  FileMode.Create, so a failed run deleted a good archive. Both now write a temp file and move it into place after the
+  writers' final flush. In tar the "completed" flag used to be set before that flush.
+- **Archive fidelity:** extraction now restores tar and zip modification times (directories last, deepest first); tar
+  also keeps Unix permission bits less group/other write. Zip creation stamps each entry with the file's time instead
+  of now, and keeps empty directories as `name/` entries, as tar does. Tar directory entries carry their times.
+  ReadEntryText now honours and drops a byte-order mark.
+- **Reserved device names:** on Windows a tar or zip entry named `CON`, `aux.txt`, `x/COM1.log` and so on was written
+  to the device and reported as success. Such entries are now rejected. A tar that ends inside a header threw
+  EndOfStreamException; it now throws InvalidDataException like any other damage. On .NET Framework, a zip entry name
+  with `<`, `|` or `"` threw ArgumentException; it now throws IOException.
+- **FileWatcher coalescing and rescans:** for a→b, c→a then deleting (or overwriting) b, the Deleted reported for a
+  overwrote the pending c→a. That lost c's disappearance and reported a deleted although a existed. The snapshot used
+  Directory.GetFiles, which reads `?` as "one character or none", so with filter `a?.txt` every rescan reported a.txt.
+  Snapshots now list everything and filter with the watcher's own matcher. Rescans are serialized, and a diff that
+  went stale while the listing was taken is checked against the disk.
+- **Search patterns with a directory part:** `..\*` made Directory.GetFiles list the parent folder. DirectoryUtils.
+  EnumerateFiles, DirectorySnapshot.Take and the FileWatcher filter now reject `/`, `\`, NUL and rooted patterns.
+- **Smaller:** ChecksumManifest.Verify and CompareDirectories ignored the fileFilter the manifest was created with and
+  reported the excluded files as added; both now take one. With PreserveTimestamps = false, Windows copies still kept
+  the source's time. EnsureEmpty accepted negative retries. AtomicFile deleted the temp file after a File.Replace
+  failure that had already removed the original; that temp file was the only copy of the data, and it is now moved
+  into place or kept.
+- **Verify:** all green (core 2866). Checked build: the same 7 baseline failures.
+- **Re-queued:** yes (19 bugs, 4 severe).

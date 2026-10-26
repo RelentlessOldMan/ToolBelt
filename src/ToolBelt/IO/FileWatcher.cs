@@ -145,8 +145,11 @@ namespace ToolBelt.IO
                     // The original file (known by its old name) is gone; report that name as deleted.
                     _pending.Remove(path);
                     string old = e.OldPath!;
-                    if (_pending.TryGetValue(old, out Entry? atOld) && atOld.Kind == FileChangeKind.Created)
-                    { atOld.Kind = FileChangeKind.Changed; atOld.LastActivity = now; } // a new file took the old name
+                    if (_pending.TryGetValue(old, out Entry? atOld))
+                    {
+                        // Another file holds the old name now (created there, or renamed onto it), and stays reported as such.
+                        if (atOld.Kind == FileChangeKind.Created) { atOld.Kind = FileChangeKind.Changed; atOld.LastActivity = now; }
+                    }
                     else Put(old, new Entry(FileChangeKind.Deleted, null, now, e.Order) { FirstSeen = e.FirstSeen });
                     break;
                 default:
@@ -190,8 +193,11 @@ namespace ToolBelt.IO
                 {
                     // The file renamed there earlier is overwritten: report it gone under its original name, as OnDeleted does.
                     string old = atNew.OldPath!;
-                    if (_pending.TryGetValue(old, out Entry? atOld) && atOld.Kind == FileChangeKind.Created)
-                    { atOld.Kind = FileChangeKind.Changed; atOld.LastActivity = now; } // a new file took the old name
+                    if (_pending.TryGetValue(old, out Entry? atOld))
+                    {
+                        // Another file holds the old name now (created there, or renamed onto it), and stays reported as such.
+                        if (atOld.Kind == FileChangeKind.Created) { atOld.Kind = FileChangeKind.Changed; atOld.LastActivity = now; }
+                    }
                     else Put(old, new Entry(FileChangeKind.Deleted, null, now, atNew.Order) { FirstSeen = atNew.FirstSeen });
                 }
             }
@@ -243,8 +249,13 @@ namespace ToolBelt.IO
         /// Unreadable parts are skipped; links are not followed.
         /// </summary>
         public static DirectorySnapshot Take(string directory, string pattern = "*", bool recursive = true)
+            => Take(directory, pattern, recursive, null);
+
+        // keep: a further test of each file's full path (the watcher's own wildcard rules).
+        internal static DirectorySnapshot Take(string directory, string pattern, bool recursive, Func<string, bool>? keep)
         {
             if (directory is null) throw new ArgumentNullException(nameof(directory));
+            DirectoryUtils.CheckSearchPattern(pattern, nameof(pattern));
             var comparer = Path.DirectorySeparatorChar == '\\' ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
             var files = new Dictionary<string, (long, DateTime)>(comparer);
             IEnumerable<string> paths;
@@ -256,6 +267,7 @@ namespace ToolBelt.IO
             }
             foreach (string p in paths)
             {
+                if (keep != null && !keep(p)) continue;
                 try
                 {
                     var fi = new FileInfo(p);
@@ -371,6 +383,7 @@ namespace ToolBelt.IO
         private readonly Dictionary<string, (long Length, DateTime LastWrite, DateTime Since)> _probes =
             new Dictionary<string, (long, DateTime, DateTime)>(Path.DirectorySeparatorChar == '\\' ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         private readonly object _gate = new object();
+        private readonly object _rescanGate = new object();   // one rescan at a time: each diffs against the snapshot the last left
         private readonly object _raiseGate = new object(); // serialises Changed/Error between the timer, Flush() and the raw watcher
         [ThreadStatic] private static FileWatcher? _raisingOn;   // set while this thread runs one of our handlers
         private readonly Timer _timer;
@@ -386,12 +399,23 @@ namespace ToolBelt.IO
             if (directory is null) throw new ArgumentNullException(nameof(directory));
             string full = Path.GetFullPath(directory);
             if (!System.IO.Directory.Exists(full)) throw new DirectoryNotFoundException($"Directory '{directory}' does not exist.");
-            _options = options ?? new FileWatcherOptions();
+            // A copy: the caller's object stays mutable, and a Filter set to null after construction threw on the OS watcher's
+            // thread, which ended the process.
+            FileWatcherOptions given = options ?? new FileWatcherOptions();
+            _options = new FileWatcherOptions
+            {
+                Filter = given.Filter,
+                IncludeSubdirectories = given.IncludeSubdirectories,
+                Debounce = given.Debounce,
+                StableFor = given.StableFor,
+                InternalBufferSize = given.InternalBufferSize,
+            };
             if (_options.Debounce < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(options), "Debounce must be non-negative.");
             if (_options.StableFor is TimeSpan s && s <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(options), "StableFor must be positive.");
             Directory = full;
 
             if (_options.Filter is null) throw new ArgumentException("Filter must not be null.", nameof(options));
+            DirectoryUtils.CheckSearchPattern(_options.Filter, nameof(options));
             _matchAll = _options.Filter.Length == 0 || _options.Filter == "*" || _options.Filter == "*.*";
             // The OS watcher sees every name and the filter is applied here: its own filter also hid directory names, so a
             // directory moved in or out of a filtered watch never triggered the rescan that finds the files inside.
@@ -464,23 +488,30 @@ namespace ToolBelt.IO
         public int Rescan()
         {
             ThrowIfDisposed();
-            DirectorySnapshot fresh = Snapshot();
-            lock (_gate)
+            lock (_rescanGate)
             {
-                IReadOnlyList<FileChange> diff = _snapshot is null ? Array.Empty<FileChange>() : DirectorySnapshot.Diff(_snapshot, fresh);
-                DateTime now = DateTime.UtcNow;
-                HashSet<string> renamedAway = _coalescer.PendingRenameSources();
-                int found = 0;
-                foreach (FileChange c in diff)
+                DirectorySnapshot fresh = Snapshot();
+                lock (_gate)
                 {
-                    // A pending rename already reports both ends: its source as gone, its target as present.
-                    if (c.Kind == FileChangeKind.Deleted && renamedAway.Contains(c.FullPath)) continue;
-                    if (c.Kind == FileChangeKind.Created && _coalescer.IsPending(c.FullPath)) continue;
-                    _coalescer.Add(c, now);
-                    found++;
+                    IReadOnlyList<FileChange> diff = _snapshot is null ? Array.Empty<FileChange>() : DirectorySnapshot.Diff(_snapshot, fresh);
+                    DateTime now = DateTime.UtcNow;
+                    HashSet<string> renamedAway = _coalescer.PendingRenameSources();
+                    int found = 0;
+                    foreach (FileChange c in diff)
+                    {
+                        // A pending rename already reports both ends: its source as gone, its target as present.
+                        if (c.Kind == FileChangeKind.Deleted && renamedAway.Contains(c.FullPath)) continue;
+                        if (c.Kind == FileChangeKind.Created && _coalescer.IsPending(c.FullPath)) continue;
+                        // The listing was taken outside the lock: a file created (or deleted) and reported since then is in
+                        // (or gone from) the snapshot already, and the stale listing read as the opposite change.
+                        if (c.Kind == FileChangeKind.Deleted && File.Exists(c.FullPath)) { fresh.Record(c.FullPath); continue; }
+                        if (c.Kind == FileChangeKind.Created && !File.Exists(c.FullPath)) { fresh.Forget(c.FullPath); continue; }
+                        _coalescer.Add(c, now);
+                        found++;
+                    }
+                    _snapshot = fresh;
+                    return found;
                 }
-                _snapshot = fresh;
-                return found;
             }
         }
 
@@ -509,8 +540,10 @@ namespace ToolBelt.IO
             }
             else
             {
-                using var done = new ManualResetEvent(false);
-                if (_timer.Dispose(done)) done.WaitOne(TimeSpan.FromSeconds(5)); // let an in-flight tick finish
+                var done = new ManualResetEvent(false);
+                // Let an in-flight tick finish. If it outlasts the wait, the handle is left to it: the timer signals it when
+                // the tick ends, and signalling a disposed handle threw on the timer thread, which ended the process.
+                if (!_timer.Dispose(done) || done.WaitOne(TimeSpan.FromSeconds(5))) done.Dispose();
             }
             IsRunning = false;
         }
@@ -544,9 +577,9 @@ namespace ToolBelt.IO
                     _coalescer.Add(new FileChange(kind, path, oldPath), DateTime.UtcNow);
                 }
             }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
+            catch (Exception ex) when (!(ex is OutOfMemoryException))
             {
-                RaiseError(ex);
+                RaiseError(ex);   // an exception escaping to the OS watcher's thread would end the process
             }
         }
 
@@ -669,7 +702,10 @@ namespace ToolBelt.IO
             }
         }
 
-        private DirectorySnapshot Snapshot() => DirectorySnapshot.Take(Directory, _options.Filter, _options.IncludeSubdirectories);
+        // Every file, filtered by Matches: Directory.GetFiles reads '?' as "one character, or none before a dot or the end",
+        // so "a?.txt" listed a.txt, which the events never matched; it was then reported by every rescan.
+        private DirectorySnapshot Snapshot()
+            => DirectorySnapshot.Take(Directory, "*", _options.IncludeSubdirectories, _matchAll ? null : NameMatches);
 
         private void ThrowIfDisposed()
         {

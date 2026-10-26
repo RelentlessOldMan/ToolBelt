@@ -412,10 +412,10 @@ src/
       StreamUtils.cs        copy-with-progress (+ cancellation) / read-exactly
       StreamWrappers.cs     CountingStream (bytes read/written) and TeeStream (duplicate reads or writes)
       TempFile.cs           disposable temp file & directory scopes
-      ZipUtils.cs           zip create/extract/list/read (size-capped); Zip-Slip guarded, links never followed
+      ZipUtils.cs           zip create/extract/list/read (size-capped, keeps empty dirs and times); Zip-Slip guarded, links never followed
       TarUtils.cs           tar/.tar.gz create/extract/list (keeps empty dirs); traversal rejected, links never created or followed (net8)
       DirectoryUtils.cs     tree copy (overwrite/filter policies), delete w/ read-only + lock retry, never follows links
-      ChecksumManifest.cs   SHA-256 tree manifest in sha256sum format: create/save/verify/compare directories
+      ChecksumManifest.cs   SHA-256 tree manifest in sha256sum format: create/save/verify/compare directories (with a file filter)
       FileWatcher.cs        debounced, coalescing FileSystemWatcher; wait-until-stable; rescans on overflow/restart/dir moves
     Numerics/
       Angle.cs              degree normalize / shortest-diff / lerp / deg-rad
@@ -819,6 +819,7 @@ tests/
       FileWatcherTests.cs     (deterministic coalescing rules + real file-system scenarios)
       IOReviewTests.cs      (review round 8 regressions: links in zip/tar, encodings, CSV/.env parsing, overflow-safe sizes)
       IOReview2Tests.cs     (second-pass regressions: copy through junctions, hard links, truncated archives, watcher filters)
+      IOReview3Tests.cs     (third-pass regressions: safe replace on copy and create, tar metadata bombs, device names, archive times, watcher dispose)
       CoverageGapTests.cs   (behaviour behind coverage holes found by a coverlet run)
     Numerics/
       AngleTests.cs

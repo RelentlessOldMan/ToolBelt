@@ -103,9 +103,12 @@ namespace ToolBelt.IO
             return ToHex(sha.ComputeHash(stream));
         }
 
-        /// <summary>Re-hashes <paramref name="directory"/> and compares it with this manifest.</summary>
-        public ManifestComparison Verify(string directory, Action<string, Exception>? onError = null)
-            => Compare(this, Create(directory, null, onError));
+        /// <summary>
+        /// Re-hashes <paramref name="directory"/> and compares it with this manifest. Pass the <paramref name="fileFilter"/>
+        /// the manifest was created with, or the files it left out are reported as added.
+        /// </summary>
+        public ManifestComparison Verify(string directory, Action<string, Exception>? onError = null, Func<string, bool>? fileFilter = null)
+            => Compare(this, Create(directory, fileFilter, onError));
 
         /// <summary>Compares two manifests: what in <paramref name="actual"/> matches, differs from, lacks or adds to <paramref name="expected"/>.</summary>
         public static ManifestComparison Compare(ChecksumManifest expected, ChecksumManifest actual)
@@ -127,9 +130,9 @@ namespace ToolBelt.IO
             return new ManifestComparison(matching, modified, missing, added);
         }
 
-        /// <summary>Compares two directory trees by content.</summary>
-        public static ManifestComparison CompareDirectories(string expectedDirectory, string actualDirectory)
-            => Compare(Create(expectedDirectory), Create(actualDirectory));
+        /// <summary>Compares two directory trees by content (optionally only the files whose relative path passes <paramref name="fileFilter"/>).</summary>
+        public static ManifestComparison CompareDirectories(string expectedDirectory, string actualDirectory, Func<string, bool>? fileFilter = null)
+            => Compare(Create(expectedDirectory, fileFilter), Create(actualDirectory, fileFilter));
 
         // ---------- text form (sha256sum) ----------
 

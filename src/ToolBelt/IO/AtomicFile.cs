@@ -40,6 +40,7 @@ namespace ToolBelt.IO
             string directory = Path.GetDirectoryName(fullPath) ?? ".";
             // A short temp name: appending to a long file name would push it past the 255-character limit.
             string temp = Path.Combine(directory, ".atomic-" + Guid.NewGuid().ToString("N") + ".tmp");
+            bool replacing = false;
 
             try
             {
@@ -52,6 +53,7 @@ namespace ToolBelt.IO
                 if (File.Exists(fullPath))
                 {
                     string? backupPath = backup ? fullPath + ".bak" : null;
+                    replacing = true;
                     File.Replace(temp, fullPath, backupPath);
                 }
                 else
@@ -61,7 +63,16 @@ namespace ToolBelt.IO
             }
             catch
             {
-                try { File.Delete(temp); } catch { /* best-effort cleanup */ }
+                // File.Replace can fail after removing the original (ERROR_UNABLE_TO_MOVE_REPLACEMENT without a backup): the
+                // complete new data then exists only in the temp file, so it is moved into place, or kept, never deleted.
+                if (replacing && !File.Exists(fullPath))
+                {
+                    try { File.Move(temp, fullPath); } catch { /* keep the temp file: it is the only copy */ }
+                }
+                else
+                {
+                    try { File.Delete(temp); } catch { /* best-effort cleanup */ }
+                }
                 throw;
             }
         }

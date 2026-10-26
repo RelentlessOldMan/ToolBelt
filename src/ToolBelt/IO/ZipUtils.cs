@@ -21,9 +21,10 @@ namespace ToolBelt.IO
             RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
         /// <summary>
-        /// Zips every file under <paramref name="sourceDirectory"/> (recursively). Links (junctions, symbolic links) are
-        /// not followed or stored, the archive itself is skipped when it lies inside the source, and a failed run leaves
-        /// no partial zip behind.
+        /// Zips every file under <paramref name="sourceDirectory"/> (recursively), with its last-write time. Empty directories
+        /// are kept as directory entries (named with a trailing <c>/</c>, which is also what <paramref name="filter"/> sees).
+        /// Links (junctions, symbolic links) are not followed or stored, the archive itself is skipped when it lies inside
+        /// the source, and a failed run leaves no partial zip behind (and an existing one as it was).
         /// </summary>
         public static void CreateFromDirectory(
             string sourceDirectory, string zipPath,
@@ -35,45 +36,57 @@ namespace ToolBelt.IO
 
             string root = Path.GetFullPath(sourceDirectory);
             string zipFull = Path.GetFullPath(zipPath);
-            bool completed = false;
+            // Written beside the zip and moved over it once complete: opening the zip with FileMode.Create destroyed an
+            // existing good one when the run then failed.
+            string temp = Path.Combine(Path.GetDirectoryName(zipFull)!, ".zip-" + Guid.NewGuid().ToString("N") + ".tmp");
             try
             {
-                using (var fs = new FileStream(zipFull, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 using (var archive = new ZipArchive(fs, ZipArchiveMode.Create))
                 {
-                    foreach (string file in EnumerateFilesNoLinks(root))
+                    foreach ((string file, bool isEmptyDirectory) in EnumerateNoLinks(root))
                     {
                         string full = Path.GetFullPath(file);
-                        if (string.Equals(full, zipFull, PathComparison)) continue;   // the archive being written
+                        if (string.Equals(full, zipFull, PathComparison) || string.Equals(full, temp, PathComparison)) continue;   // the archive being written
                         string entryName = full.Substring(root.Length)
                             .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                             .Replace(Path.DirectorySeparatorChar, '/');   // only the separator: a backslash is a name character on Unix
+                        if (isEmptyDirectory) entryName += "/";
                         if (filter != null && !filter(entryName)) continue;
 
                         ZipArchiveEntry entry = archive.CreateEntry(entryName, level);
-                        using (Stream entryStream = entry.Open())
-                        using (FileStream input = File.OpenRead(file))
-                            input.CopyTo(entryStream);
+                        // CreateEntry stamps the current time.
+                        try { entry.LastWriteTime = isEmptyDirectory ? Directory.GetLastWriteTime(file) : File.GetLastWriteTime(file); }
+                        catch (ArgumentOutOfRangeException) { }   // outside 1980-2107, which zip cannot store
+                        if (!isEmptyDirectory)
+                        {
+                            using (Stream entryStream = entry.Open())
+                            using (FileStream input = File.OpenRead(file))
+                                input.CopyTo(entryStream);
+                        }
                         onEntry?.Invoke(entryName);
                     }
                 }
-                completed = true;
+#if NET6_0_OR_GREATER
+                File.Move(temp, zipFull, overwrite: true);
+#else
+                if (File.Exists(zipFull)) File.Delete(zipFull);
+                File.Move(temp, zipFull);
+#endif
             }
             finally
             {
-                if (!completed)
-                {
-                    try { File.Delete(zipFull); }
-                    catch (IOException) { }
-                    catch (UnauthorizedAccessException) { }
-                }
+                try { if (File.Exists(temp)) File.Delete(temp); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
             }
         }
 
         /// <summary>
         /// Extracts the archive into <paramref name="destinationDirectory"/>, rejecting (with <see cref="IOException"/>)
         /// entries that escape it — by <c>../</c>, an absolute name, or a junction or symbolic link already inside the
-        /// destination, which is never written through.
+        /// destination, which is never written through. Files and directories get their archived last-write times. On
+        /// Windows a reserved device name (<c>CON</c>, <c>aux.txt</c>, <c>COM1</c>) is rejected too.
         /// </summary>
         public static void ExtractToDirectory(string zipPath, string destinationDirectory, bool overwrite = false, Action<string>? onEntry = null)
         {
@@ -87,6 +100,7 @@ namespace ToolBelt.IO
 
             using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
+            var directoryTimes = new List<(string Path, DateTime Time)>();
             foreach (ZipArchiveEntry entry in archive.Entries)
             {
                 string target = SafeTarget(root, rootWithSeparator, entry.FullName);
@@ -96,6 +110,7 @@ namespace ToolBelt.IO
                 if (entry.FullName.EndsWith("/", StringComparison.Ordinal) || entry.Name.Length == 0)
                 {
                     Directory.CreateDirectory(target);
+                    directoryTimes.Add((target, entry.LastWriteTime.DateTime));
                     continue;
                 }
                 if (target.Equals(root, PathComparison) || target.Equals(rootWithSeparator, PathComparison))
@@ -114,6 +129,7 @@ namespace ToolBelt.IO
                     using (Stream entryStream = entry.Open())
                     using (var output = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                         entryStream.CopyTo(output);
+                    SetTime(temp, entry.LastWriteTime.DateTime, directory: false);
 #if NET6_0_OR_GREATER
                     File.Move(temp, target, overwrite);
 #else
@@ -129,6 +145,22 @@ namespace ToolBelt.IO
                 }
                 onEntry?.Invoke(entry.FullName);
             }
+            // Last, and deepest first: writing into a directory sets its last-write time.
+            for (int i = directoryTimes.Count - 1; i >= 0; i--)
+                SetTime(directoryTimes[i].Path, directoryTimes[i].Time, directory: true);
+        }
+
+        // Zip times are local; one the file system cannot store is left as it is.
+        private static void SetTime(string path, DateTime local, bool directory)
+        {
+            try
+            {
+                if (directory) Directory.SetLastWriteTime(path, local);
+                else File.SetLastWriteTime(path, local);
+            }
+            catch (ArgumentOutOfRangeException) { }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
 
         /// <summary>The names of every entry in the archive.</summary>
@@ -194,12 +226,16 @@ namespace ToolBelt.IO
             return ms.ToArray();
         }
 
-        /// <summary>Reads a single entry as text (UTF-8 by default), or throws if it is absent.</summary>
+        /// <summary>
+        /// Reads a single entry as text (UTF-8 by default), or throws if it is absent. A byte-order mark is honoured and
+        /// dropped, as <see cref="File.ReadAllText(string, Encoding)"/> does.
+        /// </summary>
         public static string ReadEntryText(string zipPath, string entryName, Encoding? encoding = null)
         {
             byte[]? bytes = ReadEntryBytes(zipPath, entryName)
                 ?? throw new FileNotFoundException($"Entry not found in archive: {entryName}");
-            return (encoding ?? Encoding.UTF8).GetString(bytes);
+            using var reader = new StreamReader(new MemoryStream(bytes), encoding ?? Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            return reader.ReadToEnd();
         }
 
         // Resolves an entry name against the root and verifies it stays inside — the Zip Slip guard.
@@ -210,10 +246,28 @@ namespace ToolBelt.IO
             if (entryName.IndexOf('\0') >= 0 || (Path.DirectorySeparatorChar == '\\' && entryName.IndexOf(':') >= 0))
                 throw new IOException($"Zip entry '{entryName.Replace('\0', '?')}' has a character not allowed in a file name.");
             string normalized = entryName.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
-            string full = Path.GetFullPath(Path.Combine(root, normalized));
+            // On Windows "aux.txt" or "x\CON" opens a device: the data went to it (or the write failed with a misleading error).
+            if (Path.DirectorySeparatorChar == '\\')
+                foreach (string part in normalized.Split(Path.DirectorySeparatorChar))
+                    if (IsDeviceName(part))
+                        throw new IOException($"Zip entry '{entryName}' uses the reserved device name '{part}'.");
+            string full;
+            // .NET Framework's path APIs throw ArgumentException for '<', '|', '"' and the like.
+            try { full = Path.GetFullPath(Path.Combine(root, normalized)); }
+            catch (ArgumentException ex) { throw new IOException($"Zip entry '{entryName}' has a character not allowed in a file name.", ex); }
+            catch (NotSupportedException ex) { throw new IOException($"Zip entry '{entryName}' has a character not allowed in a file name.", ex); }
             if (!full.Equals(root, PathComparison) && !full.StartsWith(rootWithSeparator, PathComparison))
                 throw new IOException($"Zip entry '{entryName}' would extract outside the target directory.");
             return full;
+        }
+
+        private static bool IsDeviceName(string part)
+        {
+            int dot = part.IndexOf('.');
+            string stem = (dot >= 0 ? part.Substring(0, dot) : part).TrimEnd(' ').ToUpperInvariant();
+            if (stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" || stem == "CONIN$" || stem == "CONOUT$") return true;
+            return stem.Length == 4 && (stem.StartsWith("COM", StringComparison.Ordinal) || stem.StartsWith("LPT", StringComparison.Ordinal))
+                && "0123456789\u00B9\u00B2\u00B3".IndexOf(stem[3]) >= 0;
         }
 
         // A junction or symbolic link between the root and the target (or the target itself) would redirect the write
@@ -235,17 +289,20 @@ namespace ToolBelt.IO
             }
         }
 
-        private static IEnumerable<string> EnumerateFilesNoLinks(string root)
+        // Files, plus directories that hold nothing archivable (so they survive the round trip). Links are not followed.
+        private static IEnumerable<(string Path, bool IsEmptyDirectory)> EnumerateNoLinks(string root)
         {
             var pending = new Stack<string>();
             pending.Push(root);
             while (pending.Count > 0)
             {
                 string dir = pending.Pop();
+                bool any = false;
                 foreach (string f in Directory.EnumerateFiles(dir))
-                    if (!IsLink(f, File.GetAttributes(f))) yield return f;
+                    if (!IsLink(f, File.GetAttributes(f))) { any = true; yield return (f, false); }
                 foreach (string d in Directory.EnumerateDirectories(dir))
-                    if (!IsLink(d, File.GetAttributes(d))) pending.Push(d);
+                    if (!IsLink(d, File.GetAttributes(d))) { any = true; pending.Push(d); }
+                if (!any && !string.Equals(dir, root, PathComparison)) yield return (dir, true);
             }
         }
 

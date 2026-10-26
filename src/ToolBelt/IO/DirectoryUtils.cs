@@ -30,7 +30,7 @@ namespace ToolBelt.IO
         /// <summary>Descend into a subdirectory only if this returns true for its relative path ('/'-separated).</summary>
         public Func<string, bool>? DirectoryFilter { get; set; }
 
-        /// <summary>Give copies the source's last-write time (default true).</summary>
+        /// <summary>Give copies the source's last-write time (default true); when false a copy's last-write time is when it was made.</summary>
         public bool PreserveTimestamps { get; set; } = true;
 
         /// <summary>
@@ -165,7 +165,8 @@ namespace ToolBelt.IO
                     try
                     {
                         if (IsLink(to)) throw new IOException($"Destination '{to}' is a link; refusing to write through it.");
-                        if (File.Exists(to))
+                        bool exists = File.Exists(to);
+                        if (exists)
                         {
                             bool replace = options.Overwrite switch
                             {
@@ -175,13 +176,8 @@ namespace ToolBelt.IO
                                 _ => true,
                             };
                             if (!replace) { skipped++; continue; }
-                            // Removed, not overwritten: File.Copy over a hard link wrote through it to the other name,
-                            // which may be outside the destination.
-                            ClearReadOnly(to);
-                            File.Delete(to);
                         }
-                        File.Copy(file, to, overwrite: false);
-                        if (options.PreserveTimestamps) File.SetLastWriteTimeUtc(to, File.GetLastWriteTimeUtc(file));
+                        CopyFile(file, to, exists, options.PreserveTimestamps);
                         bytes += new FileInfo(to).Length;
                         copied++;
                     }
@@ -189,6 +185,32 @@ namespace ToolBelt.IO
                 }
             }
             return new CopyResult(copied, skipped, created, bytes, errors);
+        }
+
+        // Copied beside the target and moved over it. Deleting the target first lost it when the copy then failed (source
+        // locked, disk full); the move replaces the name, so a hard link at the target is still broken rather than written
+        // through to its other name (which may be outside the destination).
+        private static void CopyFile(string file, string to, bool replace, bool preserveTimestamps)
+        {
+            string temp = Path.Combine(Path.GetDirectoryName(to)!, ".copy-" + Guid.NewGuid().ToString("N") + ".tmp");
+            try
+            {
+                File.Copy(file, temp, overwrite: false);
+                // File.Copy keeps the source's last-write time on Windows, so a fresh one must be set explicitly.
+                File.SetLastWriteTimeUtc(temp, preserveTimestamps ? File.GetLastWriteTimeUtc(file) : DateTime.UtcNow);
+                if (replace) ClearReadOnly(to);
+#if NET6_0_OR_GREATER
+                File.Move(temp, to, overwrite: replace);
+#else
+                if (replace) File.Delete(to);
+                File.Move(temp, to);
+#endif
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) { ClearReadOnly(temp); File.Delete(temp); } }
+                catch (Exception ex) when (IsIoError(ex)) { }
+            }
         }
 
         // ---------- delete / empty ----------
@@ -222,6 +244,7 @@ namespace ToolBelt.IO
         public static void EnsureEmpty(string path, int retries = 3, TimeSpan? retryDelay = null)
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
+            if (retries < 0) throw new ArgumentOutOfRangeException(nameof(retries), retries, "Must be non-negative.");
             string full = Path.GetFullPath(path);
             if (File.Exists(full)) throw new IOException($"'{path}' is a file, not a directory.");
             if (Directory.Exists(full) && IsLink(full)) throw new IOException($"'{path}' is a link; refusing to empty its target.");
@@ -280,7 +303,7 @@ namespace ToolBelt.IO
             Action<string, Exception>? onError = null, Func<string, bool>? directoryFilter = null)
         {
             string full = FullDirectory(root, nameof(root));
-            if (searchPattern is null) throw new ArgumentNullException(nameof(searchPattern));
+            CheckSearchPattern(searchPattern, nameof(searchPattern));
             if (!Directory.Exists(full)) throw new DirectoryNotFoundException($"Directory '{root}' does not exist.");
             return Walk(full, searchPattern, onError, directoryFilter);
         }
@@ -356,6 +379,15 @@ namespace ToolBelt.IO
         }
 
         // ---------- helpers ----------
+
+        // A pattern is a file name, not a path: Directory.GetFiles(dir, "..\\x\\*") lists another directory, so a walk of
+        // the root could return files outside it.
+        internal static void CheckSearchPattern(string pattern, string name)
+        {
+            if (pattern is null) throw new ArgumentNullException(name);
+            if (pattern.IndexOf('/') >= 0 || pattern.IndexOf('\\') >= 0 || pattern.IndexOf('\0') >= 0 || Path.IsPathRooted(pattern))
+                throw new ArgumentException($"Search pattern '{pattern.Replace('\0', '?')}' must be a file name, without a directory part.", name);
+        }
 
         private static string Relative(string root, string path)
         {
