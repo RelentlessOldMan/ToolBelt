@@ -89,7 +89,8 @@ namespace ToolBelt.Windows
         public static ResourceSample Measure(SystemProcess process, TimeSpan interval)
         {
             if (process is null) throw new ArgumentNullException(nameof(process));
-            if (interval <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(interval), "Interval must be positive.");
+            if (interval <= TimeSpan.Zero || interval.TotalMilliseconds > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(interval), "Interval must be positive and at most about 24.8 days.");
             var sampler = new ResourceSampler(process);
             System.Threading.Thread.Sleep(interval);
             return sampler.Sample();

@@ -1007,6 +1007,7 @@ tests/
     WindowsWaveTests.cs     (real job caps on PowerShell children, clipboard round-trips, pipe handoff; no machine-state changes)
     WindowsReviewTests.cs   (round 15 review regressions: DPI, ProgID, registry, job lifetime, single instance, shortcuts, event log)
     WindowsReview2Tests.cs  (second-pass regressions: gate thread affinity, forward timeouts and takeover, registry conversion, impersonation)
+    WindowsReview3Tests.cs  (third-pass regressions: hive-root delete guard, stalled-primary forward, real DPI for unaware callers, unsigned registry writes)
     DriveAndVolumeInfoTests.cs
     MonitorInfoTests.cs
     RegistryUtilsTests.cs

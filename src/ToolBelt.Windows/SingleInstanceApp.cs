@@ -40,8 +40,9 @@ namespace ToolBelt.Windows
     /// </code>
     /// <see cref="SecondInstanceStarted"/> is raised on a thread-pool thread, one launch at a time, in arrival order;
     /// marshal to the UI thread. An exception thrown by a handler is dropped (it cannot reach the launch that caused it).
-    /// The instance name and the pipe are per user, so another account cannot block or receive this user's launches. The
-    /// pipe accepts only clients owned by the same account; an elevated and a non-elevated launch of one user can count as
+    /// The instance name and the pipe are per user, so another account cannot receive this user's launches (though, since
+    /// pipe names are machine-wide, one that creates the pipe first can keep them from being forwarded). The pipe accepts
+    /// only clients owned by the same account; an elevated and a non-elevated launch of one user can count as
     /// different owners, so such a launch may not reach the primary (it then reports <see cref="ForwardedToPrimary"/> false).
     /// </summary>
     public sealed class SingleInstanceApp : IDisposable
@@ -144,15 +145,16 @@ namespace ToolBelt.Windows
 
         private static bool Forward(string pipeName, IReadOnlyList<string> args, TimeSpan timeout)
         {
-            // Build (and size-check) the message once: one the primary would reject fails now, not after the timeout.
+            // Build (and size-check) the message once: one the primary would reject fails now, not after the timeout. The
+            // budget is the primary's: string bytes only. Counting the length headers too refused launches it would take.
             if (args.Count > MaxArgs) return false;
             var message = new MemoryStream();
+            var budget = new Budget(MaxMessageBytes);
             WriteInt32(message, Environment.ProcessId);
-            if (!TryWriteString(message, Environment.CurrentDirectory)) return false;
+            if (!TryWriteString(message, Environment.CurrentDirectory, budget)) return false;
             WriteInt32(message, args.Count);
             foreach (string a in args)
-                if (!TryWriteString(message, a ?? "")) return false;
-            if (message.Length > MaxMessageBytes) return false;
+                if (!TryWriteString(message, a ?? "", budget)) return false;
 
             // Infinite (or MaxValue, which overflowed a DateTime deadline) means no deadline; a Stopwatch ignores clock steps.
             bool unlimited = timeout == Timeout.InfiniteTimeSpan || timeout == TimeSpan.MaxValue;
@@ -170,10 +172,10 @@ namespace ToolBelt.Windows
                     using var replyTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(Math.Max(1, Math.Min(RemainingMs(), 5000))));
                     int primaryPid = ReadInt32Async(client, replyTimeout.Token).GetAwaiter().GetResult();
                     AllowSetForegroundWindow(primaryPid);                             // let the primary come to the front
-                    message.Position = 0;
-                    message.CopyTo(client);
-                    client.Flush();
+                    // Bounded by the token too: a synchronous write (and Flush, which waits for the reader) to a primary that
+                    // took the connection and then stopped reading hung this launch for good.
                     sent = true;
+                    client.WriteAsync(message.GetBuffer(), 0, (int)message.Length, replyTimeout.Token).GetAwaiter().GetResult();
                     var ack = new byte[1];
                     client.ReadExactlyAsync(ack, replyTimeout.Token).AsTask().GetAwaiter().GetResult();
                     return ack[0] == 1;
@@ -299,10 +301,11 @@ namespace ToolBelt.Windows
 
         private static void WriteInt32(Stream s, int value) => s.Write(BitConverter.GetBytes(value), 0, 4);
 
-        private static bool TryWriteString(Stream s, string value)
+        private static bool TryWriteString(Stream s, string value, Budget budget)
         {
             byte[] bytes = Encoding.UTF8.GetBytes(value);
-            if (bytes.Length > MaxStringBytes) return false;
+            if (bytes.Length > MaxStringBytes || bytes.Length > budget.Remaining) return false;
+            budget.Remaining -= bytes.Length;
             WriteInt32(s, bytes.Length);
             s.Write(bytes, 0, bytes.Length);
             return true;

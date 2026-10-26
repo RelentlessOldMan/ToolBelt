@@ -60,8 +60,9 @@ namespace ToolBelt.Windows
     /// </summary>
     public static class DpiInfo
     {
-        /// <summary>The system DPI (96 = 100%).</summary>
-        public static int SystemDpi => (int)GetDpiForSystem();
+        /// <summary>The system DPI (96 = 100%), whatever the calling thread's awareness.</summary>
+        // GetDpiForSystem answers as the caller sees it: 96 to a DPI-unaware thread (the .NET default) on a 200% display.
+        public static int SystemDpi => PerMonitorV2(() => (int)GetDpiForSystem());
 
         /// <summary>The DPI awareness of the calling thread.</summary>
         public static DpiAwareness CurrentAwareness => FromContext(GetThreadDpiAwarenessContext());
@@ -95,7 +96,22 @@ namespace ToolBelt.Windows
         {
             uint dpi = GetDpiForWindow(hwnd);
             if (dpi == 0) throw new ArgumentException("Not a valid window handle.", nameof(hwnd));
-            return (int)dpi;
+            // GetDpiForWindow is the DPI the window is scaled for: 96 for a DPI-unaware window on a 200% monitor.
+            return PerMonitorV2(() =>
+            {
+                IntPtr monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                return monitor != IntPtr.Zero && GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, out uint dx, out _) == 0 ? (int)dx : (int)dpi;
+            });
+        }
+
+        // Runs f with the thread per-monitor-v2 aware (where that is available), so DPI queries see real values.
+        private static T PerMonitorV2<T>(Func<T> f)
+        {
+            IntPtr previous;
+            try { previous = SetThreadDpiAwarenessContext(new IntPtr(-4)); }
+            catch (EntryPointNotFoundException) { previous = IntPtr.Zero; }
+            try { return f(); }
+            finally { if (previous != IntPtr.Zero) SetThreadDpiAwarenessContext(previous); }
         }
 
         /// <summary>
@@ -118,6 +134,7 @@ namespace ToolBelt.Windows
         /// </summary>
         public static IDisposable AwarenessScope(DpiAwareness awareness)
         {
+            if (!Enum.IsDefined(typeof(DpiAwareness), awareness)) throw new ArgumentOutOfRangeException(nameof(awareness), awareness, "Unknown DPI awareness.");
             IntPtr previous;
             try { previous = SetThreadDpiAwarenessContext(ToContext(awareness)); }
             catch (EntryPointNotFoundException) { previous = IntPtr.Zero; }        // before Windows 10 1607
@@ -161,6 +178,7 @@ namespace ToolBelt.Windows
         }
 
         private const int MDT_EFFECTIVE_DPI = 0;
+        private const uint MONITOR_DEFAULTTONEAREST = 2;
         private const uint MONITORINFOF_PRIMARY = 1;
 
         [StructLayout(LayoutKind.Sequential)]
@@ -180,6 +198,7 @@ namespace ToolBelt.Windows
 
         [DllImport("user32.dll")] private static extern uint GetDpiForSystem();
         [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);
+        [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
         [DllImport("user32.dll")] private static extern IntPtr GetThreadDpiAwarenessContext();
         [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
         [DllImport("user32.dll")] private static extern bool AreDpiAwarenessContextsEqual(IntPtr a, IntPtr b);

@@ -55,7 +55,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 2 | 17 / 49 | re-queue (17 bugs, 1 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 2 | 17 / 56 | re-queue (17 bugs) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 3 | 19 / 82 | re-queue (19 bugs, 3 severe) |
-| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 2 | 26 / 61 | re-queue (1 severe) |
+| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 3 | 12 / 73 | re-queue (12 bugs, 2 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 2 | 17 / 38 | re-queue (17 bugs) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 2 | 12 / 36 | re-queue (12 bugs) |
 
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15, 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 15**
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 10**
 
 ## Releases
 
@@ -112,6 +112,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.38.0 | 38 | Objects, functional, grids, graphs, intervals, third pass | 19 | (see tag) |
 | v0.39.0 | 39 | Signal analysis, third pass | 13 | (see tag) |
 | v0.40.0 | 40 | IO, third pass | 19 | (see tag) |
+| v0.41.0 | 41 | Windows satellite, third pass | 12 | (see tag) |
 
 ## Round log
 
@@ -1734,3 +1735,41 @@ Win32 error code.
   into place or kept.
 - **Verify:** all green (core 2866). Checked build: the same 7 baseline failures.
 - **Re-queued:** yes (19 bugs, 4 severe).
+
+### Round 41 — 2026-10-25 — Windows satellite, third pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 22 with 26 bugs, 1
+severe). **12 confirmed bugs, 2 severe.** 11 have regression tests in `WindowsReview3Tests` (11 tests, all failing on
+the old code). The JobObject lifetime bug has no test because it depends on GC timing. The hive-wipe test uses an
+invalid hive, so it can never delete anything; on the old code it shows only that the subkey guard was missing. The
+wipe itself was confirmed from .NET's source and on a scratch key.
+
+- **RegistryUtils.DeleteKey(hive, @"\") deleted the whole hive (severe):** RegistryKey refuses an empty subkey, but
+  its guard runs before it trims backslashes, so `\` reached RegDeleteTree as the hive itself. A subkey that is empty
+  or only backslashes is now rejected (ArgumentException naming subKey) before the hive is opened.
+- **SingleInstanceApp: a second launch could hang for good (severe):** after the primary sent its id, the message was
+  written with a synchronous write and Flush. Flush on a pipe waits for the reader, outside the forward timeout. If
+  the primary stopped reading (suspended, starved, at a breakpoint), the launch never returned. The write is now
+  async and bounded by the timeout, and the Flush is gone because the acknowledgement already proves delivery.
+- **SingleInstanceApp message budget:** the client counted length headers against the 1 MiB limit and the primary
+  does not, so a launch the primary would accept (1000 arguments of 1045 characters) was refused and lost. The client
+  now applies the primary's budget. The doc no longer claims another account cannot block launches: pipe names are
+  machine-wide.
+- **DpiInfo:** SystemDpi and ForWindow answered as the caller or window sees it, so a DPI-unaware thread or window
+  read 96 on a 200% display. ForWindow promises the monitor's DPI. Both now query per-monitor-v2 (ForWindow through
+  MonitorFromWindow and GetDpiForMonitor). AwarenessScope with an undefined value named the private parameter "a".
+- **RegistryUtils values:**
+  - A high-bit DWORD read into an int-backed enum was widened, overflowed, and silently read as the default. An enum
+    as wide as the stored value now takes its bits.
+  - SetValue rejected `0x80000000u` as a DWORD (and `ulong.MaxValue` as a QWORD), and stored an unknown-kind uint as
+    text, although GetValue reads DWORDs as unsigned. A uint or ulong is now stored as the DWORD or QWORD with the
+    same bits.
+  - DeleteValue checked existence with GetValue, which is null for kinds .NET does not read (REG_RESOURCE_LIST,
+    REG_LINK), so it reported such a value missing and left it in place.
+- **RegistryUtils arguments:** an undefined hive threw IndexOutOfRangeException from inside RegistryKey and is now
+  ArgumentOutOfRangeException naming hive. A key segment over 255 characters threw naming "name": reads now return
+  the default as documented, and writes name subKey.
+- **Smaller:** JobObject.AssignProcess(Process) let the Process become unreachable while its raw handle was being
+  assigned, so a collection could close it (GC.KeepAlive). ResourceSampler.Measure with an interval over about 24.8
+  days threw from Thread.Sleep naming "timeout"; it is now checked up front.
+- **Verify:** all green (core 2866, Windows 112). Checked build: the same 7 baseline failures.
+- **Re-queued:** yes (12 bugs, 2 severe).

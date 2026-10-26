@@ -49,6 +49,9 @@ namespace ToolBelt.Windows
         {
             if (process is null) throw new ArgumentNullException(nameof(process));
             AssignProcess(process.Handle);
+            // Past Handle the process was otherwise unreachable: for AssignProcess(Process.Start(...)) a collection during the
+            // call could close the handle being assigned.
+            GC.KeepAlive(process);
         }
 
         /// <summary>Assigns a process by native handle (must have the required access rights).</summary>
