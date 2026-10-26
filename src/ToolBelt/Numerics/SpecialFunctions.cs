@@ -28,10 +28,25 @@ namespace ToolBelt.Numerics
         public static double Gamma(double x)
         {
             if (double.IsNaN(x)) return double.NaN;
-            if (x > 0) return Math.Exp(LnGammaCore(x));
+            if (x > 0)
+            {
+                // Γ(x) = Γ(1 + x)/x, with lnΓ(1 + x) from x itself: 1 + x would round away x's digits.
+                if (x < 0.2) return Math.Exp(LnGammaNearOne(x)) / x;
+                // exp(lnΓ) carries lnΓ's absolute error as a relative one (1.5e-13 at 170) and missed exact factorials
+                // (Γ(5) = 23.99999999999996); the recurrence down to (1, 2] keeps the error near an ulp per step.
+                if (x <= 171.7)
+                {
+                    double y = x, product = 1;
+                    while (y > 2) { y -= 1; product *= y; }           // y − 1 is exact here
+                    if (y < 1) { product /= y; y += 1; }
+                    double g = product * Math.Exp(LnGammaCore(y));
+                    if (!double.IsInfinity(g)) return g;
+                }
+                return Math.Exp(LnGammaCore(x));
+            }
             if (x == Math.Floor(x)) throw new ArgumentException("Gamma is undefined at non-positive integers.", nameof(x));
             // Reflection: Γ(x)·Γ(1-x) = π / sin(πx).
-            return Math.PI / (Math.Sin(Math.PI * x) * Gamma(1 - x));
+            return Math.PI / (SinPi(x) * Gamma(1 - x));
         }
 
         /// <summary>The beta function B(a, b) = Γ(a)Γ(b)/Γ(a+b), for a, b &gt; 0.</summary>
@@ -39,6 +54,7 @@ namespace ToolBelt.Numerics
         {
             if (a <= 0) throw new ArgumentOutOfRangeException(nameof(a), a, "Must be positive.");
             if (b <= 0) throw new ArgumentOutOfRangeException(nameof(b), b, "Must be positive.");
+            if (double.IsPositiveInfinity(a) || double.IsPositiveInfinity(b)) return 0;    // the limit; ln B gave NaN
             return Math.Exp(LnBeta(a, b));
         }
 
@@ -91,7 +107,8 @@ namespace ToolBelt.Numerics
 
         /// <summary>
         /// The regularized incomplete beta function I_x(a, b), for a, b &gt; 0 and x in [0, 1]. Ranges from 0
-        /// at x = 0 to 1 at x = 1.
+        /// at x = 0 to 1 at x = 1. An infinite shape gives the limit (all mass at 1 for a = ∞, at 0 for b = ∞); both
+        /// infinite gives NaN.
         /// </summary>
         public static double RegularizedBetaI(double x, double a, double b)
         {
@@ -99,6 +116,8 @@ namespace ToolBelt.Numerics
             if (b <= 0) throw new ArgumentOutOfRangeException(nameof(b), b, "Must be positive.");
             if (x < 0 || x > 1) throw new ArgumentOutOfRangeException(nameof(x), x, "Must be in [0, 1].");
             if (double.IsNaN(x) || double.IsNaN(a) || double.IsNaN(b)) return double.NaN;
+            if (double.IsPositiveInfinity(a)) return double.IsPositiveInfinity(b) ? double.NaN : (x == 1 ? 1 : 0);
+            if (double.IsPositiveInfinity(b)) return x == 0 ? 0 : 1;
             BetaI(x, 1 - x, a, b, out double ix, out _);
             return ix;
         }
@@ -119,7 +138,7 @@ namespace ToolBelt.Numerics
             {
                 // Γ(x) = Γ(x + 1)/x for 0 < x < ½; the reflection formula's π/sin(πx) overflows for x below ~1e-308.
                 if (x > 0) return LnGammaCore(x + 1) - Math.Log(x);
-                return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * x))) - LnGammaCore(1 - x); // reflection
+                return Math.Log(Math.PI / Math.Abs(SinPi(x))) - LnGammaCore(1 - x); // reflection
             }
             // Near its zeros at 1 and 2 ln Γ is tiny, and the Lanczos sum, accurate only absolutely, kept ~1e-5 of it.
             if (x >= 0.8 && x <= 1.2) return LnGammaNearOne(x - 1);
@@ -129,6 +148,14 @@ namespace ToolBelt.Numerics
             double xm1 = x - 1;
             for (int i = 1; i < Lanczos.Length; i++) a += Lanczos[i] / (xm1 + i);
             return LnSqrt2Pi + (xm1 + 0.5) * Math.Log(t) - t + Math.Log(a);
+        }
+
+        // sin(πx), reduced to the nearest integer first: π·x rounded away x's distance from it, which near −20.000001 is
+        // nearly all the information (Γ was off by 3.5e-9 relative there).
+        private static double SinPi(double x)
+        {
+            double n = Math.Round(x), s = Math.Sin(Math.PI * (x - n));      // x − n is exact
+            return Math.Abs(n % 2) == 1 ? -s : s;
         }
 
         // ζ(2) … ζ(25), for the series of ln Γ(1 + z).
@@ -165,6 +192,13 @@ namespace ToolBelt.Numerics
             double lnPre = LnPrefix(a, x);
             if (x < a + 1)
             {
+                if (a < 1e-300)
+                {
+                    // The series' 1/a overflows below ~5.6e-309 (P came out NaN at a = 5e-324); Q directly, P = 1 − Q.
+                    q = SmallShapeQ(a, x);
+                    p = 1 - q;
+                    return;
+                }
                 double ap = a, sum = 1.0 / a, del = sum;
                 for (int n = 0; n < 100000; n++)
                 {
@@ -176,26 +210,28 @@ namespace ToolBelt.Numerics
                 p = sum * Math.Exp(lnPre);
                 if (p > 1) p = 1;
                 q = 1 - p;
-                if (a < 1 && p > 0.5)
-                {
-                    // A small shape puts P near 1, and 1 − P kept few of Q's digits (3e-8 relative at a = 5e-9). Directly:
-                    // Q = 1 − xᵃ/Γ(a + 1) − a·xᵃ/Γ(a + 1)·Σₙ₌₁ (−x)ⁿ/(n!(a + n)), the first difference by expm1.
-                    // lnΓ(1 + a) from a itself: a + 1 rounds away ~1e-16 of a, a relative 2e-8 of a shape near 5e-9.
-                    double u = a * Math.Log(x) - (a <= 0.2 ? LnGammaNearOne(a) : LnGammaCore(a + 1)), term = 1, s = 0;
-                    for (int n = 1; n < 200; n++)
-                    {
-                        term *= -x / n;
-                        double t = term / (a + n);
-                        s += t;
-                        if (Math.Abs(t) <= Eps * Math.Abs(s)) break;
-                    }
-                    q = -Expm1(u) - a * Math.Exp(u) * s;
-                }
+                if (a < 1 && p > 0.5) q = SmallShapeQ(a, x);
                 return;
             }
             q = Math.Exp(lnPre) * GammaCf(a, x);
             if (q > 1) q = 1;
             p = 1 - q;
+        }
+
+        // A small shape puts P near 1, and 1 − P kept few of Q's digits (3e-8 relative at a = 5e-9). Directly:
+        // Q = 1 − xᵃ/Γ(a + 1) − a·xᵃ/Γ(a + 1)·Σₙ₌₁ (−x)ⁿ/(n!(a + n)), the first difference by expm1.
+        // lnΓ(1 + a) from a itself: a + 1 rounds away ~1e-16 of a, a relative 2e-8 of a shape near 5e-9. For x < a + 1.
+        private static double SmallShapeQ(double a, double x)
+        {
+            double u = a * Math.Log(x) - (a <= 0.2 ? LnGammaNearOne(a) : LnGammaCore(a + 1)), term = 1, s = 0;
+            for (int n = 1; n < 200; n++)
+            {
+                term *= -x / n;
+                double t = term / (a + n);
+                s += t;
+                if (Math.Abs(t) <= Eps * Math.Abs(s)) break;
+            }
+            return -Expm1(u) - a * Math.Exp(u) * s;
         }
 
         // Continued fraction for Q(a, x) without its prefix x^a e^(−x)/Γ(a) (modified Lentz), for x >= a + 1.
@@ -282,6 +318,15 @@ namespace ToolBelt.Numerics
         /// </summary>
         private static void BetaI(double x, double oneMinusX, double a, double b, out double ix, out double ixc)
         {
+            // Each value is formed in its own regime and the other as 1 − it, which can step just outside [0, 1]
+            // (1.0000000000000155 at shapes near 1e-100): clamped, since a probability is reported.
+            BetaICore(x, oneMinusX, a, b, out ix, out ixc);
+            ix = Math.Min(1, Math.Max(0, ix));
+            ixc = Math.Min(1, Math.Max(0, ixc));
+        }
+
+        private static void BetaICore(double x, double oneMinusX, double a, double b, out double ix, out double ixc)
+        {
             if (x <= 0) { ix = 0; ixc = 1; return; }
             if (oneMinusX <= 0) { ix = 1; ixc = 0; return; }
             if (Math.Min(a, b) > 100)
@@ -293,7 +338,9 @@ namespace ToolBelt.Numerics
                 if (lambda >= 0 && lambda <= limit) { ix = Basym(a, b, lambda); ixc = 1 - ix; return; }
                 if (lambda < 0 && -lambda <= limit) { ixc = Basym(b, a, -lambda); ix = 1 - ixc; return; }
             }
-            if (x < (a + 1) / (a + b + 2))
+            // Which side of (a + 1)/(a + b + 2) x lies on, decided by whichever of x and 1 − x is the smaller: at
+            // a = 1e20 both x and the split round to 1, and the upper branch returned a negative upper tail.
+            if (x <= 0.5 ? x < (a + 1) / (a + b + 2) : oneMinusX > (b + 1) / (a + b + 2))
             {
                 if (UseBgrat(a, b) && Bgrat(x, oneMinusX, a, b, out ix, out ixc)) return;
                 ix = Math.Exp(BetaLnFront(x, oneMinusX, a, b)) * BetaCf(x, oneMinusX, a, b) / a;

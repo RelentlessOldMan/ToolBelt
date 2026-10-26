@@ -7,10 +7,12 @@ namespace ToolBelt.Numerics
     /// <summary>The result of an ordinary least-squares fit with inference.</summary>
     public sealed class RegressionResult
     {
-        private readonly double[,] _xtxInverse;
+        private readonly double[,] _xtxInverse;     // of the scaled design: column j divided by _columnScale[j]
+        private readonly double[] _columnScale;
 
         internal RegressionResult(double[] coefficients, double[] standardErrors, double[] fitted, double[] residuals,
-            double rSquared, double adjustedRSquared, double residualStandardError, int degreesOfFreedom, bool hasIntercept, double[,] xtxInverse)
+            double rSquared, double adjustedRSquared, double residualStandardError, int degreesOfFreedom, bool hasIntercept,
+            double[,] xtxInverse, double[] columnScale)
         {
             Coefficients = Array.AsReadOnly(coefficients);      // wrapped: a cast back to double[] could rewrite what Predict uses
             StandardErrors = Array.AsReadOnly(standardErrors);
@@ -32,6 +34,7 @@ namespace ToolBelt.Numerics
             DegreesOfFreedom = degreesOfFreedom;
             HasIntercept = hasIntercept;
             _xtxInverse = xtxInverse;
+            _columnScale = columnScale;
         }
 
         /// <summary>Coefficients; the intercept first when <see cref="HasIntercept"/>, then one per predictor.</summary>
@@ -76,6 +79,7 @@ namespace ToolBelt.Numerics
             if (!(confidence > 0 && confidence < 1)) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
             if (DegreesOfFreedom < 1) throw new InvalidOperationException("No residual degrees of freedom: intervals are undefined.");
             double[] row = Row(predictors);
+            for (int i = 0; i < row.Length; i++) row[i] /= _columnScale[i];
             double leverage = 0;
             for (int i = 0; i < row.Length; i++)
                 for (int j = 0; j < row.Length; j++)
@@ -125,15 +129,31 @@ namespace ToolBelt.Numerics
                     if (!IsFinite(x[i, j])) throw new ArgumentException($"x[{i}, {j}] is not finite.", nameof(x));
             }
 
+            // Each column and y in units of its largest magnitude (powers of two, so normal-range data give the same
+            // bits). Unscaled, (XᵀX)⁻¹ under- or overflowed for predictors near 1e±160 (standard errors of 0 or ∞, p-values
+            // NaN) and the sums of squares overflowed for responses near 1e160. Everything is solved in scaled units, then
+            // the coefficients, errors and fits are scaled back.
+            int o0 = intercept ? 1 : 0;
+            var colScale = new double[p];
+            if (intercept) colScale[0] = 1;
+            for (int j = 0; j < k; j++)
+            {
+                double big = 0;
+                for (int i = 0; i < n; i++) big = Math.Max(big, Math.Abs(x[i, j]));
+                colScale[o0 + j] = Pow2Scale(big);
+            }
+            double yBig = 0;
+            for (int i = 0; i < n; i++) yBig = Math.Max(yBig, Math.Abs(y[i]));
+            double ys = Pow2Scale(yBig);
+
             var a = new double[n, p];
             for (int i = 0; i < n; i++)
             {
-                int o = 0;
-                if (intercept) a[i, o++] = 1;
-                for (int j = 0; j < k; j++) a[i, o + j] = x[i, j];
+                if (intercept) a[i, 0] = 1;
+                for (int j = 0; j < k; j++) a[i, o0 + j] = x[i, j] / colScale[o0 + j];
             }
             var b = new double[n];
-            for (int i = 0; i < n; i++) b[i] = y[i];
+            for (int i = 0; i < n; i++) b[i] = y[i] / ys;
 
             // Each column's own length: reflections are orthogonal, so |R_cc| compared with it measures how much of the column
             // is independent of the earlier ones, whatever its units (a global threshold flags 1e-7-scale predictors next to 1e6).
@@ -207,29 +227,32 @@ namespace ToolBelt.Numerics
             var fitted = new double[n];
             var residuals = new double[n];
             // The mean about y[0]: a constant response then has exactly that mean and zero total spread, instead of
-            // round-off crumbs (0.1 + 0.1 + 0.1 ≠ 0.3) that turned a perfect fit into R² = 0.
-            double sse = 0, ybar = 0;
-            for (int i = 0; i < n; i++) ybar += y[i] - y[0];
-            ybar = y[0] + ybar / n;
+            // round-off crumbs (0.1 + 0.1 + 0.1 ≠ 0.3) that turned a perfect fit into R² = 0. All in scaled units.
+            double y0 = y[0] / ys, sse = 0, ybar = 0;
+            for (int i = 0; i < n; i++) ybar += y[i] / ys - y0;
+            ybar = y0 + ybar / n;
             double sst = 0;
             for (int i = 0; i < n; i++)
             {
                 double f = intercept ? beta[0] : 0;
-                for (int j = 0; j < k; j++) f += beta[j + (intercept ? 1 : 0)] * x[i, j];
-                fitted[i] = f;
-                residuals[i] = y[i] - f;
-                sse += residuals[i] * residuals[i];
-                double centered = intercept ? y[i] - ybar : y[i];
+                for (int j = 0; j < k; j++) f += beta[o0 + j] * (x[i, j] / colScale[o0 + j]);
+                double residual = y[i] / ys - f;
+                fitted[i] = f * ys;
+                residuals[i] = residual * ys;
+                sse += residual * residual;
+                double centered = intercept ? y[i] / ys - ybar : y[i] / ys;
                 sst += centered * centered;
             }
             int df = n - p;
             double sigma2 = df > 0 ? sse / df : double.NaN;
             var se = new double[p];
-            for (int i = 0; i < p; i++) se[i] = df > 0 ? Math.Sqrt(sigma2 * xtxInv[i, i]) : double.NaN;
+            for (int i = 0; i < p; i++) se[i] = df > 0 ? Math.Sqrt(sigma2 * xtxInv[i, i]) * (ys / colScale[i]) : double.NaN;
+            var coefficients = new double[p];
+            for (int i = 0; i < p; i++) coefficients[i] = beta[i] * (ys / colScale[i]);
             double r2 = sst > 0 ? 1 - sse / sst : 1;
             int dfTotal = intercept ? n - 1 : n;
             double adj = df > 0 ? (sst > 0 ? 1 - (sse / df) / (sst / dfTotal) : 1) : double.NaN;
-            return new RegressionResult(beta, se, fitted, residuals, r2, adj, Math.Sqrt(sigma2), df, intercept, xtxInv);
+            return new RegressionResult(coefficients, se, fitted, residuals, r2, adj, Math.Sqrt(sigma2) * ys, df, intercept, xtxInv, colScale);
         }
 
         /// <summary>Fits y on predictor rows given as lists (each inner list is one observation).</summary>
@@ -248,6 +271,18 @@ namespace ToolBelt.Numerics
         }
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same
+        // bits, while data near 1e±308 neither over- nor underflow when summed or squared.
+        private static double Pow2Scale(double m)
+        {
+            if (m == 0 || double.IsInfinity(m)) return 1;
+            double p = Math.Pow(2, Math.Floor(Math.Log(m) / Math.Log(2)));
+            // The logarithm can land a hair either side of an integer; settle on exactly the power at or below m.
+            while (p > m) p /= 2;
+            while (p * 2 <= m) p *= 2;
+            return p;
+        }
 
         private static double Hypot(double a, double b)
         {
@@ -276,7 +311,7 @@ namespace ToolBelt.Numerics
         {
             if (x is null) throw new ArgumentNullException(nameof(x));
             if (y is null) throw new ArgumentNullException(nameof(y));
-            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.");
+            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.", nameof(y));
             for (int i = 0; i < x.Count; i++)
             {
                 if (double.IsNaN(x[i]) || double.IsInfinity(x[i])) throw new ArgumentException($"x[{i}] is not finite.", nameof(x));

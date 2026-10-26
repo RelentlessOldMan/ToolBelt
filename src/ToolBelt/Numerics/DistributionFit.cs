@@ -117,6 +117,9 @@ namespace ToolBelt.Numerics
         {
             double[] x = Check(sample, positive: true, min: 1);
             double rate = 1 / MeanSd(x).Mean;
+            // A subnormal mean has no representable reciprocal; the CDF then threw naming a "rate" the caller never passed.
+            if (double.IsInfinity(rate))
+                throw new ArgumentException("The sample mean is too small for its rate to be represented.", nameof(sample));
             double ll = x.Length * (Math.Log(rate) - 1);       // Σ rate·x = n at the MLE
             Func<double, double> cdf = v => Distributions.ExponentialCdf(v, rate);
             return Make(DistributionFamily.Exponential, P("rate", rate), ll, x, cdf);
@@ -199,6 +202,8 @@ namespace ToolBelt.Numerics
             }
             double sumYk = ly.Sum(l => Math.Exp(kk * l));
             double lambda = max * Math.Pow(sumYk / n, 1 / kk);
+            // For a tiny shape the power underflows (or overflows) although λ itself is representable: in logs.
+            if (!(lambda > 0) || double.IsInfinity(lambda)) lambda = Math.Exp(Math.Log(max) + Math.Log(sumYk / n) / kk);
             double shapeK = kk;
             double sumLogX = x.Select(v => Math.Log(v)).Sum();
             double ll = n * Math.Log(kk) - n * kk * Math.Log(lambda) + (kk - 1) * sumLogX - x.Sum(v => Math.Pow(v / lambda, shapeK));

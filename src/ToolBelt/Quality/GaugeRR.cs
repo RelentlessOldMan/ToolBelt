@@ -243,7 +243,6 @@ namespace ToolBelt.Quality
             var (fInt, pInt) = FTest(msInt, msRep, dfInt, dfRep);
             bool removed = !(pInt <= alphaToRemoveInteraction);       // NaN (no variation at all) counts as "no evidence"
 
-            double s2 = s * s;
             List<GaugeAnovaRow> table;
             double vRepeat, vOp, vInt, vPart;
             if (!removed)
@@ -252,10 +251,10 @@ namespace ToolBelt.Quality
                 var (fO, pO) = FTest(msOp, msInt, dfOp, dfInt);
                 table = new List<GaugeAnovaRow>
                 {
-                    new GaugeAnovaRow("Part", dfPart, ssPart * s2, fP, pP),
-                    new GaugeAnovaRow("Operator", dfOp, ssOp * s2, fO, pO),
-                    new GaugeAnovaRow("Part * Operator", dfInt, ssInt * s2, fInt, pInt),
-                    new GaugeAnovaRow("Repeatability", dfRep, ssRep * s2, double.NaN, double.NaN),
+                    new GaugeAnovaRow("Part", dfPart, Unscale(ssPart, s), fP, pP),
+                    new GaugeAnovaRow("Operator", dfOp, Unscale(ssOp, s), fO, pO),
+                    new GaugeAnovaRow("Part * Operator", dfInt, Unscale(ssInt, s), fInt, pInt),
+                    new GaugeAnovaRow("Repeatability", dfRep, Unscale(ssRep, s), double.NaN, double.NaN),
                 };
                 vRepeat = msRep;
                 vInt = Math.Max(0, (msInt - msRep) / r);
@@ -270,16 +269,16 @@ namespace ToolBelt.Quality
                 var (fO, pO) = FTest(msOp, msPooled, dfOp, dfPooled);
                 table = new List<GaugeAnovaRow>
                 {
-                    new GaugeAnovaRow("Part", dfPart, ssPart * s2, fP, pP),
-                    new GaugeAnovaRow("Operator", dfOp, ssOp * s2, fO, pO),
-                    new GaugeAnovaRow("Repeatability", dfPooled, (ssInt + ssRep) * s2, double.NaN, double.NaN),
+                    new GaugeAnovaRow("Part", dfPart, Unscale(ssPart, s), fP, pP),
+                    new GaugeAnovaRow("Operator", dfOp, Unscale(ssOp, s), fO, pO),
+                    new GaugeAnovaRow("Repeatability", dfPooled, Unscale(ssInt + ssRep, s), double.NaN, double.NaN),
                 };
                 vRepeat = msPooled;
                 vInt = 0;
                 vOp = Math.Max(0, (msOp - msPooled) / (p * r));
                 vPart = Math.Max(0, (msPart - msPooled) / (o * r));
             }
-            table.Add(new GaugeAnovaRow("Total", p * o * r - 1, ssTotal * s2, double.NaN, double.NaN));
+            table.Add(new GaugeAnovaRow("Total", p * o * r - 1, Unscale(ssTotal, s), double.NaN, double.NaN));
 
             double vReprod = vOp + vInt, vGrr = vRepeat + vReprod, vTotal = vGrr + vPart;
             double m = studyVarianceMultiplier;
@@ -354,6 +353,10 @@ namespace ToolBelt.Quality
         };
 
         // The power of two at or below m (1 for 0): dividing by it is exact.
+        // A sum of squares back in the readings' units: zero stays zero (0 · s² was NaN once s² overflowed, for readings
+        // near 1e308), and s is applied twice so a small sum is not lost to an s² that alone over- or underflows.
+        private static double Unscale(double v, double s) => v == 0 ? 0 : v * s * s;
+
         private static double Pow2Scale(double m)
         {
             if (m == 0 || double.IsInfinity(m)) return 1;

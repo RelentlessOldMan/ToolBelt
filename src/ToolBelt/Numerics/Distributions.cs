@@ -31,14 +31,15 @@ namespace ToolBelt.Numerics
         public static double NormalPdf(double x, double mean = 0, double standardDeviation = 1)
         {
             RequirePositive(standardDeviation, nameof(standardDeviation));
-            double z = (x - mean) / standardDeviation;
-            return Math.Exp(-0.5 * z * z) / (standardDeviation * Sqrt2Pi);
+            double z = Standardize(x, mean, standardDeviation), e = Math.Exp(-0.5 * z * z);
+            // sd·√(2π) overflows for sd past ~7e307: divided in turn there.
+            return standardDeviation > 1e300 ? e / Sqrt2Pi / standardDeviation : e / (standardDeviation * Sqrt2Pi);
         }
 
         public static double NormalCdf(double x, double mean = 0, double standardDeviation = 1)
         {
             RequirePositive(standardDeviation, nameof(standardDeviation));
-            return StandardNormalCdf((x - mean) / standardDeviation);
+            return StandardNormalCdf(Standardize(x, mean, standardDeviation));
         }
 
         /// <summary>
@@ -49,7 +50,7 @@ namespace ToolBelt.Numerics
         public static double NormalSurvival(double x, double mean = 0, double standardDeviation = 1)
         {
             RequirePositive(standardDeviation, nameof(standardDeviation));
-            return StandardNormalCdf(-(x - mean) / standardDeviation);
+            return StandardNormalCdf(-Standardize(x, mean, standardDeviation));
         }
 
         /// <summary>The inverse normal CDF (quantile) for a probability in (0, 1).</summary>
@@ -109,7 +110,9 @@ namespace ToolBelt.Numerics
         public static double UniformPdf(double x, double a, double b)
         {
             RequireOrdered(a, b);
-            return (x < a || x > b) ? 0 : 1.0 / (b - a);
+            if (x < a || x > b) return 0;
+            double width = b - a;
+            return double.IsInfinity(width) ? 0.5 / (b / 2 - a / 2) : 1.0 / width;    // a width past MaxValue, from halves
         }
 
         public static double UniformCdf(double x, double a, double b)
@@ -117,7 +120,10 @@ namespace ToolBelt.Numerics
             RequireOrdered(a, b);
             if (x < a) return 0;
             if (x > b) return 1;
-            return (x - a) / (b - a);
+            double width = b - a;
+            if (double.IsInfinity(width) || double.IsInfinity(x - a))
+                return (x / 2 - a / 2) / (b / 2 - a / 2);                                  // bounds near ±MaxValue, from halves
+            return (x - a) / width;
         }
 
         // ---- Student's t ----
@@ -215,9 +221,14 @@ namespace ToolBelt.Numerics
             double d1 = RequireDf(numeratorDf, nameof(numeratorDf)), d2 = RequireDf(denominatorDf, nameof(denominatorDf));
             if (x < 0) return 0;
             if (x == 0) return d1 < 2 ? double.PositiveInfinity : (d1 == 2 ? 1 : 0);
-            // r = d1x/(d1x + d2): density = r^(d1/2) (1 − r)^(d2/2) / (x · B(d1/2, d2/2)).
-            double den = d1 * x + d2, r = d1 * x / den, rc = d2 / den;
-            return Math.Exp(d1 / 2 * LnOf(r, rc) + d2 / 2 * LnOf(rc, r) - Math.Log(x) - LnBeta(d1 / 2, d2 / 2));
+            if (double.IsPositiveInfinity(x)) return 0;
+            // Loader's saddle-point form (R's df): the density as a binomial probability, whose deviance terms carry no
+            // cancellation. The direct r^(d1/2)(1 − r)^(d2/2)/(x·B) summed logs of size ~df that cancel, losing ~df·eps
+            // (1.6e-6 relative at df = 1e10). p = d1x/(d1x + d2), q = 1 − p, each formed without the subtraction.
+            double m = d1, n = d2, mx = m * x;
+            double p = double.IsInfinity(mx) ? 1 : mx / (n + mx), q = double.IsInfinity(mx) ? 0 : n / (n + mx);
+            if (m >= 2) return m * q / 2 * BinomialDensity((m - 2) / 2, (m + n - 2) / 2, p, q);
+            return m / (2 * x) * (n / (m + n)) * BinomialDensity(m / 2, (m + n) / 2, p, q);
         }
 
         public static double FCdf(double x, double numeratorDf, double denominatorDf)
@@ -515,6 +526,13 @@ namespace ToolBelt.Numerics
             double lnPre = LnPrefix(a, x);
             if (x < a + 1)
             {
+                if (a < 1e-300)
+                {
+                    // The series' 1/a overflows below ~5.6e-309 (P came out NaN at a = 5e-324); Q directly, P = 1 − Q.
+                    q = SmallShapeQ(a, x);
+                    p = 1 - q;
+                    return;
+                }
                 double ap = a, sum = 1.0 / a, del = sum;
                 for (int n = 0; n < 100000; n++)
                 {
@@ -526,26 +544,28 @@ namespace ToolBelt.Numerics
                 p = sum * Math.Exp(lnPre);
                 if (p > 1) p = 1;
                 q = 1 - p;
-                if (a < 1 && p > 0.5)
-                {
-                    // A small shape puts P near 1, and 1 − P kept few of Q's digits (3e-8 relative at a = 5e-9). Directly:
-                    // Q = 1 − xᵃ/Γ(a + 1) − a·xᵃ/Γ(a + 1)·Σₙ₌₁ (−x)ⁿ/(n!(a + n)), the first difference by expm1.
-                    // lnΓ(1 + a) from a itself: a + 1 rounds away ~1e-16 of a, a relative 2e-8 of a shape near 5e-9.
-                    double u = a * Math.Log(x) - (a <= 0.2 ? LnGammaNearOne(a) : LnGamma(a + 1)), term = 1, s = 0;
-                    for (int n = 1; n < 200; n++)
-                    {
-                        term *= -x / n;
-                        double t = term / (a + n);
-                        s += t;
-                        if (Math.Abs(t) <= Eps * Math.Abs(s)) break;
-                    }
-                    q = -Expm1(u) - a * Math.Exp(u) * s;
-                }
+                if (a < 1 && p > 0.5) q = SmallShapeQ(a, x);
                 return;
             }
             q = Math.Exp(lnPre) * GammaCf(a, x);
             if (q > 1) q = 1;
             p = 1 - q;
+        }
+
+        // A small shape puts P near 1, and 1 − P kept few of Q's digits (3e-8 relative at a = 5e-9). Directly:
+        // Q = 1 − xᵃ/Γ(a + 1) − a·xᵃ/Γ(a + 1)·Σₙ₌₁ (−x)ⁿ/(n!(a + n)), the first difference by expm1.
+        // lnΓ(1 + a) from a itself: a + 1 rounds away ~1e-16 of a, a relative 2e-8 of a shape near 5e-9. For x < a + 1.
+        private static double SmallShapeQ(double a, double x)
+        {
+            double u = a * Math.Log(x) - (a <= 0.2 ? LnGammaNearOne(a) : LnGamma(a + 1)), term = 1, s = 0;
+            for (int n = 1; n < 200; n++)
+            {
+                term *= -x / n;
+                double t = term / (a + n);
+                s += t;
+                if (Math.Abs(t) <= Eps * Math.Abs(s)) break;
+            }
+            return -Expm1(u) - a * Math.Exp(u) * s;
         }
 
         // Continued fraction for Q(a, x) without its prefix x^a e^(−x)/Γ(a) (modified Lentz), for x >= a + 1.
@@ -632,6 +652,15 @@ namespace ToolBelt.Numerics
         /// </summary>
         private static void BetaI(double x, double oneMinusX, double a, double b, out double ix, out double ixc)
         {
+            // Each value is formed in its own regime and the other as 1 − it, which can step just outside [0, 1]
+            // (1.0000000000000155 at shapes near 1e-100): clamped, since a probability is reported.
+            BetaICore(x, oneMinusX, a, b, out ix, out ixc);
+            ix = Math.Min(1, Math.Max(0, ix));
+            ixc = Math.Min(1, Math.Max(0, ixc));
+        }
+
+        private static void BetaICore(double x, double oneMinusX, double a, double b, out double ix, out double ixc)
+        {
             if (x <= 0) { ix = 0; ixc = 1; return; }
             if (oneMinusX <= 0) { ix = 1; ixc = 0; return; }
             if (Math.Min(a, b) > 100)
@@ -643,7 +672,9 @@ namespace ToolBelt.Numerics
                 if (lambda >= 0 && lambda <= limit) { ix = Basym(a, b, lambda); ixc = 1 - ix; return; }
                 if (lambda < 0 && -lambda <= limit) { ixc = Basym(b, a, -lambda); ix = 1 - ixc; return; }
             }
-            if (x < (a + 1) / (a + b + 2))
+            // Which side of (a + 1)/(a + b + 2) x lies on, decided by whichever of x and 1 − x is the smaller: at
+            // a = 1e20 both x and the split round to 1, and the upper branch returned a negative upper tail.
+            if (x <= 0.5 ? x < (a + 1) / (a + b + 2) : oneMinusX > (b + 1) / (a + b + 2))
             {
                 if (UseBgrat(a, b) && Bgrat(x, oneMinusX, a, b, out ix, out ixc)) return;
                 ix = Math.Exp(BetaLnFront(x, oneMinusX, a, b)) * BetaCf(x, oneMinusX, a, b) / a;
@@ -896,6 +927,52 @@ namespace ToolBelt.Numerics
             return a * core + 0.5 * Math.Log(a) - LnSqrt2Pi - StirlingCorr(a);
         }
 
+        // (x − mean)/sd; when x − mean overflows (bounds near ±MaxValue), from the halves.
+        private static double Standardize(double x, double mean, double sd)
+        {
+            double d = x - mean;
+            return double.IsInfinity(d) && !double.IsInfinity(x) ? (x / 2 - mean / 2) / (sd / 2) : d / sd;
+        }
+
+        // Loader's binomial density b(x; n, p) for real x and n (R's dbinom_raw), q = 1 − p given separately.
+        private static double BinomialDensity(double x, double n, double p, double q)
+        {
+            if (p == 0) return x == 0 ? 1 : 0;
+            if (q == 0) return x == n ? 1 : 0;
+            if (x == 0) return n == 0 ? 1 : Math.Exp(p < 0.1 ? -Deviance(n, n * q) - n * p : n * Math.Log(q));
+            if (x == n) return Math.Exp(q < 0.1 ? -Deviance(n, n * p) - n * q : n * Math.Log(p));
+            if (x < 0 || x > n) return 0;
+            double lc = StirlingError(n) - StirlingError(x) - StirlingError(n - x) - Deviance(x, n * p) - Deviance(n - x, n * q);
+            double lf = 2 * LnSqrt2Pi + Math.Log(x) + Log1p(-x / n);
+            return Math.Exp(lc - 0.5 * lf);
+        }
+
+        // The deviance x·ln(x/m) + m − x, by its series when x is near m (where the direct form cancels).
+        private static double Deviance(double x, double m)
+        {
+            if (Math.Abs(x - m) < 0.1 * (x + m))
+            {
+                double v = (x - m) / (x + m), s = (x - m) * v, ej = 2 * x * v;
+                v *= v;
+                for (int j = 1; j < 1000; j++)
+                {
+                    ej *= v;
+                    double s1 = s + ej / (2 * j + 1);
+                    if (s1 == s) return s1;
+                    s = s1;
+                }
+                return s;
+            }
+            return x * Math.Log(x / m) + m - x;
+        }
+
+        // lnΓ(n + 1) − (n + ½)ln n + n − ln √(2π): the Stirling series past 10, else directly (no cancellation to fear).
+        private static double StirlingError(double n)
+        {
+            if (n >= 10) return StirlingCorr(n);
+            return LnGamma(n + 1) - (n + 0.5) * Math.Log(n) + n - LnSqrt2Pi;
+        }
+
         // ---- validation ----
 
         private static void RequirePositive(double value, string name)
@@ -905,9 +982,13 @@ namespace ToolBelt.Numerics
 
         private static double RequireDf(double df, string name)
         {
-            if (!(df > 0) || double.IsInfinity(df)) throw new ArgumentOutOfRangeException(name, df, "Degrees of freedom must be positive and finite.");
+            // Subnormal df are rejected: halved, they round to zero shape (or lose their digits), and the tails were NaN.
+            if (!(df >= MinNormal) || double.IsInfinity(df))
+                throw new ArgumentOutOfRangeException(name, df, "Degrees of freedom must be positive, finite and not subnormal.");
             return df;
         }
+
+        private const double MinNormal = 2.2250738585072014E-308;
 
         private static void RequireOpenProbability(double p)
         {

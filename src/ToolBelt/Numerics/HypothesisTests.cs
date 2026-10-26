@@ -75,7 +75,7 @@ namespace ToolBelt.Numerics
                 return mean == populationMean
                     ? new TestResult(0, 1, df)
                     : new TestResult(mean > populationMean ? double.PositiveInfinity : double.NegativeInfinity, 0, df);
-            double t = (mean - populationMean) / (sd / Math.Sqrt(n));
+            double t = Ratio(mean, populationMean, sd / Math.Sqrt(n));
             return new TestResult(t, TwoSidedTP(t, df), df);
         }
 
@@ -86,8 +86,16 @@ namespace ToolBelt.Numerics
             if (second is null) throw new ArgumentNullException(nameof(second));
             if (first.Count != second.Count)
                 throw new ArgumentException("Paired samples must have the same length.", nameof(second));
+            // Each sample checked under its own name: the differences' checks named "sample", which the caller never saw.
+            RequireCount(second, 2, nameof(second));
+            RequireFinite(first, nameof(first));
+            RequireFinite(second, nameof(second));
             var diffs = new double[first.Count];
-            for (int i = 0; i < diffs.Length; i++) diffs[i] = first[i] - second[i];
+            bool overflow = false;
+            for (int i = 0; i < diffs.Length; i++) overflow |= double.IsInfinity(diffs[i] = first[i] - second[i]);
+            // Finite values of opposite sign near 1e308 have an infinite difference; t is scale-free, so use the halves.
+            if (overflow)
+                for (int i = 0; i < diffs.Length; i++) diffs[i] = first[i] / 2 - second[i] / 2;
             return OneSampleT(diffs, 0);
         }
 
@@ -111,7 +119,7 @@ namespace ToolBelt.Numerics
                 double pooled = ((na - 1) * ra * ra + (nb - 1) * rb * rb) / (na + nb - 2);
                 double se = Math.Sqrt(pooled * (1.0 / na + 1.0 / nb)) * m;
                 df = na + nb - 2;
-                t = se == 0 ? SignedInfinity(ma - mb) : (ma - mb) / se;
+                t = se == 0 ? SignedInfinity(ma - mb) : Ratio(ma, mb, se);
             }
             else
             {
@@ -121,7 +129,7 @@ namespace ToolBelt.Numerics
                 double se = Math.Sqrt(sa + sb) * m;
                 // Welch-Satterthwaite degrees of freedom (NaN when both spreads are zero).
                 df = (sa + sb) * (sa + sb) / (sa * sa / (na - 1) + sb * sb / (nb - 1));
-                t = se == 0 ? SignedInfinity(ma - mb) : (ma - mb) / se;
+                t = se == 0 ? SignedInfinity(ma - mb) : Ratio(ma, mb, se);
             }
 
             if (double.IsInfinity(t)) return new TestResult(t, 0, df);
@@ -344,25 +352,39 @@ namespace ToolBelt.Numerics
 
         // ---------- shared helpers ----------
 
-        // Mean and sample standard deviation of finite data. The mean is taken about the first value, so a constant
-        // sample has exactly that mean and exactly zero spread (summing 0.1 three times and dividing by 3 does not give
-        // 0.1, and the leftover crumbs read as a real, vanishingly small variance — an enormous t). The deviations are
-        // squared relative to the largest, so data near 1e±160 neither underflow to a zero spread nor overflow.
+        // Mean and sample standard deviation of finite data, in units of the largest magnitude p (a power of two, so
+        // normal-range data give the same bits; unscaled, the sum of deviations overflowed for data near 1e308 and the
+        // mean came out NaN). The mean is taken about the first value, so a constant sample has exactly that mean and
+        // exactly zero spread (summing 0.1 three times and dividing by 3 does not give 0.1, and the leftover crumbs read
+        // as a real, vanishingly small variance — an enormous t). The deviations are squared relative to the largest,
+        // so data near 1e±160 neither underflow to a zero spread nor overflow.
         private static (double mean, double sd, int n) MeanVariance(IReadOnlyList<double> x, string name)
         {
             int n = x.Count;
-            double x0 = x[0], shift = 0;
-            for (int i = 0; i < n; i++)
-            {
-                if (double.IsInfinity(x[i])) throw new ArgumentException($"Value [{i}] is not finite.", name);
-                shift += x[i] - x0;
-            }
+            RequireFinite(x, name);
+            double big = 0;
+            for (int i = 0; i < n; i++) big = Math.Max(big, Math.Abs(x[i]));
+            double p = Pow2Scale(big), x0 = x[0] / p, shift = 0;
+            for (int i = 0; i < n; i++) shift += x[i] / p - x0;
             double mean = x0 + shift / n;
             double max = 0;
-            for (int i = 0; i < n; i++) max = Math.Max(max, Math.Abs(x[i] - mean));
+            for (int i = 0; i < n; i++) max = Math.Max(max, Math.Abs(x[i] / p - mean));
             double s = Pow2Scale(max), ss = 0;
-            for (int i = 0; i < n; i++) { double d = (x[i] - mean) / s; ss += d * d; }
-            return (mean, Math.Sqrt(ss / (n - 1)) * s, n);
+            for (int i = 0; i < n; i++) { double d = (x[i] / p - mean) / s; ss += d * d; }
+            return (mean * p, Math.Sqrt(ss / (n - 1)) * s * p, n);
+        }
+
+        private static void RequireFinite(IReadOnlyList<double> x, string name)
+        {
+            for (int i = 0; i < x.Count; i++)
+                if (double.IsInfinity(x[i])) throw new ArgumentException($"Value [{i}] is not finite.", name);
+        }
+
+        // (a − b)/se; when a − b overflows (finite means of opposite sign near 1e308), from the halves.
+        private static double Ratio(double a, double b, double se)
+        {
+            double d = a - b;
+            return double.IsInfinity(d) ? (a / 2 - b / 2) / (se / 2) : d / se;
         }
 
         // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same

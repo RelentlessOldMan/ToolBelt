@@ -22,15 +22,25 @@ namespace ToolBelt.Numerics
             if (n < 2)
                 throw new ArgumentException("At least two points are required.", nameof(xs));
 
-            // Means about the first point: a constant variable then has exactly that mean and zero spread, instead of
-            // round-off crumbs (0.1 + 0.1 + 0.1 ≠ 0.3) that read as a real, tiny variance.
-            double x0 = xs[0], y0 = ys[0], shiftX = 0, shiftY = 0;
+            // Each variable in units of its largest magnitude (a power of two, so normal-range data give the same bits):
+            // the sum of deviations overflowed for data near 1e308, and the result came out NaN.
+            double bigX = 0, bigY = 0;
             for (int i = 0; i < n; i++)
             {
                 if (double.IsNaN(xs[i]) || double.IsInfinity(xs[i])) throw new ArgumentException($"Value [{i}] is not finite.", nameof(xs));
                 if (double.IsNaN(ys[i]) || double.IsInfinity(ys[i])) throw new ArgumentException($"Value [{i}] is not finite.", nameof(ys));
-                shiftX += xs[i] - x0;
-                shiftY += ys[i] - y0;
+                bigX = Math.Max(bigX, Math.Abs(xs[i]));
+                bigY = Math.Max(bigY, Math.Abs(ys[i]));
+            }
+            double px = Pow2Scale(bigX), py = Pow2Scale(bigY);
+
+            // Means about the first point: a constant variable then has exactly that mean and zero spread, instead of
+            // round-off crumbs (0.1 + 0.1 + 0.1 ≠ 0.3) that read as a real, tiny variance.
+            double x0 = xs[0] / px, y0 = ys[0] / py, shiftX = 0, shiftY = 0;
+            for (int i = 0; i < n; i++)
+            {
+                shiftX += xs[i] / px - x0;
+                shiftY += ys[i] / py - y0;
             }
             double meanX = x0 + shiftX / n, meanY = y0 + shiftY / n;
 
@@ -39,16 +49,16 @@ namespace ToolBelt.Numerics
             double maxX = 0, maxY = 0;
             for (int i = 0; i < n; i++)
             {
-                maxX = Math.Max(maxX, Math.Abs(xs[i] - meanX));
-                maxY = Math.Max(maxY, Math.Abs(ys[i] - meanY));
+                maxX = Math.Max(maxX, Math.Abs(xs[i] / px - meanX));
+                maxY = Math.Max(maxY, Math.Abs(ys[i] / py - meanY));
             }
             double sx = Pow2Scale(maxX), sy = Pow2Scale(maxY);
 
             double sxx = 0, syy = 0, sxy = 0;
             for (int i = 0; i < n; i++)
             {
-                double dx = (xs[i] - meanX) / sx;
-                double dy = (ys[i] - meanY) / sy;
+                double dx = (xs[i] / px - meanX) / sx;
+                double dy = (ys[i] / py - meanY) / sy;
                 sxx += dx * dx;
                 syy += dy * dy;
                 sxy += dx * dy;

@@ -36,18 +36,36 @@ namespace ToolBelt.Quality
             if (data.Count < 2) throw new ArgumentException("At least two points are required.", nameof(data));
             RequireFinite(data);
 
+            // In units of the largest magnitude p (a power of two, so normal-range data give the same bits): the sums
+            // overflowed for data near 1e308 and every limit came out infinite.
+            double big = 0;
+            for (int i = 0; i < data.Count; i++) big = Math.Max(big, Math.Abs(data[i]));
+            double p = Pow2Scale(big);
+
             // Mean about the first value: constant data gives exactly that value, not one an ulp off — with a zero
             // moving range the limits collapse onto the mean, and an ulp would put every point beyond them.
-            double sum = 0;
-            for (int i = 0; i < data.Count; i++) sum += data[i] - data[0];
-            double mean = data[0] + sum / data.Count;
+            double x0 = data[0] / p, sum = 0;
+            for (int i = 0; i < data.Count; i++) sum += data[i] / p - x0;
+            double mean = (x0 + sum / data.Count) * p;
 
             double sumRange = 0;
-            for (int i = 1; i < data.Count; i++) sumRange += Math.Abs(data[i] - data[i - 1]);
-            double meanRange = sumRange / (data.Count - 1);
+            for (int i = 1; i < data.Count; i++) sumRange += Math.Abs(data[i] / p - data[i - 1] / p);
+            double meanRange = sumRange / (data.Count - 1) * p;
 
             double spread = IndividualsSigmaFactor * meanRange;
             return new ControlLimits(mean, mean - spread, mean + spread);
+        }
+
+        // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same
+        // bits, while data near 1e±308 neither over- nor underflow when summed or squared.
+        private static double Pow2Scale(double m)
+        {
+            if (m == 0 || double.IsInfinity(m)) return 1;
+            double p = Math.Pow(2, Math.Floor(Math.Log(m) / Math.Log(2)));
+            // The logarithm can land a hair either side of an integer; settle on exactly the power at or below m.
+            while (p > m) p /= 2;
+            while (p * 2 <= m) p *= 2;
+            return p;
         }
 
         /// <summary>Rule 1: indices of points beyond the control limits.</summary>

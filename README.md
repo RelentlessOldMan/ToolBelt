@@ -838,6 +838,7 @@ tests/
       InferenceAccuracyTests.cs      (worked examples + simulated coverage / false-positive rates)
       StatisticsReviewTests.cs       (review regressions: extreme tails, huge df, round-off variance, non-finite inputs, SPC)
       StatisticsReview2Tests.cs      (second-pass regressions: scale invariance at 1e±170, far-tail quantiles, lnΓ near 1 and 2)
+      StatisticsReview3Tests.cs      (third-pass regressions: sums near MaxValue, regression scaling, F density at large df, Γ accuracy)
       NumericsCoreReviewTests.cs     (review regressions: QR fit, cancellation-free roots, extreme magnitudes, NaN rejection, fast primes)
       NumericsCoreReview2Tests.cs    (second-pass regressions: finite overflow at ±1e308, checked arithmetic, decimal-exact rounding)
       NumericsCoreReview3Tests.cs    (third-pass regressions: LU and cubic overflow, false root convergence, tiny-scale splines and stats)

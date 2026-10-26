@@ -69,7 +69,7 @@ namespace ToolBelt.Numerics
             if (a is null) throw new ArgumentNullException(nameof(a));
             if (b is null) throw new ArgumentNullException(nameof(b));
             if (random is null) throw new ArgumentNullException(nameof(random));
-            if (a.Count == 0 || b.Count == 0) throw new ArgumentException("Both samples must be non-empty.");
+            if (a.Count == 0 || b.Count == 0) throw new ArgumentException("Both samples must be non-empty.", a.Count == 0 ? nameof(a) : nameof(b));
             if (permutations < 1) throw new ArgumentOutOfRangeException(nameof(permutations), permutations, "Must be positive.");
             statistic ??= MeanDifference;
             RequireFinite(a, nameof(a));
@@ -128,8 +128,8 @@ namespace ToolBelt.Numerics
             if (first is null) throw new ArgumentNullException(nameof(first));
             if (second is null) throw new ArgumentNullException(nameof(second));
             if (random is null) throw new ArgumentNullException(nameof(random));
-            if (first.Count != second.Count) throw new ArgumentException("Paired samples must have the same length.");
-            if (first.Count == 0) throw new ArgumentException("Samples must be non-empty.");
+            if (first.Count != second.Count) throw new ArgumentException("Paired samples must have the same length.", nameof(second));
+            if (first.Count == 0) throw new ArgumentException("Samples must be non-empty.", nameof(first));
             if (permutations < 1) throw new ArgumentOutOfRangeException(nameof(permutations), permutations, "Must be positive.");
             RequireFinite(first, nameof(first));
             RequireFinite(second, nameof(second));
@@ -144,23 +144,22 @@ namespace ToolBelt.Numerics
             }
             double observed = Mean(d);
             var nulls = new List<double>();
+            var signed = new double[n];
             bool exact = n < 31 && (1L << n) <= permutations;
             if (exact)
             {
                 for (long mask = 0; mask < (1L << n); mask++)
                 {
-                    double sum = 0;
-                    for (int i = 0; i < n; i++) sum += ((mask >> i) & 1) == 0 ? d[i] : -d[i];
-                    nulls.Add(sum / n);
+                    for (int i = 0; i < n; i++) signed[i] = ((mask >> i) & 1) == 0 ? d[i] : -d[i];
+                    nulls.Add(Mean(signed));    // the observed statistic's own mean: summed outright, two of 1e308 gave ±∞
                 }
             }
             else
             {
                 for (int r = 0; r < permutations; r++)
                 {
-                    double sum = 0;
-                    for (int i = 0; i < n; i++) sum += random.Next(2) == 0 ? d[i] : -d[i];
-                    nulls.Add(sum / n);
+                    for (int i = 0; i < n; i++) signed[i] = random.Next(2) == 0 ? d[i] : -d[i];
+                    nulls.Add(Mean(signed));
                 }
             }
             return Result(observed, nulls, exact, alternative);

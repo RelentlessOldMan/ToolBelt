@@ -17,9 +17,12 @@ namespace ToolBelt.Numerics
             if (series is null) throw new ArgumentNullException(nameof(series));
             if (series.Count == 0) return Array.Empty<double>();
 
-            double mean = 0;
-            for (int i = 0; i < series.Count; i++) mean += series[i];
-            mean /= series.Count;
+            // The mean in units of the largest magnitude (a power of two): summed outright it overflowed for data near 1e308.
+            double big = 0;
+            for (int i = 0; i < series.Count; i++) big = Math.Max(big, Math.Abs(series[i]));
+            double p = Pow2Scale(big), mean = 0;
+            for (int i = 0; i < series.Count; i++) mean += series[i] / p;
+            mean = mean / series.Count * p;
 
             var cusum = new double[series.Count];
             double running = 0;
@@ -43,20 +46,24 @@ namespace ToolBelt.Numerics
             if (series.Count < 2) throw new ArgumentException("At least two points are required.", nameof(series));
 
             int n = series.Count;
-            double total = 0;
+            double big = 0;
             for (int i = 0; i < n; i++)
             {
                 double v = series[i];
                 if (double.IsNaN(v) || double.IsInfinity(v)) throw new ArgumentException($"Value [{i}] is not finite.", nameof(series));
-                total += v;
+                big = Math.Max(big, Math.Abs(v));
             }
+            // Sums in units of the largest magnitude p (a power of two, so normal-range data give the same bits): summed
+            // outright they overflowed for data near 1e308, and every split scored ∞ (the first one won).
+            double p = Pow2Scale(big), total = 0;
+            for (int i = 0; i < n; i++) total += series[i] / p;
 
             double leftSum = 0;
             int bestIndex = 1;
             double bestScore = -1, bestMagnitude = 0;
             for (int k = 1; k < n; k++)
             {
-                leftSum += series[k - 1];
+                leftSum += series[k - 1] / p;
                 double leftMean = leftSum / k;
                 double rightMean = (total - leftSum) / (n - k);
                 double magnitude = Math.Abs(rightMean - leftMean);
@@ -70,7 +77,19 @@ namespace ToolBelt.Numerics
                     bestMagnitude = magnitude;
                 }
             }
-            return (bestIndex, bestMagnitude);
+            return (bestIndex, bestMagnitude * p);
+        }
+
+        // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same
+        // bits, while data near 1e±308 neither over- nor underflow when summed or squared.
+        private static double Pow2Scale(double m)
+        {
+            if (m == 0 || double.IsInfinity(m)) return 1;
+            double p = Math.Pow(2, Math.Floor(Math.Log(m) / Math.Log(2)));
+            // The logarithm can land a hair either side of an integer; settle on exactly the power at or below m.
+            while (p > m) p /= 2;
+            while (p * 2 <= m) p *= 2;
+            return p;
         }
     }
 }

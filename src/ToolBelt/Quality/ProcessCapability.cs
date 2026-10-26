@@ -59,13 +59,19 @@ namespace ToolBelt.Quality
                 if (double.IsNaN(sample[i]) || double.IsInfinity(sample[i]))
                     throw new ArgumentException($"Value [{i}] is not finite.", nameof(sample));
 
+            // In units of the largest magnitude p (a power of two, so normal-range data give the same bits): the squares
+            // underflowed for data near 1e-160 ("zero variation") and overflowed near 1e+160.
+            double big = 0;
+            for (int i = 0; i < sample.Count; i++) big = Math.Max(big, Math.Abs(sample[i]));
+            double p = Pow2Scale(big);
+
             // Mean about the first value, so a constant sample has exactly zero spread (not an ulp of round-off,
             // which gave Cp ≈ 1e16 instead of "zero variation").
-            double sum = 0;
-            for (int i = 0; i < sample.Count; i++) sum += sample[i] - sample[0];
-            double mean = sample[0] + sum / sample.Count;
+            double x0 = sample[0] / p, sum = 0;
+            for (int i = 0; i < sample.Count; i++) sum += sample[i] / p - x0;
+            double scaledMean = x0 + sum / sample.Count, mean = scaledMean * p;
 
-            double sigma = estimator == SigmaEstimator.Overall ? OverallSigma(sample, mean) : WithinSigma(sample);
+            double sigma = (estimator == SigmaEstimator.Overall ? OverallSigma(sample, p, scaledMean) : WithinSigma(sample, p)) * p;
             if (!(sigma > 0)) throw new ArgumentException("Sample has zero variation; capability is undefined.", nameof(sample));
             if (double.IsInfinity(sigma)) throw new ArgumentException("Sample spread overflows a double.", nameof(sample));
 
@@ -79,19 +85,32 @@ namespace ToolBelt.Quality
             return new CapabilityResult(mean, sigma, cp, cpk, sigmaLevel, ppm);
         }
 
-        private static double OverallSigma(IReadOnlyList<double> sample, double mean)
+        // Both in units of p.
+        private static double OverallSigma(IReadOnlyList<double> sample, double p, double mean)
         {
             double sumSq = 0;
-            for (int i = 0; i < sample.Count; i++) { double d = sample[i] - mean; sumSq += d * d; }
+            for (int i = 0; i < sample.Count; i++) { double d = sample[i] / p - mean; sumSq += d * d; }
             return Math.Sqrt(sumSq / (sample.Count - 1));
         }
 
-        private static double WithinSigma(IReadOnlyList<double> sample)
+        private static double WithinSigma(IReadOnlyList<double> sample, double p)
         {
             double sumRange = 0;
-            for (int i = 1; i < sample.Count; i++) sumRange += Math.Abs(sample[i] - sample[i - 1]);
+            for (int i = 1; i < sample.Count; i++) sumRange += Math.Abs(sample[i] / p - sample[i - 1] / p);
             double meanRange = sumRange / (sample.Count - 1);
             return meanRange / MovingRangeD2;
+        }
+
+        // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same
+        // bits, while data near 1e±308 neither over- nor underflow when summed or squared.
+        private static double Pow2Scale(double m)
+        {
+            if (m == 0 || double.IsInfinity(m)) return 1;
+            double p = Math.Pow(2, Math.Floor(Math.Log(m) / Math.Log(2)));
+            // The logarithm can land a hair either side of an integer; settle on exactly the power at or below m.
+            while (p > m) p /= 2;
+            while (p * 2 <= m) p *= 2;
+            return p;
         }
     }
 }

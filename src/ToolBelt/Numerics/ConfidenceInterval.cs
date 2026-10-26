@@ -25,17 +25,10 @@ namespace ToolBelt.Numerics
             if (!(confidence > 0 && confidence < 1)) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
 
             int n = sample.Count;
-            double mean = 0;
             for (int i = 0; i < n; i++)
-            {
                 if (double.IsNaN(sample[i]) || double.IsInfinity(sample[i])) throw new ArgumentException($"Value [{i}] is not finite.", nameof(sample));
-                mean += sample[i];
-            }
-            mean /= n;
-
-            double sumSq = 0;
-            for (int i = 0; i < n; i++) { double d = sample[i] - mean; sumSq += d * d; }
-            double stdErr = Math.Sqrt(sumSq / (n - 1)) / Math.Sqrt(n);
+            var (mean, sd) = MeanSd(sample);
+            double stdErr = sd / Math.Sqrt(n);
 
             double z = Distributions.NormalQuantile((1 + confidence) / 2);
             double margin = z * stdErr;
@@ -48,9 +41,9 @@ namespace ToolBelt.Numerics
         /// </summary>
         public static (double Lower, double Upper) ForMeanT(IReadOnlyList<double> sample, double confidence = 0.95)
         {
-            var (n, mean, variance) = Moments(sample, confidence);
+            var (n, mean, sd) = Moments(sample, confidence);
             double t = Distributions.StudentTQuantile((1 + confidence) / 2, n - 1);
-            double margin = t * Math.Sqrt(variance / n);
+            double margin = t * (sd / Math.Sqrt(n));
             return (mean - margin, mean + margin);
         }
 
@@ -60,35 +53,60 @@ namespace ToolBelt.Numerics
         /// </summary>
         public static (double Lower, double Upper) ForVariance(IReadOnlyList<double> sample, double confidence = 0.95)
         {
-            var (n, _, variance) = Moments(sample, confidence);
-            double ss = (n - 1) * variance;
-            return (ss / Distributions.ChiSquareQuantile((1 + confidence) / 2, n - 1),
-                    ss / Distributions.ChiSquareQuantile((1 - confidence) / 2, n - 1));
+            var (lo, hi) = ForStandardDeviation(sample, confidence);
+            return (lo * lo, hi * hi);
         }
 
         /// <summary>Confidence interval for the population standard deviation (square roots of <see cref="ForVariance"/>).</summary>
         public static (double Lower, double Upper) ForStandardDeviation(IReadOnlyList<double> sample, double confidence = 0.95)
         {
-            var (lo, hi) = ForVariance(sample, confidence);
-            return (Math.Sqrt(lo), Math.Sqrt(hi));
+            // From s itself: s² under- or overflowed for data near 1e±160 (an interval of (0, 0) or (∞, ∞)).
+            var (n, _, sd) = Moments(sample, confidence);
+            return (sd * Math.Sqrt((n - 1) / Distributions.ChiSquareQuantile((1 + confidence) / 2, n - 1)),
+                    sd * Math.Sqrt((n - 1) / Distributions.ChiSquareQuantile((1 - confidence) / 2, n - 1)));
         }
 
-        private static (int N, double Mean, double Variance) Moments(IReadOnlyList<double> sample, double confidence)
+        private static (int N, double Mean, double Sd) Moments(IReadOnlyList<double> sample, double confidence)
         {
             if (sample is null) throw new ArgumentNullException(nameof(sample));
             if (sample.Count < 2) throw new ArgumentException("At least two samples are required.", nameof(sample));
             if (!(confidence > 0 && confidence < 1)) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
             int n = sample.Count;
-            double mean = 0;
             for (int i = 0; i < n; i++)
-            {
                 if (double.IsNaN(sample[i]) || double.IsInfinity(sample[i])) throw new ArgumentException($"Value [{i}] is not finite.", nameof(sample));
-                mean += sample[i];
-            }
-            mean /= n;
-            double sumSq = 0;
-            for (int i = 0; i < n; i++) { double d = sample[i] - mean; sumSq += d * d; }
-            return (n, mean, sumSq / (n - 1));
+            var (mean, sd) = MeanSd(sample);
+            return (n, mean, sd);
+        }
+
+        // Mean and sample standard deviation of finite data, in units of the largest magnitude p (a power of two, so
+        // normal-range data give the same bits): the mean about the first value, so a constant sample has exactly that
+        // mean and zero spread, and the deviations squared relative to the largest. Unscaled, the sums overflowed for
+        // data near 1e308 and the squares under- or overflowed for data near 1e±160.
+        private static (double Mean, double Sd) MeanSd(IReadOnlyList<double> x)
+        {
+            int n = x.Count;
+            double big = 0;
+            for (int i = 0; i < n; i++) big = Math.Max(big, Math.Abs(x[i]));
+            double p = Pow2Scale(big), x0 = x[0] / p, shift = 0;
+            for (int i = 0; i < n; i++) shift += x[i] / p - x0;
+            double mean = x0 + shift / n;
+            double max = 0;
+            for (int i = 0; i < n; i++) max = Math.Max(max, Math.Abs(x[i] / p - mean));
+            double s = Pow2Scale(max), ss = 0;
+            for (int i = 0; i < n; i++) { double d = (x[i] / p - mean) / s; ss += d * d; }
+            return (mean * p, Math.Sqrt(ss / (n - 1)) * s * p);
+        }
+
+        // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same
+        // bits, while data near 1e±308 neither over- nor underflow when summed or squared.
+        private static double Pow2Scale(double m)
+        {
+            if (m == 0 || double.IsInfinity(m)) return 1;
+            double p = Math.Pow(2, Math.Floor(Math.Log(m) / Math.Log(2)));
+            // The logarithm can land a hair either side of an integer; settle on exactly the power at or below m.
+            while (p > m) p /= 2;
+            while (p * 2 <= m) p *= 2;
+            return p;
         }
 
         /// <summary>Wilson score confidence interval for a binomial proportion.</summary>

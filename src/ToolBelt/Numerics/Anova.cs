@@ -92,25 +92,29 @@ namespace ToolBelt.Numerics
             // Work in units of the largest magnitude (a power of two, so normal-range data give the same bits): squared
             // outright, data near 1e-160 underflowed to zero sums of squares and data near 1e+160 overflowed.
             double s = Pow2Scale(maxAbs);
+            // Means as offsets from the first value c: summed outright, data on a large offset (1e9 + small effects) lost
+            // the effects to rounding in every sum, and the group-minus-grand difference cancelled what was left.
+            double c = groups[0][0] / s;
             double grandSum = 0;
             for (int i = 0; i < k; i++)
-                for (int j = 0; j < groups[i].Length; j++) grandSum += groups[i][j] / s;
-            double grandMean = grandSum / total;
+                for (int j = 0; j < groups[i].Length; j++) grandSum += groups[i][j] / s - c;
+            double grandOffset = grandSum / total;
             double ssBetween = 0, ssWithin = 0;
             for (int i = 0; i < k; i++)
             {
                 double[] g = groups[i];
                 double groupSum = 0;
-                for (int j = 0; j < g.Length; j++) groupSum += g[j] / s;
-                double groupMean = groupSum / g.Length;
-                double d = groupMean - grandMean;
+                for (int j = 0; j < g.Length; j++) groupSum += g[j] / s - c;
+                double groupOffset = groupSum / g.Length;
+                double d = groupOffset - grandOffset;
                 ssBetween += g.Length * d * d;
                 for (int j = 0; j < g.Length; j++)
                 {
-                    double e = g[j] / s - groupMean;
+                    double e = g[j] / s - c - groupOffset;
                     ssWithin += e * e;
                 }
             }
+            double grandMean = c + grandOffset;
 
             double dfB = k - 1;
             double dfW = total - k;
@@ -136,11 +140,14 @@ namespace ToolBelt.Numerics
                 f = msB / msW;
                 p = FUpperTailProbability(f, dfB, dfW);
             }
-            double s2 = s * s;
-            return new AnovaResult(f, p, dfB, dfW, ssBetween * s2, ssWithin * s2, msB * s2, msW * s2, grandMean * s);
+            return new AnovaResult(f, p, dfB, dfW, Unscale(ssBetween, s), Unscale(ssWithin, s), Unscale(msB, s), Unscale(msW, s), grandMean * s);
         }
 
         // The power of two at or below m (1 for 0): dividing by it is exact.
+        // A sum of squares back in the data's units: zero stays zero (0 · s² was NaN once s² overflowed, for data near
+        // 1e308), and s is applied twice so a small sum is not lost to an s² that alone over- or underflows.
+        private static double Unscale(double v, double s) => v == 0 ? 0 : v * s * s;
+
         private static double Pow2Scale(double m)
         {
             if (m == 0 || double.IsInfinity(m)) return 1;

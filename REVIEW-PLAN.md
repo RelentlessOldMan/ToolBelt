@@ -43,7 +43,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 2 | 9 / 25 | re-queue (9 bugs) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 3 | 13 / 60 | re-queue (13 bugs, 1 severe) |
-| 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 2 | 22 / 53 | re-queue (22 bugs) |
+| 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 3 | 25 / 78 | re-queue (25 bugs, 1 severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 3 | 24 / 95 | re-queue (24 bugs, 2 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 3 | 21 / 82 | re-queue (21 bugs, 2 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 2 | 10 / 29 | re-queue (10 bugs) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3, 13, 16, 11, 17, 6, 1. **next: 3**
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13, 16, 11, 17, 6, 1. **next: 13**
 
 ## Releases
 
@@ -116,6 +116,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.42.0 | 42 | Concurrency, third pass | 8 | (see tag) |
 | v0.43.0 | 43 | Logging, diagnostics, CLI, third pass | 18 | (see tag) |
 | v0.44.0 | 44 | Collections, third pass | 13 | (see tag) |
+| v0.45.0 | 45 | Statistics, third pass | 25 | (see tag) |
 
 ## Round log
 
@@ -1883,3 +1884,59 @@ after the fix, rather than a test.
 - **Verify:** all green (core 2907, Windows 112). Checked build: the same 7 baseline failures (the first run caught a
   `(uint)` range check that throws OverflowException when checked; replaced with plain comparisons).
 - **Re-queued:** yes (13 bugs, 1 severe).
+
+### Round 45 — 2026-10-25 — Statistics, third pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 23 with 22 bugs).
+**25 confirmed bugs, 1 severe** (24 from the reviewers, with the Uniform overflow reported by both, plus a NormalPdf
+overflow found while testing). All have regression tests in `StatisticsReview3Tests` (27 tests, all failing on the old
+code). Most came from sums and squares formed before rescaling, so they are fixed by scaling by a power of two first.
+Normal-range data are scaled by 1, so their results are bit-identical.
+
+- **MultipleRegression (severe):** a response or predictor near 1e±160 made the sums of squares and (XᵀX)⁻¹ underflow
+  or overflow. R² came out 0 or NaN, standard errors 0 or ∞, and p-values NaN. Each column and y is now scaled by its
+  largest magnitude, the fit is solved in those units, and the coefficients, errors and intervals are scaled back.
+  TheilSen's length mismatch now names y.
+- **Sums near double.MaxValue:**
+  - **OneSampleT, TwoSampleT and PairedT:** sums of values near double.MaxValue overflowed. The data are now
+    pre-scaled, and a mean difference that overflows is formed from halves. PairedT now validates second and names it.
+  - **Pearson, LinearRegression and ControlChart.Individuals:** the same overflow, fixed the same way.
+  - **ChangePoint.Cusum and DetectShift:** the same overflow, fixed the same way.
+  - **PermutationTest.Paired:** the null statistics overflowed to NaN for differences near double.MaxValue.
+- **Squares near 1e±160:**
+  - **ConfidenceInterval.ForMean, ForMeanT, ForStandardDeviation and ForVariance:** squares near 1e±160 underflowed or
+    overflowed (intervals of 0 or ∞). They are now built from a scaled standard deviation, and constant data give a
+    point interval.
+  - **ProcessCapability:** the same underflow and overflow, fixed the same way.
+  - **MeasurementAgreement.BlandAltman:** the same underflow and overflow, fixed the same way. Its length mismatch now
+    names methodB.
+- **Anova.OneWay and GaugeRR:** a sum of squares of zero times an overflowing s² gave NaN; zero now stays zero. Data on
+  a large common offset (1e9 + 0.1 …) lost their effects to rounding. The means are now offsets from the first value,
+  and F is exact again.
+- **Distributions:**
+  - **Incomplete beta (Distributions and SpecialFunctions):** at a = 1e20 both x and the branch split rounded to 1.
+    FCdf(0.5, 1e20, 1000) returned the wrong tail and FSurvival went negative. The branch is now chosen from whichever
+    of x and 1 − x is smaller.
+  - **Incomplete beta, tiny shapes:** values could step just outside [0, 1]. They are now clamped.
+  - **Incomplete gamma at a subnormal shape:** P was NaN, because 1/a overflowed. Q is now computed directly.
+  - **Subnormal degrees of freedom:** these are now rejected, because halving them loses the shape and the tails were
+    NaN.
+  - **UniformPdf and UniformCdf, NormalCdf, NormalSurvival and NormalPdf:** b − a, x − mean and sd·√(2π) overflowed for
+    bounds near ±MaxValue. Each is now formed from halves or divided in turn.
+  - **FPdf:** at large df the direct form cancelled terms of size ~df and lost about df·eps (1.6e-6 relative at df =
+    1e10). It now uses Loader's saddle-point binomial form, as R's df does.
+- **SpecialFunctions:**
+  - **Gamma:** Gamma(5) was 23.99999999999996, and exp(lnΓ) carried lnΓ's absolute error as a relative one (1.5e-13 at
+    170). It now uses the recurrence down to (1, 2], and Γ(1 + x)/x below 0.2.
+  - **Gamma reflection:** sin(π·x) rounded away x's distance from the pole, so Γ(−20.000001) was off by 3.5e-9
+    relative. A reduced SinPi now feeds Gamma and lnΓ.
+  - **Infinite shapes:** Beta(∞, b) and RegularizedBetaI with an infinite shape gave NaN. They now give the limits; both
+    shapes infinite gives NaN, as documented.
+- **DistributionFit:**
+  - **FitWeibull:** at a tiny shape, the scale's power underflowed to 0 or overflowed. It now falls back to logs.
+  - **FitExponential:** a subnormal mean threw naming a "rate" parameter the caller never passed. It now names sample.
+- **PermutationTest argument names:** these now report the right parameter (a, b, first, second).
+- **Verify:** all green (core 2934, WPF 134, WinForms 82, tooling 38). Windows was 111/112: the job-object test
+  `Job_ActiveProcessLimitAndKillOnCloseSurvive` failed once under the full run and passed three times on its own, so it
+  is a load flake. The checked build has the same 7 baseline failures. Two timing tests (async sinks, process output)
+  starved during a one-core run and pass on their own.
+- **Re-queued:** yes (25 bugs, 1 severe).
