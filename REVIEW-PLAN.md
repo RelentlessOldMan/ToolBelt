@@ -49,7 +49,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 2 | 10 / 29 | re-queue (10 bugs) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 3 | 17 / 64 | re-queue (17 bugs, 2 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 3 | 19 / 86 | re-queue (19 bugs, 4 severe) |
-| 9  | Collections | `Collections/*` | 3,400 | ~1 | 2 | 11 / 39 | re-queue (11 bugs, 1 severe) |
+| 9  | Collections | `Collections/*` | 3,400 | ~1 | 3 | 13 / 52 | re-queue (13 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 3 | 8 / 73 | re-queue (8 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 2 | 12 / 38 | re-queue (12 bugs) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 3 | 18 / 67 | re-queue (18 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9, 3, 13, 16, 11, 17, 6, 1. **next: 9**
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3, 13, 16, 11, 17, 6, 1. **next: 3**
 
 ## Releases
 
@@ -115,6 +115,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.41.0 | 41 | Windows satellite, third pass | 12 | (see tag) |
 | v0.42.0 | 42 | Concurrency, third pass | 8 | (see tag) |
 | v0.43.0 | 43 | Logging, diagnostics, CLI, third pass | 18 | (see tag) |
+| v0.44.0 | 44 | Collections, third pass | 13 | (see tag) |
 
 ## Round log
 
@@ -1844,3 +1845,41 @@ the old code). DiskSpace's invalid-character case on .NET Framework has no test,
   the Windows package. Verify now keeps each suite's full output so the next failure names it. Checked build: the same 7 baseline
   failures.
 - **Re-queued:** yes (18 bugs, 1 severe).
+
+### Round 44 — 2026-10-25 — Collections, third pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 25 with 11 bugs, 1
+severe). **13 confirmed bugs, 1 severe.** 11 have regression tests in `CollectionsReview3Tests` (14 tests, all failing
+on the old code). The Deque and heap overflows need 1-2 GB arrays, so they were confirmed with a probe, before and
+after the fix, rather than a test.
+
+- **BloomFilter and CountingBloomFilter: 2.5x to 20x the false-positive rate (severe):** the two FNV-1a hashes used for
+  double hashing had tied low bits (FNV-1a's low bits depend only on the input's low bits, and the offsets differ in
+  bit 0), so with an even bit count every item probed only odd or only even bits. At n = 1000, p = 0.001 the rate was
+  about 0.018. A murmur3 finalizer now mixes each hash, and the rate meets the target. Filters are not persisted, so
+  nothing stored is invalidated.
+- **Aggregation.Summarize:** values at or near double.MaxValue still gave a mean of ∞ and a deviation of NaN: log2 of
+  them rounds to 1024 and 2^1024 is ∞. The scale is now capped at 2^1023.
+- **Deque.PushFront:** `_head - 1 + length` overflowed int above a 2^30 capacity, threw, and left the deque broken.
+- **BinaryHeap, TopN, IndexedPriorityQueue:** SiftDown's `2 * i + 1` overflowed past 2^30 elements and indexed out of
+  range. A leaf now stops the loop before the children are computed.
+- **ReservoirSampler:** once its acceptance weight fell below 2^-53 (about 1e16 items at capacity 1), log(1 - w) was 0,
+  the skip was -∞, and every later item replaced the sample. A series keeps log(1 - w) accurate for small w. This was
+  an unconfirmed note in round 25.
+- **OrderedSet, OrderedDictionary, LruCache:** a key whose hash threw on insert left an orphan node in the order list:
+  the count said 0 while enumeration gave the key, and LruCache later evicted the orphan and went over capacity. The
+  map is now written first.
+- **BiMap:** a value whose hash threw left the key mapped with no reverse entry. The forward entry is rolled back.
+- **IndexedPriorityQueue:** a key whose hash threw left a heap slot that Dequeue later returned. The index is now
+  written first.
+- **Deque and CircularBuffer:** emptying the collection before the first MoveNext went unnoticed (the version was only
+  checked after a yield). It is now checked before each step and at the end.
+- **CartesianProduct.Of(first, second, ...):** a null argument threw ArgumentException naming "sequences". It now
+  throws ArgumentNullException naming first or second (ArgumentException naming rest for a null in rest).
+- **SamplingPlans.WeightedWithoutReplacement:** a length mismatch threw with no ParamName; it names weights.
+- **DataTableLite:** a bad column ordinal threw IndexOutOfRangeException, a bad row named "index", `Select` with a null
+  name blamed "column", and a join name collision blamed other instead of rightPrefix. All now name the right
+  parameter, with ArgumentOutOfRangeException for out-of-range indexes.
+- **Not a bug:** the reviewer's expected finite deviation for [Max, Max, -Max]; the true value, √(4/3)·Max, overflows.
+- **Verify:** all green (core 2907, Windows 112). Checked build: the same 7 baseline failures (the first run caught a
+  `(uint)` range check that throws OverflowException when checked; replaced with plain comparisons).
+- **Re-queued:** yes (13 bugs, 1 severe).

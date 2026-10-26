@@ -30,7 +30,11 @@ namespace ToolBelt.Collections
         /// </remarks>
         public static IEnumerable<T[]> Of<T>(IReadOnlyList<T> first, IReadOnlyList<T> second, params IReadOnlyList<T>[] rest)
         {
+            if (first is null) throw new ArgumentNullException(nameof(first));
+            if (second is null) throw new ArgumentNullException(nameof(second));
             if (rest is null) throw new ArgumentNullException(nameof(rest));
+            for (int i = 0; i < rest.Length; i++)
+                if (rest[i] is null) throw new ArgumentException($"Sequence at index {i} of rest is null.", nameof(rest));
             var all = new IReadOnlyList<T>[2 + rest.Length];
             all[0] = first;
             all[1] = second;

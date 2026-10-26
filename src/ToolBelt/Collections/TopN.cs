@@ -76,6 +76,7 @@ namespace ToolBelt.Collections
         {
             while (true)
             {
+                if (i >= _count / 2) break; // a leaf; 2 * i + 1 overflowed int past 2^30 elements
                 int left = 2 * i + 1, right = 2 * i + 2, smallest = i;
                 if (left < _count && _comparer.Compare(_heap[left], _heap[smallest]) < 0) smallest = left;
                 if (right < _count && _comparer.Compare(_heap[right], _heap[smallest]) < 0) smallest = right;

@@ -24,7 +24,9 @@ namespace ToolBelt.Collections
             if (item is null) throw new ArgumentNullException(nameof(item));
             if (_map.ContainsKey(item))
                 return false;
-            _map[item] = _order.AddLast(item);
+            var node = new LinkedListNode<T>(item);
+            _map[item] = node; // first: a hash that throws must leave no orphan node in the order
+            _order.AddLast(node);
             return true;
         }
 

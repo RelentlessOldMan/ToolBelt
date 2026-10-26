@@ -98,6 +98,7 @@ namespace ToolBelt.Collections
             int n = _items.Count;
             while (true)
             {
+                if (i >= n / 2) break; // a leaf; 2 * i + 1 overflowed int past 2^30 elements
                 int left = 2 * i + 1;
                 int right = 2 * i + 2;
                 int best = i;

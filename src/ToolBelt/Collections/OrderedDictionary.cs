@@ -27,7 +27,7 @@ namespace ToolBelt.Collections
             ThrowIfKeyNull(key);
             if (_map.ContainsKey(key))
                 throw new ArgumentException($"An entry with key '{key}' already exists.", nameof(key));
-            _map[key] = _order.AddLast(new KeyValuePair<TKey, TValue>(key, value));
+            Append(key, value);
         }
 
         /// <summary>Gets or sets a value. The setter updates in place (keeping position) or appends a new entry.</summary>
@@ -46,8 +46,16 @@ namespace ToolBelt.Collections
                 if (_map.TryGetValue(key, out var node))
                     node.Value = new KeyValuePair<TKey, TValue>(key, value); // keep order position
                 else
-                    _map[key] = _order.AddLast(new KeyValuePair<TKey, TValue>(key, value));
+                    Append(key, value);
             }
+        }
+
+        // The map first: a key whose hash throws must leave no orphan node in the order.
+        private void Append(TKey key, TValue value)
+        {
+            var node = new LinkedListNode<KeyValuePair<TKey, TValue>>(new KeyValuePair<TKey, TValue>(key, value));
+            _map[key] = node;
+            _order.AddLast(node);
         }
 
         public bool TryGetValue(TKey key, out TValue value)

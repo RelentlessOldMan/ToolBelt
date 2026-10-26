@@ -677,6 +677,7 @@ tests/
       CombinatoricsTests.cs
       CollectionsReviewTests.cs (review round 9 regressions: deep tries/permutations, sketch hashing, enumerator versions, huge capacities)
       CollectionsReview2Tests.cs (second-pass regressions: pool return race, throwing comparers, overflow-safe sums and counts)
+      CollectionsReview3Tests.cs (third-pass regressions: Bloom hash mixing, sums at double.MaxValue, throwing hashes, enumerator checks, argument names)
       CounterTests.cs
       CountMinSketchTests.cs
       DataTableLiteTests.cs

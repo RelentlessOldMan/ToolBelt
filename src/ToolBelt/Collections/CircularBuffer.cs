@@ -102,11 +102,13 @@ namespace ToolBelt.Collections
 
         private IEnumerator<T> Enumerate(int version)
         {
-            for (int i = 0; i < _count; i++)
+            // The check comes before each step and after the last, so emptying the buffer before the first MoveNext throws too.
+            for (int i = 0; ; i++)
             {
-                yield return _buffer[Slot(i)];
                 if (version != _version)
                     throw new InvalidOperationException("The buffer was modified during enumeration.");
+                if (i >= _count) yield break;
+                yield return _buffer[Slot(i)];
             }
         }
 

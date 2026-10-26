@@ -70,8 +70,8 @@ namespace ToolBelt.Collections
             }
 
             var fresh = new LinkedListNode<Entry>(new Entry(key, value));
+            _map[key] = fresh; // first: a key whose hash throws must leave no orphan node to be evicted later
             _order.AddFirst(fresh);
-            _map[key] = fresh;
 
             if (_map.Count > _capacity)
             {

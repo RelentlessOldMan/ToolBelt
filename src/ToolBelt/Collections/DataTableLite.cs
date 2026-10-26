@@ -81,7 +81,16 @@ namespace ToolBelt.Collections
         }
 
         /// <summary>The cell at (row, column ordinal).</summary>
-        public object? this[int row, int column] => _rows[row][column];
+        public object? this[int row, int column]
+        {
+            get
+            {
+                var cells = RowAt(row);
+                if (column < 0 || column >= cells.Length)
+                    throw new ArgumentOutOfRangeException(nameof(column), column, "Column ordinal is out of range.");
+                return cells[column];
+            }
+        }
 
         /// <summary>The cell at (row, column name).</summary>
         public object? this[int row, string column]
@@ -90,14 +99,14 @@ namespace ToolBelt.Collections
             {
                 int c = IndexOf(column);
                 if (c < 0) throw new ArgumentException($"No column named '{column}'.", nameof(column));
-                return _rows[row][c];
+                return RowAt(row)[c];
             }
         }
 
         /// <summary>Returns a copy of a row's cells.</summary>
         public object?[] GetRow(int row)
         {
-            var src = _rows[row];
+            var src = RowAt(row);
             var copy = new object?[src.Length];
             Array.Copy(src, copy, src.Length);
             return copy;
@@ -111,6 +120,7 @@ namespace ToolBelt.Collections
             var ordinals = new int[columns.Length];
             for (int i = 0; i < columns.Length; i++)
             {
+                if (columns[i] is null) throw new ArgumentException($"Column name at index {i} is null.", nameof(columns));
                 int c = IndexOf(columns[i]);
                 if (c < 0) throw new ArgumentException($"No column named '{columns[i]}'.", nameof(columns));
                 ordinals[i] = c;
@@ -237,7 +247,7 @@ namespace ToolBelt.Collections
                 string name = rightPrefix is null ? rcol : rightPrefix + rcol;
                 if (_index.ContainsKey(name) || resultColumns.Contains(name))
                     throw new ArgumentException(
-                        $"Joined column name '{name}' collides with a left column; pass a rightPrefix.", nameof(other));
+                        $"Joined column name '{name}' collides with a left column; pass a rightPrefix.", nameof(rightPrefix));
                 resultColumns.Add(name);
             }
 
@@ -300,6 +310,14 @@ namespace ToolBelt.Collections
             sb.Append('\n');
         }
 
+        // A row by index, naming row (the list's own exception named "index").
+        private object?[] RowAt(int row)
+        {
+            if (row < 0 || row >= _rows.Count)
+                throw new ArgumentOutOfRangeException(nameof(row), row, "Row index is out of range.");
+            return _rows[row];
+        }
+
         private DataTableLite CloneSchemaEmpty()
             => new DataTableLite((string[])_columns.Clone(), _index, new List<object?[]>());
 
@@ -316,7 +334,15 @@ namespace ToolBelt.Collections
             }
 
             /// <summary>Cell by ordinal.</summary>
-            public object? this[int column] => _cells[column];
+            public object? this[int column]
+            {
+                get
+                {
+                    if (column < 0 || column >= _cells.Length)
+                        throw new ArgumentOutOfRangeException(nameof(column), column, "Column ordinal is out of range.");
+                    return _cells[column];
+                }
+            }
 
             /// <summary>Cell by column name.</summary>
             public object? this[string column]

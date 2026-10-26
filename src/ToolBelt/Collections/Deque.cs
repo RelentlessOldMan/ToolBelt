@@ -39,7 +39,7 @@ namespace ToolBelt.Collections
         public void PushFront(T item)
         {
             EnsureCapacity();
-            _head = (_head - 1 + _array.Length) % _array.Length;
+            _head = _head == 0 ? _array.Length - 1 : _head - 1; // _head - 1 + length overflowed int past 2^30
             _array[_head] = item;
             _count++;
             _version++;
@@ -114,11 +114,13 @@ namespace ToolBelt.Collections
 
         private IEnumerator<T> Enumerate(int version)
         {
-            for (int i = 0; i < _count; i++)
+            // The check comes before each step and after the last, so emptying the deque before the first MoveNext throws too.
+            for (int i = 0; ; i++)
             {
-                yield return _array[Slot(i)];
                 if (version != _version)
                     throw new InvalidOperationException("The deque was modified during enumeration.");
+                if (i >= _count) yield break;
+                yield return _array[Slot(i)];
             }
         }
 

@@ -67,7 +67,10 @@ namespace ToolBelt.Collections
         // Algorithm L: skip a geometrically distributed number of items before the next replacement.
         private void ScheduleNext(long index)
         {
-            double skip = Math.Floor(Math.Log(Uniform()) / Math.Log(1 - _w));
+            // log(1 - w) is 0 once w < 2^-53 (after ~1e16 items at capacity 1), which made skip -∞ and every later
+            // item a replacement; the series keeps it accurate for small w.
+            double log1mw = _w < 1e-4 ? -_w - _w * _w / 2 - _w * _w * _w / 3 : Math.Log(1 - _w);
+            double skip = Math.Floor(Math.Log(Uniform()) / log1mw);
             _nextAccept = skip >= long.MaxValue - index - 1 || double.IsNaN(skip) ? long.MaxValue : index + 1 + (long)skip;
         }
 
@@ -94,7 +97,7 @@ namespace ToolBelt.Collections
             if (items is null) throw new ArgumentNullException(nameof(items));
             if (weights is null) throw new ArgumentNullException(nameof(weights));
             if (random is null) throw new ArgumentNullException(nameof(random));
-            if (items.Count != weights.Count) throw new ArgumentException("Items and weights must have the same length.");
+            if (items.Count != weights.Count) throw new ArgumentException("Items and weights must have the same length.", nameof(weights));
             if (count < 0) throw new ArgumentOutOfRangeException(nameof(count), count, "Count must not be negative.");
             int positive = 0;
             double max = 0;

@@ -50,10 +50,10 @@ namespace ToolBelt.Collections
             if (_indexOf.ContainsKey(key))
                 throw new ArgumentException($"Key '{key}' is already in the queue.", nameof(key));
 
+            int i = _keys.Count;
+            _indexOf[key] = i; // first: a key whose hash throws must leave no orphan heap slot
             _keys.Add(key);
             _priorities.Add(priority);
-            int i = _keys.Count - 1;
-            _indexOf[key] = i;
             SiftUp(i);
         }
 
@@ -132,6 +132,7 @@ namespace ToolBelt.Collections
             int n = _keys.Count;
             while (true)
             {
+                if (i >= n / 2) break; // a leaf; 2 * i + 1 overflowed int past 2^30 elements
                 int left = 2 * i + 1, right = 2 * i + 2, smallest = i;
                 if (left < n && _comparer.Compare(_priorities[left], _priorities[smallest]) < 0) smallest = left;
                 if (right < n && _comparer.Compare(_priorities[right], _priorities[smallest]) < 0) smallest = right;

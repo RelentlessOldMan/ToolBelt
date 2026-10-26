@@ -78,7 +78,8 @@ namespace ToolBelt.Collections
                 if ((double.IsInfinity(sum) || double.IsInfinity(variance))
                     && !double.IsNaN(min) && !double.IsInfinity(min) && !double.IsInfinity(max))
                 {
-                    int k = (int)Math.Floor(Math.Log(Math.Max(Math.Abs(min), Math.Abs(max)), 2));
+                    // Log2 of a value near double.MaxValue rounds to 1024, and 2^1024 is ∞; 2^1023 still scales exactly.
+                    int k = Math.Min(1023, (int)Math.Floor(Math.Log(Math.Max(Math.Abs(min), Math.Abs(max)), 2)));
                     double down = Math.Pow(2, -k), up = Math.Pow(2, k);
                     double scaledSum = 0;
                     foreach (double v in group) scaledSum += v * down;

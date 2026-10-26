@@ -33,7 +33,8 @@ namespace ToolBelt.Collections
                 throw new ArgumentException($"Value '{value}' is already present.", nameof(value));
 
             _forward[key] = value;
-            _backward[value] = key;
+            try { _backward[value] = key; }
+            catch { _forward.Remove(key); throw; } // a value whose hash throws must not leave a one-sided pair
         }
 
         public TValue GetByKey(TKey key)
