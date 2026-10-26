@@ -20,7 +20,9 @@ namespace ToolBelt.Process
             if (name.Length == 0) return null;
 
             bool windows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-            bool tryAsIs = !windows || Path.HasExtension(name);
+            bool tryAsIs;
+            try { tryAsIs = !windows || Path.HasExtension(name); }
+            catch (ArgumentException) { return null; } // .NET Framework checks for invalid characters here ("a|b")
 
             // A name that already includes a directory is resolved directly.
             if (name.IndexOf(Path.DirectorySeparatorChar) >= 0 || name.IndexOf(Path.AltDirectorySeparatorChar) >= 0)

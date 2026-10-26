@@ -69,7 +69,9 @@ namespace ToolBelt.Threading
 
             var exceptions = new List<Exception>();
             foreach (var t in tasks)
-                if (t.Exception != null) exceptions.Add(t.Exception.GetBaseException());
+                // The handler's own exception, as InvokeSequentialAsync reports it (RunGuarded is async: exactly one inner).
+                // GetBaseException also unwrapped an AggregateException the handler threw itself.
+                if (t.Exception != null) exceptions.Add(t.Exception.InnerException!);
                 else if (t.IsCanceled) exceptions.Add(new TaskCanceledException(t)); // as InvokeSequentialAsync reports it
             if (exceptions.Count > 0) throw new AggregateException(exceptions);
         }

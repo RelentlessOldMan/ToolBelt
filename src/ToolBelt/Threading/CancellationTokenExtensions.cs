@@ -57,9 +57,16 @@ namespace ToolBelt.Threading
             {
                 cts.CancelAfter(timeout); // throws above the runtime's limit (about 24.8 days on .NET Framework)
             }
-            catch
+            catch (ArgumentOutOfRangeException ex)
             {
                 cts.Dispose(); // don't leave it registered on the caller's token
+                // The BCL's exception named "delay", a parameter the caller never saw.
+                throw new ArgumentOutOfRangeException(nameof(timeout), timeout,
+                    "Timeout exceeds the longest this runtime can schedule (int.MaxValue milliseconds on .NET Framework). " + ex.Message);
+            }
+            catch
+            {
+                cts.Dispose();
                 throw;
             }
             return cts;

@@ -22,7 +22,7 @@ namespace ToolBelt.Process
 
         /// <summary>
         /// Text piped to the child's standard input (in the background, encoded with <see cref="Encoding"/> when set),
-        /// then the stream is closed. Null leaves stdin unused.
+        /// then the stream is closed. Null gives the child an empty, closed stdin (it does not inherit the caller's).
         /// </summary>
         public string? StandardInput { get; set; }
 
@@ -201,7 +201,9 @@ namespace ToolBelt.Process
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                RedirectStandardInput = options.StandardInput != null,
+                // Always redirected: unredirected, the child inherited the caller's stdin, read its data, and a child that
+                // reads stdin (sort, a prompt) blocked on an interactive console until the timeout, or for good.
+                RedirectStandardInput = true,
             };
             if (options.WorkingDirectory != null) psi.WorkingDirectory = options.WorkingDirectory;
             if (options.Encoding != null) { psi.StandardOutputEncoding = options.Encoding; psi.StandardErrorEncoding = options.Encoding; }
@@ -231,6 +233,11 @@ namespace ToolBelt.Process
                 string text = options.StandardInput;
                 Encoding? encoding = options.Encoding;
                 Task.Run(() => WriteInput(stdin, text, encoding));
+            }
+            else
+            {
+                try { process.StandardInput.Close(); }
+                catch (IOException) { /* the child already exited */ }
             }
             return run;
         }

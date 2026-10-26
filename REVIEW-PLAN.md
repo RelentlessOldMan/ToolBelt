@@ -50,7 +50,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 3 | 17 / 64 | re-queue (17 bugs, 2 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 3 | 19 / 86 | re-queue (19 bugs, 4 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 2 | 11 / 39 | re-queue (11 bugs, 1 severe) |
-| 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 2 | 25 / 65 | re-queue (1 severe) |
+| 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 3 | 8 / 73 | re-queue (8 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 2 | 12 / 38 | re-queue (12 bugs) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 2 | 17 / 49 | re-queue (17 bugs, 1 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 2 | 17 / 56 | re-queue (17 bugs) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10, 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 10**
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 12**
 
 ## Releases
 
@@ -113,6 +113,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.39.0 | 39 | Signal analysis, third pass | 13 | (see tag) |
 | v0.40.0 | 40 | IO, third pass | 19 | (see tag) |
 | v0.41.0 | 41 | Windows satellite, third pass | 12 | (see tag) |
+| v0.42.0 | 42 | Concurrency, third pass | 8 | (see tag) |
 
 ## Round log
 
@@ -1773,3 +1774,33 @@ wipe itself was confirmed from .NET's source and on a scratch key.
   days threw from Thread.Sleep naming "timeout"; it is now checked up front.
 - **Verify:** all green (core 2866, Windows 112). Checked build: the same 7 baseline failures.
 - **Re-queued:** yes (12 bugs, 2 severe).
+
+### Round 42 — 2026-10-25 — Concurrency, third pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 21 with 25 bugs, 1
+severe). **8 confirmed bugs, 1 severe.** 7 have regression tests in `ConcurrencyReview3Tests` (8 tests, all failing on
+the old code). The WhichExe bug happens only on .NET Framework, and the tests run on net8.0, so it has no test; it was
+confirmed on net48.
+
+- **ProcessRunner: a child inherited the caller's stdin (severe):** stdin was redirected only when `StandardInput` was
+  set, although the doc said "Null leaves stdin unused". The child read the caller's data (`sort` printed it back). A
+  child that reads stdin blocked on an interactive console until the timeout, or for good when there was none. Stdin
+  is now always redirected, and closed at once when there is nothing to send.
+- **TokenBucketRateLimiter under-granted:** refills summed in small steps fell short by rounding. Ten 100 ms steps at
+  1/s left 0.9999999999999999 tokens, so the due token was refused, and polling every 10 ms at 10/s granted 90 a
+  second instead of 100. The compare now has a tolerance of one part in a billion.
+- **PeriodicWorker:** a delay that threw its own OperationCanceledException (the worker not disposed) stopped the loop
+  without reporting it. Only a cancellation of the worker ends the loop quietly now; any other is reported, as a
+  failing delay is.
+- **AsyncEvent:** InvokeParallelAsync unwrapped an AggregateException that a handler threw itself, so parallel and
+  sequential invokes reported the same failure differently. Both now report the handler's own exception.
+- **Jitter:** a NaN from the random source passed the range check and gave a delay of about -10.7 million days, which
+  failed far away in Task.Delay. It is now rejected naming random, as 1.0 is.
+- **RetryPolicy:** a null DelayAsync replaced the operation's exception with a NullReferenceException, and a null
+  ShouldRetry threw inside the exception filter, where the runtime swallows it, so the policy silently never retried.
+  Both are now rejected up front.
+- **CreateLinkedTimeout:** a timeout past the runtime's limit threw naming "delay", a parameter the caller never saw.
+  It now names timeout and says what the limit is.
+- **WhichExe:** on .NET Framework, a name with invalid path characters ("a|b") threw from Path.HasExtension instead of
+  returning null. It now returns null on both runtimes.
+- **Verify:** all green (core 2874, Windows 112). Checked build: the same 7 baseline failures.
+- **Re-queued:** yes (1 severe).

@@ -33,7 +33,7 @@ namespace ToolBelt.Resilience
                 throw new ArgumentNullException(nameof(random));
 
             double r = random();
-            if (r < 0 || r >= 1)
+            if (!(r >= 0 && r < 1)) // written so NaN fails too: it gave a delay of about -10.7 million days
                 throw new ArgumentOutOfRangeException(nameof(random), r, "Random source must return a value in [0, 1).");
 
             long ticks = delay.Ticks;

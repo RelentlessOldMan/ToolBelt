@@ -80,7 +80,7 @@ namespace ToolBelt.Threading
                 {
                     await _delay(_interval, ct).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) // a delay's own OCE is a failure, reported
                 {
                     break;
                 }

@@ -63,6 +63,10 @@ namespace ToolBelt.Resilience
                 throw new ArgumentOutOfRangeException(nameof(BaseDelay), BaseDelay, "BaseDelay must not be negative.");
             if (MaxDelay < TimeSpan.Zero && MaxDelay != Timeout.InfiniteTimeSpan)
                 throw new ArgumentOutOfRangeException(nameof(MaxDelay), MaxDelay, "MaxDelay must not be negative (use Timeout.InfiniteTimeSpan for no cap).");
+            // Null DelayAsync replaced the operation's exception with a NullReferenceException; null ShouldRetry threw inside
+            // the exception filter, which the runtime swallows, so it silently never retried.
+            if (DelayAsync is null) throw new ArgumentNullException(nameof(DelayAsync));
+            if (ShouldRetry is null) throw new ArgumentNullException(nameof(ShouldRetry));
         }
 
         /// <summary>Computes the delay before the retry that follows a failed attempt (1-based attempt number).</summary>

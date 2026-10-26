@@ -919,6 +919,7 @@ tests/
       ConcurrentPipelineTests.cs
       ConcurrencyReviewTests.cs (review round 10 regressions: process timeouts and callbacks, pipeline completion, worker loops, dispose races)
       ConcurrencyReview2Tests.cs (second-pass regressions: backoff, breaker generations, clock steps, hedging, dispose from onError)
+      ConcurrencyReview3Tests.cs (third-pass regressions: child stdin, token-bucket rounding, worker delay cancellation, retry policy nulls)
       KeyedLockTests.cs
       ParallelUtilsTests.cs
       PeriodicWorkerTests.cs
