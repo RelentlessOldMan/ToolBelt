@@ -144,6 +144,9 @@ namespace ToolBelt.Diagnostics
             if (probe is null) throw new ArgumentNullException(nameof(probe));
             if (failureStatus == HealthStatus.Healthy)
                 throw new ArgumentException("A failure cannot be reported as Healthy.", nameof(failureStatus));
+            // An undefined value ((HealthStatus)(-1)) ranked below Healthy, so a failing probe left the report healthy.
+            if (failureStatus != HealthStatus.Degraded && failureStatus != HealthStatus.Unhealthy)
+                throw new ArgumentOutOfRangeException(nameof(failureStatus), failureStatus, "A failure must be reported as Degraded or Unhealthy.");
             TimeSpan t = timeout ?? _defaultTimeout;
             ValidateTimeout(t, nameof(timeout));
             foreach (var existing in _probes)

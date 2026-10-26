@@ -50,7 +50,15 @@ namespace ToolBelt.Diagnostics
         public void Increment(string name, long amount = 1)
         {
             if (name is null) throw new ArgumentNullException(nameof(name));
-            lock (_gate) _counters[name] = (_counters.TryGetValue(name, out long v) ? v : 0) + amount;
+            lock (_gate)
+            {
+                long v = _counters.TryGetValue(name, out long current) ? current : 0;
+                // Saturates: long.MaxValue + 1 wrapped to long.MinValue.
+                long sum = unchecked(v + amount);
+                if (amount > 0 && sum < v) sum = long.MaxValue;
+                else if (amount < 0 && sum > v) sum = long.MinValue;
+                _counters[name] = sum;
+            }
         }
 
         /// <summary>Sets a gauge to its latest value.</summary>

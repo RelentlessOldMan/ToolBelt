@@ -137,7 +137,8 @@ namespace ToolBelt.Logging
                 bool same = _hasCurrent && logEvent.Level == _currentLevel
                     && string.Equals(logEvent.Category, _currentCategory, StringComparison.Ordinal)
                     && string.Equals(logEvent.Message, _currentMessage, StringComparison.Ordinal);
-                if (same && now - _windowStart < _window)
+                // now >= _windowStart: a wall clock stepped back (NTP, a VM resume) muted the message until it passed the old time.
+                if (same && now >= _windowStart && now - _windowStart < _window)
                 {
                     _suppressed++;
                     _lastSuppressed = logEvent;
@@ -174,8 +175,8 @@ namespace ToolBelt.Logging
 
         public void Dispose()
         {
-            lock (_gate) FlushSummary(_clock());
-            if (_ownsInner) _inner.Dispose();
+            try { lock (_gate) FlushSummary(_clock()); }
+            finally { if (_ownsInner) _inner.Dispose(); } // a throwing summary left the owned sink open
         }
     }
 }

@@ -41,9 +41,24 @@ namespace ToolBelt.Logging
             _inner = inner ?? throw new ArgumentNullException(nameof(inner));
             _ownsInner = ownsInner;
             _blocks = overflowPolicy == PipelineOverflowPolicy.Block;
+            // onError runs on the consumer thread too: marked as such, an event it logs is written straight through
+            // (queueing could wait for space only the consumer frees) and a Dispose from it does not wait for itself.
+            Action<Exception>? report = onError is null ? null : ex =>
+            {
+                AsyncLogSink? saved = t_consuming;
+                int savedDepth = t_depth;
+                t_consuming = this;
+                t_depth = 1;
+                try { onError(ex); }
+                finally
+                {
+                    t_consuming = saved;
+                    t_depth = savedDepth;
+                }
+            };
             _pipeline = new ConcurrentPipeline<LogEvent>(
                 (logEvent, _) => { Consume(logEvent); return Task.CompletedTask; },
-                capacity, overflowPolicy, onError);
+                capacity, overflowPolicy, report);
         }
 
         /// <summary>Number of events dropped due to overflow (only with a drop policy) or nested re-entry.</summary>
@@ -91,10 +106,25 @@ namespace ToolBelt.Logging
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            if (t_consuming == this)
+            {
+                // Called from the inner sink or onError on the consumer thread: waiting for the drain waited for this
+                // thread, forever. The consumer drains the rest once this call returns; the cleanup follows it.
+                Task drained;
+                try { drained = _pipeline.CompleteAsync(); }
+                catch { drained = Task.CompletedTask; }
+                drained.ContinueWith(_ => Close(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+                return;
+            }
             try { _pipeline.CompleteAsync().GetAwaiter().GetResult(); } // drain buffered events
             catch { /* best-effort drain */ }
-            _pipeline.Dispose();
-            if (_ownsInner) _inner.Dispose();
+            Close();
+        }
+
+        private void Close()
+        {
+            try { _pipeline.Dispose(); }
+            finally { if (_ownsInner) _inner.Dispose(); }
         }
     }
 }

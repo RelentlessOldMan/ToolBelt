@@ -34,7 +34,7 @@ namespace ToolBelt.Logging
         {
             if (fields is null) throw new ArgumentNullException(nameof(fields));
             if (fields.Count == 0) throw new ArgumentException("At least one field is required.", nameof(fields));
-            _fields = fields;
+            _fields = new List<LogField>(fields); // a copy: clearing the caller's list later emptied every line
             _delimiter = delimiter ?? throw new ArgumentNullException(nameof(delimiter));
             _timestampFormat = timestampFormat ?? throw new ArgumentNullException(nameof(timestampFormat));
             try { new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero).ToString(timestampFormat, CultureInfo.InvariantCulture); }
@@ -53,7 +53,7 @@ namespace ToolBelt.Logging
             for (int i = 0; i < _fields.Count; i++)
             {
                 if (i > 0) sb.Append(_delimiter);
-                sb.Append(Sanitize(FieldValue(e, _fields[i])));
+                sb.Append(Sanitize(FieldValue(e, _fields[i]), last: i == _fields.Count - 1));
             }
             return sb.ToString();
         }
@@ -72,11 +72,45 @@ namespace ToolBelt.Logging
         }
 
         // Keep each record on one line and keep fields separable: newlines and the delimiter become spaces.
-        private string Sanitize(string value)
+        private string Sanitize(string value, bool last)
         {
             value = value.Replace("\r", " ").Replace("\n", " ");
             if (_delimiter.Length > 0 && _delimiter != " ") value = value.Replace(_delimiter, " ");
+            if (!last) value = TrimOverlap(value);
             return value;
+        }
+
+        // A value whose end runs into the delimiter that follows it ("x-" then "--", "a |" then " | ") made a delimiter
+        // inside the value, and the line split one place early. Such a tail becomes spaces.
+        private string TrimOverlap(string value)
+        {
+            int n = _delimiter.Length;
+            if (n < 2 || value.Length == 0) return value;
+            var sb = new StringBuilder(value);
+            bool changed = true;
+            while (changed && sb.Length > 0)
+            {
+                changed = false;
+                for (int k = Math.Min(n - 1, sb.Length); k >= 1; k--)
+                {
+                    if (!TailRunsIntoDelimiter(sb, k)) continue;
+                    // Each step blanks or drops a character, so it ends (a space dropped: the delimiter starts with one).
+                    if (sb[sb.Length - 1] != ' ') sb[sb.Length - 1] = ' ';
+                    else sb.Length--;
+                    changed = true;
+                    break;
+                }
+            }
+            return sb.ToString();
+        }
+
+        // The last k characters plus the start of the delimiter form a whole delimiter.
+        private bool TailRunsIntoDelimiter(StringBuilder sb, int k)
+        {
+            int n = _delimiter.Length;
+            for (int i = 0; i < k; i++)
+                if (sb[sb.Length - k + i] != _delimiter[i]) return false;
+            return string.CompareOrdinal(_delimiter, k, _delimiter, 0, n - k) == 0;
         }
     }
 }

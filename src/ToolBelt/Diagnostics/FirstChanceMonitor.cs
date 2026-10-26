@@ -133,10 +133,11 @@ namespace ToolBelt.Diagnostics
                 int occurrence, suppressed;
                 lock (sig)
                 {
-                    occurrence = ++sig.Count;
+                    if (sig.Count < int.MaxValue) sig.Count++; // saturates: it wrapped negative
+                    occurrence = sig.Count;
                     if (sig.LastReported != DateTimeOffset.MinValue && now >= sig.LastReported && now - sig.LastReported < ThrottleWindow)
                     {
-                        sig.Suppressed++;
+                        if (sig.Suppressed < int.MaxValue) sig.Suppressed++;
                         return;
                     }
                     suppressed = sig.Suppressed;

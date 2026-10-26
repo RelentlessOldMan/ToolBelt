@@ -102,7 +102,8 @@ namespace ToolBelt.Logging
                     if (_transport == SyslogTransport.Udp) SendUdp(payload);
                     else SendTcp(payload);
                 }
-                catch (Exception ex) when (ex is SocketException || ex is System.IO.IOException || ex is ObjectDisposedException)
+                // ArgumentException too: a host name over 255 characters threw out of the resolve and the connect.
+                catch (Exception ex) when (ex is SocketException || ex is System.IO.IOException || ex is ObjectDisposedException || ex is ArgumentException)
                 {
                     System.Threading.Interlocked.Increment(ref _failed);
                     ResetTcp();

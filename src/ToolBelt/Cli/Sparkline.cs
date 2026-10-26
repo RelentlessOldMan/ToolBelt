@@ -33,6 +33,11 @@ namespace ToolBelt.Cli
                 }
             }
 
+            // One explicit bound past all the data: the computed one is pulled to it. A max below every value made the
+            // range negative and drew them all as the lowest block; they clamp to the max and draw at the top.
+            if (min is null && max is not null && lo > hi) lo = hi;
+            if (max is null && min is not null && hi < lo) hi = lo;
+
             var sb = new StringBuilder(values.Count);
             double range = hi - lo;
             bool halve = double.IsInfinity(range) && !double.IsInfinity(lo) && !double.IsInfinity(hi);
@@ -46,7 +51,7 @@ namespace ToolBelt.Cli
                 else if (double.IsNegativeInfinity(v))
                     level = 0;
                 else if (!(range > 0) || double.IsInfinity(range))
-                    level = 0; // flat (or no finite) series -> all lowest block
+                    level = range == 0 && v > hi ? Blocks.Length - 1 : 0; // flat (or no finite) series -> lowest block, unless above the max
                 else
                 {
                     double t = halve ? (v / 2 - lo / 2) / range : (v - lo) / range;

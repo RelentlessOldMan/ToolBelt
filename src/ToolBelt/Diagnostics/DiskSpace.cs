@@ -153,12 +153,14 @@ namespace ToolBelt.Diagnostics
             bool writable = IsWritable(directory);
             long available;
             if (writable)
-                available = AvailableBytes(directory);
+                available = ResolveDrive(directory, nameof(directory)).AvailableFreeSpace;
             else
             {
-                try { available = AvailableBytes(directory); }
+                try { available = ResolveDrive(directory, nameof(directory)).AvailableFreeSpace; }
                 catch (IOException) { available = 0; }                 // e.g. DriveNotFoundException
                 catch (UnauthorizedAccessException) { available = 0; }
+                // .NET Framework's GetFullPath throws for invalid characters ("C:\no<such>dir").
+                catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException) { available = 0; }
             }
             return new PreflightResult(writable, available, requiredBytes, reserveBytes);
         }
@@ -181,10 +183,11 @@ namespace ToolBelt.Diagnostics
             return (long)bytes;
         }
 
-        private static DriveInfo ResolveDrive(string path)
+        // paramName: the caller's parameter (Preflight's is "directory"), named by the exceptions thrown here.
+        private static DriveInfo ResolveDrive(string path, string paramName = "path")
         {
-            if (path is null) throw new ArgumentNullException(nameof(path));
-            if (path.Length == 0) throw new ArgumentException("Path must not be empty.", nameof(path));
+            if (path is null) throw new ArgumentNullException(paramName);
+            if (path.Length == 0) throw new ArgumentException("Path must not be empty.", paramName);
             string full = Path.GetFullPath(path);
 
             // Longest mount-point prefix wins, so nested mounts resolve to the right volume.
@@ -213,11 +216,11 @@ namespace ToolBelt.Diagnostics
 
             string? pathRoot = Path.GetPathRoot(full);
             if (string.IsNullOrEmpty(pathRoot))
-                throw new ArgumentException("Could not determine the volume for the path.", nameof(path));
+                throw new ArgumentException("Could not determine the volume for the path.", paramName);
             if (pathRoot!.StartsWith(@"\\", StringComparison.Ordinal) || pathRoot.StartsWith("//", StringComparison.Ordinal))
                 throw new ArgumentException(
                     "Disk space for UNC and device paths (\\\\server\\share, \\\\?\\...) is not available; map a drive letter instead: " + path,
-                    nameof(path));
+                    paramName);
             return new DriveInfo(pathRoot);
         }
 

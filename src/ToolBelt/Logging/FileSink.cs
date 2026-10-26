@@ -30,7 +30,10 @@ namespace ToolBelt.Logging
         /// </summary>
         public FileSink(string path, Func<LogEvent, string>? formatter = null, long maxBytes = 0, int maxFiles = 5, Encoding? encoding = null)
         {
-            _path = path ?? throw new ArgumentNullException(nameof(path));
+            if (path is null) throw new ArgumentNullException(nameof(path));
+            // Resolved once: a relative path re-resolved on every reopen moved the log (and lost its rotation) when the
+            // current directory changed.
+            _path = Path.GetFullPath(path);
             if (maxBytes < 0) throw new ArgumentOutOfRangeException(nameof(maxBytes), maxBytes, "maxBytes must be non-negative.");
             if (maxBytes > 0 && maxFiles < 1) throw new ArgumentOutOfRangeException(nameof(maxFiles), maxFiles, "maxFiles must be at least 1 when rotation is enabled.");
             _formatter = formatter ?? LogFormatters.Plain;

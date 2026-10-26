@@ -66,7 +66,7 @@ namespace ToolBelt.Logging
         {
             if (capacity < 1) throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity must be positive.");
             _capacity = capacity;
-            _events = new Queue<LogEvent>(capacity);
+            _events = new Queue<LogEvent>(Math.Min(capacity, 1024)); // grows as needed: the full capacity was allocated up front
         }
 
         public void Emit(LogEvent logEvent)

@@ -123,18 +123,28 @@ namespace ToolBelt.Diagnostics
         public static bool IsTransient(Exception exception)
         {
             if (exception is null) throw new ArgumentNullException(nameof(exception));
+            // Every member is looked at: returning on the first one made (FileNotFound, Timeout) and (Timeout,
+            // FileNotFound) answer differently. A failure a retry cannot fix anywhere in it makes it not transient.
+            bool transient = false;
             foreach (Exception e in Flatten(exception))
             {
                 if (e is OperationCanceledException) continue; // cancellation is not a transient fault
-                if (e is TimeoutException) return true;
-                if (e is System.IO.IOException) return !IsPermanentIo(e);
-                string typeName = e.GetType().FullName ?? string.Empty;
-                if (typeName == "System.Net.Sockets.SocketException"
-                    || typeName == "System.Net.Http.HttpRequestException"
-                    || typeName == "System.Net.WebException")
-                    return true;
+                if (e is TimeoutException) transient = true;
+                else if (e is System.IO.IOException)
+                {
+                    if (IsPermanentIo(e)) return false;
+                    transient = true;
+                }
+                else
+                {
+                    string typeName = e.GetType().FullName ?? string.Empty;
+                    if (typeName == "System.Net.Sockets.SocketException"
+                        || typeName == "System.Net.Http.HttpRequestException"
+                        || typeName == "System.Net.WebException")
+                        transient = true;
+                }
             }
-            return false;
+            return transient;
         }
 
         private static bool IsPermanentIo(Exception e)

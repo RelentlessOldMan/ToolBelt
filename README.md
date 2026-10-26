@@ -1001,6 +1001,7 @@ tests/
       SyslogAndFirstChanceTests.cs (real UDP/TCP loopback collectors, reconnect)
       LoggingReviewTests.cs (round 12 review regressions: Logging, Diagnostics, Cli)
       LoggingReview2Tests.cs (second-pass regressions: async sink cross-deadlock, syslog BOM and facility range, stack trace layout, metrics rounding, rotation with huge maxFiles, decorator failures)
+      LoggingReview3Tests.cs (third-pass regressions: async sink self-dispose, clock steps, wrapped exit codes, counter saturation, delimiter overlap)
   ToolBelt.Windows.Tests/   Windows-only integration tests for the platform satellite (net8.0-windows)
     PowerStatusTests.cs
     SingleInstanceTests.cs

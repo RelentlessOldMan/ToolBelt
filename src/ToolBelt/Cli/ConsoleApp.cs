@@ -88,19 +88,23 @@ namespace ToolBelt.Cli
                 TryWrite(err, "Cancelled.");
                 return ExitCodes.Interrupted;
             }
-            catch (ExitException ex)
+            catch (Exception thrown)
             {
-                if (!string.IsNullOrEmpty(ex.Message)) TryWrite(err, ex.Message);
-                return ex.ExitCode;
-            }
-            catch (ArgumentException ex)
-            {
-                TryWrite(err, "error: " + ex.Message);
-                return ExitCodes.Usage;
-            }
-            catch (Exception ex)
-            {
-                TryWrite(err, verbose ? "error: " + ex : $"error: {ex.Message} ({ex.GetType().Name})");
+                // Classified by what the body threw: one wrapped by Task.Wait or .Result (an AggregateException with a
+                // single inner) was reported as 70 even for an ExitException or ArgumentException.
+                Exception ex = Unwrap(thrown);
+                if (ex is ExitException exit)
+                {
+                    string message = Text(exit, () => exit.Message);
+                    if (message.Length > 0) TryWrite(err, message);
+                    return exit.ExitCode;
+                }
+                if (ex is ArgumentException)
+                {
+                    TryWrite(err, "error: " + Text(ex, () => ex.Message));
+                    return ExitCodes.Usage;
+                }
+                TryWrite(err, verbose ? "error: " + Text(ex, ex.ToString) : $"error: {Text(ex, () => ex.Message)} ({ex.GetType().Name})");
                 return ExitCodes.Software;
             }
             finally
@@ -113,7 +117,24 @@ namespace ToolBelt.Cli
         private static void TryWrite(TextWriter err, string line)
         {
             try { err.WriteLine(line); }
-            catch (Exception ex) when (ex is IOException || ex is ObjectDisposedException) { }
+            catch (Exception) { /* any failure: the exit code still has to come back */ }
+        }
+
+        private static Exception Unwrap(Exception ex)
+        {
+            if (ex is AggregateException agg)
+            {
+                var inner = agg.Flatten().InnerExceptions;
+                if (inner.Count == 1) return inner[0];
+            }
+            return ex;
+        }
+
+        // An exception whose Message or ToString throws escaped RunAsync, and the exit code was lost.
+        private static string Text(Exception ex, Func<string?> read)
+        {
+            try { return read() ?? string.Empty; }
+            catch (Exception) { return "<" + ex.GetType().Name + ": the message could not be read>"; }
         }
 
                 private static bool IsCancellation(Exception ex)

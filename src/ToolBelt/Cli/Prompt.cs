@@ -40,6 +40,7 @@ namespace ToolBelt.Cli
         /// <summary>Yes/no. Accepts y/yes/n/no (any case); an empty answer takes the default.</summary>
         public bool Confirm(string question, bool? defaultValue = null)
         {
+            if (question is null) throw new ArgumentNullException(nameof(question)); // the hint was appended to null
             string hint = defaultValue switch { true => "[Y/n]", false => "[y/N]", _ => "[y/n]" };
             return Ask(question + " " + hint, defaultValue, s =>
             {
@@ -89,6 +90,7 @@ namespace ToolBelt.Cli
         /// </summary>
         public int Choose(string question, IReadOnlyList<string> options, int? defaultIndex = null)
         {
+            if (question is null) throw new ArgumentNullException(nameof(question)); // only "Choice" reached the check
             if (options is null || options.Count == 0) throw new ArgumentException("Need at least one option.", nameof(options));
             if (defaultIndex is int d && (d < 0 || d >= options.Count)) throw new ArgumentOutOfRangeException(nameof(defaultIndex));
             if (IsInteractive)
@@ -146,7 +148,7 @@ namespace ToolBelt.Cli
                 if (ok) return value;
                 _out.WriteLine(error);
             }
-            throw new InvalidOperationException($"No valid answer to \"{what}\" after {MaxAttempts} attempts.");
+            throw new InvalidOperationException($"No valid answer to \"{what}\" after {Math.Max(1, MaxAttempts)} attempts."); // as made, not as set
         }
     }
 }

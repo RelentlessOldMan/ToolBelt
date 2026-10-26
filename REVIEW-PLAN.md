@@ -52,7 +52,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 2 | 11 / 39 | re-queue (11 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 3 | 8 / 73 | re-queue (8 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 2 | 12 / 38 | re-queue (12 bugs) |
-| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 2 | 17 / 49 | re-queue (17 bugs, 1 severe) |
+| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 3 | 18 / 67 | re-queue (18 bugs, 1 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 2 | 17 / 56 | re-queue (17 bugs) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 3 | 19 / 82 | re-queue (19 bugs, 3 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 3 | 12 / 73 | re-queue (12 bugs, 2 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12, 9, 3, 13, 16, 11, 17, 6, 1. **next: 12**
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9, 3, 13, 16, 11, 17, 6, 1. **next: 9**
 
 ## Releases
 
@@ -114,6 +114,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.40.0 | 40 | IO, third pass | 19 | (see tag) |
 | v0.41.0 | 41 | Windows satellite, third pass | 12 | (see tag) |
 | v0.42.0 | 42 | Concurrency, third pass | 8 | (see tag) |
+| v0.43.0 | 43 | Logging, diagnostics, CLI, third pass | 18 | (see tag) |
 
 ## Round log
 
@@ -1804,3 +1805,42 @@ confirmed on net48.
   returning null. It now returns null on both runtimes.
 - **Verify:** all green (core 2874, Windows 112). Checked build: the same 7 baseline failures.
 - **Re-queued:** yes (1 severe).
+
+### Round 43 — 2026-10-25 — Logging, diagnostics, CLI, third pass
+Reviewers: one for correctness and one for robustness, fresh to the section (re-queued from round 29 with 17 bugs, 1
+severe). **18 confirmed bugs, 1 severe.** All have regression tests in `LoggingReview3Tests` (19 tests, all failing on
+the old code). DiskSpace's invalid-character case on .NET Framework has no test, since the tests run on net8.0.
+
+- **AsyncLogSink: Dispose from the consumer deadlocked (severe):** an inner sink or onError that disposed the sink (a
+  fatal event shutting logging down) waited for the consumer thread, which was itself. Disposing from the consumer now
+  completes the queue and closes the sink after the consumer drains it, without waiting; onError runs as consumer code.
+- **RateLimitedSink:** a clock stepping back left the window "current" until the clock caught up, muting every repeat
+  for that long. A window that starts in the future is now a new window. Dispose leaked an owned inner sink when the
+  final summary threw; the inner sink is now always disposed.
+- **RollingMemorySink:** a large capacity was allocated up front; `int.MaxValue` threw OutOfMemoryException. The
+  queue now grows on demand.
+- **SyslogSink:** an over-long host name threw ArgumentException out of Emit instead of counting a failed send.
+- **HealthCheck:** an undefined failureStatus was accepted and reported as itself. Only Degraded or Unhealthy is
+  allowed.
+- **ConsoleApp:** an ExitException or ArgumentException wrapped in an AggregateException (a `.Result` in the body) exited
+  70 instead of its code or 2. An exception whose Message or ToString threw, or an error writer that threw anything but
+  IOException, replaced the exit code with a crash. All now keep the code.
+- **MetricsRegistry:** counters wrapped from long.MaxValue to negative. They now saturate (unchecked add, then clamp).
+- **FirstChanceMonitor:** a signature's count wrapped from int.MaxValue to negative. It and Suppressed now saturate.
+- **DiskSpace.Preflight:** a bad path threw naming "path", a parameter the caller never saw. It now names directory.
+- **Prompt:** Confirm and Choose threw NullReferenceException for a null question. MaxAttempts below 1 said "after 0
+  attempts" when one was made.
+- **FileSink:** a relative path followed the current directory, so rotation after a directory change wrote and moved
+  files in the new directory. The path is now fixed when the sink is created.
+- **StructuredTextFormatter:** a value whose end ran into the following delimiter ("x-" then "--") formed a delimiter
+  and the line split one place early. Such a tail is now blanked. The fields list was kept by reference, so clearing
+  the caller's list emptied every line; it is now copied.
+- **ExceptionUtils.IsTransient:** an aggregate's answer depended on member order. A permanent I/O failure in any member
+  now makes the whole non-transient.
+- **Sparkline:** a max given below the data (or a min above it) drew the wrong level; the range now collapses to the
+  given bound and values past it draw at the top or bottom.
+- **Verify:** all green (core 2893, Windows 112). One Windows test failed in 2 of about 35 full runs, both under the
+  verify script, whose output kept only the summary line, so the test is not yet named; this round changed nothing in
+  the Windows package. Verify now keeps each suite's full output so the next failure names it. Checked build: the same 7 baseline
+  failures.
+- **Re-queued:** yes (18 bugs, 1 severe).
