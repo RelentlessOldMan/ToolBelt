@@ -97,7 +97,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Send logs to a syslog server (UDP/TCP, RFC 5424) | `Logging.SyslogSink` |
 | Write to the Windows Event Log | `ToolBelt.Windows.EventLogWriter` |
 | Second app launch hands its arguments to the running one | `ToolBelt.Windows.SingleInstanceApp` |
-| Cap a child process's memory / CPU | `ToolBelt.Windows.JobObject` |
+| Cap a child process's memory / CPU; start it inside the job so nothing it starts escapes | `ToolBelt.Windows.JobObject` (`Start`) |
 | Is this drive USB / SSD? Where does Z: really point? | `ToolBelt.Windows.StorageDeviceInfo` |
 | Physical pixels on a scaled display (DPI) | `ToolBelt.Windows.DpiInfo` |
 | Temporarily enable a Windows privilege | `ToolBelt.Windows.PrivilegeScope` |
@@ -587,7 +587,7 @@ src/
     MonitorInfo.cs          attached monitors: bounds / work area / primary in physical pixels (EnumDisplayMonitors)
     RegistryUtils.cs        hive+subkey read/write/delete/enumerate helpers (default view)
     Elevation.cs            elevation / Administrator role / mandatory integrity level
-    JobObject.cs            job object grouping child processes (kill-on-close; memory / process-count / CPU-rate caps; accounting)
+    JobObject.cs            job object grouping child processes (kill-on-close; memory / process-count / CPU-rate caps; accounting; start suspended inside the job)
     WindowUtils.cs          enumerate top-level windows / foreground / find by title
     FileAssociation.cs      per-extension opener / friendly name / command / ProgID
     ShortcutUtils.cs        create & read .lnk shortcuts via COM IShellLink (fields up to the shell's 260-char limit)
@@ -839,6 +839,7 @@ tests/
       StatisticsReviewTests.cs       (review regressions: extreme tails, huge df, round-off variance, non-finite inputs, SPC)
       StatisticsReview2Tests.cs      (second-pass regressions: scale invariance at 1e±170, far-tail quantiles, lnΓ near 1 and 2)
       StatisticsReview3Tests.cs      (third-pass regressions: sums near MaxValue, regression scaling, F density at large df, Γ accuracy)
+      HugeShapeTests.cs              (round 46: incomplete beta at shapes near MaxValue and subnormal; drop-in copies agree)
       NumericsCoreReviewTests.cs     (review regressions: QR fit, cancellation-free roots, extreme magnitudes, NaN rejection, fast primes)
       NumericsCoreReview2Tests.cs    (second-pass regressions: finite overflow at ±1e308, checked arithmetic, decimal-exact rounding)
       NumericsCoreReview3Tests.cs    (third-pass regressions: LU and cubic overflow, false root convergence, tiny-scale splines and stats)
@@ -922,6 +923,7 @@ tests/
       ConcurrencyReviewTests.cs (review round 10 regressions: process timeouts and callbacks, pipeline completion, worker loops, dispose races)
       ConcurrencyReview2Tests.cs (second-pass regressions: backoff, breaker generations, clock steps, hedging, dispose from onError)
       ConcurrencyReview3Tests.cs (third-pass regressions: child stdin, token-bucket rounding, worker delay cancellation, retry policy nulls)
+      FlakeRootCauseTests.cs  (round 46: pipeline, async log sink and process readers run off the thread pool)
       KeyedLockTests.cs
       ParallelUtilsTests.cs
       PeriodicWorkerTests.cs
@@ -1012,6 +1014,7 @@ tests/
     WindowsReviewTests.cs   (round 15 review regressions: DPI, ProgID, registry, job lifetime, single instance, shortcuts, event log)
     WindowsReview2Tests.cs  (second-pass regressions: gate thread affinity, forward timeouts and takeover, registry conversion, impersonation)
     WindowsReview3Tests.cs  (third-pass regressions: hive-root delete guard, stalled-primary forward, real DPI for unaware callers, unsigned registry writes)
+    FlakeRootCauseTests.cs  (round 46: JobObject.Start keeps grandchildren in the job, refuses over the limit before running)
     DriveAndVolumeInfoTests.cs
     MonitorInfoTests.cs
     RegistryUtilsTests.cs

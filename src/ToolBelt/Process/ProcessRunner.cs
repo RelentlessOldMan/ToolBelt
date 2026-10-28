@@ -106,9 +106,10 @@ namespace ToolBelt.Process
 
     /// <summary>
     /// Runs child processes and captures their output correctly: standard output and error are read on
-    /// separate asynchronous handlers (never block-read both from one thread — the classic deadlock once a
-    /// child writes more than a pipe buffer), standard input is written in the background (so a child that
-    /// never reads it cannot stall the call), and a timeout or cancellation kills the child — the whole
+    /// separate threads (never block-read both from one thread — the classic deadlock once a child writes
+    /// more than a pipe buffer), standard input is written on another (so a child that never reads it cannot
+    /// stall the call); the three are dedicated threads, not the thread pool, so callers that block pool
+    /// threads cannot starve them, and a timeout or cancellation kills the child — the whole
     /// process tree on .NET Core 3.0+ builds, only the direct child on the netstandard2.0 build. Exact
     /// interleaving of the two streams is not guaranteed by the OS.
     /// </summary>
@@ -216,23 +217,25 @@ namespace ToolBelt.Process
 
             var run = new RunState { CommandLine = string.IsNullOrEmpty(arguments) ? fileName : fileName + " " + arguments };
             var process = new DiagnosticsProcess { StartInfo = psi, EnableRaisingEvents = true };
-            process.OutputDataReceived += (_, e) => OnLine(run, e.Data, run.Output, options.OnOutputLine, run.OutputEnd);
-            process.ErrorDataReceived += (_, e) => OnLine(run, e.Data, run.Error, options.OnErrorLine, run.ErrorEnd);
             process.Exited += (_, __) => run.ExitedSource.TrySetResult(true);
 
             run.Stopwatch = Stopwatch.StartNew();
             try { process.Start(); }
             catch { process.Dispose(); throw; }
             run.Process = process;
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
+            // Dedicated threads, not BeginOutputReadLine or Task.Run: those read and write on the thread pool, and with
+            // the pool's threads blocked (in Run, say: two Runs on a pool capped at two threads) the child filled its
+            // pipe and stalled, timing out with nothing captured.
+            StreamReader stdout = process.StandardOutput, stderr = process.StandardError;
+            StartThread(() => ReadLines(run, stdout, run.Output, options.OnOutputLine, run.OutputEnd), "ProcessRunner stdout");
+            StartThread(() => ReadLines(run, stderr, run.Error, options.OnErrorLine, run.ErrorEnd), "ProcessRunner stderr");
 
             if (options.StandardInput != null)
             {
                 StreamWriter stdin = process.StandardInput;
                 string text = options.StandardInput;
                 Encoding? encoding = options.Encoding;
-                Task.Run(() => WriteInput(stdin, text, encoding));
+                StartThread(() => WriteInput(stdin, text, encoding), "ProcessRunner stdin");
             }
             else
             {
@@ -242,15 +245,27 @@ namespace ToolBelt.Process
             return run;
         }
 
+        // Background, so a grandchild holding a pipe open cannot keep the host alive through a blocked reader.
+        private static void StartThread(Action body, string name) =>
+            new Thread(() => body()) { IsBackground = true, Name = name }.Start();
+
+        private static void ReadLines(RunState run, StreamReader reader, StringBuilder buffer, Action<string>? callback, TaskCompletionSource<bool> end)
+        {
+            try
+            {
+                string? line;
+                while ((line = reader.ReadLine()) != null) OnLine(run, line, buffer, callback);
+            }
+            catch (IOException) { /* the pipe broke */ }
+            catch (ObjectDisposedException) { /* the run already finished */ }
+            catch (Exception ex) { Interlocked.CompareExchange(ref run.CallbackError, ex, null); }   // a decoding failure, say
+            finally { end.TrySetResult(true); }
+        }
+
         // Runs on the reader threads. A throwing callback must not escape there (it would crash the host), so the
         // first such exception is kept and rethrown to the caller once the run finishes.
-        private static void OnLine(RunState run, string? line, StringBuilder buffer, Action<string>? callback, TaskCompletionSource<bool> end)
+        private static void OnLine(RunState run, string line, StringBuilder buffer, Action<string>? callback)
         {
-            if (line is null)
-            {
-                end.TrySetResult(true);
-                return;
-            }
             // Capture can fail too (OutOfMemoryException past the StringBuilder's 2 GB limit); escaping here would
             // crash the host, so it is reported the same way.
             try { lock (buffer) buffer.AppendLine(line); }

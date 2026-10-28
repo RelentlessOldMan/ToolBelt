@@ -329,6 +329,16 @@ namespace ToolBelt.Numerics
         {
             if (x <= 0) { ix = 0; ixc = 1; return; }
             if (oneMinusX <= 0) { ix = 1; ixc = 0; return; }
+            if (double.IsInfinity(a + b))
+            {
+                // a + b overflows only when the smaller shape is above ~1e292, so the spread about the mode a/(a + b),
+                // ~1/√min(a, b), is far below a double's resolution there: I is a step. x < a/(a + b) is x·b < (1 − x)·a,
+                // which cannot overflow; λ and the forms below overflowed to NaN (I_0.5(MaxValue, MaxValue)).
+                double below = x * b, above = oneMinusX * a;
+                ix = below < above ? 0 : below > above ? 1 : 0.5;
+                ixc = 1 - ix;
+                return;
+            }
             if (Math.Min(a, b) > 100)
             {
                 // Near the mode with both parameters large (TOMS 708's region for BASYM): λ = a − (a+b)x, formed on the
@@ -343,15 +353,26 @@ namespace ToolBelt.Numerics
             if (x <= 0.5 ? x < (a + 1) / (a + b + 2) : oneMinusX > (b + 1) / (a + b + 2))
             {
                 if (UseBgrat(a, b) && Bgrat(x, oneMinusX, a, b, out ix, out ixc)) return;
-                ix = Math.Exp(BetaLnFront(x, oneMinusX, a, b)) * BetaCf(x, oneMinusX, a, b) / a;
+                double front = BetaFront(x, oneMinusX, a, b, a);
+                ix = front == 0 ? 0 : front * BetaCf(x, oneMinusX, a, b);
                 ixc = 1 - ix;
             }
             else
             {
                 if (UseBgrat(b, a) && Bgrat(oneMinusX, x, b, a, out ixc, out ix)) return;
-                ixc = Math.Exp(BetaLnFront(x, oneMinusX, a, b)) * BetaCf(oneMinusX, x, b, a) / b;
+                double front = BetaFront(x, oneMinusX, a, b, b);
+                ixc = front == 0 ? 0 : front * BetaCf(oneMinusX, x, b, a);
                 ix = 1 - ixc;
             }
+        }
+
+        // x^a (1 − x)^b / (B(a, b)·s), divided inside the exponential when the factor alone would underflow: at
+        // a = b = 5e-324 it did, and I_x came out 0, not ½. When the whole underflows the tail is 0 and the continued
+        // fraction is not formed.
+        private static double BetaFront(double x, double oneMinusX, double a, double b, double s)
+        {
+            double ln = BetaLnFront(x, oneMinusX, a, b);
+            return ln < -700 ? Math.Exp(ln - Math.Log(s)) : Math.Exp(ln) / s;
         }
 
         // ln( x^a (1 − x)^b / B(a, b) ). For a, b >= 10 the three terms are each ~(a + b) and cancel to a small number, so
@@ -505,12 +526,15 @@ namespace ToolBelt.Numerics
             for (int m = 1; m <= 100000; m++)
             {
                 int m2 = 2 * m;
-                double aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+                // Each term as a product of bounded ratios ((b − m)x and (a + b + m)x are at most ~a + m on this side of
+                // the split): multiplied out first, m(b − m) and (a + m)(a + b + m) overflowed at shapes near 1e300 and
+                // the fraction became NaN (I_5e-324(2, MaxValue); F's CDF at d1 = 1e10, d2 = 1e300).
+                double aa = m / (a + m2) * ((b - m) * x / (qam + m2));
                 d = 1 + aa * d; if (Math.Abs(d) < Tiny) d = Tiny;
                 c = 1 + aa / c; if (Math.Abs(c) < Tiny) c = Tiny;
                 d = 1 / d;
                 h *= d * c;
-                aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+                aa = -(a + m) / (a + m2) * ((qab + m) * x / (qap + m2));
                 d = 1 + aa * d; if (Math.Abs(d) < Tiny) d = Tiny;
                 c = 1 + aa / c; if (Math.Abs(c) < Tiny) c = Tiny;
                 d = 1 / d;

@@ -150,9 +150,11 @@ namespace ToolBelt.Windows.Tests
                 b = Process.Start(new ProcessStartInfo("ping.exe", "127.0.0.1 -n 30") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
                 job.AssignProcess(a);
                 Check.Throws<Win32Exception>(() => job.AssignProcess(b));             // over the limit
-                Check.Equal(1, job.QueryAccounting().ActiveProcesses);
+                // Not ActiveProcesses == 1: a's console host joins the job (and counts) when it starts after a was assigned,
+                // which under load it does. That b stayed out shows instead: it survives the job.
                 job.Dispose();
                 Check.True(a.WaitForExit(10000), "kill-on-close still applies after setting other limits");
+                Check.False(b.HasExited, "the refused process was left outside the job");
             }
             finally
             {

@@ -22,6 +22,8 @@ namespace ToolBelt.Threading
     /// background consumer, with a choice of overflow policy and a count of dropped items. Generalizes the
     /// bounded-queue-plus-background-consumer pattern (the async log sink) into a reusable primitive. The
     /// capacity counts buffered items, for every policy; the item being processed doesn't take a slot.
+    /// The consumer runs on a dedicated background thread, not the thread pool: producers blocked for space (often
+    /// pool threads themselves) would otherwise leave it waiting on thread injection for every item.
     /// </summary>
     public sealed class ConcurrentPipeline<T> : IDisposable
     {
@@ -53,7 +55,10 @@ namespace ToolBelt.Threading
             _onError = onError;
             if (policy == PipelineOverflowPolicy.Block)
                 _space = new SemaphoreSlim(capacity, capacity);
-            _loop = ConsumeAsync(_cts.Token);
+            // A dedicated thread: resumed on the pool after each wait, the consumer competed with the producers it was
+            // to unblock, and a starved pool (one core, pool threads blocked in TryEnqueue) gave ~2 items a second.
+            _loop = Task.Factory.StartNew(() => Consume(_cts.Token), CancellationToken.None,
+                TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
 
         /// <summary>Number of items discarded due to overflow.</summary>
@@ -121,11 +126,11 @@ namespace ToolBelt.Threading
             await _loop.ConfigureAwait(false);
         }
 
-        private async Task ConsumeAsync(CancellationToken ct)
+        private void Consume(CancellationToken ct)
         {
             while (true)
             {
-                try { await _signal.WaitAsync(ct).ConfigureAwait(false); }
+                try { _signal.Wait(ct); }
                 catch (OperationCanceledException) { break; }
 
                 while (true)
@@ -137,7 +142,7 @@ namespace ToolBelt.Threading
                         item = _queue.Dequeue();
                     }
                     _space?.Release(); // the slot frees when the item leaves the buffer, as for the drop policies
-                    try { await _consumer(item, ct).ConfigureAwait(false); }
+                    try { _consumer(item, ct).GetAwaiter().GetResult(); }
                     catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
                     catch (Exception ex)
                     {

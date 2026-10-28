@@ -12,7 +12,9 @@ namespace ToolBelt.Windows
     /// or the owning process exits — a reliable way to prevent orphaned children even on a hard crash. A job that
     /// is never disposed stays open until the process exits: no finalizer closes it, because a garbage collection
     /// can run while its children are still wanted (after the last use of the object, not the end of its scope).
-    /// Assign a process with <see cref="AssignProcess(System.Diagnostics.Process)"/> right after starting it. Limits —
+    /// Start a process with <see cref="Start"/> to have it inside the job before it runs. <see cref="AssignProcess(System.Diagnostics.Process)"/>
+    /// after <c>Process.Start</c> (needed for redirected streams) leaves a window: a child the process starts before it is
+    /// assigned (if the caller is preempted or paused for a collection in between) is outside the job and survives it. Limits —
     /// per-process or whole-job memory caps, a process-count cap and a hard CPU-rate cap — apply to everything in the job,
     /// and <see cref="QueryAccounting"/> reports CPU time and peak memory. Setting limits from several threads is safe; do not
     /// race <see cref="Dispose"/> with other calls.
@@ -44,6 +46,59 @@ namespace ToolBelt.Windows
             }
         }
 
+        /// <summary>
+        /// Starts <paramref name="fileName"/> already inside the job: created suspended, assigned, then resumed, so nothing it
+        /// starts can escape the job. The file is found as <c>CreateProcess</c> finds it (the application directory, the
+        /// current directory, the system directories, then PATH); <paramref name="arguments"/> are passed as written. The
+        /// standard streams are not redirected; for that, use <c>Process.Start</c> and <see cref="AssignProcess(System.Diagnostics.Process)"/>.
+        /// If the job refuses the process (an active-process limit, say) it is terminated before it runs and this throws.
+        /// </summary>
+        public SystemProcess Start(string fileName, string? arguments = null, string? workingDirectory = null, bool createNoWindow = true)
+        {
+            if (fileName is null) throw new ArgumentNullException(nameof(fileName));
+            if (fileName.Length == 0 || fileName.IndexOf('"') >= 0 || fileName.IndexOf('\0') >= 0)
+                throw new ArgumentException("The file name must be non-empty and contain no quotes or NUL characters.", nameof(fileName));
+            if (arguments != null && arguments.IndexOf('\0') >= 0)
+                throw new ArgumentException("The arguments must not contain NUL characters.", nameof(arguments));
+            ThrowIfDisposed();
+            string commandLine = "\"" + fileName + "\"" + (string.IsNullOrEmpty(arguments) ? "" : " " + arguments);
+            var startup = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>() };
+            uint flags = CREATE_SUSPENDED | (createNoWindow ? CREATE_NO_WINDOW : 0);
+            if (!CreateProcess(null, new System.Text.StringBuilder(commandLine), IntPtr.Zero, IntPtr.Zero, false, flags, IntPtr.Zero,
+                    workingDirectory, ref startup, out PROCESS_INFORMATION info))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcess failed for '" + fileName + "'.");
+            try
+            {
+                if (!AssignProcessToJobObject(_handle, info.hProcess))
+                {
+                    int err = Marshal.GetLastWin32Error();
+                    TerminateProcess(info.hProcess, 1);         // still suspended: it never ran
+                    throw new Win32Exception(err, "AssignProcessToJobObject failed; the process was terminated before it ran.");
+                }
+                SystemProcess process = SystemProcess.GetProcessById(info.dwProcessId);
+                try
+                {
+                    // Opened now, while our handle keeps the id from being reused: ExitCode and WaitForExit then work even
+                    // for a process that has exited by the time the caller asks.
+                    _ = process.Handle;
+                    if (ResumeThread(info.hThread) == uint.MaxValue)
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "ResumeThread failed.");
+                }
+                catch
+                {
+                    TerminateProcess(info.hProcess, 1);
+                    process.Dispose();
+                    throw;
+                }
+                return process;
+            }
+            finally
+            {
+                CloseHandle(info.hThread);
+                CloseHandle(info.hProcess);
+            }
+        }
+
         /// <summary>Assigns a running process to the job. Throws if the process has exited or cannot be assigned.</summary>
         public void AssignProcess(SystemProcess process)
         {
@@ -71,7 +126,11 @@ namespace ToolBelt.Windows
         /// <summary>Caps the committed memory of all processes in the job together.</summary>
         public void SetJobMemoryLimit(long bytes) => SetMemoryLimit(bytes, JOB_OBJECT_LIMIT_JOB_MEMORY);
 
-        /// <summary>Limits how many processes can be in the job at once; creating one more fails.</summary>
+        /// <summary>
+        /// Limits how many processes can be in the job at once; assigning or creating one more fails. A console program's
+        /// console host (conhost.exe), started by Windows once the program runs, is created inside the job and counts in
+        /// <see cref="JobAccounting.ActiveProcesses"/>, but the limit does not refuse it: a limit of 1 can show 2.
+        /// </summary>
         public void SetActiveProcessLimit(int count)
         {
             if (count < 1) throw new ArgumentOutOfRangeException(nameof(count), count, "Must allow at least one process.");
@@ -263,6 +322,38 @@ namespace ToolBelt.Windows
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool CloseHandle(IntPtr hObject);
+
+        private const uint CREATE_SUSPENDED = 0x4, CREATE_NO_WINDOW = 0x08000000;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct STARTUPINFO
+        {
+            public int cb;
+            public string? lpReserved, lpDesktop, lpTitle;
+            public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+            public short wShowWindow, cbReserved2;
+            public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PROCESS_INFORMATION
+        {
+            public IntPtr hProcess, hThread;
+            public int dwProcessId, dwThreadId;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "CreateProcessW")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CreateProcess(string? applicationName, System.Text.StringBuilder commandLine, IntPtr processAttributes,
+            IntPtr threadAttributes, [MarshalAs(UnmanagedType.Bool)] bool inheritHandles, uint creationFlags, IntPtr environment,
+            string? currentDirectory, ref STARTUPINFO startupInfo, out PROCESS_INFORMATION processInformation);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint ResumeThread(IntPtr thread);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool TerminateProcess(IntPtr process, uint exitCode);
     }
 }
 

@@ -43,19 +43,19 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 2 | 9 / 25 | re-queue (9 bugs) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 3 | 13 / 60 | re-queue (13 bugs, 1 severe) |
-| 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 3 | 25 / 78 | re-queue (25 bugs, 1 severe) |
+| 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 3 | 25 / 82 | re-queue (25 bugs, 1 severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 3 | 24 / 95 | re-queue (24 bugs, 2 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 3 | 21 / 82 | re-queue (21 bugs, 2 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 2 | 10 / 29 | re-queue (10 bugs) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 3 | 17 / 64 | re-queue (17 bugs, 2 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 3 | 19 / 86 | re-queue (19 bugs, 4 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 3 | 13 / 52 | re-queue (13 bugs, 1 severe) |
-| 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 3 | 8 / 73 | re-queue (8 bugs, 1 severe) |
+| 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 3 | 8 / 75 | re-queue (8 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 2 | 12 / 38 | re-queue (12 bugs) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 3 | 18 / 67 | re-queue (18 bugs, 1 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 2 | 17 / 56 | re-queue (17 bugs) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 3 | 19 / 82 | re-queue (19 bugs, 3 severe) |
-| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 3 | 12 / 73 | re-queue (12 bugs, 2 severe) |
+| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 3 | 12 / 74 | re-queue (12 bugs, 2 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 2 | 17 / 38 | re-queue (17 bugs) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 2 | 12 / 36 | re-queue (12 bugs) |
 
@@ -63,7 +63,8 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13, 16, 11, 17, 6, 1. **next: 13**
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13, 16, 11, 17, 6, 1. **next: 13** (round 46 was a cross-section round on flaky-test root
+causes; its fixes are counted in the totals of 3, 10 and 15.)
 
 ## Releases
 
@@ -117,6 +118,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.43.0 | 43 | Logging, diagnostics, CLI, third pass | 18 | (see tag) |
 | v0.44.0 | 44 | Collections, third pass | 13 | (see tag) |
 | v0.45.0 | 45 | Statistics, third pass | 25 | (see tag) |
+| v0.46.0 | 46 | Flaky-test root causes; huge-shape incomplete beta | 7 | (see tag) |
 
 ## Round log
 
@@ -1940,3 +1942,44 @@ Normal-range data are scaled by 1, so their results are bit-identical.
   is a load flake. The checked build has the same 7 baseline failures. Two timing tests (async sinks, process output)
   starved during a one-core run and pass on their own.
 - **Re-queued:** yes (25 bugs, 1 severe).
+
+### Round 46: flaky-test root causes, and the huge-shape incomplete beta (v0.46.0)
+
+No review subagents this round. Three tests flaked in round 45's verify, and each one was traced to its cause rather
+than retried. A running bug list (`BUGLIST.md`) now tracks every suspected and confirmed bug until its fix is released.
+
+- **ConcurrentPipeline and AsyncLogSink (B1):** the consumer resumed on the thread pool after each wait, so producers
+  blocked for space on pool threads starved it. With the pool capped at 2 threads, 2 blocking producers moved 0 of 200
+  items in 60 s; uncapped, each item waited for thread injection. The consumer now runs on a dedicated background
+  thread (200 items in under 0.1 s). This was the "flaky" `AsyncSinks_ForwardingBothWaysDoesNotDeadlock`.
+- **ProcessRunner (B3):** output was read with `BeginOutputReadLine` and stdin written with `Task.Run`, both on the
+  pool. Two `Run`s on a pool capped at 2 threads both timed out, with 0 and 4 KB of 660 KB captured. The readers and the
+  writer are now dedicated background threads (3.2 s, all captured). This was the "flaky"
+  `HandlesLargeOutputWithoutDeadlock`.
+- **JobObject (B5):** the docs promised reliable orphan prevention, but assigning after `Process.Start` leaves a window.
+  With a 200 ms stall before `AssignProcess` (a preemption or GC pause), cmd's ping survived kill-on-close in 10 of 10
+  runs. The new `JobObject.Start` creates the process suspended, assigns it, then resumes it. A refused process
+  (over the active-process limit) is terminated before it runs. The docs now describe the window.
+- **Job test (B2):** after a refused assign, `ActiveProcesses` read 2 because a console program's conhost starts inside
+  the job and counts, even under a limit of 1. This is not a JobObject fault. The test now checks the refusal instead
+  (the refused process survives the job), and `SetActiveProcessLimit` documents the count.
+- **Incomplete beta at huge shapes (B4; Distributions, SpecialFunctions, Anova, GaugeRR):**
+  - The continued fraction multiplied m(b − m) and (a + m)(a + b + m) out before x scaled them down. Both overflowed
+    at shapes near 1e300, so `RegularizedBetaI(5e-324, 2, MaxValue)` and `FCdf(0.5, 1e10, 1e300)` were NaN. Each term
+    is now a product of bounded ratios.
+  - When a + b overflows, every λ form was NaN (`RegularizedBetaI(0.5, MaxValue, MaxValue)`). The smaller shape is
+    then above ~1e292, so I is a step at the mode, decided by x·b against (1 − x)·a.
+  - At subnormal shapes the prefix underflowed before its division by a, so `RegularizedBetaI(5e-324, 5e-324, 5e-324)`
+    was 0, not ½. It now divides inside the exponential when the prefix would underflow, and skips the fraction when
+    the whole underflows.
+  - `FQuantile(0.5, 1e10, 1e300)` was 2.5e-34 and `FQuantile(0.5, 1e300, 1e300)` was 0, both searched against NaN
+    CDFs. They are now 0.9999999999333333 and 1 − 2e-16.
+- **Stale drop-in copies (B6):** `Anova.cs` and `GaugeRR.cs` had missed round 45's incomplete gamma and beta fixes.
+  Their `BetaI(0.3, 1e-100, 1e-20)` gave 1.0000000000000173 and a negative tail, and `GammaPQ(5e-324, 0.5)` gave NaN.
+  They are synced, and a new test checks, through reflection, that all four copies give bit-identical results.
+- **Left open (B7, confirmed):** `FCdf(0.5, 5, 1e300)` is off by 1.0e-13 relative. With a small and b huge, the beta
+  prefix cancels terms of about 1700. This is next, in the differential harness.
+- **Tests:** `Threading/FlakeRootCauseTests` (3), `Numerics/HugeShapeTests` (6), and Windows `FlakeRootCauseTests`
+  (3). Each one failed on the old code; the Windows tests did not compile, since there was no `Start`.
+- **Verify:** all green (core 2943, Windows 115, WPF 134, WinForms 82, tooling 38). The checked build has the same 7
+  baseline failures. The verify scripts now use `cw run` in place of the retired low.cmd.

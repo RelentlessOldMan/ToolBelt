@@ -420,6 +420,13 @@ namespace ToolBelt.Quality
             double lnPre = LnPrefix(a, x);
             if (x < a + 1)
             {
+                if (a < 1e-300)
+                {
+                    // The series' 1/a overflows below ~5.6e-309 (P came out NaN at a = 5e-324); Q directly, P = 1 − Q.
+                    q = SmallShapeQ(a, x);
+                    p = 1 - q;
+                    return;
+                }
                 double ap = a, sum = 1.0 / a, del = sum;
                 for (int n = 0; n < 100000; n++)
                 {
@@ -431,26 +438,28 @@ namespace ToolBelt.Quality
                 p = sum * Math.Exp(lnPre);
                 if (p > 1) p = 1;
                 q = 1 - p;
-                if (a < 1 && p > 0.5)
-                {
-                    // A small shape puts P near 1, and 1 − P kept few of Q's digits (3e-8 relative at a = 5e-9). Directly:
-                    // Q = 1 − xᵃ/Γ(a + 1) − a·xᵃ/Γ(a + 1)·Σₙ₌₁ (−x)ⁿ/(n!(a + n)), the first difference by expm1.
-                    // lnΓ(1 + a) from a itself: a + 1 rounds away ~1e-16 of a, a relative 2e-8 of a shape near 5e-9.
-                    double u = a * Math.Log(x) - (a <= 0.2 ? LnGammaNearOne(a) : LnGamma(a + 1)), term = 1, s = 0;
-                    for (int n = 1; n < 200; n++)
-                    {
-                        term *= -x / n;
-                        double t = term / (a + n);
-                        s += t;
-                        if (Math.Abs(t) <= Eps * Math.Abs(s)) break;
-                    }
-                    q = -Expm1(u) - a * Math.Exp(u) * s;
-                }
+                if (a < 1 && p > 0.5) q = SmallShapeQ(a, x);
                 return;
             }
             q = Math.Exp(lnPre) * GammaCf(a, x);
             if (q > 1) q = 1;
             p = 1 - q;
+        }
+
+        // A small shape puts P near 1, and 1 − P kept few of Q's digits (3e-8 relative at a = 5e-9). Directly:
+        // Q = 1 − xᵃ/Γ(a + 1) − a·xᵃ/Γ(a + 1)·Σₙ₌₁ (−x)ⁿ/(n!(a + n)), the first difference by expm1.
+        // lnΓ(1 + a) from a itself: a + 1 rounds away ~1e-16 of a, a relative 2e-8 of a shape near 5e-9. For x < a + 1.
+        private static double SmallShapeQ(double a, double x)
+        {
+            double u = a * Math.Log(x) - (a <= 0.2 ? LnGammaNearOne(a) : LnGamma(a + 1)), term = 1, s = 0;
+            for (int n = 1; n < 200; n++)
+            {
+                term *= -x / n;
+                double t = term / (a + n);
+                s += t;
+                if (Math.Abs(t) <= Eps * Math.Abs(s)) break;
+            }
+            return -Expm1(u) - a * Math.Exp(u) * s;
         }
 
         // Continued fraction for Q(a, x) without its prefix x^a e^(−x)/Γ(a) (modified Lentz), for x >= a + 1.
@@ -537,8 +546,27 @@ namespace ToolBelt.Quality
         /// </summary>
         private static void BetaI(double x, double oneMinusX, double a, double b, out double ix, out double ixc)
         {
+            // Each value is formed in its own regime and the other as 1 − it, which can step just outside [0, 1]
+            // (1.0000000000000155 at shapes near 1e-100): clamped, since a probability is reported.
+            BetaICore(x, oneMinusX, a, b, out ix, out ixc);
+            ix = Math.Min(1, Math.Max(0, ix));
+            ixc = Math.Min(1, Math.Max(0, ixc));
+        }
+
+        private static void BetaICore(double x, double oneMinusX, double a, double b, out double ix, out double ixc)
+        {
             if (x <= 0) { ix = 0; ixc = 1; return; }
             if (oneMinusX <= 0) { ix = 1; ixc = 0; return; }
+            if (double.IsInfinity(a + b))
+            {
+                // a + b overflows only when the smaller shape is above ~1e292, so the spread about the mode a/(a + b),
+                // ~1/√min(a, b), is far below a double's resolution there: I is a step. x < a/(a + b) is x·b < (1 − x)·a,
+                // which cannot overflow; λ and the forms below overflowed to NaN (I_0.5(MaxValue, MaxValue)).
+                double below = x * b, above = oneMinusX * a;
+                ix = below < above ? 0 : below > above ? 1 : 0.5;
+                ixc = 1 - ix;
+                return;
+            }
             if (Math.Min(a, b) > 100)
             {
                 // Near the mode with both parameters large (TOMS 708's region for BASYM): λ = a − (a+b)x, formed on the
@@ -548,18 +576,31 @@ namespace ToolBelt.Quality
                 if (lambda >= 0 && lambda <= limit) { ix = Basym(a, b, lambda); ixc = 1 - ix; return; }
                 if (lambda < 0 && -lambda <= limit) { ixc = Basym(b, a, -lambda); ix = 1 - ixc; return; }
             }
-            if (x < (a + 1) / (a + b + 2))
+            // Which side of (a + 1)/(a + b + 2) x lies on, decided by whichever of x and 1 − x is the smaller: at
+            // a = 1e20 both x and the split round to 1, and the upper branch returned a negative upper tail.
+            if (x <= 0.5 ? x < (a + 1) / (a + b + 2) : oneMinusX > (b + 1) / (a + b + 2))
             {
                 if (UseBgrat(a, b) && Bgrat(x, oneMinusX, a, b, out ix, out ixc)) return;
-                ix = Math.Exp(BetaLnFront(x, oneMinusX, a, b)) * BetaCf(x, oneMinusX, a, b) / a;
+                double front = BetaFront(x, oneMinusX, a, b, a);
+                ix = front == 0 ? 0 : front * BetaCf(x, oneMinusX, a, b);
                 ixc = 1 - ix;
             }
             else
             {
                 if (UseBgrat(b, a) && Bgrat(oneMinusX, x, b, a, out ixc, out ix)) return;
-                ixc = Math.Exp(BetaLnFront(x, oneMinusX, a, b)) * BetaCf(oneMinusX, x, b, a) / b;
+                double front = BetaFront(x, oneMinusX, a, b, b);
+                ixc = front == 0 ? 0 : front * BetaCf(oneMinusX, x, b, a);
                 ix = 1 - ixc;
             }
+        }
+
+        // x^a (1 − x)^b / (B(a, b)·s), divided inside the exponential when the factor alone would underflow: at
+        // a = b = 5e-324 it did, and I_x came out 0, not ½. When the whole underflows the tail is 0 and the continued
+        // fraction is not formed.
+        private static double BetaFront(double x, double oneMinusX, double a, double b, double s)
+        {
+            double ln = BetaLnFront(x, oneMinusX, a, b);
+            return ln < -700 ? Math.Exp(ln - Math.Log(s)) : Math.Exp(ln) / s;
         }
 
         // ln( x^a (1 − x)^b / B(a, b) ). For a, b >= 10 the three terms are each ~(a + b) and cancel to a small number, so
@@ -713,12 +754,15 @@ namespace ToolBelt.Quality
             for (int m = 1; m <= 100000; m++)
             {
                 int m2 = 2 * m;
-                double aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+                // Each term as a product of bounded ratios ((b − m)x and (a + b + m)x are at most ~a + m on this side of
+                // the split): multiplied out first, m(b − m) and (a + m)(a + b + m) overflowed at shapes near 1e300 and
+                // the fraction became NaN (I_5e-324(2, MaxValue); F's CDF at d1 = 1e10, d2 = 1e300).
+                double aa = m / (a + m2) * ((b - m) * x / (qam + m2));
                 d = 1 + aa * d; if (Math.Abs(d) < Tiny) d = Tiny;
                 c = 1 + aa / c; if (Math.Abs(c) < Tiny) c = Tiny;
                 d = 1 / d;
                 h *= d * c;
-                aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+                aa = -(a + m) / (a + m2) * ((qab + m) * x / (qap + m2));
                 d = 1 + aa * d; if (Math.Abs(d) < Tiny) d = Tiny;
                 c = 1 + aa / c; if (Math.Abs(c) < Tiny) c = Tiny;
                 d = 1 / d;
