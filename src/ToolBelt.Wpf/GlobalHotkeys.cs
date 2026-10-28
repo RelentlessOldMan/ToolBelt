@@ -13,9 +13,18 @@ namespace ToolBelt.Wpf
     /// <summary>A key plus modifiers, parsed from and printed as text such as <c>"Ctrl+Alt+K"</c>.</summary>
     public readonly struct HotkeyGesture : IEquatable<HotkeyGesture>
     {
+        /// <summary>
+        /// A gesture of <paramref name="key"/> with <paramref name="modifiers"/> (Alt, Control, Shift and Windows only). The
+        /// key must be a defined, non-modifier key that can fire, the same keys <see cref="TryParse"/> accepts.
+        /// </summary>
         public HotkeyGesture(ModifierKeys modifiers, Key key)
         {
+            // Anything else printed text that did not parse back ("Ctrl+5000"), or that RegisterHotKey refused.
+            if ((modifiers & ~(ModifierKeys.Alt | ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Windows)) != 0)
+                throw new ArgumentException("Only Alt, Control, Shift and Windows can be hotkey modifiers.", nameof(modifiers));
             if (key == Key.None || IsModifierKey(key)) throw new ArgumentException("The key must be a non-modifier key.", nameof(key));
+            if (!Enum.IsDefined(typeof(Key), key) || key == Key.ImeProcessed || key == Key.DeadCharProcessed)
+                throw new ArgumentException("The key is not one a hotkey can use.", nameof(key));
             Modifiers = modifiers;
             Key = key;
         }
@@ -130,9 +139,15 @@ namespace ToolBelt.Wpf
         /// <summary>The number of hotkeys currently registered.</summary>
         public int Count => _hotkeys.Count;
 
-        /// <summary>Registers <paramref name="gesture"/>; returns an id for <see cref="Unregister"/>. Throws if it is taken.</summary>
+        /// <summary>
+        /// Registers <paramref name="gesture"/>; returns an id for <see cref="Unregister"/>. Throws
+        /// <see cref="Win32Exception"/> if another app has it, and <see cref="InvalidOperationException"/> if this instance
+        /// already does.
+        /// </summary>
         public int Register(HotkeyGesture gesture, Action callback, bool noRepeat = true)
         {
+            if (!_disposed && Holds(gesture))   // RegisterHotKey's failure blamed another application
+                throw new InvalidOperationException($"Hotkey {gesture} is already registered by this GlobalHotkeys.");
             if (!TryRegister(gesture, callback, out int id, noRepeat))
             {
                 int error = Marshal.GetLastWin32Error();
@@ -147,13 +162,21 @@ namespace ToolBelt.Wpf
         /// <summary>Convenience: <c>Register("Ctrl+Alt+K", ...)</c>.</summary>
         public int Register(string gesture, Action callback, bool noRepeat = true) => Register(HotkeyGesture.Parse(gesture), callback, noRepeat);
 
-        /// <summary>Registers <paramref name="gesture"/> if it is free. <paramref name="noRepeat"/> suppresses auto-repeat while held.</summary>
+        /// <summary>
+        /// Registers <paramref name="gesture"/> if it is free (false when another app or this instance holds it).
+        /// <paramref name="noRepeat"/> suppresses auto-repeat while held. Throws <see cref="ObjectDisposedException"/> once
+        /// the creating thread's dispatcher has shut down, since its window can no longer receive hotkeys.
+        /// </summary>
         public bool TryRegister(HotkeyGesture gesture, Action callback, out int id, bool noRepeat = true)
         {
             ThrowIfDisposed();
             _window.VerifyAccess();      // another thread's RegisterHotKey failed as if the hotkey were taken
+            // A dispatcher shutdown destroys the window: RegisterHotKey(NULL) then took a thread hotkey that never fired.
+            if (_window.IsDisposed || _window.Handle == IntPtr.Zero)
+                throw new ObjectDisposedException(nameof(GlobalHotkeys), "The hotkey window is gone: its dispatcher has shut down.");
             if (callback is null) throw new ArgumentNullException(nameof(callback));
             id = 0;
+            if (Holds(gesture)) return false;
             uint mods = (uint)gesture.Modifiers | (noRepeat ? MOD_NOREPEAT : 0); // ModifierKeys values match MOD_ALT/CONTROL/SHIFT/WIN
             uint vk = (uint)KeyInterop.VirtualKeyFromKey(gesture.Key);
             if (vk == 0) throw new ArgumentException("The gesture has no key a hotkey can use.", nameof(gesture));   // default(HotkeyGesture) registered
@@ -195,6 +218,13 @@ namespace ToolBelt.Wpf
                 handled = true;
             }
             return IntPtr.Zero;
+        }
+
+        private bool Holds(HotkeyGesture gesture)
+        {
+            foreach (var entry in _hotkeys.Values)
+                if (entry.Gesture == gesture) return true;
+            return false;
         }
 
         private void ThrowIfDisposed()

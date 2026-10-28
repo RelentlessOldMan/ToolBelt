@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using System.Windows.Interop;
 
 namespace ToolBelt.Wpf
 {
@@ -90,21 +91,21 @@ namespace ToolBelt.Wpf
         {
             var dlg = new Microsoft.Win32.OpenFileDialog { Multiselect = false };
             Apply(dlg, options);
-            return dlg.ShowDialog(_owner()) == true ? dlg.FileName : null;
+            return dlg.ShowDialog(FileDialogOwner()) == true ? dlg.FileName : null;
         }
 
         public IReadOnlyList<string>? OpenFiles(FileDialogOptions? options = null)
         {
             var dlg = new Microsoft.Win32.OpenFileDialog { Multiselect = true };
             Apply(dlg, options);
-            return dlg.ShowDialog(_owner()) == true ? dlg.FileNames : null;
+            return dlg.ShowDialog(FileDialogOwner()) == true ? dlg.FileNames : null;
         }
 
         public string? SaveFile(FileDialogOptions? options = null)
         {
             var dlg = new Microsoft.Win32.SaveFileDialog { OverwritePrompt = options?.OverwritePrompt ?? true };
             Apply(dlg, options);
-            return dlg.ShowDialog(_owner()) == true ? dlg.FileName : null;
+            return dlg.ShowDialog(FileDialogOwner()) == true ? dlg.FileName : null;
         }
 
         public string? PickFolder(string? title = null, string? initialDirectory = null)
@@ -112,7 +113,7 @@ namespace ToolBelt.Wpf
             var dlg = new Microsoft.Win32.OpenFolderDialog();
             if (title != null) dlg.Title = title;
             if (initialDirectory != null) dlg.InitialDirectory = initialDirectory;
-            return dlg.ShowDialog(_owner()) == true ? dlg.FolderName : null;
+            return dlg.ShowDialog(FileDialogOwner()) == true ? dlg.FolderName : null;
         }
 
         /// <summary>The <see cref="MessageBoxImage"/> for a <see cref="DialogIcon"/>.</summary>
@@ -132,6 +133,14 @@ namespace ToolBelt.Wpf
             return owner != null
                 ? MessageBox.Show(owner, message, title ?? string.Empty, buttons, ToMessageBoxImage(icon))
                 : MessageBox.Show(message, title ?? string.Empty, buttons, ToMessageBoxImage(icon));
+        }
+
+        // The file and folder dialogs need an owner with a window handle: a main window not yet shown (a file asked for in
+        // its constructor or at Startup), or one already closed, threw InvalidOperationException. Such a window owns nothing.
+        private Window? FileDialogOwner()
+        {
+            Window? owner = _owner();
+            return owner != null && new WindowInteropHelper(owner).Handle != IntPtr.Zero ? owner : null;
         }
 
         private static void Apply(Microsoft.Win32.FileDialog dlg, FileDialogOptions? o)

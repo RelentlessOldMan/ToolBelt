@@ -56,14 +56,14 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 3 | 16 / 72 | re-queue (16 bugs, 2 severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 3 | 19 / 82 | re-queue (19 bugs, 3 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 3 | 12 / 74 | re-queue (12 bugs, 2 severe) |
-| 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 2 | 17 / 38 | re-queue (17 bugs) |
+| 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 3 | 20 / 58 | re-queue (20 bugs) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 2 | 12 / 36 | re-queue (12 bugs) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16, 11, 17, 6, 1. **next: 16** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11, 17, 6, 1. **next: 11** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -122,6 +122,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.46.0 | 46 | Flaky-test root causes; huge-shape incomplete beta | 7 | (see tag) |
 | v0.47.0 | 47 | Incomplete beta/gamma differential harness | 4 | (see tag) |
 | v0.48.0 | 48 | Security, net, time, third pass | 16 | (see tag) |
+| v0.49.0 | 49 | WPF satellite, third pass | 20 | (see tag) |
 
 ## Round log
 
@@ -2069,3 +2070,67 @@ the checked build or on .NET Framework, where probes confirmed them.
   checks; the round 13 and 27 fixes.
 - **Checked build:** no failures (was 7).
 - **Re-queued:** yes (16 bugs, 2 severe).
+
+### Round 49: WPF satellite, third pass (v0.49.0)
+
+Reviewers: one for correctness and one for robustness, fresh to the section. The robustness reviewer also ran the
+section in an overflow-checked build. **20 confirmed bugs**, none severe. 19 have a regression test in
+`WpfReview3Tests` (17 tests, all failing on the old code). The checked-build overflow fails the existing
+`ThemeManagerTests.DefaultPalette_HasFrozenBrushesThatDiffer` when the old code is built checked.
+
+- **EnumToBooleanConverter:** a comma list such as `"Green,Blue"` parsed for an enum without `[Flags]`, so the
+  converter wrote back the undefined `(Color)3`, and `Convert` compared against it. Lists are now accepted only for
+  `[Flags]` enums.
+- **ValidationObservableObject:**
+  - `SetErrors` raised `ErrorsChanged` even when the list was unchanged, so re-validating a valid property on every
+    keystroke raised events for nothing.
+  - `HasErrors` was announced on every change, even going from one error to two. It is now raised only when it
+    flips, and `ClearAllErrors` raises it once.
+- **NumericInputBehavior:**
+  - Deletions were never checked. Delete, Backspace, Cut and the word deletions on `"10.5"` gave `"105"`, past a
+    maximum of 100. They are now checked like typing. Inside a multi-character minus sign, the whole sign is
+    removed.
+  - `-0.001` at two places was formatted as `"-0.00"`. The value is now rounded before the zero test.
+  - A negative `DecimalPlaces` allowed a separator, which `Coerce` treats as 0 places.
+- **PlotPresenter:** `PanBy`, `ZoomAt` and `ZoomAbout` accepted NaN and infinite input. This left a view that is not
+  invertible, so every later `ViewToContent` returned NaN. They now throw `ArgumentOutOfRangeException` (`delta` or
+  `viewPoint`), and a pan that would overflow is ignored.
+- **Messenger:**
+  - A value-type recipient was boxed into an orphaned box. Its registration vanished at the next GC, and it could
+    never be unregistered. It now throws `ArgumentException` (`recipient`).
+  - The docs now say delivery matches the type argument, not the runtime type.
+- **GlobalHotkeys:**
+  - The `HotkeyGesture` constructor accepted undefined modifier bits, undefined keys and `ImeProcessed`. This made
+    gestures that `Parse` would reject, and `ToString` printed `"Ctrl+5000"`. The constructor now validates as
+    `Parse` does.
+  - Registering a gesture that the same instance already holds blamed "another application" (`Win32Exception`). It
+    now throws `InvalidOperationException`, and `TryRegister` returns false.
+  - After the dispatcher shut down, `TryRegister` registered a hotkey that could never fire. It now throws
+    `ObjectDisposedException`.
+- **ThemeManager:**
+  - With `FollowSystem` on, a broken dictionary or a throwing `ThemeChanged` handler made an OS theme switch an
+    unhandled dispatcher exception. The current theme now stays, and the new `SystemThemeApplyFailed` event reports
+    the error (or `Trace` does, if there is no handler).
+  - The built-in palette threw `OverflowException` in a checked build.
+- **WpfDialogService:** an owner window not yet shown, or already closed, threw `InvalidOperationException` from
+  the file and folder dialogs. A window with no handle now owns no dialog.
+- **BindingFailureListener:** `PresentationTraceSources.Refresh()` reset every other WPF trace source (routed
+  events, animation and so on) to Off. Their levels are now saved and restored.
+- **IncrementalCollection:**
+  - When callers share one load, one caller's token cancelled the load for all of them. Now each token cancels
+    only that caller's wait, and the load is cancelled once every waiting caller has cancelled.
+  - If a loader's cancellation callback threw during `ResetAsync`, the list was left half reset: items kept and
+    `IsLoading` true for good. The reset now completes, and then the exception propagates.
+- **NotifyTaskCompletion:** a throwing `PropertyChanged` handler stopped all the remaining notifications (9 of 10
+  names were never raised) and the other handlers. Every handler now gets every name, and the exception is rethrown
+  afterwards on the synchronization context.
+- **FileDropBehavior:**
+  - The once-per-drag filter cache was keyed only on the data object. A source that refilled the same object with
+    other files got the previous verdict. The key now includes the paths, and the cache is cleared on drop and on
+    drag leave.
+  - A drop source that advertised files but failed to render them made `GetData` throw a `COMException`, which
+    escaped the drag handlers. It is now treated as no files.
+- **Checked and found correct:** the round 16 and 33 fixes; command threading; `RecordingDialogService`
+  strictness; `ValidationRules`; `BindingProxy`; the multi-value converters; the hotkey id range.
+- **Checked build:** the WPF suite in a checked build is green (151 tests). The core is unchanged this round.
+- **Re-queued:** yes (20 bugs).

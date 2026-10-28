@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows;
@@ -62,6 +64,11 @@ namespace ToolBelt.Wpf
         private static int _activeListeners;
         private static SourceLevels _originalLevel;
 
+        private static readonly PropertyInfo[] OtherSources = typeof(PresentationTraceSources)
+            .GetProperties(BindingFlags.Public | BindingFlags.Static)
+            .Where(p => p.PropertyType == typeof(TraceSource) && p.Name != nameof(PresentationTraceSources.DataBindingSource))
+            .ToArray();
+
         public BindingFailureListener()
         {
             lock (LevelGate)
@@ -73,7 +80,11 @@ namespace ToolBelt.Wpf
                     // remember the app's level first and re-apply it, adding Warning if it lacks it. (Flags, not ordering:
                     // SourceLevels.All is -1, which a "< Warning" test would wrongly "raise" to Warning.)
                     _originalLevel = source.Switch.Level;
+                    // Refresh() resets every WPF source, so the app's RoutedEventSource (and the rest) went Off for good.
+                    SourceLevels[] others = OtherSources.Select(p => ((TraceSource)p.GetValue(null)!).Switch.Level).ToArray();
                     PresentationTraceSources.Refresh();
+                    for (int i = 0; i < OtherSources.Length; i++)
+                        ((TraceSource)OtherSources[i].GetValue(null)!).Switch.Level = others[i];
                     source = PresentationTraceSources.DataBindingSource;
                     source.Switch.Level = (_originalLevel & SourceLevels.Warning) == SourceLevels.Warning ? _originalLevel : _originalLevel | SourceLevels.Warning;
                 }

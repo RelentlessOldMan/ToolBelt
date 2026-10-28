@@ -3,6 +3,7 @@ using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 
 namespace ToolBelt.Wpf
@@ -30,9 +31,11 @@ namespace ToolBelt.Wpf
     /// Attached behavior that makes a <see cref="TextBox"/> numeric:
     /// <c>&lt;TextBox tb:NumericInputBehavior.IsEnabled="True" tb:NumericInputBehavior.Minimum="0"
     /// tb:NumericInputBehavior.Maximum="100" tb:NumericInputBehavior.DecimalPlaces="1"/&gt;</c>.
-    /// Keystrokes and pastes that cannot lead to a valid number are rejected (a lone "-" or a trailing separator are
-    /// allowed mid-edit, and so is a value still below a positive minimum, since more digits may follow — but not one
-    /// already beyond a limit that more typing could only push further). Up/Down arrows and the mouse wheel (while
+    /// Keystrokes, pastes and deletions that cannot lead to a valid number are rejected (a lone "-" or a trailing separator
+    /// are allowed mid-edit, and so is a value still below a positive minimum, since more digits may follow — but not one
+    /// already beyond a limit that more typing could only push further): deleting the "." of "10.5" under a maximum of
+    /// 100 is refused. Backspace or Delete inside a multi-character minus sign removes the whole sign, and Ctrl+Backspace /
+    /// Ctrl+Delete delete to the start / end of the text. Up/Down arrows and the mouse wheel (while
     /// focused) step by <c>Step</c>, clamped; on losing focus the text is clamped, rounded and reformatted. The decimal
     /// separator comes from the TextBox's <c>Language</c> (set <c>xml:lang</c> on the window), or from the user's current
     /// culture when no Language was set anywhere — so "1,5" works on a German machine either way. An ASCII "-" is accepted
@@ -92,7 +95,7 @@ namespace ToolBelt.Wpf
             {
                 if (string.CompareOrdinal(text, i, sep, 0, sep.Length) == 0)
                 {
-                    if (sawSep || rules.DecimalPlaces == 0) return false;
+                    if (sawSep || rules.DecimalPlaces <= 0) return false;   // Coerce treats a negative count as 0
                     sawSep = true;
                     i += sep.Length;
                     continue;
@@ -210,8 +213,10 @@ namespace ToolBelt.Wpf
             box.PreviewMouseWheel -= OnPreviewMouseWheel;
             box.LostKeyboardFocus -= OnLostFocus;
             DataObject.RemovePastingHandler(box, OnPasting);
+            CommandManager.RemovePreviewExecutedHandler(box, OnPreviewExecuted);
             if ((bool)e.NewValue)
             {
+                CommandManager.AddPreviewExecutedHandler(box, OnPreviewExecuted);
                 box.PreviewTextInput += OnPreviewTextInput;
                 box.PreviewKeyDown += OnPreviewKeyDown;
                 box.PreviewMouseWheel += OnPreviewMouseWheel;
@@ -257,6 +262,50 @@ namespace ToolBelt.Wpf
             }
         }
 
+        // Deletions never reach PreviewTextInput: "10.5" with the "." deleted became "105", past a maximum of 100.
+        private static void OnPreviewExecuted(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (!(sender is TextBox box) || box.IsReadOnly) return;
+            ICommand command = e.Command;
+            bool cut = command == ApplicationCommands.Cut, back = command == EditingCommands.Backspace, del = command == EditingCommands.Delete;
+            bool prevWord = command == EditingCommands.DeletePreviousWord, nextWord = command == EditingCommands.DeleteNextWord;
+            if (!(cut || back || del || prevWord || nextWord)) return;
+            string text = box.Text ?? "";
+            int start = Math.Min(box.SelectionStart, text.Length);
+            int length = Math.Min(box.SelectionLength, text.Length - start);
+            int a = start, b = start + length;
+            if (length == 0)
+            {
+                if (cut) return;
+                if (back) { if (a == 0) return; a--; if (a > 0 && char.IsLowSurrogate(text[a]) && char.IsHighSurrogate(text[a - 1])) a--; }
+                else if (del) { if (b == text.Length) return; b++; if (b < text.Length && char.IsLowSurrogate(text[b]) && char.IsHighSurrogate(text[b - 1])) b++; }
+                else if (prevWord) a = 0;
+                else b = text.Length;
+                if (a == b) return;
+            }
+            NumericInputRules rules = RulesFor(box);
+            int defaultA = a, defaultB = b;
+            if (!cut)
+            {
+                // Part of a multi-character sign (a bidi mark plus "-") would leave a fragment no number can start with.
+                string sign = rules.Format.NegativeSign;
+                if (sign.Length > 1 && text.StartsWith(sign, StringComparison.Ordinal) && a < sign.Length)
+                {
+                    a = 0;
+                    b = Math.Max(b, sign.Length);
+                }
+            }
+            string proposed = text.Substring(0, a) + text.Substring(b);
+            if (!IsAcceptablePartial(proposed, rules)) { e.Handled = true; return; }
+            if (prevWord || nextWord || a != defaultA || b != defaultB)
+            {
+                box.Select(a, b - a);          // delete exactly the range that was checked (kept on the undo stack)
+                box.SelectedText = "";
+                box.CaretIndex = a;
+                e.Handled = true;
+            }
+        }
+
         private static void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
             if (sender is TextBox box && !box.IsReadOnly && box.IsKeyboardFocusWithin && e.Delta != 0)
@@ -298,6 +347,7 @@ namespace ToolBelt.Wpf
 
         private static string Format(double v, NumericInputRules r)
         {
+            v = Round(v, r);   // before the zero test: -0.001 at two places printed "-0.00"
             if (v == 0) v = 0; // no "-0"
             // Digits past the 15th are zeros ("F20" printed binary noise: 0.1 gave "0.10000000000000000555"), and at most
             // 99 are shown (a DecimalPlaces of a billion made losing focus throw FormatException).

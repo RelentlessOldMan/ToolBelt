@@ -19,7 +19,8 @@ namespace ToolBelt.Wpf
     /// as its recipient (or until <see cref="Unregister{TMessage}"/>/<see cref="UnregisterAll"/>).
     /// </para>
     /// <para>
-    /// Delivery is synchronous on the calling thread, matching on the exact message type, to a snapshot of the
+    /// Delivery is synchronous on the calling thread, matching the type argument exactly (not the message's runtime type:
+    /// <c>Send&lt;object&gt;("x")</c> reaches <c>object</c> handlers, not <c>string</c> ones), to a snapshot of the
     /// live registrations taken when <see cref="Send{TMessage}"/> is invoked (so handlers may register or
     /// unregister during delivery). An exception thrown by a handler propagates to the caller and stops
     /// delivery to the remaining handlers. Do not capture the recipient in a <em>different</em> long-lived
@@ -40,11 +41,13 @@ namespace ToolBelt.Wpf
         /// <summary>
         /// Registers <paramref name="handler"/> to receive messages of type <typeparamref name="TMessage"/> for as
         /// long as <paramref name="recipient"/> is alive. A recipient may register several handlers, for the same
-        /// or different message types.
+        /// or different message types. The recipient must be a reference type.
         /// </summary>
         public void Register<TMessage>(object recipient, Action<TMessage> handler)
         {
             if (recipient is null) throw new ArgumentNullException(nameof(recipient));
+            if (recipient.GetType().IsValueType)   // each call boxes it afresh: the registration could never be found again
+                throw new ArgumentException("The recipient must be a reference type; a boxed value has no identity to register.", nameof(recipient));
             if (handler is null) throw new ArgumentNullException(nameof(handler));
             lock (_gate)
             {
@@ -88,7 +91,10 @@ namespace ToolBelt.Wpf
                 return _registrations.TryGetValue(recipient, out var byType) && byType.ContainsKey(typeof(TMessage));
         }
 
-        /// <summary>Delivers <paramref name="message"/> to every live recipient's handlers for its exact type.</summary>
+        /// <summary>
+        /// Delivers <paramref name="message"/> to every live recipient's handlers for <typeparamref name="TMessage"/>
+        /// exactly — the type argument, not the message's runtime type.
+        /// </summary>
         public void Send<TMessage>(TMessage message)
         {
             var handlers = new List<Action<TMessage>>();

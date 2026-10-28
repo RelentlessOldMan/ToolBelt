@@ -119,12 +119,17 @@ namespace ToolBelt.Wpf
         /// <summary>Zooms by <paramref name="factor"/> keeping <paramref name="viewPoint"/> fixed on screen.</summary>
         public void ZoomAt(Point viewPoint, double factor) => SetView(ZoomAbout(_view, viewPoint, factor, MinZoom, MaxZoom));
 
-        /// <summary>Moves the figure by <paramref name="delta"/> device-independent pixels.</summary>
+        /// <summary>
+        /// Moves the figure by <paramref name="delta"/> device-independent pixels (which must be finite). A pan whose
+        /// offset would overflow to infinity is ignored.
+        /// </summary>
         public void PanBy(Vector delta)
         {
+            if (!double.IsFinite(delta.X) || !double.IsFinite(delta.Y))
+                throw new ArgumentOutOfRangeException(nameof(delta), delta, "The pan must be finite.");   // NaN stuck in the view
             Matrix m = _view;
             m.Translate(delta.X, delta.Y);
-            SetView(m);
+            if (IsFinite(m)) SetView(m);
         }
 
         /// <summary>Scales the figure to fit the control, centred, preserving aspect ratio.</summary>
@@ -158,19 +163,26 @@ namespace ToolBelt.Wpf
         /// The view after zooming <paramref name="view"/> by <paramref name="factor"/> about <paramref name="viewPoint"/>,
         /// with the resulting scale clamped to [<paramref name="minZoom"/>, <paramref name="maxZoom"/>]. The figure point
         /// under <paramref name="viewPoint"/> stays under it. A zoom that would leave the view non-invertible (WPF treats
-        /// a scale below about 5e-8 as singular) returns <paramref name="view"/> unchanged.
+        /// a scale below about 5e-8 as singular) or not finite returns <paramref name="view"/> unchanged.
+        /// <paramref name="viewPoint"/> must be finite.
         /// </summary>
         public static Matrix ZoomAbout(Matrix view, Point viewPoint, double factor, double minZoom = 0, double maxZoom = double.MaxValue)
         {
             if (!(factor > 0) || double.IsInfinity(factor)) throw new ArgumentOutOfRangeException(nameof(factor), factor, "Factor must be positive.");
+            if (!double.IsFinite(viewPoint.X) || !double.IsFinite(viewPoint.Y))
+                throw new ArgumentOutOfRangeException(nameof(viewPoint), viewPoint, "The point must be finite.");   // a NaN offset still "had an inverse"
             double current = view.M11;
             double target = Clamp(current * factor, minZoom, maxZoom);
             double f = target / current;
             if (double.IsNaN(f) || double.IsInfinity(f)) return view;
             Matrix m = view;
             m.ScaleAt(f, f, viewPoint.X, viewPoint.Y);
-            return m.HasInverse ? m : view;   // ViewToContent and panning invert the view
+            return m.HasInverse && IsFinite(m) ? m : view;   // ViewToContent and panning invert the view
         }
+
+        private static bool IsFinite(Matrix m)
+            => double.IsFinite(m.M11) && double.IsFinite(m.M12) && double.IsFinite(m.M21) && double.IsFinite(m.M22)
+            && double.IsFinite(m.OffsetX) && double.IsFinite(m.OffsetY);
 
         /// <summary>The uniform scale-and-centre transform that fits <paramref name="content"/> inside <paramref name="viewport"/>.</summary>
         public static Matrix FitMatrix(Size content, Size viewport)

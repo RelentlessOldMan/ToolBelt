@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 
@@ -35,13 +36,32 @@ namespace ToolBelt.Wpf
         /// <summary>
         /// The dropped file paths that pass the <paramref name="extensions"/> filter (case-insensitive, on the end of the
         /// name, so ".tar.gz" works; "*.*" or "*" accepts every file). With a filter, folders are excluded — even one whose name ends in a listed extension;
-        /// without one, everything in the drop is returned. Empty when the drop holds no files.
+        /// without one, everything in the drop is returned. Empty when the drop holds no files, or when its source fails to
+        /// render them.
         /// </summary>
         public static string[] GetFiles(IDataObject data, string? extensions)
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
-            if (!data.GetDataPresent(DataFormats.FileDrop) || !(data.GetData(DataFormats.FileDrop) is string[] paths))
-                return Array.Empty<string>();
+            return Filter(RawFiles(data), extensions);
+        }
+
+        // A foreign OLE drop source may advertise files and then fail to render them (DV_E_FORMATETC): the COMException
+        // escaped the drag handlers.
+        private static string[]? RawFiles(IDataObject data)
+        {
+            try { return data.GetDataPresent(DataFormats.FileDrop) ? data.GetData(DataFormats.FileDrop) as string[] : null; }
+            catch (ExternalException) { return null; }
+        }
+
+        private static bool HasFileDrop(IDataObject data)
+        {
+            try { return data.GetDataPresent(DataFormats.FileDrop); }
+            catch (ExternalException) { return false; }
+        }
+
+        private static string[] Filter(string[]? paths, string? extensions)
+        {
+            if (paths is null) return Array.Empty<string>();
             var accepted = ParseExtensions(extensions, out bool anyFile);
             if (accepted.Count == 0 && !anyFile) return paths;
             var result = new List<string>();
@@ -92,6 +112,7 @@ namespace ToolBelt.Wpf
             if (!(d is UIElement element)) return;
             element.PreviewDragEnter -= OnDragOver;
             element.PreviewDragOver -= OnDragOver;
+            element.PreviewDragLeave -= OnDragLeave;
             element.PreviewDrop -= OnDrop;
             if (!(e.NewValue is ICommand) && element.GetValue(PriorAllowDropProperty) is bool prior)
             {
@@ -104,6 +125,7 @@ namespace ToolBelt.Wpf
                 element.AllowDrop = true;
                 element.PreviewDragEnter += OnDragOver;
                 element.PreviewDragOver += OnDragOver;
+                element.PreviewDragLeave += OnDragLeave;
                 element.PreviewDrop += OnDrop;
             }
         }
@@ -111,14 +133,17 @@ namespace ToolBelt.Wpf
         private static void OnDragOver(object sender, DragEventArgs e)
         {
             if (!(sender is DependencyObject d)) return;
-            if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;      // text and other drags: leave them to the control
+            if (!HasFileDrop(e.Data)) return;      // text and other drags: leave them to the control
             ICommand? command = GetCommand(d);
             string? extensions = GetExtensions(d);
             // DragOver fires continuously while hovering, and filtering touches the disk once per file (Directory.Exists):
-            // a drag of thousands of files froze the UI for the whole drag. Filter once per drag.
+            // a drag of thousands of files froze the UI for the whole drag. Filter once per drag — keyed on the data object
+            // and its paths, since a source may refill the same object with other files between drags.
+            string[] raw = RawFiles(e.Data) ?? Array.Empty<string>();
             DragCache? c = _drag;
-            if (c is null || !c.Data.TryGetTarget(out IDataObject? cached) || !ReferenceEquals(cached, e.Data) || c.Extensions != extensions)
-                _drag = c = new DragCache(e.Data, extensions, GetFiles(e.Data, extensions));
+            if (c is null || !c.Data.TryGetTarget(out IDataObject? cached) || !ReferenceEquals(cached, e.Data)
+                || c.Extensions != extensions || !SamePaths(c.Raw, raw))
+                _drag = c = new DragCache(e.Data, raw, extensions, Filter(raw, extensions));
             e.Effects = command != null && c.Files.Length > 0 && command.CanExecute(c.Files) ? DragDropEffects.Copy : DragDropEffects.None;
             e.Handled = true;
         }
@@ -127,20 +152,35 @@ namespace ToolBelt.Wpf
 
         private sealed class DragCache
         {
-            public DragCache(IDataObject data, string? extensions, string[] files)
+            public DragCache(IDataObject data, string[] raw, string? extensions, string[] files)
             {
                 Data = new WeakReference<IDataObject>(data);
+                Raw = raw;
                 Extensions = extensions;
                 Files = files;
             }
 
             public WeakReference<IDataObject> Data { get; }
+            public string[] Raw { get; }
             public string? Extensions { get; }
             public string[] Files { get; }
         }
 
+        private static bool SamePaths(string[] a, string[] b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++)
+                if (!string.Equals(a[i], b[i], StringComparison.Ordinal)) return false;
+            return true;
+        }
+
+        // The cache held the last drag's paths for the life of the thread.
+        private static void OnDragLeave(object sender, DragEventArgs e) => _drag = null;
+
         private static void OnDrop(object sender, DragEventArgs e)
         {
+            _drag = null;
             if (!(sender is DependencyObject d)) return;
             ICommand? command = GetCommand(d);
             string[] files = GetFiles(e.Data, GetExtensions(d));

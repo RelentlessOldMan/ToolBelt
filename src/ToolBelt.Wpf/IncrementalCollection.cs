@@ -14,7 +14,9 @@ namespace ToolBelt.Wpf
     /// button, or a command) and the next page is fetched by the page loader and appended. A page shorter than
     /// <see cref="PageSize"/> marks the end (<see cref="HasMoreItems"/> becomes false).
     /// <para>
-    /// Concurrent calls while a page is loading share that one load instead of fetching twice. <see cref="ResetAsync"/>
+    /// Concurrent calls while a page is loading share that one load instead of fetching twice; each caller's token
+    /// cancels only that caller's wait, and the load itself is cancelled once every waiting caller has cancelled.
+    /// <see cref="ResetAsync"/>
     /// clears the list and starts over; a page still in flight from before the reset is discarded when it arrives, so
     /// stale results can never be appended to the new list. <see cref="IsLoading"/>, <see cref="HasMoreItems"/> and
     /// <see cref="LastError"/> raise <c>PropertyChanged</c> for binding (a busy indicator, a retry prompt). A failed
@@ -26,8 +28,7 @@ namespace ToolBelt.Wpf
     public sealed class IncrementalCollection<T> : ObservableCollection<T>
     {
         private readonly Func<int, int, CancellationToken, Task<IReadOnlyList<T>>> _loadPage;
-        private Task<int>? _inflight;
-        private CancellationTokenSource? _cts;
+        private LoadState? _load;
         private int _generation;
         private bool _hasMoreItems = true;
         private bool _isLoading;
@@ -67,19 +68,70 @@ namespace ToolBelt.Wpf
 
         /// <summary>
         /// Loads and appends the next page, returning how many items were added (0 when there is nothing more). If a
-        /// page is already loading, returns that load's task.
+        /// page is already loading, waits for that load instead.
         /// </summary>
         public Task<int> LoadMoreAsync(CancellationToken cancellationToken = default)
         {
-            if (_inflight != null && !_inflight.IsCompleted) return _inflight;
+            LoadState? load = _load;
+            if (load != null && !load.Task.IsCompleted)
+                return load.Cancelling ? LoadAfterAsync(load.Task, cancellationToken) : Join(load, cancellationToken);
             if (!HasMoreItems) return Task.FromResult(0);
-            // Publish the in-flight task before the loader runs: a loader that completes synchronously adds its items (and
+            // Publish the in-flight load before the loader runs: a loader that completes synchronously adds its items (and
             // raises CollectionChanged) before LoadCoreAsync returns, and a handler calling LoadMoreAsync from there must get
             // this load, not start a second one over the same offset.
             var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _inflight = tcs.Task;
-            _ = Complete(LoadCoreAsync(_generation, cancellationToken), tcs);
-            return tcs.Task;
+            load = new LoadState(tcs.Task);
+            _load = load;
+            Task<int> mine = Join(load, cancellationToken);
+            _ = Complete(LoadCoreAsync(_generation, load), tcs);
+            return mine;
+        }
+
+        // One load, shared by every caller waiting on it. A caller's token used to cancel the load under all of them.
+        private sealed class LoadState
+        {
+            public LoadState(Task<int> task) => Task = task;
+            public readonly Task<int> Task;
+            public readonly CancellationTokenSource Cts = new CancellationTokenSource();
+            public int Waiters;
+            private int _cancelling;
+            public bool Cancelling => Volatile.Read(ref _cancelling) != 0;
+            public void Cancel() { Volatile.Write(ref _cancelling, 1); Cts.Cancel(); }
+        }
+
+        private static Task<int> Join(LoadState load, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref load.Waiters);
+            if (!cancellationToken.CanBeCanceled) return load.Task;   // this waiter never leaves, so the load is never cancelled
+            var mine = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            CancellationTokenRegistration registration = cancellationToken.Register(() =>
+            {
+                // The last waiter cancels the load and keeps following it (it ends cancelled, unless the loader ignores
+                // the token); the others just stop waiting.
+                if (Interlocked.Decrement(ref load.Waiters) == 0) load.Cancel();
+                else mine.TrySetCanceled(cancellationToken);
+            });
+            load.Task.ContinueWith(t =>
+            {
+                registration.Dispose();
+                if (t.IsFaulted) mine.TrySetException(t.Exception!.InnerExceptions);
+                else if (t.IsCanceled)
+                {
+                    try { t.GetAwaiter().GetResult(); }
+                    catch (OperationCanceledException oce) { mine.TrySetCanceled(oce.CancellationToken); }
+                }
+                else mine.TrySetResult(t.Result);
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return mine.Task;
+        }
+
+        // A load every waiter has abandoned is winding down: a new caller waits for it, then loads afresh.
+        private async Task<int> LoadAfterAsync(Task<int> cancelling, CancellationToken cancellationToken)
+        {
+            try { await cancelling.ConfigureAwait(true); }
+            catch (Exception) { }   // its own waiters see its outcome
+            cancellationToken.ThrowIfCancellationRequested();
+            return await LoadMoreAsync(cancellationToken).ConfigureAwait(true);
         }
 
         private static async Task Complete(Task<int> load, TaskCompletionSource<int> tcs)
@@ -89,23 +141,26 @@ namespace ToolBelt.Wpf
             catch (Exception ex) { tcs.TrySetException(ex); }
         }
 
-        /// <summary>Discards everything (including any page in flight) and loads the first page again.</summary>
+        /// <summary>
+        /// Discards everything (including any page in flight) and loads the first page again. If cancelling the old load
+        /// throws (a loader's cancellation callback threw), the list is still reset and the exception propagates.
+        /// </summary>
         public Task<int> ResetAsync(CancellationToken cancellationToken = default)
         {
             _generation++;
-            _cts?.Cancel();
-            _inflight = null;
+            LoadState? old = _load;
+            _load = null;
             ClearItems();
             HasMoreItems = true;
             IsLoading = false;
             LastError = null;
+            old?.Cancel();   // last: a throwing token callback left the list uncleared and IsLoading true for good
             return LoadMoreAsync(cancellationToken);
         }
 
-        private async Task<int> LoadCoreAsync(int generation, CancellationToken cancellationToken)
+        private async Task<int> LoadCoreAsync(int generation, LoadState load)
         {
-            var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            _cts = cts;
+            CancellationTokenSource cts = load.Cts;
             IsLoading = true;
             try
             {
@@ -138,9 +193,7 @@ namespace ToolBelt.Wpf
             }
             finally
             {
-                if (generation == _generation) IsLoading = false;
-                if (ReferenceEquals(_cts, cts)) _cts = null;
-                cts.Dispose();
+                if (generation == _generation) IsLoading = false;   // the token source is not disposed: late cancels must not throw
             }
         }
 

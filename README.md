@@ -617,9 +617,9 @@ src/
     DialogService.cs        IDialogService + WPF impl (MessageBox/file/folder) + strict RecordingDialogService fake
     IncrementalCollection.cs  page-at-a-time ObservableCollection (coalesced loads, stale-page-safe reset)
     FileDropBehavior.cs     attached: dropped files -> ICommand, extension filter, correct drag-over effects
-    NumericInputBehavior.cs attached: numeric TextBox (min/max/decimals, culture-aware, arrows/wheel step)
+    NumericInputBehavior.cs attached: numeric TextBox (min/max/decimals, culture-aware, arrows/wheel step, checked typing/paste/delete)
     GlobalHotkeys.cs        system-wide RegisterHotKey on a message-only window + HotkeyGesture parse/format
-    ThemeManager.cs         light/dark ResourceDictionary swap in place + Windows app-mode probe/follow + palette
+    ThemeManager.cs         light/dark ResourceDictionary swap in place + Windows app-mode probe/follow (SystemThemeApplyFailed) + palette
     PlotPresenter.cs        zoom/pan/fit ImageSource viewer (crisp pixels) + RGBA->BitmapSource bridge
   ToolBelt.WinForms/        WinForms UI satellite (net8.0-windows) — forms helpers
     ControlExtensions.cs    InvokeIfRequired / BeginInvokeIfRequired UI-thread marshalling
@@ -1052,6 +1052,7 @@ tests/
     PlotPresenterTests.cs
     WpfReviewTests.cs       (round 16 review regressions: command threading, numeric input, paging reset, regex timeouts, converters)
     WpfReview2Tests.cs      (round 33 review regressions: numeric clamping, hotkey threading, theme adoption, drag filtering, validation)
+    WpfReview3Tests.cs      (round 49 review regressions: numeric deletions, shared-load cancellation, theme follow failures, hotkey gestures)
     UiReviewRegressionTests.cs  (2026-10-05 review regressions: WPF satellite)
   ToolBelt.WinForms.Tests/  WinForms UI satellite tests (net8.0-windows)
     ControlExtensionsTests.cs

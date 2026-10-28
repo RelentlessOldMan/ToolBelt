@@ -98,12 +98,14 @@ namespace ToolBelt.Wpf
             return parameter;
         }
 
-        // Names only: Enum.TryParse also took "99", writing an undefined (DayOfWeek)99 back to the source.
+        // Names only: Enum.TryParse also took "99", writing an undefined (DayOfWeek)99 back to the source — and a
+        // comma list only for a [Flags] enum: "Green,Blue" made an undefined (Color)3.
         private static bool TryParseName(Type enumType, string name, out object? value)
         {
             value = null;
             string t = name.TrimStart();
             if (t.Length == 0 || char.IsDigit(t[0]) || t[0] == '-' || t[0] == '+') return false;
+            if (t.IndexOf(',') >= 0 && !enumType.IsDefined(typeof(FlagsAttribute), false)) return false;
             return Enum.TryParse(enumType, name, false, out value);
         }
     }

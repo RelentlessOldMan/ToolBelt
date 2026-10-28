@@ -3,6 +3,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 
 namespace ToolBelt.Wpf
@@ -53,17 +54,23 @@ namespace ToolBelt.Wpf
             return _errors.TryGetValue(propertyName!, out var errors) ? errors.ToArray() : Array.Empty<string>();
         }
 
-        /// <summary>Replaces the error list for a property (empty clears it).</summary>
+        /// <summary>
+        /// Replaces the error list for a property (empty clears it). Raises <see cref="ErrorsChanged"/> only when the list
+        /// actually changes, so re-validating a valid property on every keystroke raises nothing.
+        /// </summary>
         protected void SetErrors(string propertyName, IEnumerable<string> errors)
         {
             if (propertyName is null) throw new ArgumentNullException(nameof(propertyName));
             if (errors is null) throw new ArgumentNullException(nameof(errors));
             var list = new List<string>(errors);
+            if (_errors.TryGetValue(propertyName, out var old) ? old.SequenceEqual(list, StringComparer.Ordinal) : list.Count == 0)
+                return;
+            bool hadErrors = HasErrors;
             if (list.Count == 0)
                 _errors.Remove(propertyName);
             else
                 _errors[propertyName] = list;
-            RaiseErrorsChanged(propertyName);
+            RaiseErrorsChanged(propertyName, hadErrors);
         }
 
         /// <summary>Adds a single error for a property.</summary>
@@ -71,13 +78,14 @@ namespace ToolBelt.Wpf
         {
             if (propertyName is null) throw new ArgumentNullException(nameof(propertyName));
             if (error is null) throw new ArgumentNullException(nameof(error));
+            bool hadErrors = HasErrors;
             if (!_errors.TryGetValue(propertyName, out var list))
             {
                 list = new List<string>();
                 _errors[propertyName] = list;
             }
             list.Add(error);
-            RaiseErrorsChanged(propertyName);
+            RaiseErrorsChanged(propertyName, hadErrors);
         }
 
         /// <summary>Clears the errors for one property. Returns true if any were removed.</summary>
@@ -86,7 +94,7 @@ namespace ToolBelt.Wpf
             if (propertyName is null) throw new ArgumentNullException(nameof(propertyName));
             if (!_errors.Remove(propertyName))
                 return false;
-            RaiseErrorsChanged(propertyName);
+            RaiseErrorsChanged(propertyName, hadErrors: true);
             return true;
         }
 
@@ -98,13 +106,15 @@ namespace ToolBelt.Wpf
             var names = new List<string>(_errors.Keys);
             _errors.Clear();
             foreach (var name in names)
-                RaiseErrorsChanged(name);
+                ErrorsChanged?.Invoke(this, new DataErrorsChangedEventArgs(name));
+            OnPropertyChanged(nameof(HasErrors));
         }
 
-        private void RaiseErrorsChanged(string propertyName)
+        // HasErrors is announced only when it flips: it was raised on every change, even from one error to two.
+        private void RaiseErrorsChanged(string propertyName, bool hadErrors)
         {
             ErrorsChanged?.Invoke(this, new DataErrorsChangedEventArgs(propertyName));
-            OnPropertyChanged(nameof(HasErrors));
+            if (HasErrors != hadErrors) OnPropertyChanged(nameof(HasErrors));
         }
     }
 }

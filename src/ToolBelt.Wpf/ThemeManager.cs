@@ -1,5 +1,6 @@
 // ToolBelt.Wpf drop-in — Windows-only (net8.0-windows), self-contained (BCL + WPF).
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Markup;
@@ -55,6 +56,13 @@ namespace ToolBelt.Wpf
 
         /// <summary>Raised after the effective theme changes.</summary>
         public event EventHandler<AppTheme>? ThemeChanged;
+
+        /// <summary>
+        /// Raised on the dispatcher when re-applying <see cref="AppTheme.System"/> after a Windows setting change fails (a
+        /// broken or missing dictionary, or a throwing <see cref="ThemeChanged"/> handler). The current theme stays; with
+        /// no handler the error goes to <see cref="Trace"/>. It no longer escapes as an unhandled dispatcher exception.
+        /// </summary>
+        public event EventHandler<Exception>? SystemThemeApplyFailed;
 
         /// <summary>Re-apply <see cref="AppTheme.System"/> when the Windows setting changes.</summary>
         public bool FollowSystem
@@ -200,7 +208,16 @@ namespace ToolBelt.Wpf
             if (e.Category != UserPreferenceCategory.General) return; // app-mode changes arrive as General
             _dispatcher.BeginInvoke(new Action(() =>
             {
-                if (!_disposed && _followSystem && Requested == AppTheme.System) Apply(AppTheme.System);
+                try
+                {
+                    if (!_disposed && _followSystem && Requested == AppTheme.System) Apply(AppTheme.System);
+                }
+                catch (Exception ex)
+                {
+                    EventHandler<Exception>? failed = SystemThemeApplyFailed;
+                    if (failed != null) failed(this, ex);
+                    else Trace.TraceError("ThemeManager could not follow the system theme: " + ex);
+                }
             }));
         }
 
@@ -211,7 +228,7 @@ namespace ToolBelt.Wpf
 
         private static SolidColorBrush Brush(int rgb)
         {
-            var b = new SolidColorBrush(Color.FromRgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
+            var b = new SolidColorBrush(Color.FromRgb(unchecked((byte)(rgb >> 16)), unchecked((byte)(rgb >> 8)), unchecked((byte)rgb)));   // checked builds threw
             b.Freeze();
             return b;
         }
