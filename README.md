@@ -840,6 +840,7 @@ tests/
       StatisticsReview2Tests.cs      (second-pass regressions: scale invariance at 1e±170, far-tail quantiles, lnΓ near 1 and 2)
       StatisticsReview3Tests.cs      (third-pass regressions: sums near MaxValue, regression scaling, F density at large df, Γ accuracy)
       HugeShapeTests.cs              (round 46: incomplete beta at shapes near MaxValue and subnormal; drop-in copies agree)
+      DifferentialHarnessTests.cs    (round 47: tiny-shape tails and prefixes, huge-other-shape prefix, from the mpmath harness)
       NumericsCoreReviewTests.cs     (review regressions: QR fit, cancellation-free roots, extreme magnitudes, NaN rejection, fast primes)
       NumericsCoreReview2Tests.cs    (second-pass regressions: finite overflow at ±1e308, checked arithmetic, decimal-exact rounding)
       NumericsCoreReview3Tests.cs    (third-pass regressions: LU and cubic overflow, false root convergence, tiny-scale splines and stats)
@@ -1070,6 +1071,8 @@ tests/
                             fits, root-finding, statistics)
                             against Math.NET Numerics. The ONLY project with an external NuGet
                             dependency, so it is EXCLUDED from ToolBelt.sln — run it on its own.
+    IncompleteFunctionsGradedTests.cs  incomplete beta/gamma graded against mpmath in condition-number units
+    Data/incomplete-*.tsv   50-digit mpmath references with condition numbers (from scripts/gen-incomplete-references.py)
 scripts/
   build.ps1                 build wrapper (disables the persistent build server)
   test.ps1                  build once + launch the test exe directly (-Configuration X; other args go to the runner)
@@ -1118,6 +1121,12 @@ dotnet run --project tests\ToolBelt.MathChecks -c Release
 ```
 
 The main suite's closed-form/differential tests remain authoritative; this is defence in depth.
+
+It also holds the **incomplete beta/gamma harness**: 6880 values of I_x(a, b) and 848 of P(a, x)/Q(a, x), shapes from
+1e-300 to 1e20, against 50-digit mpmath references computed without cancellation. Each error is graded in units of
+eps·(1 + κ), κ being the function's condition number (input rounding alone moves the value by ~eps·κ); over 16 fails.
+`python scripts/gen-incomplete-references.py grid` rebuilds the references (hours); a failing row over 16 eps that has
+no κ yet is listed in `Data/incomplete-*.need.tsv`, and `... kappa` fills those in.
 
 ## Adding a type
 

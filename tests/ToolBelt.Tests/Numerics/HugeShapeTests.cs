@@ -84,6 +84,8 @@ namespace ToolBelt.Tests.Numerics
                 new[] { 0.5, 0.5, 1e20, 1000 }, new[] { 1 - 1e-12, 1e-12, 1e20, 1000 }, new[] { 0.3, 0.7, 1e-100, 1e-20 },
                 new[] { 0.9, 0.1, 1e-20, 1e-100 }, new[] { 5e-291, 1, 5e9, 5e299 }, new[] { 0.5, 0.5, double.MaxValue, double.MaxValue },
                 new[] { 1e-5, 1 - 1e-5, 2.5, 3.5 }, new[] { 0.4, 0.6, 50, 60 }, new[] { 0.01, 0.99, 5000, 3 },
+                new[] { 0.7, 0.3, 1, 1e-20 }, new[] { 0.99, 0.01, 50, 1e-300 }, new[] { 0.01, 0.99, 1e-300, 50 },
+                new[] { 0.9999999999, 1e-10, 1e5, 1e-300 }, new[] { 0.3, 0.7, 1e-20, 1 }, new[] { 1e-300, 1, 5, 1e300 },
             };
             var reference = Private(typeof(Distributions), "BetaI");
             foreach (var type in Copies)
@@ -101,7 +103,7 @@ namespace ToolBelt.Tests.Numerics
         {
             double[][] cases =
             {
-                new[] { 0.5, 0.3 }, new[] { 0.5, 1.2 }, new[] { 5e-9, 0.5 }, new[] { 5e-324, 0.5 }, new[] { 3.0, 2.0 }, new[] { 0.5, 40.0 },
+                new[] { 0.5, 0.3 }, new[] { 0.5, 1.2 }, new[] { 5e-9, 0.5 }, new[] { 5e-324, 0.5 }, new[] { 3.0, 2.0 }, new[] { 0.5, 40.0 }, new[] { 1e-300, 1e-10 }, new[] { 1e-20, 1e-10 },
             };
             var reference = Private(typeof(Distributions), "GammaPQ");
             foreach (var type in Copies)

@@ -34,3 +34,6 @@ commit-msg.tmp
 
 # Local demo artifacts (generated, never committed)
 artifacts-demo/
+
+# Differential-harness worklists, written by IncompleteFunctionsGradedTests
+tests/ToolBelt.MathChecks/Data/*.need.tsv

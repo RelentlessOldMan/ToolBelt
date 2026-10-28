@@ -181,7 +181,7 @@ namespace ToolBelt.Numerics
             if (x < 0) return 0;
             if (x == 0) return k < 2 ? double.PositiveInfinity : (k == 2 ? 0.5 : 0);
             if (double.IsPositiveInfinity(x)) return 0;
-            return Math.Exp(LnPrefix(k / 2, x / 2)) / x; // ½(x/2)^(a−1)e^(−x/2)/Γ(a) = [ (x/2)^a e^(−x/2)/Γ(a) ] / x
+            return GammaFront(k / 2, x / 2) / x; // ½(x/2)^(a−1)e^(−x/2)/Γ(a) = [ (x/2)^a e^(−x/2)/Γ(a) ] / x
         }
 
         public static double ChiSquareCdf(double x, double degreesOfFreedom)
@@ -544,10 +544,11 @@ namespace ToolBelt.Numerics
                 p = sum * Math.Exp(lnPre);
                 if (p > 1) p = 1;
                 q = 1 - p;
-                if (a < 1 && p > 0.5) q = SmallShapeQ(a, x);
+                // P from the series carries lnΓ(a)·eps through its prefix (690 eps at a = 1e-300); 1 − Q is exact to eps.
+                if (a < 1 && p > 0.5) { q = SmallShapeQ(a, x); p = 1 - q; }
                 return;
             }
-            q = Math.Exp(lnPre) * GammaCf(a, x);
+            q = GammaFront(a, x) * GammaCf(a, x);
             if (q > 1) q = 1;
             p = 1 - q;
         }
@@ -690,6 +691,7 @@ namespace ToolBelt.Numerics
                 double front = BetaFront(x, oneMinusX, a, b, a);
                 ix = front == 0 ? 0 : front * BetaCf(x, oneMinusX, a, b);
                 ixc = 1 - ix;
+                if (a < 1) SmallShapeTail(oneMinusX, x, b, a, ref ixc, ref ix);
             }
             else
             {
@@ -697,15 +699,52 @@ namespace ToolBelt.Numerics
                 double front = BetaFront(x, oneMinusX, a, b, b);
                 ixc = front == 0 ? 0 : front * BetaCf(oneMinusX, x, b, a);
                 ix = 1 - ixc;
+                if (b < 1) SmallShapeTail(x, oneMinusX, a, b, ref ix, ref ixc);
             }
         }
 
-        // x^a (1 − x)^b / (B(a, b)·s), divided inside the exponential when the factor alone would underflow: at
-        // a = b = 5e-324 it did, and I_x came out 0, not ½. When the whole underflows the tail is 0 and the continued
-        // fraction is not formed.
+        // I_x(a, b) for b < 1 above the split, where it is the small tail (a small b puts the mass near 1), so 1 − the
+        // continued fraction's I_(1−x)(b, a) kept only its absolute accuracy: I_0.7(1, 1e-20) = 1.2e-20 came out 2e-14.
+        // Directly, by
+        //   I_x(a, b) = x^a (1 − x)^b / (a·B(a, b)) · Σₙ (a+b)ₙ/(a+1)ₙ · xⁿ,
+        // whose terms are positive and fall by at least x each (b < 1). Where that is too slow (x near 1) the first n
+        // terms are summed and the rest, I_x(a + n, b), comes from BGRAT at a + n >= 1000 (TOMS 708's BUP and BGRAT).
+        // The thousands of terms are summed with compensation (Neumaier). The result replaces the pair only where it is
+        // the small tail (below 0.25, where 1 − the big tail would lose 2 bits or more); nothing changes if BGRAT fails.
+        private static void SmallShapeTail(double x, double oneMinusX, double a, double b, ref double small, ref double big)
+        {
+            double front = BetaFront(x, oneMinusX, a, b, a);
+            // The terms fall below 1e-17 of the first after ~39/(−ln x) of them.
+            bool direct = -LnOf(x, oneMinusX) * 4000 >= 40;
+            int n = direct ? 4000 : (int)Math.Max(0, Math.Ceiling(1000 - a));
+            double sum = 0, comp = 0, term = 1;
+            for (int i = 0; i < n; i++)
+            {
+                double t = sum + term;
+                comp += Math.Abs(sum) >= Math.Abs(term) ? (sum - t) + term : (term - t) + sum;
+                sum = t;
+                term *= (a + b + i) / (a + 1 + i) * x;
+                if (direct && term <= 1e-17 * sum) break;
+            }
+            double value = front * (sum + comp);
+            if (!direct)
+            {
+                if (!Bgrat(x, oneMinusX, a + n, b, out double rest, out _)) return;
+                value += rest;
+            }
+            if (!(value < 0.25)) return;
+            small = value;
+            big = 1 - value;
+        }
+
+        // x^a (1 − x)^b / (B(a, b)·s), s being a or b. With p = min(a, b) below 1, 1/B(a, b) carries a factor p (lnΓ(p) =
+        // lnΓ(1 + p) − ln p), applied outside the exponential as p/s <= 1: inside, the rounding of ln p (690 at p = 1e-300)
+        // put up to ~250 eps on the tail, and at a = b = 5e-324 dividing by s after the exponential underflowed (I_x came
+        // out 0, not ½). When the whole underflows the tail is 0 and the continued fraction is not formed.
         private static double BetaFront(double x, double oneMinusX, double a, double b, double s)
         {
-            double ln = BetaLnFront(x, oneMinusX, a, b);
+            double p = Math.Min(a, b), ln = BetaLnFront(x, oneMinusX, a, b);
+            if (p < 1) return Math.Exp(ln) * (p / s);
             return ln < -700 ? Math.Exp(ln - Math.Log(s)) : Math.Exp(ln) / s;
         }
 
@@ -713,9 +752,23 @@ namespace ToolBelt.Numerics
         // with Stirling for ln B they are recombined as a·(ln(1 + e₁) − e₁) + b·(ln(1 + e₂) − e₂) + ½ln(ab/(a+b)) − ½ln 2π
         // − corr, where x = x₀(1 + e₁), 1 − x = y₀(1 + e₂) about the mode x₀ = a/(a+b) (a·e₁ + b·e₂ = 0 exactly), the
         // same decomposition as TOMS 708's BRCOMP. The direct form was off by ~1e-11 relative at a = b = 1e6.
+        // For min(a, b) < 1 it is ln( x^a (1 − x)^b / (p·B(a, b)) ), p = min(a, b) (see BetaFront).
         private static double BetaLnFront(double x, double oneMinusX, double a, double b)
         {
-            if (Math.Min(a, b) < 10) return a * LnOf(x, oneMinusX) + b * LnOf(oneMinusX, x) - LnBeta(a, b);
+            double p = Math.Min(a, b), q = Math.Max(a, b);
+            if (q < 10) return a * LnOf(x, oneMinusX) + b * LnOf(oneMinusX, x) - (p < 1 ? LnPBeta(p, q) : LnBeta(a, b));
+            if (p < 10)
+            {
+                // ln B = lnΓ(p) + lnΓ(q) − lnΓ(p+q), the last two by Stirling: corr + p − p·ln(p+q) + (q − ½)·ln(1 − p/(p+q)).
+                // p·ln(p+q) cancels against p·ln x_p, x_p being the variable that carries p (FCdf(0.5, 5, 1e300): two
+                // terms of ~1700 left 1e-13 relative), so they are merged as p·ln(x_p·(p+q)), the product formed first.
+                bool aSmall = a <= b;
+                double xp = aSmall ? x : oneMinusX;
+                double lnXq = aSmall ? LnOf(oneMinusX, x) : LnOf(x, oneMinusX);
+                double cq = StirlingCorr(q) - StirlingCorr(p + q);
+                double lnGp = p < 1 ? LnGamma1p(p) : LnGamma(p);
+                return p * Math.Log(xp * (p + q)) + q * lnXq - lnGp - cq - p - (q - 0.5) * Log1p(-p / (p + q));
+            }
             double ab = a + b;
             // λ = a − (a+b)x = (a+b)(1 − x) − b, formed on the side where it cancels least (TOMS 708); e₁ = −λ/a, e₂ = λ/b.
             double lambda = a > b ? ab * oneMinusX - b : a - ab * x;
@@ -748,7 +801,7 @@ namespace ToolBelt.Numerics
             double lnR = (a + b - 0.5) * Log1p(b / a) - b - b * Log1p(bm1 / (2 * a)) + StirlingCorr(a + b) - StirlingCorr(a);
             double rr = Math.Exp(lnR), rm1 = Expm1(lnR);
             GammaPQ(b, z, out double p, out double q);
-            double r = Math.Exp(LnPrefix(b, z));
+            double r = GammaFront(b, z);
             double sum = 0;
             if (r > 0)
             {
@@ -940,6 +993,14 @@ namespace ToolBelt.Numerics
             return LnGamma(p) + LnGamma(q) - LnGamma(p + q);
         }
 
+        // x^a e^(−x) / Γ(a). For a < 1 as a·x^a e^(−x)/Γ(a + 1): lnΓ(a) = lnΓ(a + 1) − ln a is ~690 at a = 1e-300, and its
+        // rounding inside the exponential put up to ~250 eps on Q(a, x) for x >= a + 1 and on BGRAT's terms.
+        private static double GammaFront(double a, double x) =>
+            a < 1 ? a * Math.Exp(a * Math.Log(x) - x - LnGamma1p(a)) : Math.Exp(LnPrefix(a, x));
+
+        // lnΓ(1 + a) for a >= 0, from a itself near 0 (1 + a rounds away a's low digits).
+        private static double LnGamma1p(double a) => a <= 0.2 ? LnGammaNearOne(a) : LnGamma(1 + a);
+
         // ln( x^a e^(−x) / Γ(a) ), stable for large a where a·ln x, x and lnΓ(a) are huge and nearly cancel.
         private static double LnPrefix(double a, double x)
         {
@@ -949,6 +1010,13 @@ namespace ToolBelt.Numerics
             double r = x / a;
             double core = r < 0.5 || r > 2 ? Math.Log(r) - (r - 1) : Log1pmx((x - a) / a);
             return a * core + 0.5 * Math.Log(a) - LnSqrt2Pi - StirlingCorr(a);
+        }
+
+        // ln(p·B(p, q)) for p < 1 and q < 10, with ln p left out of lnΓ(p) (and of lnΓ(q) when q < 1 too; see BetaFront).
+        private static double LnPBeta(double p, double q)
+        {
+            if (q < 1) return LnGamma1p(p) + LnGamma1p(q) - LnGamma1p(p + q) + Log1p(p / q);
+            return LnGamma1p(p) + LnGamma(q) - LnGamma(p + q);
         }
 
         // (x − mean)/sd; when x − mean overflows (bounds near ±MaxValue), from the halves.

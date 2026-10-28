@@ -43,7 +43,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 2 | 9 / 25 | re-queue (9 bugs) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 3 | 13 / 60 | re-queue (13 bugs, 1 severe) |
-| 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 3 | 25 / 82 | re-queue (25 bugs, 1 severe) |
+| 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 3 | 25 / 86 | re-queue (25 bugs, 1 severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 3 | 24 / 95 | re-queue (24 bugs, 2 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 3 | 21 / 82 | re-queue (21 bugs, 2 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 2 | 10 / 29 | re-queue (10 bugs) |
@@ -64,7 +64,8 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
 7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13, 16, 11, 17, 6, 1. **next: 13** (round 46 was a cross-section round on flaky-test root
-causes; its fixes are counted in the totals of 3, 10 and 15.)
+causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
+harness; its 4 fixes are counted in section 3.)
 
 ## Releases
 
@@ -119,6 +120,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.44.0 | 44 | Collections, third pass | 13 | (see tag) |
 | v0.45.0 | 45 | Statistics, third pass | 25 | (see tag) |
 | v0.46.0 | 46 | Flaky-test root causes; huge-shape incomplete beta | 7 | (see tag) |
+| v0.47.0 | 47 | Incomplete beta/gamma differential harness | 4 | (see tag) |
 
 ## Round log
 
@@ -1983,3 +1985,33 @@ than retried. A running bug list (`BUGLIST.md`) now tracks every suspected and c
   (3). Each one failed on the old code; the Windows tests did not compile, since there was no `Start`.
 - **Verify:** all green (core 2943, Windows 115, WPF 134, WinForms 82, tooling 38). The checked build has the same 7
   baseline failures. The verify scripts now use `cw run` in place of the retired low.cmd.
+
+### Round 47: differential harness for the incomplete beta and gamma (v0.47.0)
+
+A cross-section round on section 3's numerics. Its fixes are counted in section 3's totals.
+
+- **Harness:** `tests/ToolBelt.MathChecks/IncompleteFunctionsGradedTests` grades `RegularizedBetaI` at 6880 points and
+  `RegularizedGammaP`/`Q` at 848 values. Shapes run from 1e-300 to 1e20, with x at multiples of the mean and at fixed
+  points, plus mirror points (fl(1 − x), b, a) that reach the complement path. The references are 50-digit mpmath
+  values from `scripts/gen-incomplete-references.py`, computed without cancellation: all-positive series, a
+  complement formed at rising precisions until two agree to 1e-30, or quadrature over the smaller tail. Errors are
+  graded in units of eps·(1 + κ), where κ is the condition number from 50-digit central differences, and over 16
+  fails. Rows over 16 eps that lack a κ go to a need file for the generator's `kappa` step.
+- **B7 (huge other shape):** `FCdf(0.5, 5, 1e300)` was off by 1.0e-13. The prefix's p·ln x and p·ln(a + b) were each
+  about 1700 and cancelled. They are now merged as p·ln(x·(a + b)).
+- **B8 (P near 1 at tiny a):** `RegularizedGammaP(1e-300, 1e-10)` was 0.9999999999999791, 94 eps from 1 at κ ≈ 0. The
+  series prefix carried lnΓ(a)·eps. P is now 1 − Q from the accurate small-shape Q.
+- **B9a (the small tail of a tiny shape):** with b < 1 above the split, or a < 1 below it, the small tail was formed as
+  1 − the complement. `I_0.7(1, 1e-20)` gave 3.6e-15 where the true value is 1.2e-20, and `I_0.99(50, 1e-300)` gave
+  2.8e-14 where the true value is 5.6e-301. A new `SmallShapeTail` sums it directly, by series or by series + BGRAT.
+- **B9b (the min-shape factor in the prefix):** 1/B(a, b) and 1/Γ(a) carried ln(min shape) inside the exponential.
+  ln(1e-300) = −690.8 costs about 250 eps. So `I_0.01(1e-300, 50)` was 1 − 2.8e-14, `Q(1e-300, 2)` and
+  `ChiSquarePdf(1, 2e-300)` were 2.3e-14 off, and BGRAT's terms were off in the same way. The factor is now applied
+  outside the exponential (`GammaFront`, `LnPBeta`, `LnGamma1p`).
+- **All four drop-in copies** (Distributions, SpecialFunctions, Anova, GaugeRR) are changed. The copies-agree test
+  gained the new cases.
+- **Tests:** `Numerics/DifferentialHarnessTests` (4) failed on the old code, and asserts that did not fail there were
+  removed. `HugeShapeTests`' copies cases were extended. The graded harness is all green: 0 of 7728 values over 16
+  units.
+- **Verify:** all green (core 2947, Windows 115, WPF 134, WinForms 82, MathChecks 40). The checked build has the same 7
+  baseline failures.
