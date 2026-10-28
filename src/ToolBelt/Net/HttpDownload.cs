@@ -225,6 +225,12 @@ namespace ToolBelt.Net
                 {
                     throw new TimeoutException($"No data from {url} for {options.ReadTimeout}.", ex);
                 }
+                // The disposed response fails the pending read with an IOException where the stream ignores the token
+                // (.NET Framework): the caller cancelled, so say so.
+                catch (Exception ex) when (ct.IsCancellationRequested && !(ex is OperationCanceledException))
+                {
+                    throw new OperationCanceledException("The download was canceled.", ex, ct);
+                }
             }
 
             if (total.HasValue && downloaded != total.Value)

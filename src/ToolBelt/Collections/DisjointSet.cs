@@ -32,7 +32,7 @@ namespace ToolBelt.Collections
         /// <summary>Returns the canonical representative of the set containing <paramref name="x"/>.</summary>
         public int Find(int x)
         {
-            if ((uint)x >= (uint)_parent.Length)
+            if (unchecked((uint)x >= (uint)_parent.Length))
                 throw new ArgumentOutOfRangeException(nameof(x), x, $"Element must be in [0, {_parent.Length}).");
 
             // Iterative find with full path compression (point every node on the path at the root).

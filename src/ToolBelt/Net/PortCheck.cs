@@ -27,12 +27,16 @@ namespace ToolBelt.Net
             if (port < 0 || port > 65535) throw new ArgumentOutOfRangeException(nameof(port), port, "Port must be in [0, 65535].");
             if (timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "Timeout must be positive.");
 
-            var client = new TcpClient();
+            var client = NewClient();
             try
             {
-                Task connect = client.ConnectAsync(host, port);
+                Task connect;
                 bool completed;
-                try { completed = connect.Wait(WaitMilliseconds(timeout)); }
+                try
+                {
+                    connect = client.ConnectAsync(host, port);   // may throw before it returns a task
+                    completed = connect.Wait(WaitMilliseconds(timeout));
+                }
                 catch { return false; } // connection refused / DNS failure surface here
 
                 if (!completed)
@@ -48,6 +52,11 @@ namespace ToolBelt.Net
                 client.Dispose();
             }
         }
+
+        // On .NET Framework a plain TcpClient is IPv4-only (connecting to "::1" throws); a dual-mode IPv6 socket reaches
+        // both families, as the default one does on .NET Core.
+        private static TcpClient NewClient()
+            => Socket.OSSupportsIPv6 ? new TcpClient(AddressFamily.InterNetworkV6) { Client = { DualMode = true } } : new TcpClient();
 
         /// <summary>Reserves and releases an ephemeral loopback port, returning the number that was free.</summary>
         public static int FindFreePort()

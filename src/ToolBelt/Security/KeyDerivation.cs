@@ -22,13 +22,15 @@ namespace ToolBelt.Security
     public static class KeyDerivation
     {
         /// <summary>Generates a cryptographically random salt.</summary>
-        public static byte[] GenerateSalt(int length = 16) => CryptoRandom.Bytes(length);
+        public static byte[] GenerateSalt(int length = 16)
+            => length < 0 ? throw new ArgumentOutOfRangeException(nameof(length), length, "Length must not be negative.")
+                          : CryptoRandom.Bytes(length);
 
+        /// <summary>Derives a key from a password, encoded as UTF-8. A lone surrogate throws <see cref="ArgumentException"/>
+        /// (the lenient encoding would make it the same password as U+FFFD).</summary>
         public static byte[] Pbkdf2(string password, byte[] salt, int iterations, int keyLength, KdfHash hash = KdfHash.Sha256)
-        {
-            if (password is null) throw new ArgumentNullException(nameof(password));
-            return Pbkdf2(Encoding.UTF8.GetBytes(password), salt, iterations, keyLength, hash);
-        }
+            => Pbkdf2(Utf8(password), salt, iterations, keyLength, hash);
+
 
         public static byte[] Pbkdf2(byte[] password, byte[] salt, int iterations, int keyLength, KdfHash hash = KdfHash.Sha256)
         {
@@ -52,10 +54,13 @@ namespace ToolBelt.Security
             for (int block = 1; block <= blockCount; block++)
             {
                 // INT32 big-endian block index appended to the salt for U1.
-                saltPlusIndex[salt.Length] = (byte)(block >> 24);
-                saltPlusIndex[salt.Length + 1] = (byte)(block >> 16);
-                saltPlusIndex[salt.Length + 2] = (byte)(block >> 8);
-                saltPlusIndex[salt.Length + 3] = (byte)block;
+                unchecked
+                {
+                    saltPlusIndex[salt.Length] = (byte)(block >> 24);
+                    saltPlusIndex[salt.Length + 1] = (byte)(block >> 16);
+                    saltPlusIndex[salt.Length + 2] = (byte)(block >> 8);
+                    saltPlusIndex[salt.Length + 3] = (byte)block;
+                }
 
                 byte[] u = prf.ComputeHash(saltPlusIndex);
                 var t = (byte[])u.Clone();
@@ -68,6 +73,17 @@ namespace ToolBelt.Security
                 Buffer.BlockCopy(t, 0, derived, offset, Math.Min(hashLen, keyLength - offset));
             }
             return derived;
+        }
+
+        // Strict UTF-8: the default encoder turns a lone surrogate into U+FFFD, so different strings would give the
+        // same bytes.
+        private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
+
+        private static byte[] Utf8(string password)
+        {
+            if (password is null) throw new ArgumentNullException(nameof(password));
+            try { return StrictUtf8.GetBytes(password); }
+            catch (EncoderFallbackException ex) { throw new ArgumentException("The password contains an unpaired surrogate.", nameof(password), ex); }
         }
     }
 }

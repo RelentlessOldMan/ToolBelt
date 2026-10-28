@@ -75,6 +75,7 @@ namespace ToolBelt.Security
         public byte[] ToBytes(string passphrase, int iterations = DefaultIterations)
         {
             if (string.IsNullOrEmpty(passphrase)) throw new ArgumentException("A passphrase is required.", nameof(passphrase));
+            if (HasLoneSurrogate(passphrase)) throw new ArgumentException("The passphrase contains an unpaired surrogate.", nameof(passphrase));
             if (iterations < 1000 || iterations > MaxIterations) throw new ArgumentOutOfRangeException(nameof(iterations), iterations, "Use 1000 to 10,000,000 iterations.");
             var plain = new StringBuilder();
             foreach (var kv in _values) plain.Append(kv.Key).Append('=').Append(Convert.ToBase64String(Encoding.UTF8.GetBytes(kv.Value))).Append('\n');
@@ -104,6 +105,7 @@ namespace ToolBelt.Security
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
             if (string.IsNullOrEmpty(passphrase)) throw new ArgumentException("A passphrase is required.", nameof(passphrase));
+            if (HasLoneSurrogate(passphrase)) throw new ArgumentException("The passphrase contains an unpaired surrogate.", nameof(passphrase));
             int headerSize = Magic.Length + 4 + SaltSize + NonceSize;
             if (data.Length < headerSize + TagSize || !data.AsSpan(0, Magic.Length).SequenceEqual(Magic))
                 throw new CryptographicException("Not a secrets file (bad header).");

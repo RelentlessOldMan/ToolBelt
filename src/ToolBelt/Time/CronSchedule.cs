@@ -89,11 +89,16 @@ namespace ToolBelt.Time
             if (timeZone is null) throw new ArgumentNullException(nameof(timeZone));
 
             // Walk UTC instants, testing each one's wall time in the zone, until the search window or the calendar ends.
-            long first = Math.Max(FloorToMinute(after.UtcTicks) + TimeSpan.TicksPerMinute, TimeSpan.TicksPerDay);
+            long first = FloorToMinute(after.UtcTicks) + TimeSpan.TicksPerMinute;
+            TimeSpan offset = OffsetAt(timeZone, first);
+            if (first + offset.Ticks < 0)   // a zone behind UTC: its wall clock starts later than year 1's UTC
+            {
+                first = FloorToMinute(-offset.Ticks + TimeSpan.TicksPerMinute - 1);
+                offset = OffsetAt(timeZone, first);
+            }
             long limit = Math.Min(first + SearchTicks, DateTime.MaxValue.Ticks + 1);
             long t = first;
-            TimeSpan offset = OffsetAt(timeZone, t);
-            if (!_frequent)
+            if (!_frequent && first - TimeSpan.TicksPerMinute + OffsetAt(timeZone, first - TimeSpan.TicksPerMinute).Ticks >= 0)
             {
                 // The walk may start exactly at a spring-forward transition (after was in the minute before it): a
                 // fixed time in the gap still runs now.
@@ -164,7 +169,7 @@ namespace ToolBelt.Time
         public IReadOnlyList<DateTimeOffset> GetNextOccurrences(DateTimeOffset after, int count)
         {
             if (count < 0) throw new ArgumentOutOfRangeException(nameof(count), count, "Count must not be negative.");
-            var result = new List<DateTimeOffset>(count);
+            var result = new List<DateTimeOffset>(Math.Min(count, 1024));   // count is a limit, not a size
             var cursor = after;
             for (int i = 0; i < count; i++)
             {

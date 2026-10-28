@@ -120,7 +120,7 @@ namespace ToolBelt.Guards
         {
             if (count < 0)
                 throw new ArgumentOutOfRangeException(nameof(count), count, "Count must not be negative.");
-            if ((uint)index >= (uint)count)
+            if (index < 0 || index >= count)
                 throw new ArgumentOutOfRangeException(paramName, index, $"Index must be in [0, {count}).");
             return index;
         }

@@ -56,6 +56,9 @@ namespace ToolBelt.Net
             // IPAddress also accepts IPv4 shorthand ("10" = 0.0.0.10, "10.1" = 10.0.0.1, hex, octal "010" = 8); CIDR
             // text means a decimal dotted quad.
             if (addr.AddressFamily == AddressFamily.InterNetwork && !IsDottedQuad(host)) return false;
+            // For IPv6 it also takes "[::1]:80" (dropping the port) and a scope id, differently on each runtime: CIDR text is
+            // hex groups, with an optional decimal dotted quad at the end.
+            if (addr.AddressFamily == AddressFamily.InterNetworkV6 && !IsPlainIPv6(host)) return false;
             if (!int.TryParse(text.Substring(slash + 1).Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int prefix)) return false;
 
             int bits = TotalBits(addr.AddressFamily);
@@ -89,7 +92,7 @@ namespace ToolBelt.Net
                 byte[] net = Network.GetAddressBytes();
                 byte[] mask = MaskBytes(4, PrefixLength);
                 var result = new byte[4];
-                for (int i = 0; i < 4; i++) result[i] = (byte)(net[i] | ~mask[i]);
+                for (int i = 0; i < 4; i++) result[i] = unchecked((byte)(net[i] | ~mask[i]));
                 return new IPAddress(result);
             }
         }
@@ -108,7 +111,7 @@ namespace ToolBelt.Net
         private static IEnumerable<IPAddress> EnumerateIPv4(uint start, ulong count)
         {
             for (ulong offset = 0; offset < count; offset++)   // ulong: a /0 block has 2^32 addresses
-                yield return new IPAddress(FromUInt32((uint)(start + offset)));
+                yield return new IPAddress(FromUInt32(unchecked((uint)(start + offset))));
         }
 
         /// <summary>The block in CIDR notation, or an empty string for <c>default(CidrRange)</c>.</summary>
@@ -148,11 +151,18 @@ namespace ToolBelt.Net
             int remainder = prefixLength % 8;
             for (int i = 0; i < full && i < byteCount; i++) mask[i] = 0xFF;
             if (remainder > 0 && full < byteCount)
-                mask[full] = (byte)(0xFF << (8 - remainder));
+                mask[full] = unchecked((byte)(0xFF << (8 - remainder)));
             return mask;
         }
 
+        private static bool IsPlainIPv6(string host)
+        {
+            foreach (char c in host)
+                if (!(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' || c == ':' || c == '.')) return false;
+            return host.IndexOf('.') < 0 || IsDottedQuad(host.Substring(host.LastIndexOf(':') + 1));
+        }
+
         private static uint ToUInt32(byte[] b) => ((uint)b[0] << 24) | ((uint)b[1] << 16) | ((uint)b[2] << 8) | b[3];
-        private static byte[] FromUInt32(uint v) => new[] { (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v };
+        private static byte[] FromUInt32(uint v) => unchecked(new[] { (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v });
     }
 }

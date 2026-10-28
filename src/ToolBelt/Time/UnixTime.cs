@@ -26,9 +26,23 @@ namespace ToolBelt.Time
         public static long ToUnixMilliseconds(DateTime value) => new DateTimeOffset(value.ToUniversalTime()).ToUnixTimeMilliseconds();
 
         /// <summary>Converts seconds-since-epoch to a UTC <see cref="DateTimeOffset"/>.</summary>
-        public static DateTimeOffset FromUnixSeconds(long seconds) => Epoch.AddSeconds(seconds);
+        public static DateTimeOffset FromUnixSeconds(long seconds)
+        {
+            try { return Epoch.AddSeconds(seconds); }
+            catch (ArgumentOutOfRangeException)
+            {
+                throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "The result would fall outside the calendar.");
+            }
+        }
 
         /// <summary>Converts milliseconds-since-epoch to a UTC <see cref="DateTimeOffset"/>.</summary>
-        public static DateTimeOffset FromUnixMilliseconds(long milliseconds) => Epoch.AddMilliseconds(milliseconds);
+        public static DateTimeOffset FromUnixMilliseconds(long milliseconds)
+        {
+            try { return Epoch.AddMilliseconds(milliseconds); }
+            catch (ArgumentOutOfRangeException)
+            {
+                throw new ArgumentOutOfRangeException(nameof(milliseconds), milliseconds, "The result would fall outside the calendar.");
+            }
+        }
     }
 }

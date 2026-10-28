@@ -48,6 +48,7 @@ namespace ToolBelt.Time
     {
         private readonly List<ScheduledJob> _jobs = new List<ScheduledJob>();
         private readonly List<(ScheduledJob Job, Task Task)> _running = new List<(ScheduledJob, Task)>();
+        private readonly HashSet<ScheduledJob> _disposingJobs = new HashSet<ScheduledJob>();   // jobs whose run called Dispose
         private static readonly AsyncLocal<ScheduledJob?> CurrentJob = new AsyncLocal<ScheduledJob?>();   // the job this flow is running, if any
         private readonly object _gate = new object();
         private readonly Func<DateTimeOffset> _now;
@@ -77,18 +78,34 @@ namespace ToolBelt.Time
 
         public IReadOnlyList<ScheduledJob> Jobs { get { lock (_gate) return _jobs.ToArray(); } }
 
-        /// <summary>Registers a job (before or after <see cref="Start"/>).</summary>
+        /// <summary>
+        /// Registers a job (before or after <see cref="Start"/>). After <see cref="Start"/>, a schedule with no occurrence
+        /// is handled as <see cref="Start"/> handles it: a null <see cref="ScheduledJob.NextRun"/> and the failure to
+        /// <c>onError</c>.
+        /// </summary>
         public ScheduledJob Add(string name, string cronExpression, Func<CancellationToken, Task> action)
         {
             if (name is null) throw new ArgumentNullException(nameof(name));
             if (action is null) throw new ArgumentNullException(nameof(action));
             var job = new ScheduledJob(name, new CronSchedule(cronExpression), action);
+            Exception? failure = null;
             lock (_gate)
             {
-                if (_loop != null) job.NextRun = job.Schedule.GetNextOccurrence(_now(), _zone);
+                ThrowIfDisposed();
+                if (_loop != null)
+                {
+                    try { job.NextRun = job.Schedule.GetNextOccurrence(_now(), _zone); }
+                    catch (Exception ex) { failure = ex; }
+                }
                 _jobs.Add(job);
             }
+            if (failure != null) Report(job, failure);   // outside the lock
             return job;
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (_cts.IsCancellationRequested) throw new ObjectDisposedException(nameof(CronScheduler));
         }
 
         /// <summary>Synchronous convenience overload.</summary>
@@ -112,6 +129,7 @@ namespace ToolBelt.Time
             List<(ScheduledJob, Exception)>? failures = null;
             lock (_gate)
             {
+                ThrowIfDisposed();
                 if (_loop != null) throw new InvalidOperationException("The scheduler has already been started.");
                 DateTimeOffset now = _now();
                 foreach (var job in _jobs)
@@ -214,7 +232,9 @@ namespace ToolBelt.Time
             }
         }
 
-        /// <summary>Stops scheduling, cancels the token passed to running jobs and waits for them to finish.</summary>
+        /// <summary>Stops scheduling, cancels the token passed to running jobs and waits for them to finish. Afterwards
+        /// <see cref="Add(string, string, Func{CancellationToken, Task})"/> and <see cref="Start"/> throw
+        /// <see cref="ObjectDisposedException"/>.</summary>
         /// <remarks>
         /// Safe to call from inside a job (a "run once, then shut down" job): that job's own run is not waited for. Also
         /// safe from <c>onError</c>, where the loop itself may be the caller.
@@ -229,9 +249,11 @@ namespace ToolBelt.Time
             lock (_gate)
             {
                 // Snapshot after the loop has stopped (RunDue starts nothing once cancelled), minus the caller's own run —
-                // waiting for it would wait forever.
+                // waiting for it would wait forever — and minus every other job already inside Dispose: two jobs that
+                // shut down in the same minute would each wait for the other. Whichever comes second skips the first.
+                if (self != null) _disposingJobs.Add(self);
                 var list = new List<Task>();
-                foreach (var r in _running) if (!ReferenceEquals(r.Job, self)) list.Add(r.Task);
+                foreach (var r in _running) if (!_disposingJobs.Contains(r.Job)) list.Add(r.Task);
                 pending = list.ToArray();
             }
             try { await Task.WhenAll(pending).ConfigureAwait(false); } catch { /* reported via onError */ }

@@ -24,7 +24,7 @@ namespace ToolBelt.Collections
         /// <summary>Adds <paramref name="delta"/> to the value at <paramref name="index"/>.</summary>
         public void Add(int index, long delta)
         {
-            if ((uint)index >= (uint)Size)
+            if (unchecked((uint)index >= (uint)Size))
                 throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be in [0, {Size}).");
             int size = Size;
             for (int x = index + 1; ; )
@@ -39,7 +39,7 @@ namespace ToolBelt.Collections
         /// <summary>Sum of values in the inclusive range [0, <paramref name="index"/>].</summary>
         public long PrefixSum(int index)
         {
-            if ((uint)index >= (uint)Size)
+            if (unchecked((uint)index >= (uint)Size))
                 throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be in [0, {Size}).");
             long sum = 0;
             for (int x = index + 1; x > 0; x -= x & -x)
@@ -50,9 +50,9 @@ namespace ToolBelt.Collections
         /// <summary>Sum of values in the inclusive range [<paramref name="from"/>, <paramref name="to"/>].</summary>
         public long RangeSum(int from, int to)
         {
-            if ((uint)from >= (uint)Size)
+            if (unchecked((uint)from >= (uint)Size))
                 throw new ArgumentOutOfRangeException(nameof(from), from, $"Index must be in [0, {Size}).");
-            if ((uint)to >= (uint)Size)
+            if (unchecked((uint)to >= (uint)Size))
                 throw new ArgumentOutOfRangeException(nameof(to), to, $"Index must be in [0, {Size}).");
             if (from > to)
                 throw new ArgumentException("from must not exceed to.", nameof(from));

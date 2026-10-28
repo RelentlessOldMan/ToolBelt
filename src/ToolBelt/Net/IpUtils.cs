@@ -41,6 +41,7 @@ namespace ToolBelt.Net
         public static bool IsLoopback(IPAddress address)
         {
             if (address is null) throw new ArgumentNullException(nameof(address));
+            if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();   // ::ffff:127.x.x.x
             return IPAddress.IsLoopback(address);
         }
 
@@ -50,7 +51,7 @@ namespace ToolBelt.Net
             if (prefixLength < 0 || prefixLength > 32)
                 throw new ArgumentOutOfRangeException(nameof(prefixLength), prefixLength, "Prefix must be in [0, 32].");
             uint mask = prefixLength == 0 ? 0u : uint.MaxValue << (32 - prefixLength);
-            return new IPAddress(new[] { (byte)(mask >> 24), (byte)(mask >> 16), (byte)(mask >> 8), (byte)mask });
+            return new IPAddress(unchecked(new[] { (byte)(mask >> 24), (byte)(mask >> 16), (byte)(mask >> 8), (byte)mask }));
         }
 
         /// <summary>Converts an IPv4 netmask (contiguous ones) to its prefix length.</summary>

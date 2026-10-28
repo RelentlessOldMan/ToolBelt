@@ -8,7 +8,8 @@ namespace ToolBelt.Security
 {
     /// <summary>
     /// Cryptographic hashing over bytes, strings (UTF-8) and streams, returning raw bytes with hex/base64
-    /// formatters. Uses the framework's audited SHA-2 primitives. <see cref="Md5"/> is included only for
+    /// formatters. A string with an unpaired surrogate throws <see cref="ArgumentException"/> rather than hashing
+    /// as U+FFFD. Uses the framework's audited SHA-2 primitives. <see cref="Md5"/> is included only for
     /// legacy non-cryptographic checksums and is clearly marked as such.
     /// </summary>
     public static class Hashing
@@ -78,10 +79,15 @@ namespace ToolBelt.Security
             using (algorithm) return algorithm.ComputeHash(stream);
         }
 
+        // Strict UTF-8: the default encoder turns a lone surrogate into U+FFFD, so different strings would give the
+        // same bytes.
+        private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
+
         private static byte[] Utf8(string text)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
-            return Encoding.UTF8.GetBytes(text);
+            try { return StrictUtf8.GetBytes(text); }
+            catch (EncoderFallbackException ex) { throw new ArgumentException("The text contains an unpaired surrogate.", nameof(text), ex); }
         }
     }
 }

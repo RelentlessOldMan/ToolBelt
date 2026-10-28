@@ -555,7 +555,7 @@ src/
       MemoryPressure.cs     working set / total allocated / GC counts + delta-since-snapshot
       ArrayPoolScope.cs     self-returning rented array (ArrayPool on net8, allocation on ns2.0; double-return safe)
     Security/
-      Hashing.cs            SHA-256/384/512 (+ legacy MD5) over bytes/string/stream/file; incremental; hex/base64
+      Hashing.cs            SHA-256/384/512 (+ legacy MD5) over bytes/string (strict UTF-8)/stream/file; incremental; hex/base64
       SecretsFile.cs        passphrase-encrypted key/value file (PBKDF2 + AES-GCM, tamper-evident) (net8)
       Hmac.cs               HMAC-SHA-256/384/512 with constant-time verify
       ConstantTime.cs       fixed-time equality for secrets (no timing leak)
@@ -942,6 +942,7 @@ tests/
       RelativeTimeTests.cs
       SecurityNetTimeReviewTests.cs (round 13 review regressions: cron DST and bounds, durations, CIDR, secrets, TCP lines, downloads)
       SecurityNetTimeReview2Tests.cs (second-pass regressions: cron make-up at the gap edge, octal CIDR, TCP BOM and overlong lines, forged digests, scheduler errors)
+      SecurityNetTimeReview3Tests.cs (third-pass regressions: lone-surrogate passwords, checked-build casts, IPv6 connects, cron at MinValue, scheduler dispose)
       TimeOfDayRangeTests.cs
       UnixTimeTests.cs
     Visualization/

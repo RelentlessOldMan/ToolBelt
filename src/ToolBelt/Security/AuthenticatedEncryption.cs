@@ -23,6 +23,8 @@ namespace ToolBelt.Security
     /// </summary>
     public static class AuthenticatedEncryption
     {
+        private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
+
         /// <summary>The nonce (IV) size AES-GCM requires, in bytes (96 bits).</summary>
         public const int NonceSize = 12;
 
@@ -53,11 +55,17 @@ namespace ToolBelt.Security
             return message;
         }
 
-        /// <summary>Encrypts a UTF-8 string. See <see cref="Encrypt(byte[], byte[], byte[])"/>.</summary>
+        /// <summary>Encrypts a UTF-8 string (a lone surrogate throws <see cref="ArgumentException"/>). See <see cref="Encrypt(byte[], byte[], byte[])"/>.</summary>
         public static byte[] Encrypt(byte[] key, string plaintext, byte[]? associatedData = null)
         {
             if (plaintext is null) throw new ArgumentNullException(nameof(plaintext));
-            return Encrypt(key, Encoding.UTF8.GetBytes(plaintext), associatedData);
+            byte[] bytes;
+            try { bytes = StrictUtf8.GetBytes(plaintext); }
+            catch (EncoderFallbackException ex)   // the lenient encoder would decrypt to U+FFFD, not the plaintext
+            {
+                throw new ArgumentException("The plaintext contains an unpaired surrogate.", nameof(plaintext), ex);
+            }
+            return Encrypt(key, bytes, associatedData);
         }
 
         /// <summary>

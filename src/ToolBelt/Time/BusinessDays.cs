@@ -35,6 +35,8 @@ namespace ToolBelt.Time
             int remaining = Math.Abs(count);
             while (remaining > 0)
             {
+                if (step > 0 ? date == DateTime.MaxValue.Date : date == DateTime.MinValue.Date)
+                    throw new ArgumentOutOfRangeException(nameof(count), count, "The result would fall outside the calendar.");
                 date = date.AddDays(step);
                 if (IsBusinessDay(date, set))
                     remaining--;

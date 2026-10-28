@@ -87,7 +87,7 @@ namespace ToolBelt.Collections
         {
             get
             {
-                if ((uint)index >= (uint)_count)
+                if (unchecked((uint)index >= (uint)_count))
                     throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be in [0, {_count}).");
                 return _array[Slot(index)];
             }

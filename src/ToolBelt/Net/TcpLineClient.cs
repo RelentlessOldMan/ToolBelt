@@ -52,8 +52,14 @@ namespace ToolBelt.Net
             int writeMs = writeTimeout.HasValue ? ToMilliseconds(writeTimeout.Value, nameof(writeTimeout)) : Timeout.Infinite;
             encoding ??= new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
-            _client = new TcpClient();
-            Task connect = _client.ConnectAsync(host, port);
+            _client = NewClient();
+            Task connect;
+            try { connect = _client.ConnectAsync(host, port); }   // may throw before it returns a task
+            catch
+            {
+                _client.Dispose();
+                throw;
+            }
             // If we give up on the connect, its eventual failure must not surface as an unobserved task exception.
             connect.ContinueWith(t => _ = t.Exception, CancellationToken.None,
                 TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
@@ -177,6 +183,11 @@ namespace ToolBelt.Net
         }
 
         // Positive timeouts only; anything past int.MaxValue ms waits indefinitely.
+        // On .NET Framework a plain TcpClient is IPv4-only (connecting to "::1" throws); a dual-mode IPv6 socket reaches
+        // both families, as the default one does on .NET Core.
+        private static TcpClient NewClient()
+            => Socket.OSSupportsIPv6 ? new TcpClient(AddressFamily.InterNetworkV6) { Client = { DualMode = true } } : new TcpClient();
+
         private static int ToMilliseconds(TimeSpan timeout, string paramName)
         {
             if (timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(paramName, timeout, "Timeout must be positive.");

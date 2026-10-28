@@ -77,7 +77,7 @@ namespace ToolBelt.Visualization
             if ((h.Length != 6 && h.Length != 8) || !uint.TryParse(h, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out uint v))
                 throw new FormatException($"'{hex}' is not a #RGB, #RRGGBB or #RRGGBBAA colour.");
             if (h.Length == 6) v = (v << 8) | 0xFF;
-            return new Rgba((byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v);
+            return unchecked(new Rgba((byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v));
         }
 
         private static double Linear(byte channel)

@@ -61,7 +61,7 @@ namespace ToolBelt.Cli
         /// <summary>Sets the alignment of a single column.</summary>
         public ConsoleTable AlignColumn(int index, ColumnAlignment alignment)
         {
-            if ((uint)index >= (uint)_alignments.Length)
+            if (unchecked((uint)index >= (uint)_alignments.Length))
                 throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be in [0, {_alignments.Length}).");
             _alignments[index] = alignment;
             return this;

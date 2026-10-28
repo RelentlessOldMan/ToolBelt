@@ -53,7 +53,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 3 | 8 / 75 | re-queue (8 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 2 | 12 / 38 | re-queue (12 bugs) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 3 | 18 / 67 | re-queue (18 bugs, 1 severe) |
-| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 2 | 17 / 56 | re-queue (17 bugs) |
+| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 3 | 16 / 72 | re-queue (16 bugs, 2 severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 3 | 19 / 82 | re-queue (19 bugs, 3 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 3 | 12 / 74 | re-queue (12 bugs, 2 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 2 | 17 / 38 | re-queue (17 bugs) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13, 16, 11, 17, 6, 1. **next: 13** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16, 11, 17, 6, 1. **next: 16** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -121,6 +121,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.45.0 | 45 | Statistics, third pass | 25 | (see tag) |
 | v0.46.0 | 46 | Flaky-test root causes; huge-shape incomplete beta | 7 | (see tag) |
 | v0.47.0 | 47 | Incomplete beta/gamma differential harness | 4 | (see tag) |
+| v0.48.0 | 48 | Security, net, time, third pass | 16 | (see tag) |
 
 ## Round log
 
@@ -2015,3 +2016,56 @@ A cross-section round on section 3's numerics. Its fixes are counted in section 
   units.
 - **Verify:** all green (core 2947, Windows 115, WPF 134, WinForms 82, MathChecks 40). The checked build has the same 7
   baseline failures.
+
+### Round 48: Security, net, time, third pass (v0.48.0)
+
+Reviewers: one for correctness and one for robustness, fresh to the section. The robustness reviewer also ran the
+section on .NET Framework 4.8 and in an overflow-checked build. **16 confirmed bugs**, two of them severe. Each has a
+regression test in `SecurityNetTimeReview3Tests` (18 tests). 15 of them fail on the old code; the other 3 fail only in
+the checked build or on .NET Framework, where probes confirmed them.
+
+- **Severe: lone surrogates made different passwords equal.** `KeyDerivation.Pbkdf2(string)`, and so
+  `PasswordHasher`, encoded with the lenient UTF-8 encoder, which turns every lone surrogate into U+FFFD:
+  `Verify("pw\uD800", Hash("pw\uDBFF"))` was true. They now encode strictly and throw `ArgumentException`
+  (`password`). `Hashing`, `Hmac` (`text`) and `AuthenticatedEncryption.Encrypt(string)` (`plaintext`, which
+  decrypted to U+FFFD) do the same. A `SecretsFile` passphrase threw `EncoderFallbackException` with no ParamName,
+  and now throws `ArgumentException` (`passphrase`) up front, as `Set` does.
+- **Severe: the checked build.** Narrowing casts threw `OverflowException` on ordinary input:
+  - `IpUtils.NetmaskFromPrefix(24)`;
+  - `CidrRange` with any prefix that is not a multiple of 8, `BroadcastAddress` and `Addresses()`;
+  - `Pbkdf2` past block 255 (a key over 8160 bytes).
+
+  These were 6 of the 7 "baseline" checked-build failures carried since round 21. The other baseline failures, and
+  the same trick elsewhere, are fixed too: `(uint)index >= (uint)count` threw for a negative index in `Guard.Index`,
+  `CircularBuffer`, `Deque`, `FenwickTree`, `DisjointSet` and `ConsoleTable.AlignColumn`, and so did
+  `Palettes.FromHex`. The checked build now has no failures.
+- **IpUtils.IsLoopback:** an IPv4-mapped address was not unwrapped. `::ffff:127.0.0.2` was false, and on .NET
+  Framework so was `::ffff:127.0.0.1`.
+- **CidrRange.TryParse:** it accepted `[::1]:80/128` (the port was silently dropped) and scope ids, with
+  `fe80::1%eth0/64` and `::ffff:010.0.0.1/104` taken differently on each runtime. IPv6 text must now be hex groups
+  with an optional decimal dotted quad.
+- **PortCheck and TcpLineClient on .NET Framework:** a plain `TcpClient` is IPv4-only there, so `"::1"` threw
+  `ArgumentException`. `IsReachable` let it escape, and `TcpLineClient` leaked the socket. Both now use a dual-mode
+  IPv6 socket, and a connect that throws synchronously is handled.
+- **HttpDownload on .NET Framework:** cancelling during the body threw `IOException` (the disposed response aborted
+  the read). It is now `OperationCanceledException`.
+- **CronSchedule:**
+  - The zone overload started its search a day in, so from `DateTimeOffset.MinValue`, "0 12 * * *" skipped
+    0001-01-01. It now starts at the first minute whose wall time is in the calendar.
+  - `GetNextOccurrences(after, int.MaxValue)` pre-sized its list and threw `OutOfMemoryException`.
+- **CronScheduler:**
+  - Two jobs that called `Dispose` in the same minute each waited for the other, forever. Jobs already inside
+    `Dispose` are no longer waited for.
+  - `Add` after `Start` threw for a schedule with no occurrence. It now gets a null `NextRun` and the failure goes
+    to `onError`, as at `Start`.
+  - `Start` and `Add` after `Dispose` silently did nothing. They now throw `ObjectDisposedException`.
+- **ParamNames:**
+  - `BusinessDays.AddBusinessDays` past the calendar's ends blamed `value` (from `AddDays`), not `count`.
+  - `UnixTime.FromUnixSeconds` and `FromUnixMilliseconds` blamed `value`, not `seconds` and `milliseconds`.
+  - `KeyDerivation.GenerateSalt(-1)` blamed `count`, not `length`.
+- **Checked and found correct:** AES-GCM tag, size and tamper checks; the `SecretsFile` header bounds and buffer
+  zeroing; constant-time compares; unbiased `CryptoRandom`; `PasswordHasher.Parse`; unsatisfiable cron expressions in
+  four zones; the duration parsers and formatters at the extremes; the HttpDownload idle timeout and Content-Range
+  checks; the round 13 and 27 fixes.
+- **Checked build:** no failures (was 7).
+- **Re-queued:** yes (16 bugs, 2 severe).
