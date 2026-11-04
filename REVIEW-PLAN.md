@@ -51,7 +51,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 3 | 19 / 86 | re-queue (19 bugs, 4 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 3 | 13 / 52 | re-queue (13 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 3 | 8 / 75 | re-queue (8 bugs, 1 severe) |
-| 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 2 | 12 / 38 | re-queue (12 bugs) |
+| 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 3 | 17 / 55 | re-queue (17 bugs) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 3 | 18 / 67 | re-queue (18 bugs, 1 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 3 | 16 / 72 | re-queue (16 bugs, 2 severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 3 | 19 / 82 | re-queue (19 bugs, 3 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11, 17, 6, 1. **next: 11** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17, 6, 1. **next: 17** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -123,6 +123,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.47.0 | 47 | Incomplete beta/gamma differential harness | 4 | (see tag) |
 | v0.48.0 | 48 | Security, net, time, third pass | 16 | (see tag) |
 | v0.49.0 | 49 | WPF satellite, third pass | 20 | (see tag) |
+| v0.50.0 | 50 | Text & small types, third pass | 17 | (see tag) |
 
 ## Round log
 
@@ -2134,3 +2135,69 @@ section in an overflow-checked build. **20 confirmed bugs**, none severe. 19 hav
   strictness; `ValidationRules`; `BindingProxy`; the multi-value converters; the hotkey id range.
 - **Checked build:** the WPF suite in a checked build is green (151 tests). The core is unchanged this round.
 - **Re-queued:** yes (20 bugs).
+
+### Round 50: Text & small types, third pass (v0.50.0)
+
+Reviewers: one for correctness and one for robustness, fresh to the section. Both also ran the section on .NET
+Framework 4.8 against the netstandard2.0 build, and the robustness reviewer ran it in an overflow-checked build.
+**17 confirmed bugs**, none severe (two found by both reviewers). Each has a regression test in `TextReview3Tests`
+(16 tests). 14 fail on the old code on net8. The other two fail only where the bug lives: the long query string
+on net48 and the Roman overflow in a checked build. The net48 seed collisions were confirmed with the reviewer's
+probe instead (3 and 4 duplicates in 150k before, 0 in three runs after). The section's tests are green on net48
+(309).
+
+- **SnowflakeIdGenerator:**
+  - The sequence was advanced before the "past the last timestamp" exception, so the call after it returned a
+    smaller id that repeated an earlier one. State now changes only after the range check.
+  - A clock 0.5 ms before the epoch truncated to 0 and was accepted. It now throws.
+  - The clock went through a double, so x.9999 ms rounded up into the next millisecond (an id stamped in the
+    future). Milliseconds are now floored from the ticks.
+- **UlidGenerator:** the same two clock bugs (before the Unix epoch, rounding up). On .NET Framework, its default
+  random source was seeded from `Guid.GetHashCode()`, giving only 2^31 streams, so separate generators repeated
+  ULIDs (4 in 150k). It now draws from the OS generator.
+- **NanoId:** the same seeding on .NET Framework repeated ids across instances (3 in 150k). It now draws from the
+  OS generator.
+- **Slug:**
+  - Noncharacters made `Normalize` throw: U+FFFE on net8, and U+FFFF, U+FDD0..FDEF and the astral ones on .NET
+    Framework. They now become separators, and anything else the normalizer refuses does too.
+  - `separator` was not checked. 'É' gave "aÉb", which slugified again to "aeb", and '/' gave a path. It must now be
+    '-', '_', '.' or '~' (`ArgumentException`).
+- **QueryString.Format:** on .NET Framework, a key or value over 65,519 characters threw `UriFormatException`. Text
+  is now escaped in pieces.
+- **HammingDistance.BitDistance:** returns `long`. An `int` wrapped negative past 2^31 differing bits.
+- **RomanNumerals:** input longer than the longest numeral (15 characters) is rejected before summing. A huge
+  "MMMM..." threw `OverflowException` from `TryFromRoman` in a checked build.
+- **GlobMatcher:** with `ignoreCase`, a bracket class disagreed with the same literal: `[K]` (Kelvin sign) didn't
+  match "k" but `K` did, and the same for ſ, µ and the digraphs. It disagreed on 35 BMP characters. The class now
+  also tries the members whose case forms are the character, from the runtime's own tables.
+- **AnsiText / TextAlign:** DCS, SOS, PM and APC strings (ESC P, X, ^, _) were taken as two-character escapes, so
+  their payload (a kitty graphics image, say) leaked into `Strip` and the widths. They now run to ST or BEL like OSC.
+- **TextAlign:**
+  - U+FE10..FE19, U+FE50..FE6B and U+A960..A97C (East Asian Wide) counted as one column.
+  - Padding after an unfinished escape at the end of the text was swallowed by it, so `Fit`/`PadRight`/`Center`
+    measured 2 or 4 instead of the width, and a cut lost its ellipsis. The unfinished escape is now dropped when
+    something goes after it.
+- **PercentEncoding.Encode:** non-ASCII characters in `safe` were still escaped. They now stay as they are, and
+  `Decode` takes them back.
+- **Soundex:** a letter outside the BMP was skipped instead of acting like a vowel ("B𐐨B" gave B000, not B100).
+- **CaseConverter:**
+  - Digraphs were uppercased instead of titlecased ("ǆemal" gave "Ǆemal", not "ǅemal"), and on .NET Framework they
+    were not lowered at all.
+  - Letters without an invariant case broke idempotence and dropped word boundaries. `ToConstantCase("STRAßE")`
+    gave "STR_Aß_E", `ToSnakeCase("İSTANBUL")` gave "İstanbul", and `ToPascalCase("ana_ışık")` gave "Anaışık".
+    Now 'İ' lowers to 'i', 'ı' uppers to 'I', 'ß' uppers to "SS" ("Ss" at the start of a word), and a letter with no
+    case continues its word.
+- **Checked and found correct:**
+  - the round 11 and 32 fixes
+  - round trips under fuzz: CommandLine, PercentEncoding, QueryString, ShortGuid, Roman and TextDiff
+  - GlobMatcher against a regex reference
+  - ULID monotonicity under clock jitter
+  - the similarity metrics
+  - NaturalComparer ordering laws
+  - per-thread culture independence
+  - Tokenizer spans
+  - Guard
+  - the Enum helpers
+- **Doc:** the TextDiff summary no longer claims an exact rebuild where its remarks say \r\n is normalised.
+- **Checked build:** the core suite in a checked build matches the empty baseline.
+- **Re-queued:** yes (17 bugs).

@@ -94,14 +94,45 @@ namespace ToolBelt.Text
                         || char.ToUpperInvariant(p) == c || char.ToLowerInvariant(p) == c));
                 case Kind.Class:
                     // Ranges are compared as written (folding the endpoints would turn [Z-a] into the empty range
-                    // Z..A); case-insensitivity instead tries the character in both cases.
+                    // Z..A); case-insensitivity instead tries the character in both cases, plus the members whose case
+                    // forms are the character but not the other way round (the Kelvin sign for 'k'), as a literal does.
                     bool inSet = InRanges(token.Ranges!, c)
-                        || (ignoreCase && (InRanges(token.Ranges!, char.ToUpperInvariant(c)) || InRanges(token.Ranges!, char.ToLowerInvariant(c))));
+                        || (ignoreCase && (InRanges(token.Ranges!, char.ToUpperInvariant(c)) || InRanges(token.Ranges!, char.ToLowerInvariant(c))
+                            || InOneWayForms(token.Ranges!, c)));
                     return inSet != token.Negated;
                 default:
                     return false;
             }
         }
+
+        private static bool InOneWayForms((char Lo, char Hi)[] ranges, char c)
+        {
+            if (OneWayForms.Value.TryGetValue(c, out List<char>? members))
+                foreach (char m in members)
+                    if (InRanges(ranges, m)) return true;
+            return false;
+        }
+
+        // For each character, the characters x whose upper or lower form is it although its own forms don't lead back
+        // to x: 'S' ← 'ſ', 'k' ← the Kelvin sign, 'Ǆ' and 'ǆ' ← 'ǅ'. Built from the runtime's own case tables.
+        private static readonly Lazy<Dictionary<char, List<char>>> OneWayForms = new Lazy<Dictionary<char, List<char>>>(() =>
+        {
+            var map = new Dictionary<char, List<char>>();
+            void Add(char form, char x)
+            {
+                if (!map.TryGetValue(form, out List<char>? list)) map[form] = list = new List<char>();
+                list.Add(x);
+            }
+            for (int i = 0; i <= char.MaxValue; i++)
+            {
+                char x = (char)i;
+                if (char.IsSurrogate(x)) continue;
+                char u = char.ToUpperInvariant(x), l = char.ToLowerInvariant(x);
+                if (u != x && char.ToLowerInvariant(u) != x) Add(u, x);
+                if (l != x && l != u && char.ToUpperInvariant(l) != x) Add(l, x);
+            }
+            return map;
+        });
 
         private static bool InRanges((char Lo, char Hi)[] ranges, char c)
         {

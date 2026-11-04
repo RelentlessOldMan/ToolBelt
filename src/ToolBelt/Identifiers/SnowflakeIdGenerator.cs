@@ -46,23 +46,23 @@ namespace ToolBelt.Identifiers
                 if (now < _lastTimestamp)
                     now = _lastTimestamp; // clock went backwards: hold steady rather than emit a smaller id
 
+                long sequence = 0;
                 if (now == _lastTimestamp)
                 {
-                    _sequence = (_sequence + 1) & SequenceMask;
-                    if (_sequence == 0)
+                    sequence = (_sequence + 1) & SequenceMask;
+                    if (sequence == 0)
                         now = _lastTimestamp + 1; // sequence exhausted this ms: borrow the next
                 }
-                else
-                {
-                    _sequence = 0;
-                }
 
+                // Checked before any state changes: the sequence was advanced first, so the call after this exception
+                // repeated an earlier id.
                 if (now > MaxTimestamp)
                     throw new InvalidOperationException("The clock is past the last timestamp 41 bits can hold (about 69 years after the epoch).");
                 _lastTimestamp = now;
+                _sequence = sequence;
                 return (now << (MachineBits + SequenceBits))
                        | (_machineId << SequenceBits)
-                       | _sequence;
+                       | sequence;
             }
         }
 
@@ -77,10 +77,11 @@ namespace ToolBelt.Identifiers
 
         private long CurrentMillis()
         {
-            long ms = (long)(_clock() - _epoch).TotalMilliseconds;
-            if (ms < 0)
+            // Tested on the ticks: the cast truncated toward zero, so 0.5 ms before the epoch was accepted as 0.
+            long ticks = (_clock() - _epoch).Ticks;
+            if (ticks < 0)
                 throw new InvalidOperationException("The clock is before the configured epoch.");
-            return ms;
+            return ticks / TimeSpan.TicksPerMillisecond;
         }
     }
 }

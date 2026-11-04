@@ -15,7 +15,9 @@ namespace ToolBelt.Text
     public static class Slug
     {
         /// <summary>
-        /// Slugifies <paramref name="text"/>. <paramref name="separator"/> joins words (default '-').
+        /// Slugifies <paramref name="text"/>. <paramref name="separator"/> joins words (default '-'); it must be one of
+        /// '-', '_', '.' or '~' (anything else throws <see cref="ArgumentException"/>), so the slug stays URL- and filename-safe
+        /// and slugifying it again changes nothing.
         /// If <paramref name="maxLength"/> is positive, the result is truncated to at most that many
         /// characters (never leaving a trailing separator).
         /// </summary>
@@ -23,10 +25,14 @@ namespace ToolBelt.Text
         {
             if (text is null)
                 throw new ArgumentNullException(nameof(text));
+            // 'É' gave "aÉb", which slugified again to "aeb"; '/' gave a path.
+            if (separator != '-' && separator != '_' && separator != '.' && separator != '~')
+                throw new ArgumentException("The separator must be '-', '_', '.' or '~'.", nameof(separator));
 
             // FormD splits accented letters into base + combining mark; we then drop the marks. Normalize throws on an
-            // unpaired surrogate, so those become spaces (separators) first.
-            string normalized = ReplaceLoneSurrogates(text).Normalize(NormalizationForm.FormD);
+            // unpaired surrogate and on noncharacters (U+FFFE; on .NET Framework also U+FFFF, U+FDD0 and the astral
+            // ones), so those become spaces (separators) first.
+            string normalized = NormalizeD(ReplaceInvalid(text));
 
             var sb = new StringBuilder(normalized.Length);
             bool pendingSeparator = false;
@@ -88,16 +94,48 @@ namespace ToolBelt.Text
             }
         }
 
-        private static string ReplaceLoneSurrogates(string text)
+        private static string ReplaceInvalid(string text)
         {
             char[]? chars = null;
             for (int i = 0; i < text.Length; i++)
             {
-                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) { i++; continue; }
-                if (char.IsSurrogate(text[i]))
+                char c = text[i];
+                if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    if (IsNoncharacter(char.ConvertToUtf32(c, text[i + 1])))
+                    {
+                        chars ??= text.ToCharArray();
+                        chars[i] = ' ';
+                        chars[i + 1] = ' ';
+                    }
+                    i++;
+                    continue;
+                }
+                if (char.IsSurrogate(c) || IsNoncharacter(c))
                     (chars ??= text.ToCharArray())[i] = ' ';
             }
             return chars is null ? text : new string(chars);
+        }
+
+        private static bool IsNoncharacter(int cp) => (cp >= 0xFDD0 && cp <= 0xFDEF) || (cp & 0xFFFE) == 0xFFFE;
+
+        // Anything else a runtime's normalizer refuses becomes a separator rather than an exception.
+        private static string NormalizeD(string text)
+        {
+            try { return text.Normalize(NormalizationForm.FormD); }
+            catch (ArgumentException)
+            {
+                var sb = new StringBuilder(text.Length);
+                for (int i = 0; i < text.Length; i++)
+                {
+                    int n = char.IsHighSurrogate(text[i]) && i + 1 < text.Length ? 2 : 1;
+                    string one = text.Substring(i, n);
+                    try { sb.Append(one.Normalize(NormalizationForm.FormD)); }
+                    catch (ArgumentException) { sb.Append(' ', n); }
+                    i += n - 1;
+                }
+                return sb.ToString();
+            }
         }
     }
 }

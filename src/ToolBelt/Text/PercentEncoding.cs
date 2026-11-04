@@ -26,12 +26,23 @@ namespace ToolBelt.Text
             try { bytes = StrictUtf8.GetBytes(text); }
             catch (EncoderFallbackException ex) { throw new ArgumentException("The text contains an unpaired surrogate.", nameof(text), ex); }
             var sb = new StringBuilder(bytes.Length);
-            foreach (byte b in bytes)
+            // Walks the text by character so a non-ASCII safe character ("é", an emoji) stays as it is; it was escaped
+            // because the check only ran on ASCII bytes. Decode takes raw non-ASCII back.
+            for (int i = 0; i < text.Length; i++)
             {
-                char c = (char)b;
-                if (b < 0x80 && (IsUnreserved(c) || (safe != null && c != '%' && !(spaceAsPlus && c == '+') && safe.IndexOf(c) >= 0))) sb.Append(c);
-                else if (spaceAsPlus && b == (byte)' ') sb.Append('+');
-                else sb.Append('%').Append(Hex[b >> 4]).Append(Hex[b & 15]);
+                char c = text[i];
+                if (c < 0x80)
+                {
+                    if (IsUnreserved(c) || (safe != null && c != '%' && !(spaceAsPlus && c == '+') && safe.IndexOf(c) >= 0)) sb.Append(c);
+                    else if (spaceAsPlus && c == ' ') sb.Append('+');
+                    else AppendEscaped(sb, (byte)c);
+                    continue;
+                }
+                int n = char.IsHighSurrogate(c) ? 2 : 1;                // pairs are whole: GetBytes above checked
+                string ch = text.Substring(i, n);
+                if (safe != null && safe.IndexOf(ch, StringComparison.Ordinal) >= 0) sb.Append(ch);
+                else foreach (byte b in StrictUtf8.GetBytes(ch)) AppendEscaped(sb, b);
+                i += n - 1;
             }
             return sb.ToString();
         }
@@ -86,6 +97,8 @@ namespace ToolBelt.Text
         }
 
         private const string Hex = "0123456789ABCDEF";
+
+        private static void AppendEscaped(StringBuilder sb, byte b) => sb.Append('%').Append(Hex[b >> 4]).Append(Hex[b & 15]);
 
         private static bool IsUnreserved(char c)
             => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~';

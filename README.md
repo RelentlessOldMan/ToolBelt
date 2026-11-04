@@ -474,7 +474,7 @@ src/
       PercentEncoding.cs    RFC 3986 percent-encode/decode, strict UTF-8, form (+) variant
       TextAlign.cs          display-width pad/centre/fit: ANSI-, combining- and wide-char-aware
       GlobMatcher.cs        glob matching (*, ?, [a-z], negation)
-      HammingDistance.cs    Hamming distance between equal-length strings / bit sequences
+      HammingDistance.cs    Hamming distance between equal-length strings / bit sequences (BitDistance is long)
       Indent.cs             indent / dedent multi-line text
       JaroWinkler.cs        Jaro & Jaro-Winkler string similarity
       LevenshteinDistance.cs edit distance + normalized similarity (rolling buffer)
@@ -484,7 +484,7 @@ src/
       QueryString.cs        URL query-string build + parse (percent-encoding)
       NGramSimilarity.cs    Dice & Jaccard similarity over character n-grams
       RomanNumerals.cs      integer <-> Roman numeral (1..3999, validated)
-      Slug.cs               URL/filename-safe slugs (diacritic folding)
+      Slug.cs               URL/filename-safe slugs (diacritic folding; separator '-', '_', '.' or '~')
       Soundex.cs            American Soundex phonetic key
       StringSimilarity.cs   "did you mean" best/top-N match ranking (pluggable scorer)
       TemplateFormatter.cs  {name} placeholder substitution ({{ }} escaping)
@@ -903,6 +903,7 @@ tests/
       TextDiffTests.cs
       TextReviewTests.cs (round 11 review regressions: Text, Identifiers, Enums, Guards)
       TextReview2Tests.cs (round 32 review regressions: escapes, slug folding, case folding, validation)
+      TextReview3Tests.cs (round 50 review regressions: id generator edges, DCS/APC strings, case-less letters, net48 limits)
       MiscReviewRegressionTests.cs  (2026-10-05 review regressions: Text, Cli, Threading, Time, Diagnostics, Collections)
       TruncateTests.cs
       WordWrapTests.cs

@@ -53,6 +53,7 @@ namespace ToolBelt.Text
         /// Exactly <paramref name="width"/> columns: padded per <paramref name="alignment"/>, and with <paramref name="truncate"/>
         /// cut (on a character boundary, never inside an escape sequence or surrogate pair) and ended with
         /// <paramref name="ellipsis"/> when too wide. A wide character that would straddle the edge is replaced by padding.
+        /// An unfinished escape sequence at the end of the text is dropped when padding or an ellipsis goes after it.
         /// </summary>
         public static string Fit(string text, int width, Alignment alignment = Alignment.Left, char pad = ' ', bool truncate = true, string ellipsis = "…")
         {
@@ -64,9 +65,12 @@ namespace ToolBelt.Text
             if (current > width)
             {
                 if (!truncate) return text;
-                return Cut(text, width, ellipsis ?? "", pad);
+                return Cut(DropUnfinishedEscape(text), width, ellipsis ?? "", pad);
             }
             int extra = width - current;
+            // An unfinished escape at the end swallows whatever follows it, the padding included ("ab" + ESC + 4 spaces
+            // measured 2 columns, not 6): it is dropped when something goes after it.
+            if (extra > 0 && alignment != Alignment.Right) text = DropUnfinishedEscape(text);
             switch (alignment)
             {
                 case Alignment.Right: return new string(pad, extra) + text;
@@ -105,32 +109,53 @@ namespace ToolBelt.Text
             return sb.ToString();
         }
 
-        // Index of the last character of the escape sequence starting at `i` (CSI "ESC [ ... final", OSC "ESC ] ... BEL/ST",
-        // or ESC + intermediate bytes 0x20-0x2F + one final char, e.g. "ESC ( B").
-        private static int SkipEscape(string s, int i)
+        // The text without an escape sequence that runs unfinished to its end.
+        private static string DropUnfinishedEscape(string text)
         {
-            if (i + 1 >= s.Length) return i;
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (text[i] != '\u001b') continue;
+                int end = SkipEscape(text, i, out bool finished);
+                if (!finished) return text.Substring(0, i);
+                i = end;
+            }
+            return text;
+        }
+
+        private static int SkipEscape(string s, int i) => SkipEscape(s, i, out _);
+
+        // Index of the last character of the escape sequence starting at `i` (CSI "ESC [ ... final"; OSC "ESC ] ... BEL/ST"
+        // and likewise the DCS, SOS, PM and APC strings ESC P, X, ^, _; or ESC + intermediate bytes 0x20-0x2F + one final
+        // char, e.g. "ESC ( B"). `finished` is false when the sequence runs to the end of the text without its terminator.
+        private static int SkipEscape(string s, int i, out bool finished)
+        {
+            finished = true;
+            if (i + 1 >= s.Length) { finished = false; return i; }
             char kind = s[i + 1];
             if (kind == '[')
             {
                 int j = i + 2;
                 while (j < s.Length && !(s[j] >= '@' && s[j] <= '~') && s[j] != '\u001b') j++;
                 if (j < s.Length) return s[j] == '\u001b' ? j - 1 : j;   // an ESC cancels the sequence and starts a new one
-                return Math.Min(j, s.Length - 1);
+                finished = false;
+                return s.Length - 1;
             }
-            if (kind == ']')
+            if (kind == ']' || kind == 'P' || kind == 'X' || kind == '^' || kind == '_')
             {
                 for (int j = i + 2; j < s.Length; j++)
                 {
                     if (s[j] == '\a') return j;
                     if (s[j] == '\u001b') return j + 1 < s.Length && s[j + 1] == '\\' ? j + 1 : j - 1;   // another ESC cancels it
                 }
+                finished = false;
                 return s.Length - 1;
             }
             int k = i + 1;
             while (k < s.Length && s[k] >= ' ' && s[k] <= '/') k++;
             if (k < s.Length && s[k] == '\u001b') return k - 1;         // "ESC ESC [31m" ate the second ESC as a final byte
-            return Math.Min(k, s.Length - 1);
+            if (k < s.Length) return k;
+            finished = false;
+            return s.Length - 1;
         }
 
         // Width of the surrogate pair at `index`: combining marks, format characters, tags and variation selectors take no
@@ -159,8 +184,11 @@ namespace ToolBelt.Text
                 (c >= 0x4E00 && c <= 0x9FFF) ||                    // CJK unified
                 (c >= 0xA000 && c <= 0xA4CF) ||                    // Yi
                 (c >= 0xAC00 && c <= 0xD7A3) ||                    // Hangul syllables
+                (c >= 0xA960 && c <= 0xA97C) ||                    // Hangul Jamo extended-A
                 (c >= 0xF900 && c <= 0xFAFF) ||                    // CJK compatibility ideographs
+                (c >= 0xFE10 && c <= 0xFE19) ||                    // vertical forms
                 (c >= 0xFE30 && c <= 0xFE4F) ||                    // CJK compatibility forms
+                (c >= 0xFE50 && c <= 0xFE6B) ||                    // small form variants
                 (c >= 0xFF00 && c <= 0xFF60) ||                    // full-width forms
                 (c >= 0xFFE0 && c <= 0xFFE6) ||
                 IsWideBmpEmoji(c);

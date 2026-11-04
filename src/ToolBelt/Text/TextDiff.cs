@@ -38,7 +38,8 @@ namespace ToolBelt.Text
     /// A minimal line-based text diff. Produces the shortest edit script of deletions and insertions (no
     /// substitutions) that turns the old text into the new one, computed from a longest-common-subsequence
     /// table. Walking the result and keeping the <see cref="DiffOp.Equal"/>/<see cref="DiffOp.Insert"/> lines
-    /// reconstructs the new text exactly; keeping Equal/Delete reconstructs the old.
+    /// reconstructs the new text's lines (joined with <c>\n</c>: <c>\r\n</c> terminators are not kept); keeping
+    /// Equal/Delete reconstructs the old.
     /// </summary>
     /// <remarks>
     /// Lines common to the start and end of both inputs are matched first, so the LCS table covers only the

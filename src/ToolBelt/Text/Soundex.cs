@@ -23,8 +23,18 @@ namespace ToolBelt.Text
             int previousCode = -1;
             bool haveFirst = false;
 
-            foreach (char raw in value)
+            for (int i = 0; i < value.Length; i++)
             {
+                char raw = value[i];
+                if (char.IsSurrogatePair(value, i))
+                {
+                    // A letter outside the BMP (Deseret, Osage) is a letter we can't code; its halves aren't letters,
+                    // so it was skipped and the consonants around it merged.
+                    if (char.IsLetter(value, i) && haveFirst)
+                        previousCode = 0;
+                    i++;
+                    continue;
+                }
                 if (!char.IsLetter(raw))
                     continue;
 

@@ -39,6 +39,8 @@ namespace ToolBelt.Text
         {
             if (roman is null) throw new ArgumentNullException(nameof(roman));
             if (roman.Length == 0) throw new FormatException("Roman numeral must not be empty.");
+            // The longest valid numeral is MMMDCCCLXXXVIII (15): longer input overflowed the sum in a checked build.
+            if (roman.Length > 15) throw new FormatException($"'{(roman.Length > 40 ? roman.Substring(0, 40) + "..." : roman)}' is not a valid Roman numeral.");
 
             string s = roman.ToUpperInvariant();
             int total = 0, prev = 0;

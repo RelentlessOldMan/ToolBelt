@@ -28,11 +28,26 @@ namespace ToolBelt.Text
                 if (pair.Key is null) throw new ArgumentException("Keys must not be null.", nameof(pairs));
                 if (sb.Length > 0)
                     sb.Append('&');
-                sb.Append(Uri.EscapeDataString(pair.Key));
+                Escape(sb, pair.Key);
                 sb.Append('=');
-                sb.Append(Uri.EscapeDataString(pair.Value ?? string.Empty));
+                Escape(sb, pair.Value ?? string.Empty);
             }
             return sb.ToString();
+        }
+
+        // .NET Framework's EscapeDataString throws UriFormatException past 65,519 characters: escape in pieces, never
+        // splitting a surrogate pair.
+        private static void Escape(StringBuilder sb, string text)
+        {
+            const int Chunk = 32000;
+            for (int start = 0; start < text.Length;)
+            {
+                int length = Math.Min(Chunk, text.Length - start);
+                if (start + length < text.Length && char.IsHighSurrogate(text[start + length - 1]) && char.IsLowSurrogate(text[start + length]))
+                    length--;
+                sb.Append(Uri.EscapeDataString(text.Substring(start, length)));
+                start += length;
+            }
         }
 
         /// <summary>Parses a query string into ordered key/value pairs. A leading '?' is tolerated.</summary>

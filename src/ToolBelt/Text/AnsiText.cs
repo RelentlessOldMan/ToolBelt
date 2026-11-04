@@ -38,9 +38,10 @@ namespace ToolBelt.Text
                     while (i < text.Length && !(text[i] >= '@' && text[i] <= '~') && text[i] != Escape) i++;
                     if (i < text.Length && text[i] != Escape) i++; // consume the final byte; an ESC cancels and starts anew
                 }
-                else if (next == ']')
+                else if (next == ']' || next == 'P' || next == 'X' || next == '^' || next == '_')
                 {
-                    // OSC: terminated by BEL or by ST (ESC \).
+                    // OSC, and the DCS/SOS/PM/APC strings (whose payload leaked into the text): terminated by BEL or by
+                    // ST (ESC \).
                     i++;
                     while (i < text.Length)
                     {

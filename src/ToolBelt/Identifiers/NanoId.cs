@@ -40,7 +40,7 @@ namespace ToolBelt.Identifiers
                 throw new ArgumentOutOfRangeException(nameof(defaultSize), defaultSize, "Default size must be positive.");
 #if NETSTANDARD2_0
             // On .NET Framework, new Random() seeds from the tick count, so instances created close together would repeat.
-            _random = random ?? new Random(Guid.NewGuid().GetHashCode());
+            _random = random ?? new CryptoBackedRandom();
 #else
             _random = random ?? new Random();
 #endif
@@ -60,5 +60,25 @@ namespace ToolBelt.Identifiers
                 chars[i] = _alphabet[_random.Next(_alphabet.Length)];
             return new string(chars);
         }
+#if NETSTANDARD2_0
+        // A Random drawing from the OS generator. Seeding new Random(int) gave only 2^31 streams on .NET Framework, so
+        // separate instances repeated whole id streams (about one pair in 2^32).
+        private sealed class CryptoBackedRandom : Random
+        {
+            private static readonly System.Security.Cryptography.RandomNumberGenerator Rng = System.Security.Cryptography.RandomNumberGenerator.Create();
+
+            protected override double Sample()
+            {
+                var b = new byte[8];
+                Rng.GetBytes(b);
+                return (BitConverter.ToUInt64(b, 0) >> 11) * (1.0 / (1UL << 53));
+            }
+
+            public override int Next() => (int)(Sample() * int.MaxValue);
+            public override int Next(int minValue, int maxValue) => minValue + (int)(Sample() * ((long)maxValue - minValue));
+            public override double NextDouble() => Sample();
+            public override void NextBytes(byte[] buffer) => Rng.GetBytes(buffer);
+        }
+#endif
     }
 }

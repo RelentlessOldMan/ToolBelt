@@ -26,15 +26,18 @@ namespace ToolBelt.Text
             return distance;
         }
 
-        /// <summary>Number of differing bits across two equal-length byte arrays.</summary>
-        public static int BitDistance(byte[] a, byte[] b)
+        /// <summary>
+        /// Number of differing bits across two equal-length byte arrays. A <c>long</c>: arrays of 256 MiB or more can
+        /// differ in more than <see cref="int.MaxValue"/> bits (an <c>int</c> wrapped negative).
+        /// </summary>
+        public static long BitDistance(byte[] a, byte[] b)
         {
             if (a is null) throw new ArgumentNullException(nameof(a));
             if (b is null) throw new ArgumentNullException(nameof(b));
             if (a.Length != b.Length)
                 throw new ArgumentException("Byte arrays must have equal length.", nameof(b));
 
-            int distance = 0;
+            long distance = 0;
             for (int i = 0; i < a.Length; i++)
                 distance += PopCount((byte)(a[i] ^ b[i]));
             return distance;
