@@ -66,16 +66,27 @@ namespace ToolBelt.Logging
                 case LogField.Level: return e.Level.ToString();
                 case LogField.Category: return e.Category;
                 case LogField.Message: return e.Message;
-                case LogField.Exception: return e.Exception?.ToString() ?? string.Empty;
+                case LogField.Exception: return e.Exception == null ? string.Empty : Describe(e.Exception);
                 default: return string.Empty;
             }
         }
 
         // Keep each record on one line and keep fields separable: newlines and the delimiter become spaces.
+        // An exception whose ToString throws (a broken override) took the log call down.
+        private static string Describe(Exception ex)
+        {
+            try { return ex.ToString(); }
+            catch (Exception inner) { return ex.GetType().FullName + " (its ToString threw " + inner.GetType().FullName + ")"; }
+        }
+
         private string Sanitize(string value, bool last)
         {
-            value = value.Replace("\r", " ").Replace("\n", " ");
-            if (_delimiter.Length > 0 && _delimiter != " ") value = value.Replace(_delimiter, " ");
+            // The Unicode line breaks too (NEL, LS, PS): a viewer that honours them split the record.
+            value = value.Replace("\r", " ").Replace("\n", " ").Replace("\u0085", " ").Replace("\u2028", " ").Replace("\u2029", " ");
+            // Until none is left: one pass of Replace can make a new delimiter when the delimiter has a space in it
+            // (" | | " became " |  | ", and ",, " became ", , " for ", ").
+            if (_delimiter.Length > 0 && _delimiter != " ")
+                while (value.IndexOf(_delimiter, StringComparison.Ordinal) >= 0) value = value.Replace(_delimiter, " ");
             if (!last) value = TrimOverlap(value);
             return value;
         }

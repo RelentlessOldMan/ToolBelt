@@ -25,6 +25,7 @@ namespace ToolBelt.Logging
 
         public void Emit(LogEvent logEvent)
         {
+            if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
             if (_predicate(logEvent)) _inner.Emit(logEvent);
         }
 
@@ -68,6 +69,7 @@ namespace ToolBelt.Logging
 
         public void Emit(LogEvent logEvent)
         {
+            if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
             List<Exception>? errors = null;
             foreach (var route in System.Threading.Volatile.Read(ref _routes))
             {
@@ -131,7 +133,11 @@ namespace ToolBelt.Logging
 
         public void Emit(LogEvent logEvent)
         {
+            if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
             DateTimeOffset now = _clock();
+            LogEvent? summary;
+            // The inner sink is called outside the lock: a blocking AsyncLogSink inside, whose consumer logged back
+            // through this sink, deadlocked (the consumer waited for the lock, the lock's holder for queue space).
             lock (_gate)
             {
                 bool same = _hasCurrent && logEvent.Level == _currentLevel
@@ -144,9 +150,7 @@ namespace ToolBelt.Logging
                     _lastSuppressed = logEvent;
                     return;
                 }
-                Exception? summaryError = null;
-                try { FlushSummary(now); }
-                catch (Exception ex) { summaryError = ex; }                         // still write the new event
+                summary = TakeSummary();
                 // The window starts before the write: an inner sink that threw left it unstarted, so a flood of a message
                 // that failed to write was never suppressed.
                 _hasCurrent = true;
@@ -156,13 +160,19 @@ namespace ToolBelt.Logging
                 _windowStart = now;
                 _suppressed = 0;
                 _lastSuppressed = null;
-                try { _inner.Emit(logEvent); }
-                catch (Exception ex) when (summaryError != null) { throw new AggregateException(summaryError, ex); }   // both, not just one
-                if (summaryError != null) ExceptionDispatchInfo.Capture(summaryError).Throw();
             }
+            Exception? summaryError = null;
+            if (summary != null)
+            {
+                try { _inner.Emit(summary); }
+                catch (Exception ex) { summaryError = ex; }                         // still write the new event
+            }
+            try { _inner.Emit(logEvent); }
+            catch (Exception ex) when (summaryError != null) { throw new AggregateException(summaryError, ex); }   // both, not just one
+            if (summaryError != null) ExceptionDispatchInfo.Capture(summaryError).Throw();
         }
 
-        private void FlushSummary(DateTimeOffset now)
+        private LogEvent? TakeSummary()
         {
             long suppressed = _suppressed;
             LogEvent? last = _lastSuppressed;
@@ -170,15 +180,18 @@ namespace ToolBelt.Logging
             _lastSuppressed = null;
             if (suppressed > 0 && last != null)
             {
-                var summary = new LogEvent(now, last.Level, last.Category,
+                // Stamped with the last repeat, not the flush, which can come hours later.
+                return new LogEvent(last.Timestamp, last.Level, last.Category,
                     last.Message + $" (repeated {suppressed} times)", last.Exception);
-                _inner.Emit(summary);
             }
+            return null;
         }
 
         public void Dispose()
         {
-            try { lock (_gate) FlushSummary(_clock()); }
+            LogEvent? summary;
+            lock (_gate) summary = TakeSummary();
+            try { if (summary != null) _inner.Emit(summary); }
             finally { if (_ownsInner) _inner.Dispose(); } // a throwing summary left the owned sink open
         }
     }

@@ -91,7 +91,9 @@ namespace ToolBelt.Diagnostics
 
         private static string Format(string message, string member, string filePath, int lineNumber)
         {
-            string file = string.IsNullOrEmpty(filePath) ? "?" : Path.GetFileName(filePath);
+            // The last path segment, by hand: Path.GetFileName on .NET Framework threw for '<', '>' or '|' in the path, and
+            // the violation was lost.
+            string file = string.IsNullOrEmpty(filePath) ? "?" : filePath.Substring(filePath.LastIndexOfAny(new[] { '/', '\\' }) + 1);
             return "Invariant violated at " + file + ":" + lineNumber.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 + " in " + (string.IsNullOrEmpty(member) ? "?" : member) + ": " + message;
         }

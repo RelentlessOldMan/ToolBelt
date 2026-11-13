@@ -33,7 +33,13 @@ namespace ToolBelt.Logging
             if (path is null) throw new ArgumentNullException(nameof(path));
             // Resolved once: a relative path re-resolved on every reopen moved the log (and lost its rotation) when the
             // current directory changed.
-            _path = Path.GetFullPath(path);
+            // An empty or invalid path named no parameter on .NET Framework ("The path is not of a legal form").
+            if (path.Trim().Length == 0) throw new ArgumentException("The path is empty.", nameof(path));
+            try { _path = Path.GetFullPath(path); }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException)
+            {
+                throw new ArgumentException("The path is not valid: " + ex.Message, nameof(path), ex);
+            }
             if (maxBytes < 0) throw new ArgumentOutOfRangeException(nameof(maxBytes), maxBytes, "maxBytes must be non-negative.");
             if (maxBytes > 0 && maxFiles < 1) throw new ArgumentOutOfRangeException(nameof(maxFiles), maxFiles, "maxFiles must be at least 1 when rotation is enabled.");
             _formatter = formatter ?? LogFormatters.Plain;
@@ -45,6 +51,7 @@ namespace ToolBelt.Logging
 
         public void Emit(LogEvent logEvent)
         {
+            if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
             string line = _formatter(logEvent);
             lock (_gate)
             {
@@ -95,6 +102,7 @@ namespace ToolBelt.Logging
                 if (last == _maxFiles) File.Delete(Rotated(last--));
                 for (int k = last; k >= 1; k--) File.Move(Rotated(k), Rotated(k + 1));
                 if (File.Exists(_path)) File.Move(_path, Rotated(1));
+                DeleteBeyond();
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
@@ -103,6 +111,21 @@ namespace ToolBelt.Logging
             }
 
             Open(); // a fresh primary file, or the current one again if the rotation failed
+        }
+
+        // Backups numbered past maxFiles (left by a sink that kept more, or after a gap in the run) were kept for good.
+        private void DeleteBeyond()
+        {
+            string dir = Path.GetDirectoryName(_path)!, name = Path.GetFileName(_path);
+            foreach (string file in Directory.GetFiles(dir, name + ".*"))
+            {
+                string suffix = Path.GetFileName(file).Substring(name.Length + 1);
+                if (suffix.Length == 0 || suffix.Length > 9) continue;
+                bool digits = true;
+                foreach (char c in suffix) if (c < '0' || c > '9') { digits = false; break; }
+                if (digits && suffix[0] != '0' && int.Parse(suffix, System.Globalization.CultureInfo.InvariantCulture) > _maxFiles)
+                    File.Delete(file);
+            }
         }
     }
 }

@@ -49,6 +49,11 @@ namespace ToolBelt.Diagnostics
 
         /// <summary>Distinct type+message signatures tracked before new messages are folded into one per type.</summary>
         public const int MaxSignatures = 1000;
+
+        /// <summary>Longest message kept in a signature; longer ones are cut and end with "…".</summary>
+        public const int MaxMessageLength = 500;
+
+        private int _signatures;
         private readonly HashSet<Type> _ignored = new HashSet<Type>();
         private readonly object _ignoredGate = new object();
         private int _attached;
@@ -124,11 +129,33 @@ namespace ToolBelt.Diagnostics
             {
                 if (IsIgnored(exception.GetType())) return;
                 if (Filter != null && !Filter(exception)) return;
-                string key = exception.GetType().FullName + ": " + exception.Message;
+                // The message is cut to MaxMessageLength: whole messages were kept, so 300 large ones held 600 MB.
+                string message = exception.Message ?? string.Empty;
+                if (message.Length > MaxMessageLength)
+                {
+                    int cut = MaxMessageLength;
+                    if (char.IsHighSurrogate(message[cut - 1])) cut--;
+                    message = message.Substring(0, cut) + "…";
+                }
+                string key = exception.GetType().FullName + ": " + message;
                 // Bounded: messages that embed values ("bad value 'x123' at line 4711") would otherwise add a signature per
-                // throw for the life of the process. Past the cap, new messages share one per-type signature.
-                if (_seen.Count >= MaxSignatures && !_seen.ContainsKey(key)) key = exception.GetType().FullName + ": (other messages)";
-                Signature sig = _seen.GetOrAdd(key, _ => new Signature());
+                // throw for the life of the process. Past the cap, new messages share one per-type signature. The count is
+                // kept here: ConcurrentDictionary.Count takes every lock, and the cap was checked apart from the add.
+                if (!_seen.TryGetValue(key, out Signature? sig))
+                {
+                    if (Interlocked.Increment(ref _signatures) > MaxSignatures)
+                    {
+                        Interlocked.Decrement(ref _signatures);
+                        key = exception.GetType().FullName + ": (other messages)";
+                        sig = _seen.GetOrAdd(key, _ => new Signature());
+                    }
+                    else
+                    {
+                        var fresh = new Signature();
+                        sig = _seen.GetOrAdd(key, fresh);
+                        if (!ReferenceEquals(sig, fresh)) Interlocked.Decrement(ref _signatures);   // another thread added it
+                    }
+                }
                 DateTimeOffset now = _clock();
                 int occurrence, suppressed;
                 lock (sig)

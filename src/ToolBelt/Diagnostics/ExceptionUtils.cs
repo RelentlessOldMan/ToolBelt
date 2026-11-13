@@ -2,6 +2,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -96,8 +97,9 @@ namespace ToolBelt.Diagnostics
                 {
                     // A Data value whose ToString threw took the whole report down.
                     foreach (DictionaryEntry entry in e.Data)
-                        sb.Append(indent).Append("  data[").Append(Safe(() => Convert.ToString(entry.Key))).Append("] = ")
-                          .AppendLine(Safe(() => Convert.ToString(entry.Value)));
+                        // Invariant: values came out in the current culture (1,5 for 1.5 in German).
+                        sb.Append(indent).Append("  data[").Append(Safe(() => Convert.ToString(entry.Key, CultureInfo.InvariantCulture))).Append("] = ")
+                          .AppendLine(Safe(() => Convert.ToString(entry.Value, CultureInfo.InvariantCulture)));
                 }
                 catch (Exception ex) { sb.Append(indent).AppendLine("  data: <" + ex.GetType().Name + ">"); }
                 string? trace = includeStackTrace ? Safe(() => current.StackTrace) : null;
@@ -116,7 +118,7 @@ namespace ToolBelt.Diagnostics
 
         /// <summary>
         /// True if the failure is likely transient (worth retrying): timeouts, I/O, socket and HTTP request
-        /// failures. Programmer errors (argument, null-reference, invalid-operation), cancellation, and I/O failures
+        /// failures, except an HTTP client error (a 4xx status other than 408 and 429). Programmer errors (argument, null-reference, invalid-operation), cancellation, and I/O failures
         /// that a retry cannot fix (file, directory or drive not found, path too long, end of stream, a failed
         /// assembly load) are not.
         /// </summary>
@@ -138,13 +140,33 @@ namespace ToolBelt.Diagnostics
                 else
                 {
                     string typeName = e.GetType().FullName ?? string.Empty;
-                    if (typeName == "System.Net.Sockets.SocketException"
-                        || typeName == "System.Net.Http.HttpRequestException"
-                        || typeName == "System.Net.WebException")
+                    if (typeName == "System.Net.Http.HttpRequestException" || typeName == "System.Net.WebException")
+                    {
+                        // A client error (400, 401, 403, 404…) won't change on a retry; 408 and 429 might.
+                        int? status = HttpStatus(e);
+                        if (status >= 400 && status < 500 && status != 408 && status != 429) return false;
+                        transient = true;
+                    }
+                    else if (typeName == "System.Net.Sockets.SocketException")
                         transient = true;
                 }
             }
             return transient;
+        }
+
+        // The HTTP status, by reflection so the core takes no networking dependency: HttpRequestException.StatusCode
+        // (.NET 5 on), or a WebException's Response.StatusCode.
+        private static int? HttpStatus(Exception e)
+        {
+            try
+            {
+                object? source = e;
+                if (e.GetType().FullName == "System.Net.WebException")
+                    source = e.GetType().GetProperty("Response")?.GetValue(e);
+                object? code = source?.GetType().GetProperty("StatusCode")?.GetValue(source);
+                return code is Enum ? Convert.ToInt32(code, System.Globalization.CultureInfo.InvariantCulture) : (int?)null;
+            }
+            catch (Exception) { return null; }   // a response that throws on access: no status known
         }
 
         private static bool IsPermanentIo(Exception e)

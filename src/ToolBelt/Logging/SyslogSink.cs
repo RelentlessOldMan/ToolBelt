@@ -95,12 +95,12 @@ namespace ToolBelt.Logging
 
         public void Emit(LogEvent logEvent)
         {
-            if (logEvent is null) return;
+            if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
             string line = Format(logEvent, _facility, _hostName, _appName, _procId);
             byte[] payload = Encoding.UTF8.GetBytes(line);
             lock (_gate)
             {
-                // Returned silently after Dispose, where the other sinks throw ObjectDisposedException.
+                // Throws after Dispose, as the other sinks do (it used to return silently).
                 if (_disposed) throw new ObjectDisposedException(nameof(SyslogSink));
                 try
                 {
@@ -108,10 +108,14 @@ namespace ToolBelt.Logging
                     else SendTcp(payload);
                 }
                 // ArgumentException too: a host name over 255 characters threw out of the resolve and the connect.
-                catch (Exception ex) when (ex is SocketException || ex is System.IO.IOException || ex is ObjectDisposedException || ex is ArgumentException)
+                // And anything once Dispose has begun: on .NET Framework a connect raced by the socket's disposal can fail
+                // with NullReferenceException or InvalidOperationException, which escaped Emit.
+                catch (Exception ex) when (ex is SocketException || ex is System.IO.IOException || ex is ObjectDisposedException || ex is ArgumentException || _closing)
                 {
                     System.Threading.Interlocked.Increment(ref _failed);
                     ResetTcp();
+                    // A collector that stopped reading cost every emit the send timeout under the lock, with no back-off.
+                    if (IsTimeout(ex)) BackOff();
                 }
             }
         }
@@ -176,9 +180,11 @@ namespace ToolBelt.Logging
                     byte[] prefix = Encoding.ASCII.GetBytes(payload.Length.ToString(CultureInfo.InvariantCulture) + " ");
                     stream.Write(prefix, 0, prefix.Length);
                     stream.Write(payload, 0, payload.Length);
+                    _backoff = TimeSpan.Zero;                                          // delivered: the next failure backs off from the start
                     return;
                 }
-                catch when (hadConnection && attempt == 0)
+                // Not after a send timeout: the retry hid it (FailedSends stayed 0) and doubled the stall.
+                catch (Exception ex) when (hadConnection && attempt == 0 && !IsTimeout(ex))
                 {
                     ResetTcp();                                                       // stale connection: reconnect once
                 }
@@ -191,7 +197,11 @@ namespace ToolBelt.Logging
             if (now < _retryAtTimestamp)
                 throw new SocketException((int)SocketError.TryAgain); // backing off after a failed connect: don't block
             if (_closing) throw new ObjectDisposedException(nameof(SyslogSink));   // a stale-connection retry after Dispose began
-            var client = new TcpClient { NoDelay = true, SendTimeout = 5000 };
+            // Dual-stack: a TcpClient with no address family is IPv4-only on .NET Framework, so "::1" never connected.
+            var client = Socket.OSSupportsIPv6 ? new TcpClient(AddressFamily.InterNetworkV6) : new TcpClient();
+            if (Socket.OSSupportsIPv6) client.Client.DualMode = true;
+            client.NoDelay = true;
+            client.SendTimeout = 5000;
             _inUse = client;
             if (_closing) { client.Dispose(); throw new ObjectDisposedException(nameof(SyslogSink)); }   // Dispose missed it
             try
@@ -205,19 +215,27 @@ namespace ToolBelt.Logging
                 }
                 _tcp = client;
                 _tcpStream = client.GetStream();
-                _backoff = TimeSpan.Zero;
                 _retryAtTimestamp = 0;
             }
             catch (Exception ex)
             {
                 client.Dispose();
-                _backoff = _backoff == TimeSpan.Zero ? MinBackoff : TimeSpan.FromTicks(Math.Min(_backoff.Ticks * 2, MaxBackoff.Ticks));
-                _retryAtTimestamp = System.Diagnostics.Stopwatch.GetTimestamp() + (long)(_backoff.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
+                BackOff();
                 if (ex is AggregateException agg && agg.InnerException != null)
                     System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(agg.InnerException).Throw();
                 throw;
             }
         }
+
+        private void BackOff()
+        {
+            _backoff = _backoff == TimeSpan.Zero ? MinBackoff : TimeSpan.FromTicks(Math.Min(_backoff.Ticks * 2, MaxBackoff.Ticks));
+            _retryAtTimestamp = System.Diagnostics.Stopwatch.GetTimestamp() + (long)(_backoff.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
+        }
+
+        private static bool IsTimeout(Exception ex)
+            => ex is System.IO.IOException && ex.InnerException is SocketException se
+               && (se.SocketErrorCode == SocketError.TimedOut || se.SocketErrorCode == SocketError.WouldBlock);
 
         private void ResetTcp()
         {
@@ -227,6 +245,13 @@ namespace ToolBelt.Logging
             _tcp = null;
         }
 
+        // An exception whose ToString throws (a broken override) took the log call down.
+        private static string Describe(Exception ex)
+        {
+            try { return ex.ToString(); }
+            catch (Exception inner) { return ex.GetType().FullName + " (its ToString threw " + inner.GetType().FullName + ")"; }
+        }
+
         /// <summary>The RFC 5424 line for an event (no framing).</summary>
         public static string Format(LogEvent logEvent, SyslogFacility facility, string hostName, string appName, string procId)
         {
@@ -234,7 +259,7 @@ namespace ToolBelt.Logging
             int pri = (int)CheckFacility(facility, nameof(facility)) * 8 + Severity(logEvent.Level);
             string timestamp = logEvent.Timestamp.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffffzzz", CultureInfo.InvariantCulture);
             string msgId = Token(logEvent.Category, 32);
-            string message = logEvent.Exception == null ? logEvent.Message : logEvent.Message + " | " + logEvent.Exception;
+            string message = logEvent.Exception == null ? logEvent.Message : logEvent.Message + " | " + Describe(logEvent.Exception);
             // RFC 5424 6.4: a MSG in UTF-8 starts with a BOM; without it a collector may take the bytes as another charset.
             foreach (char c in message)
                 if (c > 127) { message = "\uFEFF" + message; break; }

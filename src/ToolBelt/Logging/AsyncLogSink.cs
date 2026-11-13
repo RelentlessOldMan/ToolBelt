@@ -39,6 +39,9 @@ namespace ToolBelt.Logging
             bool ownsInner = true)
         {
             _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+            // An undefined policy acted as DropOldest without complaint.
+            if (overflowPolicy != PipelineOverflowPolicy.Block && overflowPolicy != PipelineOverflowPolicy.DropOldest && overflowPolicy != PipelineOverflowPolicy.DropNewest)
+                throw new ArgumentOutOfRangeException(nameof(overflowPolicy), overflowPolicy, "Unknown overflow policy.");
             _ownsInner = ownsInner;
             _blocks = overflowPolicy == PipelineOverflowPolicy.Block;
             // onError runs on the consumer thread too: marked as such, an event it logs is written straight through
@@ -66,6 +69,7 @@ namespace ToolBelt.Logging
 
         public void Emit(LogEvent logEvent)
         {
+            if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
             AsyncLogSink? consuming = t_consuming;
             if (consuming != this && (consuming == null || !_blocks))
             {

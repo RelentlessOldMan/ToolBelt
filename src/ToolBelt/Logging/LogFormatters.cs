@@ -21,8 +21,15 @@ namespace ToolBelt.Logging
             sb.Append(" [").Append(Level(e.Level)).Append("] ");
             if (e.Category.Length > 0) sb.Append(e.Category).Append(": ");
             sb.Append(e.Message);
-            if (e.Exception != null) sb.Append(System.Environment.NewLine).Append(e.Exception);
+            if (e.Exception != null) sb.Append(System.Environment.NewLine).Append(Describe(e.Exception));
             return sb.ToString();
+        }
+
+        // An exception whose ToString throws (a broken override) took the log call down.
+        private static string Describe(Exception ex)
+        {
+            try { return ex.ToString(); }
+            catch (Exception inner) { return ex.GetType().FullName + " (its ToString threw " + inner.GetType().FullName + ")"; }
         }
 
         /// <summary>e.g. <c>09:15:00 INFO message</c> — terse, for consoles.</summary>
@@ -45,7 +52,7 @@ namespace ToolBelt.Logging
             sb.Append(",\"level\":\"").Append(e.Level).Append('"');
             sb.Append(",\"category\":"); AppendJsonString(sb, e.Category);
             sb.Append(",\"message\":"); AppendJsonString(sb, e.Message);
-            if (e.Exception != null) { sb.Append(",\"exception\":"); AppendJsonString(sb, e.Exception.ToString()); }
+            if (e.Exception != null) { sb.Append(",\"exception\":"); AppendJsonString(sb, Describe(e.Exception)); }
             sb.Append('}');
             return sb.ToString();
         }
@@ -67,8 +74,16 @@ namespace ToolBelt.Logging
         private static void AppendJsonString(StringBuilder sb, string value)
         {
             sb.Append('"');
-            foreach (char c in value)
+            for (int i = 0; i < value.Length; i++)
             {
+                char c = value[i];
+                // An unpaired surrogate is escaped: written raw, a UTF-8 sink replaced it with U+FFFD and lost it.
+                if (char.IsSurrogate(c))
+                {
+                    if (char.IsHighSurrogate(c) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1])) { sb.Append(c).Append(value[++i]); continue; }
+                    sb.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
+                    continue;
+                }
                 switch (c)
                 {
                     case '"': sb.Append("\\\""); break;

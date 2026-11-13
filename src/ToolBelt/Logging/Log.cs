@@ -43,6 +43,7 @@ namespace ToolBelt.Logging
     /// </summary>
     public interface ILogSink : IDisposable
     {
+        /// <summary>Writes one event; a null event throws <see cref="ArgumentNullException"/>.</summary>
         void Emit(LogEvent logEvent);
     }
 }

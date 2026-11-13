@@ -22,6 +22,9 @@ namespace ToolBelt.Diagnostics
     {
         public ProbeResult(HealthStatus status, string? message = null)
         {
+            // An undefined status (−1) ranked below Healthy, so the report stayed Healthy.
+            if (status < HealthStatus.Healthy || status > HealthStatus.Unhealthy)
+                throw new ArgumentOutOfRangeException(nameof(status), status, "Status must be Healthy, Degraded or Unhealthy.");
             Status = status;
             Message = message;
         }
@@ -158,7 +161,8 @@ namespace ToolBelt.Diagnostics
 
         /// <summary>
         /// Registers a synchronous probe. It runs on the thread pool so a blocking probe can still be timed out
-        /// (and abandoned) without stalling the others.
+        /// (and abandoned) without stalling the others. While an abandoned run has not returned, later checks don't start
+        /// another: they report <paramref name="failureStatus"/> straight away.
         /// </summary>
         public HealthCheck Add(
             string name,
@@ -167,7 +171,18 @@ namespace ToolBelt.Diagnostics
             HealthStatus failureStatus = HealthStatus.Unhealthy)
         {
             if (probe is null) throw new ArgumentNullException(nameof(probe));
-            return Add(name, _ => Task.Run(probe), timeout, failureStatus);
+            // One run at a time: a probe that hangs took one more pool thread on every check, without limit. While the
+            // last run is still going, the probe reports its failure status at once.
+            Task<ProbeResult>? last = null;
+            return Add(name, _ =>
+            {
+                Task<ProbeResult>? previous = Volatile.Read(ref last);
+                if (previous != null && !previous.IsCompleted)
+                    return Task.FromResult(new ProbeResult(failureStatus, "The previous run of this probe has not returned."));
+                Task<ProbeResult> run = Task.Run(probe);
+                Volatile.Write(ref last, run);
+                return run;
+            }, timeout, failureStatus);
         }
 
         /// <summary>

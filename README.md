@@ -245,7 +245,7 @@ src/
       QuotedPrintable.cs    MIME quoted-printable encode/decode (RFC 2045, byte-exact round-trip)
       VarInt.cs             LEB128 var-length ints (unsigned + ZigZag signed)
     Cli/
-      ConsoleTable.cs       box-drawing text table (alignment, padding)
+      ConsoleTable.cs       aligned ASCII text table (alignment, padding)
       ProgressBar.cs        render a text progress bar (bar body / bracketed + percent)
       Sparkline.cs          one-line block-character mini chart of a series
       AnsiStyle.cs          16/256/24-bit colour + bold/underline; NO_COLOR / FORCE_COLOR / TERM=dumb aware
@@ -301,7 +301,7 @@ src/
       FirstOrderLag.cs      time-constant low-pass, exact for any (irregular) update interval
     Diagnostics/
       Benchmark.cs          micro-benchmark harness (warmup, stats, bytes/op, compare-to-baseline; .NET Framework counts the domain's bytes)
-      MetricsRegistry.cs    named counters / gauges / timers with percentile snapshots (thread-safe)
+      MetricsRegistry.cs    named counters / gauges / timers with percentile snapshots (thread-safe, capped samples per timer)
       ScopedTimer.cs        time a using-block to a callback / metrics (injectable clock)
       ExceptionUtils.cs     root-cause / flatten / describe / transient-vs-permanent classify
       EnvironmentReport.cs  one-call bug-report snapshot (versions/OS/culture/uptime/env, secret-safe)
@@ -1030,6 +1030,7 @@ tests/
       LoggingReviewTests.cs (round 12 review regressions: Logging, Diagnostics, Cli)
       LoggingReview2Tests.cs (second-pass regressions: async sink cross-deadlock, syslog BOM and facility range, stack trace layout, metrics rounding, rotation with huge maxFiles, decorator failures)
       LoggingReview3Tests.cs (third-pass regressions: async sink self-dispose, clock steps, wrapped exit codes, counter saturation, delimiter overlap)
+      LoggingReview4Tests.cs (fourth-pass regressions: rate-limiter deadlock, syslog IPv6 and stalled collectors, null events, metrics sample cap, health status, ANSI resets, column-aware spinner, progress floor)
   ToolBelt.Windows.Tests/   Windows-only integration tests for the platform satellite (net8.0-windows)
     PowerStatusTests.cs
     SingleInstanceTests.cs

@@ -44,6 +44,11 @@ namespace ToolBelt.Diagnostics
         /// <summary>Captures the current environment. Supply variable names to include, or null for the default safe set.</summary>
         public static EnvironmentReport Capture(IReadOnlyCollection<string>? environmentVariableNames = null)
         {
+            // A null name threw from the BCL, naming its own parameter ("variable").
+            if (environmentVariableNames != null)
+                foreach (string name in environmentVariableNames)
+                    if (string.IsNullOrEmpty(name))
+                        throw new ArgumentException("Variable names must not be null or empty.", nameof(environmentVariableNames));
             long workingSet = 0;
             TimeSpan uptime = TimeSpan.Zero;
             try

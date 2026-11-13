@@ -52,7 +52,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 3 | 13 / 52 | re-queue (13 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 3 | 8 / 75 | re-queue (8 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 3 | 17 / 55 | re-queue (17 bugs) |
-| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 3 | 18 / 67 | re-queue (18 bugs, 1 severe) |
+| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 4 | 30 / 97 | re-queue (30 bugs, 1 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 4 | 16 / 88 | re-queue (16 bugs, none severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 4 | 27 / 109 | re-queue (27 bugs, 3 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 4 | 25 / 99 | re-queue (25 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68); **next: 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69); **next: 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -142,11 +142,53 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.9 | 66 | Statistics, fourth pass | 23 | (see tag) |
 | v2026.11.13.10 | 67 | Filters & control, fourth pass | 14 | (see tag) |
 | v2026.11.13.11 | 68 | Binary formats & images, fourth pass | 10 | (see tag) |
+| v2026.11.13.12 | 69 | Logging, diagnostics, CLI, fourth pass | 30 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 69: Logging, diagnostics, CLI, fourth pass (v2026.11.13.12)
+
+Two fresh reviewers (correctness, robustness): 30 findings, 26 after merging the four both found, all confirmed, plus a
+ConsoleTable bug found while fixing and three of round 29's unfixed items, so **30 bugs, 1 severe**. Section 12 stays
+re-queued. The regression tests are in `LoggingReview4Tests` (29 tests). All 29 failed on the old code: 27 on .NET 8,
+and the IPv6 syslog, AssertInvariant path and ScopedTimer tests on .NET Framework 4.8, where those bugs live. The
+checked build caught an unchecked cast in the new colour check before release. Still open (BUGLIST.md): AsyncLogSink's
+Dispose has no drain timeout, and four suspected robustness items.
+
+- **Severe: RateLimitedSink deadlocked.** It held its lock while calling the inner sink, so an inner sink that waited
+  on another logging thread (a blocking AsyncLogSink with a full queue whose consumer logs back) never returned. The
+  inner sink is now called after the lock is released.
+- **SyslogSink:** TCP on .NET Framework was IPv4-only ("::1" never connected); the client is now dual-stack. A collector
+  that stopped reading cost each emit the 5 s send timeout under the lock, and the retry hid the failure (FailedSends
+  stayed 0); a send timeout now counts, backs off and isn't retried. A connect raced by Dispose threw
+  NullReferenceException out of Emit on .NET Framework. A null event returned silently.
+- **Formatters:** StructuredTextFormatter's single Replace left a delimiter with a space in it (" | ", ", ", "  ") inside
+  values, and let NEL, LS and PS split a record. JsonLine wrote unpaired surrogates raw (lost as U+FFFD in UTF-8). An
+  exception whose ToString throws took every formatter and SyslogSink down.
+- **Sinks:** `Emit(null)` did something different in every sink; all now throw ArgumentNullException naming logEvent.
+  The RateLimitedSink summary was stamped with the flush time, not the last repeat. FileSink named no parameter for an
+  empty or invalid path on .NET Framework, and never deleted backups numbered past maxFiles. AsyncLogSink accepted an
+  undefined overflow policy.
+- **HealthCheck:** an undefined status (−1) made the report Healthy; ProbeResult now refuses it. A hung synchronous
+  probe took one more pool thread on every check; while one run is outstanding, later checks report the failure status.
+- **MetricsRegistry:** samples were kept without limit (20M took 400 MB) and Snapshot sorted under the lock (3 s of
+  blocked Increment). Timers now keep up to a cap (default 2^20) with reservoir sampling past it (count, min, max and
+  mean stay exact), and sort outside the lock.
+- **FirstChanceMonitor:** signatures kept whole messages (600 MB for 300 large ones); they are cut to 500 characters, and
+  the signature cap no longer races or takes every dictionary lock.
+- **ExceptionUtils:** IsTransient called HTTP 4xx failures (other than 408 and 429) transient; Data values were formatted
+  in the current culture.
+- **ScopedTimer** timed with the wall clock (15.6 ms steps on .NET Framework, negative across a clock step); it now
+  uses Stopwatch. **AssertInvariant** lost the violation for a path with '<', '>' or '|' on .NET Framework.
+  **EnvironmentReport.Capture** named the BCL's parameter for a null variable name.
+- **CLI:** undefined AnsiColor values made bogus SGR codes; a compound reset (ESC[0;1m) inside styled text ended the
+  outer style. Sparkline accepted NaN, infinite and inverted bounds. ProgressBar showed a full bar or 100% before the
+  work was done (it now floors). ConsoleSpinner cut lines inside surrogate pairs and measured UTF-16 units, not
+  columns, and threw from its constructor and Message setter on a broken writer. ConsoleTable let line breaks and tabs
+  in cells break the table. The README called ConsoleTable a box-drawing table.
+
 ### Round 68: Binary formats & images, fourth pass (v2026.11.13.11)
 
 Two fresh reviewers (correctness, robustness): 9 findings plus a slow Base58 encode the robustness reviewer noted, all

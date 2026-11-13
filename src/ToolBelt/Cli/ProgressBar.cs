@@ -19,8 +19,7 @@ namespace ToolBelt.Cli
             if (width < 1) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
             fraction = Clamp01(fraction);
 
-            int filled = (int)Math.Round(fraction * width, MidpointRounding.AwayFromZero);
-            if (filled > width) filled = width; // guard rounding at the top edge
+            int filled = Floor(fraction, width);
 
             var sb = new StringBuilder(width);
             sb.Append(filledChar, filled);
@@ -34,9 +33,18 @@ namespace ToolBelt.Cli
         public static string RenderWithPercent(double fraction, int width = 20, char filledChar = '█', char emptyChar = '░')
         {
             double clamped = Clamp01(fraction);
-            int percent = (int)Math.Round(clamped * 100, MidpointRounding.AwayFromZero);
+            int percent = Floor(clamped, 100);
             return "[" + Render(clamped, width, filledChar, emptyChar) + "] "
                  + percent.ToString(CultureInfo.InvariantCulture) + "%";
+        }
+
+        // Completed units, rounded down so the bar is full and the label says 100% only when the work is done (0.98 drew
+        // a full bar, 0.996 said 100%). A product a rounding short of a whole number (0.29 × 100 = 28.999…) counts as it.
+        private static int Floor(double fraction, int units)
+        {
+            int n = (int)Math.Floor(fraction * units + 1e-9);
+            if (n >= units) n = fraction >= 1 ? units : units - 1;
+            return n;
         }
 
         private static double Clamp01(double value)

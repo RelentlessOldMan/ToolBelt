@@ -10,7 +10,7 @@ namespace ToolBelt.Logging
     {
         private readonly Action<LogEvent> _onEmit;
         public DelegateSink(Action<LogEvent> onEmit) => _onEmit = onEmit ?? throw new ArgumentNullException(nameof(onEmit));
-        public void Emit(LogEvent logEvent) => _onEmit(logEvent);
+        public void Emit(LogEvent logEvent) => _onEmit(logEvent ?? throw new ArgumentNullException(nameof(logEvent)));
         public void Dispose() { }
     }
 
@@ -38,6 +38,7 @@ namespace ToolBelt.Logging
 
         public void Emit(LogEvent logEvent)
         {
+            if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
             string line = _formatter(logEvent);
             lock (_gate) _writer.WriteLine(line);
         }
@@ -71,6 +72,7 @@ namespace ToolBelt.Logging
 
         public void Emit(LogEvent logEvent)
         {
+            if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
             lock (_gate)
             {
                 if (_events.Count == _capacity) _events.Dequeue();

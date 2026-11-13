@@ -10,7 +10,7 @@ namespace ToolBelt.Cli
     /// data's range unless explicit bounds are given. Tiny and disproportionately useful for console
     /// diagnostics where opening an image would be overkill. NaN draws as a space, +∞ as the top block and −∞ as
     /// the bottom one; auto-scaling uses the finite values only, and a bound you supply is kept even if the other is
-    /// computed.
+    /// computed. Bounds must be finite, with min no more than max.
     /// </summary>
     public static class Sparkline
     {
@@ -19,6 +19,13 @@ namespace ToolBelt.Cli
         public static string Render(IReadOnlyList<double> values, double? min = null, double? max = null)
         {
             if (values is null) throw new ArgumentNullException(nameof(values));
+            // A NaN or infinite bound, or min above max, drew everything as the lowest block without complaint.
+            if (min is double mn && (double.IsNaN(mn) || double.IsInfinity(mn)))
+                throw new ArgumentOutOfRangeException(nameof(min), mn, "Bounds must be finite.");
+            if (max is double mx && (double.IsNaN(mx) || double.IsInfinity(mx)))
+                throw new ArgumentOutOfRangeException(nameof(max), mx, "Bounds must be finite.");
+            if (min is double a && max is double b && a > b)
+                throw new ArgumentOutOfRangeException(nameof(max), b, "max must not be below min.");
             if (values.Count == 0) return string.Empty;
 
             double lo = min ?? double.PositiveInfinity;

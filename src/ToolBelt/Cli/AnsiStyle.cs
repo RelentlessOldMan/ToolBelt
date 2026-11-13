@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 
 namespace ToolBelt.Cli
@@ -44,8 +45,8 @@ namespace ToolBelt.Cli
             return !outputRedirected;
         }
 
-        public string Foreground(string text, AnsiColor color) => Wrap(text, ForegroundCode(color).ToString());
-        public string Background(string text, AnsiColor color) => Wrap(text, (ForegroundCode(color) + 10).ToString());
+        public string Foreground(string text, AnsiColor color) => Wrap(text, ForegroundCode(color).ToString(CultureInfo.InvariantCulture));
+        public string Background(string text, AnsiColor color) => Wrap(text, (ForegroundCode(color) + 10).ToString(CultureInfo.InvariantCulture));
 
         /// <summary>A colour from the 256-colour palette.</summary>
         public string Foreground256(string text, int index) => Wrap(text, "38;5;" + Check256(index));
@@ -73,8 +74,8 @@ namespace ToolBelt.Cli
             var codes = new List<string>();
             if (bold) codes.Add("1");
             if (underline) codes.Add("4");
-            if (foreground is AnsiColor f) codes.Add(ForegroundCode(f).ToString());
-            if (background is AnsiColor b) codes.Add((ForegroundCode(b) + 10).ToString());
+            if (foreground is AnsiColor f) codes.Add(Code(f, nameof(foreground)).ToString(CultureInfo.InvariantCulture));
+            if (background is AnsiColor b) codes.Add((Code(b, nameof(background)) + 10).ToString(CultureInfo.InvariantCulture));
             return codes.Count == 0 ? text ?? throw new ArgumentNullException(nameof(text)) : Wrap(text, string.Join(";", codes));
         }
 
@@ -82,14 +83,40 @@ namespace ToolBelt.Cli
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
             if (!Enabled || text.Length == 0) return text;
-            // Re-apply our style after any reset inside the text, so nesting styles doesn't cut the outer one short.
+            // Re-apply our style after any reset inside the text, so nesting styles doesn't cut the outer one short. A
+            // reset is any SGR sequence whose first parameter is 0 or empty: ESC[m, ESC[0m, and compounds like ESC[0;1m
+            // (only the plain two were matched, so ESC[0;1m ended the outer colour early).
             string open = "\u001b[" + code + "m";
-            // ESC[m is a reset too (the parameter defaults to 0).
-            return new StringBuilder(open).Append(text.Replace(Reset, Reset + open).Replace("\u001b[m", "\u001b[m" + open))
-                .Append(Reset).ToString();
+            var sb = new StringBuilder(open);
+            int i = 0;
+            while (i < text.Length)
+            {
+                int esc = text.IndexOf("\u001b[", i, StringComparison.Ordinal);
+                if (esc < 0) { sb.Append(text, i, text.Length - i); break; }
+                int j = esc + 2;
+                while (j < text.Length && ((text[j] >= '0' && text[j] <= '9') || text[j] == ';' || text[j] == ':')) j++;
+                if (j < text.Length && text[j] == 'm')
+                {
+                    sb.Append(text, i, j + 1 - i);
+                    bool reset = true;
+                    for (int k = esc + 2; k < j && text[k] != ';' && text[k] != ':'; k++)
+                        if (text[k] != '0') { reset = false; break; }
+                    if (reset) sb.Append(open);
+                    i = j + 1;
+                }
+                else { sb.Append(text, i, esc + 2 - i); i = esc + 2; }
+            }
+            return sb.Append(Reset).ToString();
         }
 
-        private static int ForegroundCode(AnsiColor c) => (int)c < 8 ? 30 + (int)c : 90 + (int)c - 8;
+        // An undefined colour made a code that is not a colour (99 gave 181; −1 as a background gave 39, the default
+        // foreground).
+        private static int ForegroundCode(AnsiColor c)
+            => unchecked((uint)c) > 15 ? throw new ArgumentOutOfRangeException("color", c, "Color must be one of the 16 AnsiColor values.")
+             : (int)c < 8 ? 30 + (int)c : 90 + (int)c - 8;
+
+        private static int Code(AnsiColor c, string paramName)
+            => unchecked((uint)c) > 15 ? throw new ArgumentOutOfRangeException(paramName, c, "Color must be one of the 16 AnsiColor values.") : ForegroundCode(c);
 
         private static int Check256(int index)
             => index >= 0 && index <= 255 ? index : throw new ArgumentOutOfRangeException(nameof(index), index, "Palette index must be 0–255.");

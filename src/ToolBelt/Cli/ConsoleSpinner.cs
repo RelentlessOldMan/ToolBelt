@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,8 +12,8 @@ namespace ToolBelt.Cli
     /// carriage return; on dispose it erases the line and optionally writes a final status line. When the output isn't an
     /// interactive terminal (redirected to a file or a CI log) it draws nothing animated — it writes the message once —
     /// so logs aren't filled with carriage-return garbage. On the real console the line is cut to the window width so
-    /// it cannot wrap (a wrapped line can't be redrawn in place). If the output breaks (a closed pipe), stopping still
-    /// ends the animation and <see cref="Dispose"/> does not throw. The writer and interactivity are injectable for tests.
+    /// it cannot wrap (a wrapped line can't be redrawn in place), counting wide characters and emoji as two columns. If the output breaks (a closed pipe), stopping still
+    /// ends the animation, and neither drawing nor <see cref="Dispose"/> throws. The writer and interactivity are injectable for tests.
     /// </summary>
     public sealed class ConsoleSpinner : IDisposable
     {
@@ -52,7 +53,7 @@ namespace ToolBelt.Cli
 
             if (_interactive)
             {
-                Draw();
+                Quietly(Draw);
                 _loop = Task.Run(async () =>
                 {
                     try
@@ -71,7 +72,7 @@ namespace ToolBelt.Cli
             }
             else
             {
-                _writer.WriteLine(_message);
+                Quietly(() => _writer.WriteLine(_message));
             }
         }
 
@@ -86,8 +87,8 @@ namespace ToolBelt.Cli
                 {
                     if (_disposed || value == _message) return;
                     _message = value;
-                    if (_interactive) Draw();
-                    else _writer.WriteLine(value);
+                    if (_interactive) Quietly(Draw);
+                    else Quietly(() => _writer.WriteLine(value));
                 }
             }
         }
@@ -143,12 +144,62 @@ namespace ToolBelt.Cli
             {
                 int width;
                 try { width = Console.WindowWidth; } catch (Exception) { width = 0; } // no console window (e.g. a service)
-                if (width > 1 && line.Length > width - 1) line = line.Substring(0, width - 1);
+                if (width > 1) line = Fit(line, width - 1);
             }
-            int pad = Math.Max(0, _lastWidth - line.Length);
+            int columns = Columns(line);
+            int pad = Math.Max(0, _lastWidth - columns);
             _writer.Write("\r" + line + new string(' ', pad));
             _writer.Flush();
-            _lastWidth = line.Length;
+            _lastWidth = columns;
+        }
+
+        // The line cut to a number of screen columns. It was cut in UTF-16 units: a cut inside a surrogate pair left half
+        // an emoji, and wide characters (two columns each) still wrapped the line.
+        internal static string Fit(string line, int maxColumns)
+        {
+            int used = 0;
+            for (int i = 0; i < line.Length;)
+            {
+                int n = Units(line, i);
+                int w = Width(line, i, n);
+                if (used + w > maxColumns) return line.Substring(0, i);
+                used += w;
+                i += n;
+            }
+            return line;
+        }
+
+        internal static int Columns(string line)
+        {
+            int used = 0;
+            for (int i = 0; i < line.Length; i += Units(line, i)) used += Width(line, i, Units(line, i));
+            return used;
+        }
+
+        private static int Units(string s, int i)
+            => char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]) ? 2 : 1;
+
+        // Columns for one character: none for marks and format characters, two for an astral character (mostly emoji
+        // and CJK extensions) or an East Asian wide one, else one.
+        private static int Width(string s, int i, int n)
+        {
+            UnicodeCategory category = CharUnicodeInfo.GetUnicodeCategory(s, i);
+            if (category == UnicodeCategory.NonSpacingMark || category == UnicodeCategory.EnclosingMark || category == UnicodeCategory.Format)
+                return 0;
+            if (n == 2) return 2;
+            char ch = s[i];
+            return (ch >= '\u1100' && ch <= '\u115F') || (ch >= '\u2E80' && ch <= '\uA4CF') || (ch >= '\uAC00' && ch <= '\uD7A3')
+                || (ch >= '\uF900' && ch <= '\uFAFF') || (ch >= '\uFE30' && ch <= '\uFE4F') || (ch >= '\uFF00' && ch <= '\uFF60')
+                || (ch >= '\uFFE0' && ch <= '\uFFE6') ? 2 : 1;
+        }
+
+        // A broken writer (a closed pipe) threw out of the constructor and the Message setter, though Dispose ignored the
+        // same failure; the spinner is cosmetic, so drawing fails quietly everywhere.
+        private void Quietly(Action write)
+        {
+            try { write(); }
+            catch (IOException) { }
+            catch (ObjectDisposedException) { }
         }
     }
 }
