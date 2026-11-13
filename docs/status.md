@@ -6,8 +6,8 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 ## Next
 
 1. **Cross-cutting rounds** (planned 2026-11-04), each across the whole library rather than one section. Throwing
-   callbacks was round 54, cancellation and dispose races round 55; still to do:
-   - non-finite and extreme numerics (NaN, ±∞, subnormals, 1e±300);
+   callbacks was round 54, cancellation and dispose races round 55, non-finite and extreme numerics round 56; still
+   to do:
    - the whole suite on .NET Framework 4.8 and in the overflow-checked build.
 1. **Then:** every section re-queued by its last pass goes round again until a pass finds ≤ 1 minor bug. As of
    round 53 all 17 sections are re-queued.
@@ -16,12 +16,13 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 
 - **The library** (2026-09-25 to 2026-10-05): 29+ divisions in the core plus the Windows, WPF and WinForms
   satellites. The README's Layout is the inventory.
-- **The review** (2026-10-07 onward): 55 rounds, released as v0.1.0 to v0.55.0. Three full passes over all 17
-  sections, two rounds on flaky tests and the incomplete beta/gamma harness, and two cross-cutting rounds (round 54,
+- **The review** (2026-10-07 onward): 56 rounds, released as v0.1.0 to v0.56.0. Three full passes over all 17
+  sections, two rounds on flaky tests and the incomplete beta/gamma harness, and three cross-cutting rounds (round 54,
   throwing callbacks: 36 bugs, 2 severe; round 55, cancellation and dispose races: 17 bugs, 2 severe, both a Ctrl+C
-  handler letting a token callback's exception escape).
-- **Checks every round passes:** the full verify (core 3077 tests, Windows 115, WPF 162, WinForms 91,
-  MathChecks 40 at v0.55.0), the overflow-checked build with no failures (since round 48), and the special
+  handler letting a token callback's exception escape; round 56, non-finite and extreme numerics: 34 bugs, 2 severe,
+  both hangs on data near MaxValue).
+- **Checks every round passes:** the full verify (core 3134 tests, Windows 115, WPF 162, WinForms 91,
+  MathChecks 40 at v0.56.0), the overflow-checked build with no failures (since round 48), and the special
   functions against mpmath (graded in condition-number units).
 - **Unverified:** the whole core suite on .NET Framework 4.8 has never been run in one go; rounds only ran the
   section under review there. That is one of the cross-cutting rounds.
@@ -75,6 +76,10 @@ Written as rules a future session can apply.
   call: on a starved core the timer wins before anything happens (BUGLIST 52-2).
 - A test's trigger can behave differently on .NET Framework: its response stream held back a partial body, so a
   cancel from `OnProgress` never fired there and the test failed for the wrong reason.
+- A helper copied into many files carries its bug into all of them: Pow2Scale's uncapped exponent hung 11 types.
+  When a copied helper is fixed, grep for every copy.
+- Probe every numeric entry point at ±MaxValue, a flat range there, and the subnormal range: a scaling loop or a
+  span that overflows to ∞ hangs rather than throws, and `(a + b) / 2` overflows or loses the low bit.
 - Grade geometry against exact rational arithmetic (BigInteger on the doubles' binary expansions), not against a
   second floating-point formula. A double reference hid both the wrong-edge pick and the near-half rounding.
 

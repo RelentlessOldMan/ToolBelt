@@ -18,7 +18,7 @@ namespace ToolBelt.IO
     {
         public CsvDialect(char delimiter = ',', char decimalSeparator = '.', bool hasHeader = true)
         {
-            if (delimiter == decimalSeparator) throw new ArgumentException("The delimiter and the decimal separator must differ.");
+            if (delimiter == decimalSeparator) throw new ArgumentException("The delimiter and the decimal separator must differ.", nameof(decimalSeparator));
             if (delimiter == '"' || delimiter == '\r' || delimiter == '\n') throw new ArgumentException("Invalid delimiter.", nameof(delimiter));
             Delimiter = delimiter;
             DecimalSeparator = decimalSeparator;

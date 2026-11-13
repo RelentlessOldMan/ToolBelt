@@ -25,8 +25,9 @@ namespace ToolBelt.Numerics
 
         public MovingAverage(int windowSize)
         {
-            if (windowSize <= 0)
-                throw new ArgumentOutOfRangeException(nameof(windowSize), windowSize, "Window size must be positive.");
+            // Past Array.MaxLength the buffer threw OutOfMemoryException ("array dimensions exceeded").
+            if (windowSize <= 0 || windowSize > 0x7FFFFFC7)
+                throw new ArgumentOutOfRangeException(nameof(windowSize), windowSize, "Window size must be 1 to Array.MaxLength (0x7FFFFFC7).");
             _buffer = new double[windowSize];
         }
 

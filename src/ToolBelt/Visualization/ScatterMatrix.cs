@@ -45,12 +45,12 @@ namespace ToolBelt.Visualization
             if (names is null) throw new ArgumentNullException(nameof(names));
             if (columns is null) throw new ArgumentNullException(nameof(columns));
             int k = names.Count;
-            if (k < 1 || columns.Count != k) throw new ArgumentException("Need one column per name (at least one).");
+            if (k < 1 || columns.Count != k) throw new ArgumentException("Need one column per name (at least one).", nameof(columns));
             if (columns.Any(c => c is null)) throw new ArgumentException("Columns must not be null.", nameof(columns));
             int n = columns[0].Count;
-            if (columns.Any(c => c.Count != n)) throw new ArgumentException("All columns must have the same length.");
+            if (columns.Any(c => c.Count != n)) throw new ArgumentException("All columns must have the same length.", nameof(columns));
             var o = options ?? new ScatterMatrixOptions();
-            if (o.Groups != null && o.Groups.Count != n) throw new ArgumentException("Groups must have one entry per row.");
+            if (o.Groups != null && o.Groups.Count != n) throw new ArgumentException("Groups must have one entry per row.", nameof(options));
             if (o.Groups != null && o.Groups.Any(g => g is null)) // threw from inside a dictionary as "key"
                 throw new ArgumentException("Groups must not contain null labels.", nameof(options));
             // Checked here so a bad value names the option (they failed inside SvgUtils as "value" or "width"); Bins is

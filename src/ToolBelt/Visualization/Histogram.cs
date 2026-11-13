@@ -40,7 +40,8 @@ namespace ToolBelt.Visualization
             IReadOnlyList<double> data, int bins, double? min = null, double? max = null)
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
-            if (bins < 1 || bins == int.MaxValue) throw new ArgumentOutOfRangeException(nameof(bins), bins, "Need between 1 and int.MaxValue - 1 bins.");
+            // bins + 1 edges past Array.MaxLength threw OutOfMemoryException ("array dimensions exceeded").
+            if (bins < 1 || bins >= 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(bins), bins, "Need between 1 and Array.MaxLength − 1 (0x7FFFFFC6) bins.");
 
             if (min.HasValue && (double.IsNaN(min.Value) || double.IsInfinity(min.Value)))
                 throw new ArgumentOutOfRangeException(nameof(min), min, "Min must be finite.");
@@ -106,14 +107,16 @@ namespace ToolBelt.Visualization
         public static ImageBuffer Render(int width, int height, IReadOnlyList<double> data, int bins = 10, HistogramOptions? options = null)
         {
             options ??= new HistogramOptions();
-            var (_, counts) = Bin(data, bins, options.Min, options.Max);
             var image = new ImageBuffer(width, height, options.Background);
 
             int m = options.Margin;
             // A negative margin put the plot area outside the image (SetPixel threw "x", or int.MinValue overflowed).
             if (m < 0) throw new ArgumentOutOfRangeException(nameof(options), m, "Margin must not be negative.");
             int left = m, right = width - 1 - m, top = m, bottom = height - 1 - m;
-            if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.");
+            if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.", nameof(options));
+            // A bar needs a pixel column: 2e9 bins on a 100-pixel plot allocated 16 GB of edges to draw bars 0 wide.
+            if (bins > right - left + 1) throw new ArgumentOutOfRangeException(nameof(bins), bins, $"More bins than the plot's {right - left + 1} pixel columns.");
+            var (_, counts) = Bin(data, bins, options.Min, options.Max);
 
             if (options.DrawFrame)
                 image.DrawRectangle(left, top, right - left + 1, bottom - top + 1, options.FrameColor);

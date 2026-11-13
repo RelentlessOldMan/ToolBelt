@@ -38,9 +38,9 @@ namespace ToolBelt.Visualization
         {
             if (!(period > 0)) throw new ArgumentOutOfRangeException(nameof(period), period, "Period must be positive.");
             if (!(duty > 0 && duty < 1)) throw new ArgumentOutOfRangeException(nameof(duty), duty, "Duty must be in (0, 1).");
-            if (double.IsNaN(start) || double.IsInfinity(start) || double.IsNaN(end) || double.IsInfinity(end)) throw new ArgumentException("Start and end must be finite.");
+            if (double.IsNaN(start) || double.IsInfinity(start) || double.IsNaN(end) || double.IsInfinity(end)) throw new ArgumentException("Start and end must be finite.", double.IsNaN(start) || double.IsInfinity(start) ? nameof(start) : nameof(end));
             double cycles = Math.Ceiling((end - start) / period);
-            if (cycles > 100_000) throw new ArgumentException("Too many clock cycles to draw.");
+            if (cycles > 100_000) throw new ArgumentException("Too many clock cycles to draw.", nameof(period));
             var c = new List<(double, bool?)>();
             // Integer cycle index: `t += period` stops advancing when start is huge relative to period (epoch seconds, 100 MHz).
             for (int k = 0; k < cycles; k++)
@@ -62,7 +62,7 @@ namespace ToolBelt.Visualization
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
             if (!(sampleRate > 0)) throw new ArgumentOutOfRangeException(nameof(sampleRate));
-            if (!(highThreshold >= lowThreshold)) throw new ArgumentException("High threshold must not be below the low threshold.");
+            if (!(highThreshold >= lowThreshold)) throw new ArgumentException("High threshold must not be below the low threshold.", nameof(highThreshold));
             var c = new List<(double, bool?)>();
             bool? level = null;
             c.Add((startTime, null));
@@ -162,7 +162,7 @@ namespace ToolBelt.Visualization
             double nameWidth = Math.Max(60, signals.Max(s => SvgUtils.EstimateTextWidth(s.Name, 12)) + 18);
             double left = nameWidth, right = 16, top = o.Title != null ? 40 : 16;
             double plotW = o.Width - left - right;
-            if (plotW < 50) throw new ArgumentException("Width leaves no room for the diagram.");
+            if (plotW < 50) throw new ArgumentException("Width leaves no room for the diagram.", nameof(options));
             double lanesH = signals.Count * o.LaneHeight + (signals.Count - 1) * o.LaneGap;
             double axisY = top + lanesH + 8, height = axisY + 34;
             // Halved: t1 − t0 overflowed to ∞ for finite times near ±double.MaxValue.

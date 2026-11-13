@@ -37,7 +37,7 @@ namespace ToolBelt.Identifiers
                     throw new ArgumentException($"'{_alphabet[i]}' appears more than once in the alphabet.", nameof(alphabet));
             }
             if (defaultSize <= 0)
-                throw new ArgumentOutOfRangeException(nameof(defaultSize), defaultSize, "Default size must be positive.");
+                throw new ArgumentOutOfRangeException(nameof(defaultSize), defaultSize, "Default size must be 1 to 0x3FFFFFDF (the longest string).");
 #if NETSTANDARD2_0
             // On .NET Framework, new Random() seeds from the tick count, so instances created close together would repeat.
             _random = random ?? new CryptoBackedRandom();
@@ -50,11 +50,14 @@ namespace ToolBelt.Identifiers
         /// <summary>Generates an id of the configured default size.</summary>
         public string New() => New(_defaultSize);
 
+        private const int MaxStringLength = 0x3FFFFFDF;
+
         /// <summary>Generates an id of the given size.</summary>
         public string New(int size)
         {
-            if (size <= 0)
-                throw new ArgumentOutOfRangeException(nameof(size), size, "Size must be positive.");
+            // Past the longest string .NET can hold the id was built and then threw OutOfMemoryException.
+            if (size <= 0 || size > MaxStringLength)
+                throw new ArgumentOutOfRangeException(nameof(size), size, "Size must be 1 to 0x3FFFFFDF (the longest string).");
             var chars = new char[size];
             for (int i = 0; i < size; i++)
                 chars[i] = _alphabet[_random.Next(_alphabet.Length)];

@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55). **next: the cross-cutting rounds, non-finite and extreme numerics** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56). **next: the cross-cutting rounds, the whole suite on .NET Framework 4.8 and in the checked build** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -129,6 +129,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.53.0 | 53 | Filters & control, third pass | 20 | (see tag) |
 | v0.54.0 | 54 | Throwing callbacks (cross-cutting) | 36 | (see tag) |
 | v0.55.0 | 55 | Cancellation and dispose races (cross-cutting) | 17 | (see tag) |
+| v0.56.0 | 56 | Non-finite and extreme numerics (cross-cutting) | 34 | (see tag) |
 
 ## Round log
 
@@ -2551,3 +2552,53 @@ successful drains. BUGLIST 52-2 was a test bug, fixed here.
 - **Checked build:** the core suite in a checked build is green (3077).
 - **.NET Framework 4.8:** this round's tests plus the existing tests for every changed type that compile there (216)
   all pass.
+
+### Round 56: Non-finite and extreme numerics, cross-cutting (v0.56.0)
+
+The third cross-cutting round: the whole library, for NaN, ±∞, subnormals, values near ±MaxValue and sizes past the
+largest array. Reviewers: one for correctness and one for robustness, fresh. **34 confirmed bugs, 2 severe** (both
+hangs), counting BUGLIST 53-1 and 53-2, fixed here. Regression tests are in `Numerics/NumericsExtremeReview56Tests`
+(57 tests, all failing on the old code); `ChartsReview2Tests.AxisTicks_TimeBeyondLongRangeHasSaneLabels` is amended
+for the new huge-time labels and fails on the old code too.
+
+- **Pow2Scale hang (severe):** the power-of-two scaling helper copied into 11 statistics and quality files looped
+  forever when a value was at or near MaxValue (its exponent passed 1023, so the scale became ∞ and the loop never
+  ended). LinearRegression, Correlation, ConfidenceInterval, ChangePoint, Anova, HypothesisTests,
+  MultipleRegression, ControlChart, GaugeRR, MeasurementAgreement and ProcessCapability never returned on such data.
+  The exponent is capped at 1023 in every copy.
+- **AxisTicks.Linear hang (severe):** a flat range near ±MaxValue widened to an infinite span, and the tick loop never
+  ended; every chart that draws a linear axis inherited it. The normalisation now works in halves where the span
+  overflows.
+- **AxisTicks, more:** `Time` on a sub-second range rejected valid input naming "seconds" (it now gives the linear
+  ticks), and near MaxValue its multiples overflowed to ∞ or past the long range (linear ticks in seconds there);
+  `maxTicks` is capped at 10,000 (it did unbounded work); `FormatTime` throws for NaN and ±∞ and, from 2^53 s, where
+  whole seconds stop being exact, prints exponent-form seconds instead of 300-digit hours.
+- **Overflow and underflow in the arithmetic:** Differentiation (even-spacing samples with a huge dx, uneven samples
+  with large y, Derivative and Richardson at ±MaxValue, which now take a one-sided step where x ± h is infinite and
+  throw naming h where the step itself overflows), Integration (the trapezoid width and panel near MaxValue and in
+  the subnormal range), LinearRegression (subnormal x, y near MaxValue: slope and intercept in scaled units),
+  Goertzel (omega and the magnitude), PeakInterpolation.Parabolic, Fft's Bluestein path on subnormal input (scaled
+  up first), ProcessCapability's Cp near MaxValue, PidController's derivative after an overflowed error (53-1).
+- **Midpoints in the medians:** `(a + b) / 2` in Hampel, MedianFilter, Trend (Sen's slope) and RobustRegression
+  (Theil-Sen) overflowed near MaxValue and lost the low bit for subnormals; they use the overflow-safe midpoint.
+- **Ranges and inputs that were accepted and gave nonsense:** RootFinding's bisection and Brent with an infinite
+  bracket end (reported ∞ or an endpoint as the root; brackets must be finite now), GridPathfinding.Dijkstra with a
+  NaN cost (now throws), HexBin with an infinite radius, Numerics.Histogram on a subnormal range (unequal bins) and
+  on a range too narrow for its bin count (shared bounds; now throws naming binCount, before allocating).
+- **IirFilter:** an extreme ripple or attenuation was blamed on the cutoff or stop edge; the spec parameter is named
+  (53-2 and the related EdgeTooClose and NaN-pole routes).
+- **Limits instead of late failures:** PdfWriter font size ≤ 10,000 points (larger wrote numbers no reader accepts),
+  DirectoryUtils' retryDelay checked before any file is touched, TextAlign widths up to the longest string, and sizes
+  past Array.MaxLength throw ArgumentOutOfRangeException instead of OutOfMemoryException (DisjointSet, FenwickTree,
+  NanoId, Bootstrap, Numerics.Histogram, LinearAlgebra.Identity, MovingAverage, Window, Resample.Linear,
+  Visualization.Histogram, whose Render also rejects more bins than the plot has pixel columns).
+- **ParamName sweep:** 51 ArgumentExceptions across Intervals, IO, Numerics, PropertyPath, IirFilter and the charts
+  named no parameter.
+- **Checked and left as is:** MonotoneCubic gives a zero tangent for subnormal secants but stays monotone;
+  `Interval<double>` hashing of −0.0 on .NET Framework was not verified (Equals treats them as equal).
+- **Found while testing:** `PauseAndRaceTests.FirstMatching_AndFirstToComplete` failed in the checked build on a
+  starved core (the 150 ms and 300 ms timers fired out of order). The slower attempt now waits for the faster one.
+  `Thread.Sleep` in DirectoryUtils' retry and ResourceSampler is against the house rules: BUGLIST 56-1.
+- **Checked build:** the core suite in a checked build is green (3134).
+- **.NET Framework 4.8:** this round's tests plus the existing review tests for the changed areas that compile there
+  (271) all pass.

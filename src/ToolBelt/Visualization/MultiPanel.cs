@@ -217,7 +217,7 @@ namespace ToolBelt.Visualization
             for (int r = 0; r < rows; r++) { rowB[r] = CeilMicro(rowB[r]); maxV = Math.Max(maxV, rowT[r] + rowB[r]); }
             double plotW = o.PanelWidth - maxH, plotH = o.PanelHeight - maxV;
             if (plotW < 20 || plotH < 20)
-                throw new ArgumentException("Panels are too small for their labels; increase PanelWidth/PanelHeight.");
+                throw new ArgumentException("Panels are too small for their labels; increase PanelWidth/PanelHeight.", "options");
 
             var colW = new double[cols]; var rowH = new double[rows];
             for (int c = 0; c < cols; c++) colW[c] = colL[c] + plotW + colR[c];

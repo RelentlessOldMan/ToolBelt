@@ -143,11 +143,16 @@ namespace ToolBelt.Signal
             // which is exact, and scaled back at the end.
             double max = 0;
             for (int k = 0; k < n; k++) max = Math.Max(max, Math.Max(Math.Abs(data[k].Real), Math.Abs(data[k].Imaginary)));
-            int exponent = max > 1 ? (int)Math.Ceiling(Math.Log(max, 2)) : 0;
-            double down = Math.Pow(2, -exponent), upHalf = Math.Pow(2, exponent / 2), upRest = Math.Pow(2, exponent - exponent / 2);
+            // Tiny inputs are scaled up the same way: subnormal samples lost bits in the chirp products ([7ε, 3ε, 0] gave
+            // 5ε for 6ε). A non-finite maximum is left unscaled: (int)Math.Ceiling(∞) differs between runtimes.
+            int exponent = 0;
+            if (!double.IsInfinity(max) && !double.IsNaN(max) && (max > 1 || (max > 0 && max < 3.054936363499605e-151)))   // 2^-500
+                exponent = (int)Math.Ceiling(Math.Log(max, 2));
+            double downHalf = Math.Pow(2, -(exponent / 2)), downRest = Math.Pow(2, -(exponent - exponent / 2));
+            double upHalf = Math.Pow(2, exponent / 2), upRest = Math.Pow(2, exponent - exponent / 2);
 
             var a = new Complex[m];
-            for (int k = 0; k < n; k++) a[k] = data[k] * down * chirp[k];
+            for (int k = 0; k < n; k++) a[k] = data[k] * downHalf * downRest * chirp[k];
 
             var b = new Complex[m];
             b[0] = Complex.Conjugate(chirp[0]);

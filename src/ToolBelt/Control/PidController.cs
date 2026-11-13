@@ -14,6 +14,7 @@ namespace ToolBelt.Control
         private readonly double _kp, _ki, _kd, _min, _max;
         private readonly bool _derivativeOnMeasurement;
         private double _integral, _lastError, _lastMeasurement;
+        private double _lastSetpoint;   // the scaled retry rebuilds the last error from it: a stored error that overflowed stays ∞
         private bool _hasLast;
 
         public PidController(double kp, double ki, double kd,
@@ -84,6 +85,7 @@ namespace ToolBelt.Control
 
             _lastError = error;
             _lastMeasurement = measurement;
+            _lastSetpoint = Setpoint;
             _hasLast = true;
 
             return Clamp(output);
@@ -95,6 +97,7 @@ namespace ToolBelt.Control
             _integral = 0;
             _lastError = 0;
             _lastMeasurement = 0;
+            _lastSetpoint = 0;
             _hasLast = false;
         }
 
@@ -106,7 +109,7 @@ namespace ToolBelt.Control
             if (_hasLast && _kd != 0)
                 d = _derivativeOnMeasurement
                     ? -_kd * (measurement * S - _lastMeasurement * S) / dt
-                    : _kd * ((Setpoint * S - measurement * S) - _lastError * S) / dt;
+                    : _kd * ((Setpoint * S - measurement * S) - (_lastSetpoint * S - _lastMeasurement * S)) / dt;
             double sum = p + _ki * S * _integral + d;
             return sum / S;
         }

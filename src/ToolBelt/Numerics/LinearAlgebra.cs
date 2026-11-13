@@ -13,7 +13,8 @@ namespace ToolBelt.Numerics
     {
         public static double[,] Identity(int n)
         {
-            if (n < 1) throw new ArgumentOutOfRangeException(nameof(n), n, "Size must be positive.");
+            // n² past Array.MaxLength threw OutOfMemoryException ("array dimensions exceeded"); 46,339² is the largest that fits.
+            if (n < 1 || (long)n * n > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(n), n, "Size must be 1 to 46,339 (n² at most Array.MaxLength).");
             var m = new double[n, n];
             for (int i = 0; i < n; i++) m[i, i] = 1;
             return m;
@@ -35,7 +36,7 @@ namespace ToolBelt.Numerics
             if (a is null) throw new ArgumentNullException(nameof(a));
             if (b is null) throw new ArgumentNullException(nameof(b));
             int ar = a.GetLength(0), ac = a.GetLength(1), br = b.GetLength(0), bc = b.GetLength(1);
-            if (ac != br) throw new ArgumentException($"Cannot multiply {ar}x{ac} by {br}x{bc}.");
+            if (ac != br) throw new ArgumentException($"Cannot multiply {ar}x{ac} by {br}x{bc}.", nameof(b));
             var result = new double[ar, bc];
             for (int i = 0; i < ar; i++)
                 for (int k = 0; k < ac; k++)
@@ -52,7 +53,7 @@ namespace ToolBelt.Numerics
             if (a is null) throw new ArgumentNullException(nameof(a));
             if (x is null) throw new ArgumentNullException(nameof(x));
             int rows = a.GetLength(0), cols = a.GetLength(1);
-            if (cols != x.Length) throw new ArgumentException($"Cannot multiply {rows}x{cols} matrix by length-{x.Length} vector.");
+            if (cols != x.Length) throw new ArgumentException($"Cannot multiply {rows}x{cols} matrix by length-{x.Length} vector.", nameof(x));
             var result = new double[rows];
             for (int i = 0; i < rows; i++)
             {
@@ -69,7 +70,7 @@ namespace ToolBelt.Numerics
             if (a is null) throw new ArgumentNullException(nameof(a));
             if (b is null) throw new ArgumentNullException(nameof(b));
             int n = RequireSquare(a);
-            if (b.Length != n) throw new ArgumentException("Right-hand side length must match the matrix size.");
+            if (b.Length != n) throw new ArgumentException("Right-hand side length must match the matrix size.", nameof(b));
             if (!Decompose(a, out double[,] lu, out int[] pivot, out _, out int[] shift))
                 throw new InvalidOperationException("Matrix is singular; the system has no unique solution.");
             var scaled = new double[n];

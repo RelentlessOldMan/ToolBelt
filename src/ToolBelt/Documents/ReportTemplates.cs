@@ -12,7 +12,7 @@ namespace ToolBelt.Documents
         {
             Caption = caption ?? throw new ArgumentNullException(nameof(caption));
             if (string.IsNullOrWhiteSpace(svg) && (png is null || png.Length == 0))
-                throw new ArgumentException("A figure needs SVG markup or PNG bytes.");
+                throw new ArgumentException("A figure needs SVG markup or PNG bytes.", nameof(svg));
             Svg = svg;
             Png = png;
         }

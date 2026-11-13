@@ -68,6 +68,9 @@ namespace ToolBelt.Text
                 return Cut(DropUnfinishedEscape(text), width, ellipsis ?? "", pad);
             }
             int extra = width - current;
+            // A width past the longest string .NET can hold threw OutOfMemoryException after trying to build it.
+            if ((long)text.Length + extra > MaxStringLength)
+                throw new ArgumentOutOfRangeException(nameof(width), width, "Width would make the result longer than a string can be.");
             // An unfinished escape at the end swallows whatever follows it, the padding included ("ab" + ESC + 4 spaces
             // measured 2 columns, not 6): it is dropped when something goes after it.
             if (extra > 0 && alignment != Alignment.Right) text = DropUnfinishedEscape(text);
@@ -78,6 +81,8 @@ namespace ToolBelt.Text
                 default: return text + new string(pad, extra);
             }
         }
+
+        private const int MaxStringLength = 0x3FFFFFDF;
 
         private static string Cut(string text, int width, string ellipsis, char pad)
         {

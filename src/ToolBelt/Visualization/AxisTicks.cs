@@ -41,7 +41,7 @@ namespace ToolBelt.Visualization
     /// matching labels. The linear and time pickers choose the smallest nice step whose tick count does not
     /// exceed <c>maxTicks</c>, so the bound is guaranteed (unlike the classic loose heuristics) — with one
     /// unavoidable exception: ticks sit on multiples of the step, so a loose range straddling zero needs at least
-    /// three (−s, 0, s) even when <c>maxTicks</c> is 2. With
+    /// three (−s, 0, s) even when <c>maxTicks</c> is 2 (it must be 2 to 10,000). With
     /// <c>loose</c> labelling the ticks bracket the data and <see cref="TickSet.Min"/>/<see cref="TickSet.Max"/>
     /// give the rounded axis range; otherwise only ticks inside the data range are returned.
     /// </summary>
@@ -139,7 +139,16 @@ namespace ToolBelt.Visualization
             double reach = Math.Max(Math.Abs(minSeconds), Math.Abs(maxSeconds));
             // Below a second the table is the 1-2-5 decimal series, which Linear continues past its 1 ms end:
             // [0.0001, 0.0002] got no tight ticks at all, and a loose [0, 0.001] axis.
-            double fine = Linear(minSeconds, maxSeconds, maxTicks, loose).Step;
+            TickSet linear = Linear(minSeconds, maxSeconds, maxTicks, loose);
+            double fine = linear.Step;
+            // Past 15 decimals the seconds labels and the rounding to them can't follow ([1.6e-19, 1.7e-19] came out as six
+            // ticks at 0, all "0.000000000000000s"), so the linear ticks are used with their own labels.
+            if (fine < 1e-15)
+            {
+                var suffixed = new List<string>(linear.Labels.Count);
+                foreach (string l in linear.Labels) suffixed.Add(l + "s");
+                return new TickSet(linear.Values, suffixed, linear.Step, linear.Min, linear.Max);
+            }
             if (fine < TimeSteps[0]) step = fine;
             else foreach (double candidate in TimeSteps)
                 if (CountTicks(minSeconds, maxSeconds, candidate) <= maxTicks || candidate >= reach) { step = candidate; break; }
@@ -151,8 +160,18 @@ namespace ToolBelt.Visualization
             }
 
             int decimals = step >= 1 ? 0 : DecimalsFor(step);
-            long first = (long)Math.Floor(minSeconds / step + 1e-9);
-            long last = (long)Math.Ceiling(maxSeconds / step - 1e-9);
+            // Near double.MaxValue k·step overflowed to ∞ (Time(0, MaxValue) threw from FormatTime, naming "seconds"),
+            // and a multiple past 2^62 would not fit the long: the linear ticks, in seconds, are used there.
+            double firstMultiple = Math.Floor(minSeconds / step + 1e-9), lastMultiple = Math.Ceiling(maxSeconds / step - 1e-9);
+            if (!(Math.Abs(firstMultiple) < 4.6e18 && Math.Abs(lastMultiple) < 4.6e18)
+                || double.IsInfinity(firstMultiple * step) || double.IsInfinity(lastMultiple * step))
+            {
+                var suffixed = new List<string>(linear.Labels.Count);
+                foreach (string l in linear.Labels) suffixed.Add(l + "s");
+                return new TickSet(linear.Values, suffixed, linear.Step, linear.Min, linear.Max);
+            }
+            long first = (long)firstMultiple;
+            long last = (long)lastMultiple;
             var values = new List<double>();
             for (long k = first; k <= last; k++)
             {
@@ -175,6 +194,11 @@ namespace ToolBelt.Visualization
         public static string FormatTime(double seconds, double span, int decimals = 0)
         {
             if (decimals < 0 || decimals > 15) throw new ArgumentOutOfRangeException(nameof(decimals), decimals, "Decimals must be in [0, 15].");
+            // NaN printed "NaNs" and ∞ "Infinitys".
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds)) throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "Seconds must be finite.");
+            // h:mm:ss ran to 300 digits for 1e300 s. From 2^53 s (285 million years) whole seconds are not exact, so the
+            // digits after the hours were rounding noise: exponent-form seconds from there.
+            if (Math.Abs(seconds) >= 9007199254740992.0) return seconds.ToString("0.###e+0", CultureInfo.InvariantCulture) + "s";
             // Rounded before splitting: the fraction rounded on its own carried into the seconds (65.9996 printed
             // "1:051.000"), and a fraction just below zero printed "1:06-.000".
             double a = Math.Round(Math.Abs(seconds), decimals, MidpointRounding.AwayFromZero);
@@ -194,6 +218,8 @@ namespace ToolBelt.Visualization
 
         private static readonly int[] NiceMultipliers = { 1, 2, 5 };
 
+        private const int MaxTickCount = 10000;
+
         private static readonly double[] TimeSteps =
         {
             0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5,
@@ -205,6 +231,8 @@ namespace ToolBelt.Visualization
         private static void Normalize(ref double min, ref double max, int maxTicks)
         {
             if (maxTicks < 2) throw new ArgumentOutOfRangeException(nameof(maxTicks), maxTicks, "Need at least two ticks.");
+            // int.MaxValue ticks built 2^31 ticks and labels (or ran out of memory).
+            if (maxTicks > MaxTickCount) throw new ArgumentOutOfRangeException(nameof(maxTicks), maxTicks, $"At most {MaxTickCount} ticks.");
             if (double.IsNaN(min) || double.IsNaN(max) || double.IsInfinity(min) || double.IsInfinity(max))
                 throw new ArgumentOutOfRangeException(nameof(min), "Range must be finite.");
             if (min > max) (min, max) = (max, min);
@@ -212,8 +240,10 @@ namespace ToolBelt.Visualization
             {
                 // A flat range still needs an axis: open it symmetrically around the value.
                 double pad = min == 0 ? 1 : Math.Abs(min) * 0.1;
-                min -= pad;
-                max += pad;
+                // Near ±double.MaxValue one side overflowed to ∞, and the tick loop then never ended: pad the other side.
+                if (double.IsInfinity(max + pad)) min -= 2 * pad;
+                else if (double.IsInfinity(min - pad)) max += 2 * pad;
+                else { min -= pad; max += pad; }
             }
             // A span this close to the subnormal range underflowed the step to 0, and the step search never ended
             // ([ε, ε], [−ε, ε]). Both ends are below ~1e-234 here, so the midpoint ± 1e-250 is representable.

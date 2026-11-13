@@ -93,10 +93,10 @@ namespace ToolBelt.Objects
             {
                 PropertyInfo? p = FindProperty(target.GetType(), _name);
                 if (p is null)
-                    throw new ArgumentException($"Segment '{_name}' is not a public property of {target.GetType().Name} (path '{fullPath}').");
+                    throw new ArgumentException($"Segment '{_name}' is not a public property of {target.GetType().Name} (path '{fullPath}').", "path");
                 MethodInfo? getter = PublicAccessor(p, setter: false);
                 if (getter is null)
-                    throw new ArgumentException($"Segment '{_name}' is not a readable property of {target.GetType().Name} (path '{fullPath}').");
+                    throw new ArgumentException($"Segment '{_name}' is not a readable property of {target.GetType().Name} (path '{fullPath}').", "path");
                 return getter.Invoke(target, null);
             }
 
@@ -105,7 +105,7 @@ namespace ToolBelt.Objects
                 PropertyInfo? p = FindProperty(target.GetType(), _name);
                 MethodInfo? setter = p is null ? null : PublicAccessor(p, setter: true);
                 if (setter is null)
-                    throw new ArgumentException($"Segment '{_name}' is not a writable property of {target.GetType().Name} (path '{fullPath}').");
+                    throw new ArgumentException($"Segment '{_name}' is not a writable property of {target.GetType().Name} (path '{fullPath}').", "path");
                 setter.Invoke(target, new[] { value });
             }
 
@@ -167,7 +167,7 @@ namespace ToolBelt.Objects
                 }
                 if (target is IList list)
                     return list[ParseIndex(list, fullPath)];
-                throw new ArgumentException($"Segment '[{_token}]' requires a list or dictionary, got {target.GetType().Name} (path '{fullPath}').");
+                throw new ArgumentException($"Segment '[{_token}]' requires a list or dictionary, got {target.GetType().Name} (path '{fullPath}').", "path");
             }
 
             public override void Write(object target, object? value, string fullPath)
@@ -184,14 +184,14 @@ namespace ToolBelt.Objects
                     }
                     return;
                 }
-                throw new ArgumentException($"Segment '[{_token}]' requires a list or dictionary, got {target.GetType().Name} (path '{fullPath}').");
+                throw new ArgumentException($"Segment '[{_token}]' requires a list or dictionary, got {target.GetType().Name} (path '{fullPath}').", "path");
             }
 
             // Range-checked here: an array threw IndexOutOfRangeException, which is not an ArgumentException and escaped TryGet.
             private int ParseIndex(IList list, string fullPath)
             {
                 if (!int.TryParse(_token, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index))
-                    throw new ArgumentException($"Index '[{_token}]' is not an integer (path '{fullPath}').");
+                    throw new ArgumentException($"Index '[{_token}]' is not an integer (path '{fullPath}').", "path");
                 if (index < 0 || index >= list.Count)
                     throw new ArgumentOutOfRangeException(nameof(index), index, $"Index '[{_token}]' is out of range for {list.Count} item(s) (path '{fullPath}').");
                 return index;
@@ -240,7 +240,7 @@ namespace ToolBelt.Objects
                 if (path[i] == '[')
                 {
                     int close = path.IndexOf(']', i);
-                    if (close < 0) throw new ArgumentException($"Unclosed '[' in path '{path}'.");
+                    if (close < 0) throw new ArgumentException($"Unclosed '[' in path '{path}'.", nameof(path));
                     string token = path.Substring(i + 1, close - i - 1).Trim().Trim('"', '\'');
                     steps.Add(new IndexStep(token));
                     i = close + 1;

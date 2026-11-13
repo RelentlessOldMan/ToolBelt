@@ -31,11 +31,26 @@ namespace ToolBelt.Signal
         /// </summary>
         public static (double Offset, double Peak) Parabolic(double left, double center, double right)
         {
+            // Values near ±double.MaxValue overflowed 2·centre or left − right (the offset came out −0 or NaN): the same in
+            // quarters, which is exact there.
+            if (IsFinite(left) && IsFinite(center) && IsFinite(right)
+                && (double.IsInfinity(2 * center) || double.IsInfinity(left - right) || double.IsInfinity(left - 2 * center + right)))
+            {
+                var (o, p) = Vertex(left / 4, center / 4, right / 4);
+                return (o, p * 4);
+            }
+            return Vertex(left, center, right);
+        }
+
+        private static (double Offset, double Peak) Vertex(double left, double center, double right)
+        {
             double denom = left - 2 * center + right;
             if (denom == 0) return (0, center);
             double delta = 0.5 * (left - right) / denom;
             return (delta, center - 0.25 * (left - right) * delta);
         }
+
+        private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
 
         /// <summary>The peak of the Gaussian through the three (positive) values: a parabola fitted to their logarithms.</summary>
         public static (double Offset, double Peak) Gaussian(double left, double center, double right)

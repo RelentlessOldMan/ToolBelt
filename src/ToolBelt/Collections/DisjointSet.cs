@@ -13,10 +13,13 @@ namespace ToolBelt.Collections
         private readonly int[] _parent;
         private readonly int[] _rank;
 
+        private const int ArrayMaxLength = 0x7FFFFFC7;   // Array.MaxLength (not in netstandard2.0)
+
         public DisjointSet(int size)
         {
-            if (size < 0)
-                throw new ArgumentOutOfRangeException(nameof(size), size, "Size must not be negative.");
+            // Past Array.MaxLength the allocation threw OutOfMemoryException ("array dimensions exceeded").
+            if (size < 0 || size > ArrayMaxLength)
+                throw new ArgumentOutOfRangeException(nameof(size), size, "Size must be 0 to Array.MaxLength (0x7FFFFFC7).");
             _parent = new int[size];
             _rank = new int[size];
             for (int i = 0; i < size; i++)

@@ -17,7 +17,8 @@ namespace ToolBelt.Signal
         public static double[] Linear(double[] samples, int newLength)
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
-            if (newLength < 1) throw new ArgumentOutOfRangeException(nameof(newLength), newLength, "New length must be positive.");
+            // Past Array.MaxLength the result threw OutOfMemoryException ("array dimensions exceeded").
+            if (newLength < 1 || newLength > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(newLength), newLength, "New length must be 1 to Array.MaxLength (0x7FFFFFC7).");
             if (samples.Length == 0) throw new ArgumentException("Input must be non-empty.", nameof(samples));
 
             var result = new double[newLength];

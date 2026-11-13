@@ -65,7 +65,8 @@ namespace ToolBelt.Documents
         public PdfWriter(PdfPageSize pageSize = PdfPageSize.Letter, double margin = 54, PdfFont font = PdfFont.Courier, double fontSize = 11)
         {
             if (!(margin >= 0) || double.IsInfinity(margin)) throw new ArgumentOutOfRangeException(nameof(margin), margin, "Margin must be finite and non-negative.");
-            if (!(fontSize > 0) || double.IsInfinity(fontSize)) throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be positive and finite.");
+            // Bounded: Num writes a size of 1e300 as 301 digits, and a heading of 1.5·MaxValue overflowed to ∞.
+            if (!(fontSize > 0) || fontSize > MaxFontSize) throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be positive and at most 10,000 points.");
             (_pageWidth, _pageHeight) = pageSize == PdfPageSize.A4 ? (595.0, 842.0) : (612.0, 792.0);
             if (margin * 2 >= _pageWidth || margin * 2 >= _pageHeight)
                 throw new ArgumentOutOfRangeException(nameof(margin), margin, "Margins leave no room for content.");
@@ -649,9 +650,11 @@ namespace ToolBelt.Documents
 
         private static double RequireSize(double size, string name)
         {
-            if (!(size > 0) || double.IsInfinity(size)) throw new ArgumentOutOfRangeException(name, size, "Size must be positive and finite.");
+            if (!(size > 0) || size > MaxFontSize) throw new ArgumentOutOfRangeException(name, size, "Size must be positive and at most 10,000 points.");
             return size;
         }
+
+        private const double MaxFontSize = 10000;
 
         private static bool HasNonPositive(IReadOnlyList<double> values)
         {

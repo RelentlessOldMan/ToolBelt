@@ -69,7 +69,8 @@ namespace ToolBelt.Visualization
         public static IReadOnlyList<HexCell> Compute(IEnumerable<(double X, double Y)> points, PlotFrame frame, double radius)
         {
             if (points is null) throw new ArgumentNullException(nameof(points));
-            if (!(radius > 0)) throw new ArgumentOutOfRangeException(nameof(radius), radius, "Radius must be positive.");
+            // An infinite radius put every point in one cell centred at NaN (0·∞).
+            if (!(radius > 0) || double.IsInfinity(radius * Sqrt3)) throw new ArgumentOutOfRangeException(nameof(radius), radius, "Radius must be positive and finite.");
             double dx = radius * Sqrt3, dy = radius * 1.5;
             var counts = new Dictionary<(int, int), int>();
             foreach (var (x, y) in points)
@@ -134,7 +135,7 @@ namespace ToolBelt.Visualization
             double left = 64, right = 90, top = o.Title != null ? 36 : 14, bottom = o.XLabel != null ? 50 : 34;
             if (o.YLabel != null) left += 18;
             double pw = o.Width - left - right, ph = o.Height - top - bottom;
-            if (pw <= 20 || ph <= 20) throw new ArgumentException("Width/Height leave no room for the plot.");
+            if (pw <= 20 || ph <= 20) throw new ArgumentException("Width/Height leave no room for the plot.", nameof(options));
             var frame = new PlotFrame(left, top, pw, ph, xt.Min, xt.Max, yt.Min, yt.Max);
             // Points outside the plotted range are left out, so they can't skew the colour scale.
             double x0 = Math.Min(frame.XMin, frame.XMax), x1 = Math.Max(frame.XMin, frame.XMax), y0 = Math.Min(frame.YMin, frame.YMax), y1 = Math.Max(frame.YMin, frame.YMax);

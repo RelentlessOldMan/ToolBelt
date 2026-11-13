@@ -23,7 +23,7 @@ namespace ToolBelt.Numerics
         {
             if (x is null) throw new ArgumentNullException(nameof(x));
             if (y is null) throw new ArgumentNullException(nameof(y));
-            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.");
+            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.", nameof(y));
             int n = x.Count;
             if (n < 2) throw new ArgumentException("Need at least two points.", nameof(x));
             _x = new double[n];
@@ -33,7 +33,7 @@ namespace ToolBelt.Numerics
                 _x[i] = x[i];
                 _y[i] = y[i];
                 if (double.IsNaN(_x[i]) || double.IsNaN(_y[i]) || double.IsInfinity(_x[i]) || double.IsInfinity(_y[i]))
-                    throw new ArgumentException($"Point {i} is not finite.");
+                    throw new ArgumentException($"Point {i} is not finite.", double.IsNaN(_x[i]) || double.IsInfinity(_x[i]) ? nameof(x) : nameof(y));
                 if (i > 0 && !(_x[i] > _x[i - 1])) throw new ArgumentException("x must be strictly increasing.", nameof(x));
             }
 

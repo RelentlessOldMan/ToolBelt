@@ -68,10 +68,10 @@ namespace ToolBelt.Numerics
         {
             if (x is null) throw new ArgumentNullException(nameof(x));
             if (y is null) throw new ArgumentNullException(nameof(y));
-            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.");
+            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.", nameof(y));
             if (degree < 0) throw new ArgumentOutOfRangeException(nameof(degree), degree, "Degree must be non-negative.");
             if (x.Count - 1 < degree) // not x.Count < degree + 1, which wrapped for int.MaxValue
-                throw new ArgumentException($"Need at least {(long)degree + 1} points to fit degree {degree}.");
+                throw new ArgumentException($"Need at least {(long)degree + 1} points to fit degree {degree}.", nameof(x));
 
             int n = x.Count, m = degree + 1;
             double lo = double.PositiveInfinity, hi = double.NegativeInfinity;

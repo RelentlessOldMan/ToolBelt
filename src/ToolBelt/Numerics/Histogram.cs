@@ -13,6 +13,7 @@ namespace ToolBelt.Numerics
     public sealed class Histogram
     {
         private readonly long[] _bins;
+        private readonly int _binCount;   // set before _bins, for the range checks
         private readonly double _min;
         private readonly double _max;
         private readonly double _binWidth;
@@ -22,20 +23,29 @@ namespace ToolBelt.Numerics
             if (double.IsNaN(min) || double.IsInfinity(min)) throw new ArgumentException("min must be finite.", nameof(min));
             if (double.IsNaN(max) || double.IsInfinity(max)) throw new ArgumentException("max must be finite.", nameof(max));
             if (min >= max) throw new ArgumentException("Require min < max.", nameof(min));
-            if (binCount <= 0)
-                throw new ArgumentOutOfRangeException(nameof(binCount), binCount, "Bin count must be positive.");
+            if (binCount <= 0 || binCount > 0x7FFFFFC7)   // Array.MaxLength
+                throw new ArgumentOutOfRangeException(nameof(binCount), binCount, "Bin count must be 1 to Array.MaxLength (0x7FFFFFC7).");
 
             _min = min;
             _max = max;
+            // The full span when it is finite: the halves rounded in the subnormal range ([0, 4ε) in 4 bins had a width of 0
+            // and bounds 0, 0, 2ε, 4ε). Halves only where max − min overflows, for a range like ±1e308.
+            _binCount = binCount;
+            _span = max - min;
+            _halfSpan = 0.5 * max - 0.5 * min;
+            _binWidth = double.IsInfinity(_span) ? 2 * (_halfSpan / binCount) : _span / binCount;
+            if (!(_span > 0)) throw new ArgumentException($"The range [{min:R}, {max:R}) is too narrow to bin.", nameof(max));
+            // Bins narrower than the spacing of doubles there would share a bound.
+            if (_binWidth < 1e-290)
+                for (int i = 1; i <= binCount; i++)
+                    if (!(LowerBound(i - 1) < (i == binCount ? max : LowerBound(i))))
+                        throw new ArgumentException($"The range [{min:R}, {max:R}) is too narrow for {binCount} bins.", nameof(binCount));
+            // Allocated after the range checks: a too-narrow range threw only after allocating the bins.
             _bins = new long[binCount];
             Bins = Array.AsReadOnly(_bins); // the bare array could be cast back and written
-            _halfSpan = 0.5 * max - 0.5 * min; // halves: max − min overflows for a range like ±1e308
-            _binWidth = 2 * (_halfSpan / binCount);
-            // A range of a few subnormals has a half-span of 0, so no value could be placed in a bin.
-            if (!(_halfSpan > 0)) throw new ArgumentException($"The range [{min:R}, {max:R}) is too narrow to bin.", nameof(max));
         }
 
-        private readonly double _halfSpan;
+        private readonly double _halfSpan, _span;
 
         public int BinCount => _bins.Length;
 
@@ -66,7 +76,8 @@ namespace ToolBelt.Numerics
         private double LowerBound(int index)
         {
             if (index == 0) return _min;
-            double step = (double)index / _bins.Length * _halfSpan;
+            if (!double.IsInfinity(_span)) return _min + (double)index / _binCount * _span;
+            double step = (double)index / _binCount * _halfSpan;
             return _min + step + step;
         }
 
@@ -90,7 +101,9 @@ namespace ToolBelt.Numerics
                 return;
             }
 
-            double estimate = (0.5 * value - 0.5 * _min) / _halfSpan * _bins.Length;
+            double estimate = double.IsInfinity(_span)
+                ? (0.5 * value - 0.5 * _min) / _halfSpan * _bins.Length
+                : (value - _min) / _span * _bins.Length;
             int bin = estimate >= _bins.Length ? _bins.Length - 1 : (estimate > 0 ? (int)estimate : 0);
             // Agree exactly with BinLowerBound: the estimate above can be one bin off at an edge.
             while (bin > 0 && value < LowerBound(bin)) bin--;

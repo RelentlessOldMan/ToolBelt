@@ -18,7 +18,7 @@ namespace ToolBelt.Visualization
         public Series(IReadOnlyList<double> y, Rgba color, PlotStyle style = PlotStyle.Line, IReadOnlyList<double>? x = null, string? name = null)
         {
             Y = y ?? throw new ArgumentNullException(nameof(y));
-            if (x != null && x.Count != y.Count) throw new ArgumentException("x and y must have the same length.");
+            if (x != null && x.Count != y.Count) throw new ArgumentException("x and y must have the same length.", nameof(x));
             X = x;
             Color = color;
             Style = style;
@@ -65,7 +65,7 @@ namespace ToolBelt.Visualization
             // A negative margin put the plot area outside the image (SetPixel threw "x", or int.MinValue overflowed).
             if (m < 0) throw new ArgumentOutOfRangeException(nameof(options), m, "Margin must not be negative.");
             int left = m, right = width - 1 - m, top = m, bottom = height - 1 - m;
-            if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.");
+            if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.", nameof(options));
 
             if (options.DrawFrame)
                 image.DrawRectangle(left, top, right - left + 1, bottom - top + 1, options.FrameColor);
@@ -127,7 +127,7 @@ namespace ToolBelt.Visualization
             // A negative margin put the plot area outside the image (SetPixel threw "x", or int.MinValue overflowed).
             if (m < 0) throw new ArgumentOutOfRangeException(nameof(options), m, "Margin must not be negative.");
             int left = m, right = width - 1 - m, top = m, bottom = height - 1 - m;
-            if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.");
+            if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.", nameof(options));
             Bounds(series, options, out double minX, out double maxX, out double minY, out double maxY);
             OpenPastLimit(ref minX, ref maxX, options.MinX.HasValue, options.MaxX.HasValue);
             OpenPastLimit(ref minY, ref maxY, options.MinY.HasValue, options.MaxY.HasValue);

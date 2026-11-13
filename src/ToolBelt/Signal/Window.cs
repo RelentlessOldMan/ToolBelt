@@ -30,7 +30,8 @@ namespace ToolBelt.Signal
         /// <summary>Builds a window of the given length.</summary>
         public static double[] Create(WindowType type, int length)
         {
-            if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), length, "Length must be positive.");
+            // Past Array.MaxLength the window threw OutOfMemoryException ("array dimensions exceeded").
+            if (length <= 0 || length > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(length), length, "Length must be 1 to Array.MaxLength (0x7FFFFFC7).");
             if (!Enum.IsDefined(typeof(WindowType), type)) throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown window type.");
             var w = new double[length];
             if (length == 1) { w[0] = 1.0; return w; }

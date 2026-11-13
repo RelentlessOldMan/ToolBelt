@@ -102,7 +102,8 @@ namespace ToolBelt.Numerics
         private static double Pow2Scale(double m)
         {
             if (m == 0 || double.IsInfinity(m)) return 1;
-            double p = Math.Pow(2, Math.Floor(Math.Log(m) / Math.Log(2)));
+            // At most 2^1023: the logarithm of a value near double.MaxValue rounds up to 1024, p was ∞ and p /= 2 never ended.
+            double p = Math.Pow(2, Math.Min(1023, Math.Floor(Math.Log(m) / Math.Log(2))));
             // The logarithm can land a hair either side of an integer; settle on exactly the power at or below m.
             while (p > m) p /= 2;
             while (p * 2 <= m) p *= 2;

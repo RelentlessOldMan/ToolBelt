@@ -215,7 +215,7 @@ namespace ToolBelt.IO
 
         private static string NormalizePath(string path)
         {
-            if (path.Length == 0) throw new ArgumentException("A path is empty.");
+            if (path.Length == 0) throw new ArgumentException("A path is empty.", nameof(path));
             // Backslashes are kept: they are legal in POSIX names. A leading "./" (as `find . | xargs sha256sum`
             // produces) is dropped so such manifests compare with ones written here.
             return path.StartsWith("./", StringComparison.Ordinal) ? path.Substring(2) : path;

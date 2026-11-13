@@ -72,8 +72,17 @@ namespace ToolBelt.Signal
             Array.Sort(copy);
             int mid = count / 2;
             if (count % 2 != 0) return copy[mid];
-            double a = copy[mid - 1], b = copy[mid];                    // 0.5·(a + b) overflowed near double.MaxValue
-            return double.IsInfinity(a) || double.IsInfinity(b) ? 0.5 * (a + b) : 0.5 * a + 0.5 * b;
+            return Midpoint(copy[mid - 1], copy[mid]);                  // 0.5·(a + b) overflowed near double.MaxValue
+        }
+
+        // The midpoint of two sorted values: halves first, so the sum can't overflow, except where both are tiny, where the
+        // halves rounded on their own ([ε, ε] had the median 0, [3ε ×4] the median 4ε) and the sum is scaled by 2^54 instead.
+        private static double Midpoint(double a, double b)
+        {
+            if (double.IsInfinity(a) || double.IsInfinity(b)) return 0.5 * (a + b);
+            const double Up = 18014398509481984.0, Tiny = 9.332636185032189e-302;    // 2^54, 2^-1000
+            if (Math.Abs(a) < Tiny && Math.Abs(b) < Tiny) return (a * Up + b * Up) * 0.5 / Up;
+            return 0.5 * a + 0.5 * b;
         }
     }
 }

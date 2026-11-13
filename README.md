@@ -311,7 +311,7 @@ src/
     Documents/
       MarkdownReport.cs     fluent GitHub-flavored Markdown (headings/lists/tables/code/quotes)
       HtmlReport.cs         self-contained HTML doc with embedded CSS; escaping; base64 image embed
-      PdfWriter.cs          hand-rolled PDF: exact base-14 metrics, wrapping, pagination, tables (header repeats),
+      PdfWriter.cs          hand-rolled PDF: exact base-14 metrics (font sizes ≤ 10,000 pt), wrapping, pagination, tables (header repeats),
                             PNG/RGBA images with alpha, bookmarks from headings, page numbers, code blocks, title
       DocxWriter.cs         Word .docx via OOXML zip: mixed-format runs, real nested bullet/numbered lists, tables,
                             PNG images, page breaks, header + "Page X of Y" footer, title/author
@@ -414,7 +414,7 @@ src/
       TempFile.cs           disposable temp file & directory scopes
       ZipUtils.cs           zip create/extract/list/read (size-capped, keeps empty dirs and times); Zip-Slip guarded, links never followed
       TarUtils.cs           tar/.tar.gz create/extract/list (keeps empty dirs); traversal rejected, links never created or followed (net8)
-      DirectoryUtils.cs     tree copy (overwrite/filter policies), delete w/ read-only + lock retry, never follows links
+      DirectoryUtils.cs     tree copy (overwrite/filter policies), delete w/ read-only + lock retry (delay checked up front), never follows links
       ChecksumManifest.cs   SHA-256 tree manifest in sha256sum format: create/save/verify/compare directories (with a file filter)
       FileWatcher.cs        debounced, coalescing FileSystemWatcher; wait-until-stable; rescans on overflow/restart/dir moves
     Numerics/
@@ -430,7 +430,7 @@ src/
       EmpiricalDistribution.cs  empirical CDF step function (value<->percentile lookups)
       EngineeringNotation.cs  SI-prefix format + parse (yocto..yotta, round-trip)
       ExponentialMovingAverage.cs  EMA smoothing (alpha)
-      Histogram.cs          fixed-bin histogram (under/overflow and NaN tracking)
+      Histogram.cs          fixed-bin histogram (under/overflow and NaN tracking); throws if the range is too narrow for the bins
       HypothesisTests.cs    t-test / chi-square / KS / Mann-Whitney U / F-test for variances; IsSignificant(alpha)
       StreamingQuantile.cs  one-pass constant-memory quantiles (P² algorithm) + multi-quantile tracker
       PermutationTest.cs    distribution-free two-sample / paired tests, exact when small, any statistic
@@ -455,7 +455,7 @@ src/
       Polynomial.cs         eval/derivative/integral, least-squares fit, real roots (deg <= 3)
       Primes.cs             primality test (Miller-Rabin) / next-prime / factorize (Pollard rho) / sieve
       RandomUtils.cs        shuffle / sample-without-replacement / weighted / gaussian / exponential / Poisson (PTRS) / gamma
-      RootFinding.cs        bisection / Brent / Newton / secant (explicit convergence result)
+      RootFinding.cs        bisection / Brent / Newton / secant (explicit convergence result; brackets must be finite)
       Rounding.cs           round to multiple / significant digits
       RunningStatistics.cs  Welford online mean/variance/stddev/min/max
       SpecialFunctions.cs   gamma / log-gamma / erf / erfc / regularized incomplete gamma (P and Q direct) & beta
@@ -525,7 +525,7 @@ src/
       Palettes.cs           Okabe-Ito / Tableau10, WCAG luminance + contrast ratio, contrasting label colour, hex
       SvgDocument.cs        fluent SVG vector builder (shapes/text/path; invariant coords)
       SvgUtils.cs           shared SVG primitives: escaping, numbers/colors, PathBuilder, transforms, text-width estimate
-      AxisTicks.cs          nice ticks + labels: linear (1-2-5, count-bounded), log decades, clock-friendly time
+      AxisTicks.cs          nice ticks + labels: linear (1-2-5, count-bounded, maxTicks ≤ 10,000), log decades, clock-friendly time
       PlotFrame.cs          shared data<->pixel mapping (linear/log axes) for renderers and overlays
       Annotations.cs        data-space ref lines / bands / callouts / arrows -> SVG (labelled) or raster
       SvgChart.cs           labelled SVG XY chart: line/scatter/bar, linear/log/time axes, grid, legend, annotations
@@ -537,7 +537,7 @@ src/
       Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops)
       Colorbar.cs           render a colormap as a gradient legend strip (vertical/horizontal)
       HeatMap.cs            render a 2-D grid via a colormap (cell size, range, NaN color)
-      Histogram.cs          bin 1-D data (exposed) and render the counts as bars
+      Histogram.cs          bin 1-D data (exposed) and render the counts as bars (at most one bin per pixel column)
       BoxPlot.cs            five-number summary + Tukey whiskers/outliers; side-by-side boxes
       ErrorBarChart.cs      points with symmetric vertical error bars (auto-scales to caps)
       BandChart.cs          shaded band between lower/upper curves + optional center line
@@ -847,6 +847,7 @@ tests/
       NumericsCoreReviewTests.cs     (review regressions: QR fit, cancellation-free roots, extreme magnitudes, NaN rejection, fast primes)
       NumericsCoreReview2Tests.cs    (second-pass regressions: finite overflow at ±1e308, checked arithmetic, decimal-exact rounding)
       NumericsCoreReview3Tests.cs    (third-pass regressions: LU and cubic overflow, false root convergence, tiny-scale splines and stats)
+      NumericsExtremeReview56Tests.cs (round 56, cross-cutting: values near MaxValue, subnormals, infinities, sizes past Array.MaxLength)
       NumericsReviewRegressionTests.cs  (2026-10-05 review regressions: Numerics and Signal)
       StreamingQuantileTests.cs
       SamplingAndPermutationTests.cs (Poisson/gamma sampling vs pmf/CDF; exact permutation p-values)

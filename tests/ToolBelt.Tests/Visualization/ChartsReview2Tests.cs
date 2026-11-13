@@ -79,9 +79,13 @@ namespace ToolBelt.Tests.Visualization
 
         public void AxisTicks_TimeBeyondLongRangeHasSaneLabels()
         {
+            // Round 56: from 2^53 s, where whole seconds stop being exact, labels are exponent-form seconds instead.
             TickSet t = AxisTicks.Time(0, 1e20);
-            foreach (string label in t.Labels)
-                Check.True(Regex.IsMatch(label, @"^\d+:\d\d:\d\d$"), label);
+            for (int i = 0; i < t.Labels.Count; i++)
+                Check.True(t.Values[i] < 9007199254740992.0
+                    ? Regex.IsMatch(t.Labels[i], @"^\d+:\d\d:\d\d$")
+                    : Regex.IsMatch(t.Labels[i], @"^\d(\.\d+)?e\+\d+s$"), t.Labels[i]);
+            Check.Equal("2777777777:46:40", AxisTicks.FormatTime(1e13, 1e20));   // below 2^53 still h:mm:ss
         }
 
         public void AxisTicks_Log10AtTheDoubleLimitsStaysFiniteAndPositive()

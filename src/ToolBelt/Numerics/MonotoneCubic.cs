@@ -23,7 +23,7 @@ namespace ToolBelt.Numerics
         {
             if (x is null) throw new ArgumentNullException(nameof(x));
             if (y is null) throw new ArgumentNullException(nameof(y));
-            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.");
+            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.", nameof(y));
             if (x.Count < 2) throw new ArgumentException("At least two points are required.", nameof(x));
 
             int n = x.Count;

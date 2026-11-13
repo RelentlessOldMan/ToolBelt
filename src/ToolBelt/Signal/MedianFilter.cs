@@ -39,6 +39,14 @@ namespace ToolBelt.Signal
         }
 
         // 0.5·(a + b) overflowed for two values near double.MaxValue; −∞ and +∞ give NaN either way.
-        private static double Midpoint(double a, double b) => double.IsInfinity(a) || double.IsInfinity(b) ? 0.5 * (a + b) : 0.5 * a + 0.5 * b;
+        // The midpoint of two sorted values: halves first, so the sum can't overflow, except where both are tiny, where the
+        // halves rounded on their own ([ε, ε] had the median 0, [3ε ×4] the median 4ε) and the sum is scaled by 2^54 instead.
+        private static double Midpoint(double a, double b)
+        {
+            if (double.IsInfinity(a) || double.IsInfinity(b)) return 0.5 * (a + b);
+            const double Up = 18014398509481984.0, Tiny = 9.332636185032189e-302;    // 2^54, 2^-1000
+            if (Math.Abs(a) < Tiny && Math.Abs(b) < Tiny) return (a * Up + b * Up) * 0.5 / Up;
+            return 0.5 * a + 0.5 * b;
+        }
     }
 }

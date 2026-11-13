@@ -46,7 +46,7 @@ namespace ToolBelt.Intervals
         {
             CheckNotNaN(start, end);
             if (Cmp(start, end) > 0)
-                throw new ArgumentException($"Range start '{start}' must not be greater than end '{end}'.");
+                throw new ArgumentException($"Range start '{start}' must not be greater than end '{end}'.", nameof(start));
             if (Cmp(start, end) == 0) return; // empty
 
             int at = Replace(start, end, new Entry { Start = start, End = end, Value = value });
@@ -60,7 +60,7 @@ namespace ToolBelt.Intervals
         {
             CheckNotNaN(start, end);
             if (Cmp(start, end) > 0)
-                throw new ArgumentException($"Range start '{start}' must not be greater than end '{end}'.");
+                throw new ArgumentException($"Range start '{start}' must not be greater than end '{end}'.", nameof(start));
             if (Cmp(start, end) == 0) return;
 
             Replace(start, end, null);

@@ -124,7 +124,7 @@ namespace ToolBelt.Visualization
             // A negative margin put the plot area outside the image (SetPixel threw "x", or int.MinValue overflowed).
             if (m < 0) throw new ArgumentOutOfRangeException(nameof(options), m, "Margin must not be negative.");
             int left = m, right = width - 1 - m, top = m, bottom = height - 1 - m;
-            if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.");
+            if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.", nameof(options));
             if (options.DrawFrame)
                 image.DrawRectangle(left, top, right - left + 1, bottom - top + 1, options.FrameColor);
 

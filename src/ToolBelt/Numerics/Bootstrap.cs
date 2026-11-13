@@ -40,7 +40,8 @@ namespace ToolBelt.Numerics
             if (statistic is null) throw new ArgumentNullException(nameof(statistic));
             if (random is null) throw new ArgumentNullException(nameof(random));
             if (sample.Count < 1) throw new ArgumentException("At least one sample is required.", nameof(sample));
-            if (resamples < 1) throw new ArgumentOutOfRangeException(nameof(resamples), resamples, "Resample count must be positive.");
+            // Past Array.MaxLength the estimates array threw OutOfMemoryException ("array dimensions exceeded").
+            if (resamples < 1 || resamples > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(resamples), resamples, "Resample count must be 1 to Array.MaxLength (0x7FFFFFC7).");
             if (!(confidence > 0 && confidence < 1)) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
 
             int n = sample.Count;

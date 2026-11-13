@@ -38,7 +38,7 @@ namespace ToolBelt.IO
         {
             if (fields is null) throw new ArgumentNullException(nameof(fields));
             if (fields.Count != _header.Count)
-                throw new ArgumentException($"Expected {_header.Count} fields to match the header, got {fields.Count}.");
+                throw new ArgumentException($"Expected {_header.Count} fields to match the header, got {fields.Count}.", nameof(fields));
 
             // Boxed once: for a struct T, SetValue on `record` itself would set a fresh boxed copy each time and lose it.
             object record = new T();

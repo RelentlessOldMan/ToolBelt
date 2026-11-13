@@ -88,8 +88,11 @@ namespace ToolBelt.Numerics
             if (sxx == 0)
                 throw new ArgumentException("All x values are identical; the slope is undefined.", nameof(xs));
 
-            double slope = sxy / sxx * (sy * py / (sx * px));
-            double intercept = meanY * py - slope * (meanX * px);
+            // In scaled units, then the ratio of the powers of two: sx·px underflowed for subnormal x ([0, ε] gave slope ∞,
+            // intercept NaN) and sy·py overflowed for y near ±double.MaxValue.
+            double scaledSlope = sxy / sxx * (sy / sx);
+            double slope = scaledSlope * (py / px);
+            double intercept = (meanY - scaledSlope * meanX) * py;
             // R² = explained variance / total variance. If y is constant (syy == 0) the fit is exact.
             double r = syy == 0 ? 1.0 : sxy / Math.Sqrt(sxx * syy);   // scaled, so the product neither over- nor underflows
             double rSquared = Math.Min(1.0, r * r);
@@ -101,7 +104,8 @@ namespace ToolBelt.Numerics
         private static double Pow2Scale(double m)
         {
             if (m == 0 || double.IsInfinity(m)) return 1;
-            double p = Math.Pow(2, Math.Floor(Math.Log(m) / Math.Log(2)));
+            // At most 2^1023: the logarithm of a value near double.MaxValue rounds up to 1024, p was ∞ and p /= 2 never ended.
+            double p = Math.Pow(2, Math.Min(1023, Math.Floor(Math.Log(m) / Math.Log(2))));
             // The logarithm can land a hair either side of an integer; settle on exactly the power at or below m.
             while (p > m) p /= 2;
             while (p * 2 <= m) p *= 2;

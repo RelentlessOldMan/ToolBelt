@@ -46,7 +46,7 @@ namespace ToolBelt.Numerics
             if (!Units.TryGetValue(fromUnit, out var from)) throw new ArgumentException($"Unknown unit '{fromUnit}'.", nameof(fromUnit));
             if (!Units.TryGetValue(toUnit, out var to)) throw new ArgumentException($"Unknown unit '{toUnit}'.", nameof(toUnit));
             if (from.Category != to.Category)
-                throw new ArgumentException($"Cannot convert '{fromUnit}' ({from.Category}) to '{toUnit}' ({to.Category}).");
+                throw new ArgumentException($"Cannot convert '{fromUnit}' ({from.Category}) to '{toUnit}' ({to.Category}).", nameof(toUnit));
 
             if (fromUnit == toUnit) return value; // exact: the round trip through the base unit was not
 
@@ -97,7 +97,7 @@ namespace ToolBelt.Numerics
                 case "K": return value;
                 case "C": return value + 273.15;
                 case "F": return Ratio(value - 32, 5.0, 9.0) + 273.15;
-                default: throw new ArgumentException($"Unknown temperature unit '{unit}'.");
+                default: throw new ArgumentException($"Unknown temperature unit '{unit}'.", nameof(unit));
             }
         }
 
@@ -108,7 +108,7 @@ namespace ToolBelt.Numerics
                 case "K": return kelvin;
                 case "C": return kelvin - 273.15;
                 case "F": return Ratio(kelvin - 273.15, 9.0, 5.0) + 32;
-                default: throw new ArgumentException($"Unknown temperature unit '{unit}'.");
+                default: throw new ArgumentException($"Unknown temperature unit '{unit}'.", nameof(unit));
             }
         }
 

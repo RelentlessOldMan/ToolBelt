@@ -76,6 +76,9 @@ namespace ToolBelt.Quality
             if (double.IsInfinity(sigma)) throw new ArgumentException("Sample spread overflows a double.", nameof(sample));
 
             double cp = (upperSpec - lowerSpec) / (6 * sigma);
+            // Specs like ±1.7e308 overflowed the width (Cp = ∞ for a sample whose Cpk was 7e7); halves and the division by
+            // σ first keep it finite.
+            if (double.IsInfinity(cp)) cp = (0.5 * upperSpec - 0.5 * lowerSpec) / sigma / 3;
             double cpk = Math.Min(upperSpec - mean, mean - lowerSpec) / (3 * sigma);
             double sigmaLevel = 3 * cpk;
             // Upper tail from the survival function: 1 − Φ rounds to 0 below about 1e-16 (and to multiples of 1e-16 above).
@@ -106,7 +109,8 @@ namespace ToolBelt.Quality
         private static double Pow2Scale(double m)
         {
             if (m == 0 || double.IsInfinity(m)) return 1;
-            double p = Math.Pow(2, Math.Floor(Math.Log(m) / Math.Log(2)));
+            // At most 2^1023: the logarithm of a value near double.MaxValue rounds up to 1024, p was ∞ and p /= 2 never ended.
+            double p = Math.Pow(2, Math.Min(1023, Math.Floor(Math.Log(m) / Math.Log(2))));
             // The logarithm can land a hair either side of an integer; settle on exactly the power at or below m.
             while (p > m) p /= 2;
             while (p * 2 <= m) p *= 2;

@@ -364,16 +364,16 @@ namespace ToolBelt.Signal
         /// in exchange for a steeper transition than a Butterworth of the same order. The gain at <paramref name="cutoff"/> is −ripple dB.
         /// </summary>
         public static IirFilter Chebyshev1LowPass(int order, double rippleDb, double cutoff, double sampleRate)
-            => Design(Chebyshev1Prototype(order, rippleDb), Band.LowPass, sampleRate, cutoff, 0);
+            => Design(Chebyshev1Prototype(order, rippleDb), Band.LowPass, sampleRate, cutoff, 0, poleSpec: nameof(rippleDb));
 
         public static IirFilter Chebyshev1HighPass(int order, double rippleDb, double cutoff, double sampleRate)
-            => Design(Chebyshev1Prototype(order, rippleDb), Band.HighPass, sampleRate, cutoff, 0);
+            => Design(Chebyshev1Prototype(order, rippleDb), Band.HighPass, sampleRate, cutoff, 0, poleSpec: nameof(rippleDb));
 
         public static IirFilter Chebyshev1BandPass(int order, double rippleDb, double low, double high, double sampleRate)
-            => Design(Chebyshev1Prototype(order, rippleDb), Band.BandPass, sampleRate, low, high);
+            => Design(Chebyshev1Prototype(order, rippleDb), Band.BandPass, sampleRate, low, high, poleSpec: nameof(rippleDb));
 
         public static IirFilter Chebyshev1BandStop(int order, double rippleDb, double low, double high, double sampleRate)
-            => Design(Chebyshev1Prototype(order, rippleDb), Band.BandStop, sampleRate, low, high);
+            => Design(Chebyshev1Prototype(order, rippleDb), Band.BandStop, sampleRate, low, high, poleSpec: nameof(rippleDb));
 
         /// <summary>
         /// Chebyshev type II (inverse Chebyshev) low-pass: monotonic, ripple-free passband and a stop band that stays at
@@ -381,18 +381,18 @@ namespace ToolBelt.Signal
         /// <em>begins</em> (gain first reaches −attenuation), not a −3 dB point — the passband ends somewhat below it.
         /// </summary>
         public static IirFilter Chebyshev2LowPass(int order, double stopAttenuationDb, double stopEdge, double sampleRate)
-            => Design(Chebyshev2Prototype(order, stopAttenuationDb), Band.LowPass, sampleRate, stopEdge, 0, nameof(stopEdge));
+            => Design(Chebyshev2Prototype(order, stopAttenuationDb), Band.LowPass, sampleRate, stopEdge, 0, edgeName: nameof(stopEdge), poleSpec: nameof(stopAttenuationDb), zeroSpec: nameof(stopAttenuationDb));
 
         public static IirFilter Chebyshev2HighPass(int order, double stopAttenuationDb, double stopEdge, double sampleRate)
-            => Design(Chebyshev2Prototype(order, stopAttenuationDb), Band.HighPass, sampleRate, stopEdge, 0, nameof(stopEdge));
+            => Design(Chebyshev2Prototype(order, stopAttenuationDb), Band.HighPass, sampleRate, stopEdge, 0, edgeName: nameof(stopEdge), poleSpec: nameof(stopAttenuationDb), zeroSpec: nameof(stopAttenuationDb));
 
         /// <summary>Chebyshev type II band-pass; <paramref name="low"/>/<paramref name="high"/> are the stop-band edges.</summary>
         public static IirFilter Chebyshev2BandPass(int order, double stopAttenuationDb, double low, double high, double sampleRate)
-            => Design(Chebyshev2Prototype(order, stopAttenuationDb), Band.BandPass, sampleRate, low, high);
+            => Design(Chebyshev2Prototype(order, stopAttenuationDb), Band.BandPass, sampleRate, low, high, poleSpec: nameof(stopAttenuationDb), zeroSpec: nameof(stopAttenuationDb));
 
         /// <summary>Chebyshev type II band-stop; the rejection band (at least the stated attenuation) is <paramref name="low"/>..<paramref name="high"/>.</summary>
         public static IirFilter Chebyshev2BandStop(int order, double stopAttenuationDb, double low, double high, double sampleRate)
-            => Design(Chebyshev2Prototype(order, stopAttenuationDb), Band.BandStop, sampleRate, low, high);
+            => Design(Chebyshev2Prototype(order, stopAttenuationDb), Band.BandStop, sampleRate, low, high, poleSpec: nameof(stopAttenuationDb), zeroSpec: nameof(stopAttenuationDb));
 
         /// <summary>
         /// Elliptic (Cauer) low-pass: <paramref name="passRippleDb"/> of passband ripple and at least
@@ -401,17 +401,17 @@ namespace ToolBelt.Signal
         /// delay peaks sharply near the edge.
         /// </summary>
         public static IirFilter EllipticLowPass(int order, double passRippleDb, double stopAttenuationDb, double cutoff, double sampleRate)
-            => Design(EllipticPrototype(order, passRippleDb, stopAttenuationDb), Band.LowPass, sampleRate, cutoff, 0);
+            => Design(EllipticPrototype(order, passRippleDb, stopAttenuationDb), Band.LowPass, sampleRate, cutoff, 0, poleSpec: nameof(passRippleDb), zeroSpec: nameof(stopAttenuationDb));
 
         public static IirFilter EllipticHighPass(int order, double passRippleDb, double stopAttenuationDb, double cutoff, double sampleRate)
-            => Design(EllipticPrototype(order, passRippleDb, stopAttenuationDb), Band.HighPass, sampleRate, cutoff, 0);
+            => Design(EllipticPrototype(order, passRippleDb, stopAttenuationDb), Band.HighPass, sampleRate, cutoff, 0, poleSpec: nameof(passRippleDb), zeroSpec: nameof(stopAttenuationDb));
 
         /// <summary>Elliptic band-pass; <paramref name="low"/>/<paramref name="high"/> are the passband edges.</summary>
         public static IirFilter EllipticBandPass(int order, double passRippleDb, double stopAttenuationDb, double low, double high, double sampleRate)
-            => Design(EllipticPrototype(order, passRippleDb, stopAttenuationDb), Band.BandPass, sampleRate, low, high);
+            => Design(EllipticPrototype(order, passRippleDb, stopAttenuationDb), Band.BandPass, sampleRate, low, high, poleSpec: nameof(passRippleDb), zeroSpec: nameof(stopAttenuationDb));
 
         public static IirFilter EllipticBandStop(int order, double passRippleDb, double stopAttenuationDb, double low, double high, double sampleRate)
-            => Design(EllipticPrototype(order, passRippleDb, stopAttenuationDb), Band.BandStop, sampleRate, low, high);
+            => Design(EllipticPrototype(order, passRippleDb, stopAttenuationDb), Band.BandStop, sampleRate, low, high, poleSpec: nameof(passRippleDb), zeroSpec: nameof(stopAttenuationDb));
 
         /// <summary>
         /// Bessel (Thomson) low-pass: maximally flat group delay, so the passband is delayed without dispersion and a step
@@ -639,7 +639,7 @@ namespace ToolBelt.Signal
 
         private static int Ceiling(double n)
         {
-            if (!(n <= int.MaxValue)) throw new ArgumentException("The transition band is too narrow for any practical order.");
+            if (!(n <= int.MaxValue)) throw new ArgumentException("The transition band is too narrow for any practical order.", "stopAttenuationDb");
             return Math.Max(1, (int)Math.Ceiling(n));
         }
 
@@ -1072,7 +1072,7 @@ namespace ToolBelt.Signal
         }
 
         private static IirFilter Design((List<Complex> Z, List<Complex> P, double K) prototype, Band band, double sampleRate,
-            double f1, double f2, string edgeName = "cutoff")
+            double f1, double f2, string edgeName = "cutoff", string? poleSpec = null, string? zeroSpec = null)
         {
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
             bool twoEdges = band == Band.BandPass || band == Band.BandStop;
@@ -1087,6 +1087,10 @@ namespace ToolBelt.Signal
             // analog roots stay O(1) instead of scaling with the sample rate, whose products over 2N roots overflow.
             const double fs = 2;
             var (z, p, k) = prototype;
+            // An extreme ripple or attenuation (1e-300 dB) puts prototype roots near 0, near ∞ or past it. The design then
+            // failed as an edge too close to 0 or Nyquist, naming a mid-band cutoff, or as a degenerate design naming no
+            // parameter. When it fails, this names the specification instead.
+            string? spec = ExtremeRoot(p) ? poleSpec : ExtremeRoot(z) ? zeroSpec : null;
             Complex logK = Complex.Log(k);                              // the gain is carried as a logarithm for the same reason
             double w1 = 2 * fs * Math.Tan(Math.PI * f1 / sampleRate);  // pre-warp so the digital edges land exactly
             double w2 = twoEdges ? 2 * fs * Math.Tan(Math.PI * f2 / sampleRate) : 0;
@@ -1098,16 +1102,41 @@ namespace ToolBelt.Signal
                 default: (z, p, logK) = ToBandStop(z, p, logK, Math.Sqrt(w1 * w2), w2 - w1); break;
             }
             (z, p, logK) = Bilinear(z, p, logK, fs);
+            if (spec != null && !(AllFinite(z) && AllFinite(p)))
+                throw new ArgumentOutOfRangeException(spec, "The design is numerically degenerate (a root is not finite); relax the specification.");
             // A pole on or outside the circle (an edge within rounding of 0 or Nyquist) was an ArgumentException naming no
             // parameter. A pole inside can still round onto it: ButterworthLowPass(2, 1, 1e9) had a section pole at exactly
             // z = 1 (DC gain ∞; a constant 3 came out as 3e-17).
             foreach (var x in p)
-                if (!(x.Magnitude < 1)) throw EdgeTooClose(x.Real < 0, twoEdges, edgeName, f1, f2);
+                if (!(x.Magnitude < 1)) throw spec != null ? SpecTooExtreme(spec) : EdgeTooClose(x.Real < 0, twoEdges, edgeName, f1, f2);
+            // A zero that is not finite reached the grouping, whose ArgumentException named no parameter.
+            if (!AllFinite(z))
+                throw new ArgumentOutOfRangeException(spec ?? edgeName, "The design is numerically degenerate (a root is not finite); relax the specification.");
             var sections = ToSections(z, p, logK);
             foreach (var s in sections)
-                if (!s.IsWellConditioned()) throw EdgeTooClose(1 - s.A1 + s.A2 < 1 + s.A1 + s.A2, twoEdges, edgeName, f1, f2);
+                if (!s.IsWellConditioned()) throw spec != null ? SpecTooExtreme(spec) : EdgeTooClose(1 - s.A1 + s.A2 < 1 + s.A1 + s.A2, twoEdges, edgeName, f1, f2);
             return new IirFilter(sections);
         }
+
+        private static bool ExtremeRoot(List<Complex> roots)
+        {
+            foreach (var r in roots)
+            {
+                double m = r.Magnitude;
+                if (!(m < 1e30) || (m != 0 && m < 1e-30)) return true;   // also NaN; a prototype's roots are O(1) at sane specs
+            }
+            return false;
+        }
+
+        private static bool AllFinite(List<Complex> roots)
+        {
+            foreach (var r in roots)
+                if (double.IsNaN(r.Real) || double.IsInfinity(r.Real) || double.IsNaN(r.Imaginary) || double.IsInfinity(r.Imaginary)) return false;
+            return true;
+        }
+
+        private static ArgumentOutOfRangeException SpecTooExtreme(string spec)
+            => new ArgumentOutOfRangeException(spec, "The ripple or attenuation is too extreme for this order in double precision: the poles land on or within rounding of the unit circle.");
 
         private static ArgumentOutOfRangeException EdgeTooClose(bool nearNyquist, bool twoEdges, string edgeName, double f1, double f2)
         {
@@ -1323,7 +1352,7 @@ namespace ToolBelt.Signal
                 else if (r.Imaginary > 0) groups.Add(new[] { r, Complex.Conjugate(r) });
             }
             if (roots.Any(r => !Biquad.IsFinite(r.Real) || !Biquad.IsFinite(r.Imaginary)))
-                throw new ArgumentException("The design is numerically degenerate (a root is not finite); relax the specification.");
+                throw new InvalidOperationException("A root is not finite.");   // Design rejects these before grouping
             reals.Sort();
             for (int i = 0; i < reals.Count; i += 2)
                 groups.Add(i + 1 < reals.Count ? new Complex[] { reals[i], reals[i + 1] } : new Complex[] { reals[i] });

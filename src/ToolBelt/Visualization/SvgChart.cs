@@ -200,7 +200,7 @@ namespace ToolBelt.Visualization
             bottom = Math.Max(bottom, o.MinMarginBottom);
             double pw = o.Width - left - right, ph = o.Height - top - bottom;
             if (pw < 20 || ph < 20)
-                throw new ArgumentException("The chart is too small for its labels; increase Width/Height or reduce FontSize.");
+                throw new ArgumentException("The chart is too small for its labels; increase Width/Height or reduce FontSize.", "options");
 
             var frame = new PlotFrame(left, top, pw, ph, xMin, xMax, yMin, yMax, o.XAxis == AxisKind.Log, o.YAxis == AxisKind.Log);
             return new ChartLayout { Frame = frame, XTicks = xTicks, YTicks = yTicks, BarWidth = BarWidth(series, frame) };

@@ -131,7 +131,8 @@ namespace ToolBelt.Grids
             Func<int, int, int, int, double> step = (fr, fc, tr, tc) =>
             {
                 double c = enterCost(tr, tc);
-                if (c < 0) throw new InvalidOperationException("Dijkstra does not support negative entry costs.");
+                // NaN passed `c < 0`, and a NaN distance is never improved on, so the path went through the NaN cell.
+                if (!(c >= 0)) throw new InvalidOperationException(double.IsNaN(c) ? "An entry cost was NaN." : "Dijkstra does not support negative entry costs.");
                 return (fr != tr && fc != tc) ? c * sqrt2 : c;
             };
             return Search(rows, cols, start, goal, passable, step, null, connectivity, allowCornerCutting);

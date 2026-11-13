@@ -106,7 +106,11 @@ namespace ToolBelt.Tests.Threading
 
         public async Task FirstMatching_AndFirstToComplete()
         {
-            int m = await TaskRace.FirstMatching(new[] { After(5, 1), After(150, 7), After(300, 9) }, v => v > 5);
+            // The 9 completes only once the 7 has: 150 ms and 300 ms timers swapped on a starved core (got 9).
+            var seven = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Func<CancellationToken, Task<int>> nine = async ct => { await seven.Task; await Task.Delay(100, ct); return 9; };
+            Func<CancellationToken, Task<int>> sevenAttempt = async ct => { await Task.Delay(50, ct); seven.TrySetResult(7); return 7; };
+            int m = await TaskRace.FirstMatching(new[] { After(5, 1), sevenAttempt, nine }, v => v > 5);
             Check.Equal(7, m);
             await Check.ThrowsAsync<AggregateException>(() => TaskRace.FirstMatching(new[] { After(5, 1) }, v => v > 5));
             await Check.ThrowsAsync<InvalidOperationException>(() => TaskRace.FirstToComplete(new[] { FailAfter<int>(5, "first"), After(200, 1) }));

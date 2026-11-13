@@ -38,7 +38,7 @@ namespace ToolBelt.IO
             if (fields is null) throw new ArgumentNullException(nameof(fields));
             ValidateWidths(widths);
             if (fields.Count != widths.Count)
-                throw new ArgumentException("fields and widths must have the same length.");
+                throw new ArgumentException("fields and widths must have the same length.", nameof(widths));
 
             var sb = new StringBuilder();
             for (int i = 0; i < fields.Count; i++)

@@ -27,10 +27,13 @@ namespace ToolBelt.Numerics
                 d[0] = d[1] = double.IsInfinity(s) ? 2 * ((0.5 * y[1] - 0.5 * y[0]) / dx) : s;
                 return d;
             }
-            d[0] = (-3 * y[0] + 4 * y[1] - y[2]) / (2 * dx);                     // 2nd-order forward
-            d[n - 1] = (3 * y[n - 1] - 4 * y[n - 2] + y[n - 3]) / (2 * dx);      // 2nd-order backward
+            // 2·dx overflowed for dx past MaxValue/2 and gave a quiet 0 the redo below never saw: halve after dividing there.
+            double w = 2 * dx;
+            bool wide = double.IsInfinity(w);
+            d[0] = Half(-3 * y[0] + 4 * y[1] - y[2], dx, w, wide);                 // 2nd-order forward
+            d[n - 1] = Half(3 * y[n - 1] - 4 * y[n - 2] + y[n - 3], dx, w, wide);  // 2nd-order backward
             for (int i = 1; i < n - 1; i++)
-                d[i] = (y[i + 1] - y[i - 1]) / (2 * dx);                          // 2nd-order central
+                d[i] = Half(y[i + 1] - y[i - 1], dx, w, wide);                      // 2nd-order central
             // Samples near ±double.MaxValue overflowed the differences (NaN or ∞): redo those from eighths.
             for (int i = 0; i < n; i++)
                 if (double.IsNaN(d[i]) || double.IsInfinity(d[i]))
@@ -45,7 +48,7 @@ namespace ToolBelt.Numerics
         {
             if (x is null) throw new ArgumentNullException(nameof(x));
             if (y is null) throw new ArgumentNullException(nameof(y));
-            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.");
+            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.", nameof(y));
             if (x.Count < 3) throw new ArgumentException("At least three samples are required for uneven spacing.", nameof(x));
 
             int n = x.Count;
@@ -72,6 +75,10 @@ namespace ToolBelt.Numerics
             if (f is null) throw new ArgumentNullException(nameof(f));
             double step = StepFor(x, h, 1e-5);
             double xp = x + step, xm = x - step;
+            // Near ±double.MaxValue x ± h overflowed and the result was NaN: take the one-sided difference toward zero.
+            if (double.IsInfinity(xp)) xp = x;
+            else if (double.IsInfinity(xm)) xm = x;
+            if (double.IsInfinity(xp - xm)) throw StepOverflows(x, step);
             if (xp == xm) throw StepTooSmall(x, step); // 0/0 = NaN
             return (f(xp) - f(xm)) / (xp - xm); // the step actually taken, after rounding x ± h
         }
@@ -97,6 +104,8 @@ namespace ToolBelt.Numerics
 
         private static double Richardson(Func<double, double> f, double x, double h)
         {
+            // Near ±double.MaxValue x ± h overflowed, and the message blamed a step below the spacing of doubles.
+            if (double.IsInfinity(x + h) || double.IsInfinity(x - h)) return OneSidedRichardson(f, x, h);
             // Differences over the steps actually taken: at x = 1e6 the nominal 2h = 2e-7 is not representable as a
             // spacing, and dividing by it reported 1.0000000000000002 for f(x) = x (and 0 at x = 1e8).
             double xp1 = x + h, xm1 = x - h, xp2 = x + h / 2, xm2 = x - h / 2;
@@ -108,6 +117,25 @@ namespace ToolBelt.Numerics
             if (ratio == 2) return (4 * d2 - d1) / 3.0; // cancels the leading O(h^2) error term
             return d2 + (d2 - d1) / (ratio * ratio - 1);  // the same extrapolation for steps that rounded unevenly
         }
+
+        // Forward differences toward zero, D(h) = f' + c·h + …, extrapolated as 2·D(h/2) − D(h).
+        private static double OneSidedRichardson(Func<double, double> f, double x, double h)
+        {
+            double s = x > 0 ? -1 : 1, fx = f(x);
+            double x1 = x + s * h, x2 = x + s * (h / 2);
+            if (double.IsInfinity(x1)) throw StepOverflows(x, h);
+            double w1 = x1 - x, w2 = x2 - x;
+            if (w2 == 0 || w1 == w2) throw StepTooSmall(x, h);
+            double d1 = (f(x1) - fx) / w1, d2 = (f(x2) - fx) / w2;
+            double ratio = w1 / w2;
+            return ratio == 2 ? 2 * d2 - d1 : d2 + (d2 - d1) / (ratio - 1);
+        }
+
+        private static double Half(double difference, double dx, double w, bool wide)
+            => wide ? difference / dx * 0.5 : difference / w;
+
+        private static ArgumentOutOfRangeException StepOverflows(double x, double h)
+            => new ArgumentOutOfRangeException(nameof(h), h, $"Step is too large at x = {x:R}: x ± h overflows a double.");
 
         private static ArgumentOutOfRangeException StepTooSmall(double x, double h)
             => new ArgumentOutOfRangeException(nameof(h), h, $"Step is below the spacing of doubles at x = {x:R}; x ± h rounds back to x.");
@@ -122,7 +150,12 @@ namespace ToolBelt.Numerics
                 double t0 = f0 * ((at - x1) + (at - x2)) / q0;
                 double t1 = f1 * ((at - x0) + (at - x2)) / q1;
                 double t2 = f2 * ((at - x0) + (at - x1)) / q2;
-                return t0 + t1 + t2;
+                double sum = t0 + t1 + t2;
+                if (!double.IsNaN(sum) && !double.IsInfinity(sum)) return sum;
+                // Values near ±double.MaxValue overflowed f·weight (a flat 1e308 gave NaN): weights first, in eighths.
+                return 8 * (f0 / 8 * (((at - x1) + (at - x2)) / q0)
+                          + f1 / 8 * (((at - x0) + (at - x2)) / q1)
+                          + f2 / 8 * (((at - x0) + (at - x1)) / q2));
             }
             // The product of two spacings overflowed (points 1e160 apart) or underflowed: divide by one at a time.
             return f0 * (((at - x1) + (at - x2)) / (x0 - x1) / (x0 - x2))

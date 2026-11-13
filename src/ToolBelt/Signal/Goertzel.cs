@@ -28,6 +28,7 @@ namespace ToolBelt.Signal
             if (double.IsNaN(targetFrequency) || double.IsInfinity(targetFrequency))
                 throw new ArgumentOutOfRangeException(nameof(targetFrequency), targetFrequency, "Target frequency must be finite.");
             double omega = 2.0 * Math.PI * targetFrequency / sampleRate;
+            if (double.IsInfinity(omega)) omega = 2.0 * Math.PI * (targetFrequency / sampleRate);   // 2π·f overflowed first
             double cosine = Math.Cos(omega);
             double coeff = 2.0 * cosine;
 
@@ -41,7 +42,19 @@ namespace ToolBelt.Signal
 
             double real = s1 - s2 * cosine;
             double imag = s2 * Math.Sin(omega);
-            return (Math.Sqrt(real * real + imag * imag), Math.Atan2(imag, real));
+            double magnitude = Math.Sqrt(real * real + imag * imag);
+            if (double.IsInfinity(magnitude) || (magnitude < 1e-150 && (real != 0 || imag != 0))) magnitude = Hypot(real, imag);
+            return (magnitude, Math.Atan2(imag, real));
+        }
+
+        // √(a² + b²) without squaring the larger: four samples of 1e200 gave a magnitude of ∞, four of 1e-170 one of 0.
+        private static double Hypot(double a, double b)
+        {
+            a = Math.Abs(a); b = Math.Abs(b);
+            double big = Math.Max(a, b), small = Math.Min(a, b);
+            if (big == 0 || double.IsInfinity(big) || double.IsNaN(big)) return big + small;
+            double r = small / big;
+            return big * Math.Sqrt(1 + r * r);
         }
     }
 }

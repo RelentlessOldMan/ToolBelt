@@ -37,6 +37,9 @@ namespace ToolBelt.Numerics
             if (f is null) throw new ArgumentNullException(nameof(f));
             RequireTolerance(tolerance);
             if (a > b) (a, b) = (b, a); // a reversed bracket made (b − a)/2 negative, so it "converged" at once
+            // An infinite end made the midpoint equal it, which passed for an adjacent-doubles bracket: Bisection(x => x, −∞, 1)
+            // reported the root −∞, and Brent the root 1 with residual 1.
+            if (!IsFinite(a) || !IsFinite(b)) return Failure(double.NaN, 0, BracketMessage);
             double fa = f(a), fb = f(b);
             if (double.IsNaN(fa) || double.IsNaN(fb)) return Failure(double.NaN, 0, NaNMessage);
             if (fa == 0) return Success(a, 0, 0);
@@ -63,6 +66,9 @@ namespace ToolBelt.Numerics
         {
             if (f is null) throw new ArgumentNullException(nameof(f));
             RequireTolerance(tolerance);
+            // An infinite end made the midpoint equal it, which passed for an adjacent-doubles bracket: Bisection(x => x, −∞, 1)
+            // reported the root −∞, and Brent the root 1 with residual 1.
+            if (!IsFinite(a) || !IsFinite(b)) return Failure(double.NaN, 0, BracketMessage);
             double fa = f(a), fb = f(b);
             if (double.IsNaN(fa) || double.IsNaN(fb)) return Failure(double.NaN, 0, NaNMessage);
             if (fa == 0) return Success(a, 0, 0);
@@ -193,6 +199,8 @@ namespace ToolBelt.Numerics
             return Failure(x1, maxIterations, "Maximum iterations reached without convergence.");
         }
 
+        private const string BracketMessage = "The bracket ends a and b must be finite.";
+        private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
         private const string NaNMessage = "f returned NaN; the function is not defined there.";
 
         // Absolute tolerance plus four ulps of the estimate (Brent's zeroin): an absolute 1e-12 alone is

@@ -225,7 +225,7 @@ namespace ToolBelt.IO
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
             if (retries < 0) throw new ArgumentOutOfRangeException(nameof(retries), retries, "Must be non-negative.");
-            TimeSpan delay = retryDelay ?? TimeSpan.FromMilliseconds(100);
+            TimeSpan delay = RequireDelay(retryDelay);
             string full = Path.GetFullPath(path);
             if (File.Exists(full))
             {
@@ -245,11 +245,12 @@ namespace ToolBelt.IO
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
             if (retries < 0) throw new ArgumentOutOfRangeException(nameof(retries), retries, "Must be non-negative.");
+            TimeSpan delay = RequireDelay(retryDelay);
             string full = Path.GetFullPath(path);
             if (File.Exists(full)) throw new IOException($"'{path}' is a file, not a directory.");
             if (Directory.Exists(full) && IsLink(full)) throw new IOException($"'{path}' is a link; refusing to empty its target.");
             Directory.CreateDirectory(full);
-            DeleteTree(full, retries, retryDelay ?? TimeSpan.FromMilliseconds(100), deleteRoot: false);
+            DeleteTree(full, retries, delay, deleteRoot: false);
         }
 
         private static void DeleteTree(string root, int retries, TimeSpan delay, bool deleteRoot)
@@ -470,6 +471,16 @@ namespace ToolBelt.IO
             catch (FileNotFoundException) { return; }        // already gone (someone else deleted it): nothing to clear
             catch (DirectoryNotFoundException) { return; }
             if ((a & FileAttributes.ReadOnly) != 0) File.SetAttributes(path, a & ~FileAttributes.ReadOnly);
+        }
+
+        // Checked up front: Thread.Sleep threw its own ArgumentOutOfRangeException ("timeout") for a delay past
+        // int.MaxValue ms, and only once a delete had already failed, half done; a negative delay was silently skipped.
+        private static TimeSpan RequireDelay(TimeSpan? retryDelay)
+        {
+            TimeSpan delay = retryDelay ?? TimeSpan.FromMilliseconds(100);
+            if (delay < TimeSpan.Zero || delay.TotalMilliseconds > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(retryDelay), delay, "Retry delay must be 0 to int.MaxValue milliseconds.");
+            return delay;
         }
 
         private static void Retry(Action action, int retries, TimeSpan delay)

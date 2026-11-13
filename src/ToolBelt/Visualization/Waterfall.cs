@@ -218,7 +218,7 @@ namespace ToolBelt.Visualization
             double right = BarGap + BarWidth + 6 + valueLabelW + (string.IsNullOrEmpty(o.ValueLabel) ? 0 : fs + 10) + 10;
             double pw = o.Width - left - right, ph = o.Height - top - bottom;
             if (pw < 20 || ph < 20)
-                throw new ArgumentException("The waterfall is too small for its labels; increase Width/Height or reduce FontSize.");
+                throw new ArgumentException("The waterfall is too small for its labels; increase Width/Height or reduce FontSize.", "options");
 
             // Newest at top: time increases upward (a normal y axis). Otherwise reverse the range so it grows downward.
             var frame = o.NewestAtTop

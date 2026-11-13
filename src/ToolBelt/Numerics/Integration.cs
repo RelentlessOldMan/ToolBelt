@@ -31,7 +31,11 @@ namespace ToolBelt.Numerics
             {
                 double h = x[i] - x[i - 1];
                 if (!(h >= 0)) throw new ArgumentException("x values must be ascending.", nameof(x)); // NaN too
-                sum += Panel(y[i - 1], y[i], h);
+                // Finite ends 2e308 apart overflowed the width to ∞ (a panel of height 1e-10 integrated to ∞): halve it.
+                if (double.IsInfinity(h) && IsFinite(x[i]) && IsFinite(x[i - 1]))
+                    sum += 2 * Panel(y[i - 1], y[i], 0.5 * x[i] - 0.5 * x[i - 1]);
+                else
+                    sum += Panel(y[i - 1], y[i], h);
             }
             return sum;
         }
@@ -117,7 +121,10 @@ namespace ToolBelt.Numerics
         private static double Panel(double a, double b, double h)
         {
             double s = a + b;
-            return double.IsInfinity(s) && IsFinite(a) && IsFinite(b) ? (0.5 * a + 0.5 * b) * h : s * 0.5 * h;
+            if (double.IsInfinity(s) && IsFinite(a) && IsFinite(b)) return (0.5 * a + 0.5 * b) * h;
+            // Scaled before halving: a subnormal sum halved to 0 first ([ε, 0] over 2^100 integrated to 0, not 2^-975).
+            double sh = s * h;
+            return IsFinite(sh) ? sh * 0.5 : s * 0.5 * h;
         }
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
@@ -165,8 +172,8 @@ namespace ToolBelt.Numerics
         {
             if (x is null) throw new ArgumentNullException(nameof(x));
             if (y is null) throw new ArgumentNullException(nameof(y));
-            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.");
-            if (x.Count < 2) throw new ArgumentException("At least two samples are required.");
+            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.", nameof(y));
+            if (x.Count < 2) throw new ArgumentException("At least two samples are required.", nameof(y));
         }
     }
 }

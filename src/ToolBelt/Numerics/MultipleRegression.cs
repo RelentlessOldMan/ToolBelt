@@ -277,7 +277,8 @@ namespace ToolBelt.Numerics
         private static double Pow2Scale(double m)
         {
             if (m == 0 || double.IsInfinity(m)) return 1;
-            double p = Math.Pow(2, Math.Floor(Math.Log(m) / Math.Log(2)));
+            // At most 2^1023: the logarithm of a value near double.MaxValue rounds up to 1024, p was ∞ and p /= 2 never ended.
+            double p = Math.Pow(2, Math.Min(1023, Math.Floor(Math.Log(m) / Math.Log(2))));
             // The logarithm can land a hair either side of an integer; settle on exactly the power at or below m.
             while (p > m) p /= 2;
             while (p * 2 <= m) p *= 2;
@@ -342,7 +343,17 @@ namespace ToolBelt.Numerics
         {
             v.Sort();
             int m = v.Count / 2;
-            return v.Count % 2 == 1 ? v[m] : 0.5 * v[m - 1] + 0.5 * v[m];      // halves first: the sum can overflow
+            return v.Count % 2 == 1 ? v[m] : Midpoint(v[m - 1], v[m]);
+        }
+
+        // The midpoint of two sorted values: halves first, so the sum can't overflow, except where both are tiny, where the
+        // halves rounded on their own ([ε, ε] had the median 0, [3ε ×4] the median 4ε) and the sum is scaled by 2^54 instead.
+        private static double Midpoint(double a, double b)
+        {
+            if (double.IsInfinity(a) || double.IsInfinity(b)) return 0.5 * (a + b);
+            const double Up = 18014398509481984.0, Tiny = 9.332636185032189e-302;    // 2^54, 2^-1000
+            if (Math.Abs(a) < Tiny && Math.Abs(b) < Tiny) return (a * Up + b * Up) * 0.5 / Up;
+            return 0.5 * a + 0.5 * b;
         }
     }
 }

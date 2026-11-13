@@ -22,7 +22,7 @@ namespace ToolBelt.Intervals
             if (IsNaN(start)) throw new ArgumentException("Interval start must not be NaN.", nameof(start));
             if (IsNaN(end)) throw new ArgumentException("Interval end must not be NaN.", nameof(end));
             if (Compare(start, end) > 0)
-                throw new ArgumentException($"Interval start '{start}' must not be greater than end '{end}'.");
+                throw new ArgumentException($"Interval start '{start}' must not be greater than end '{end}'.", nameof(start));
             Start = start;
             End = end;
         }
