@@ -13,6 +13,7 @@ namespace ToolBelt.IO
     public static class HexDump
     {
         private const string HexDigits = "0123456789abcdef";
+        private const int MaxString = 0x3FFFFFDF;   // the longest string the runtime allows
 
         public static string Format(byte[] data, int bytesPerLine = 16)
         {
@@ -20,10 +21,17 @@ namespace ToolBelt.IO
             if (bytesPerLine <= 0) throw new ArgumentOutOfRangeException(nameof(bytesPerLine), bytesPerLine, "Bytes per line must be positive.");
             if (data.Length == 0) return string.Empty;
 
-            var sb = new StringBuilder();
             // Short lines pad to bytesPerLine; past 256 bytes, padding stops at the data's length, so a huge bytesPerLine
             // can't allocate a huge string of spaces.
             int width = Math.Min(bytesPerLine, Math.Max(data.Length, 256));
+            // The dump is over four times the data: past about 250 MB it cannot fit in a string, which failed with an
+            // OutOfMemoryException only after gigabytes had been built.
+            long lines = (data.Length + (long)bytesPerLine - 1) / bytesPerLine;
+            long length = lines * (8 + 2 + 3L * width + 2 + 1) - 1 + data.Length;
+            if (length > MaxString)
+                throw new ArgumentException($"A dump of {data.Length} bytes would be {length} characters, more than a string holds.", nameof(data));
+
+            var sb = new StringBuilder((int)length);
             for (long offset = 0; offset < data.Length; offset += bytesPerLine)   // long: offset + bytesPerLine can pass int.MaxValue
             {
                 if (offset > 0)

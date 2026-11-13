@@ -8,7 +8,9 @@ namespace ToolBelt.IO
     /// <summary>
     /// Fixed-width (column-position) record parsing and emission, for legacy instrument and mainframe-style
     /// output where the delimited case does not apply. Fields are laid out in consecutive columns of the
-    /// given widths.
+    /// given widths, counted in UTF-16 characters. A column boundary never splits a surrogate pair: <see cref="Format"/>
+    /// truncates before the pair, and <see cref="Parse"/> throws <see cref="FormatException"/> for a line whose boundary
+    /// falls inside one.
     /// </summary>
     public static class FixedWidth
     {
@@ -26,7 +28,11 @@ namespace ToolBelt.IO
                 string field = pos < line.Length
                     ? line.Substring((int)pos, (int)Math.Min(w, line.Length - pos))
                     : string.Empty;
-                result[i] = trim ? field.Trim() : field;
+                long end = pos + w;
+                if (end < line.Length && char.IsLowSurrogate(line[(int)end]) && char.IsHighSurrogate(line[(int)end - 1]))
+                    throw new FormatException($"The boundary after column {i} (at {end}) splits a surrogate pair.");
+                // Spaces only, as documented: Trim() also took tabs and other whitespace that were part of the data.
+                result[i] = trim ? field.Trim(' ') : field;
                 pos += w;
             }
             return result;
@@ -45,7 +51,8 @@ namespace ToolBelt.IO
             {
                 string f = fields[i] ?? string.Empty;
                 int w = widths[i];
-                if (f.Length > w) f = f.Substring(0, w);
+                // Not through a surrogate pair: half of one is not a character, and broke the text when encoded.
+                if (f.Length > w) f = f.Substring(0, char.IsHighSurrogate(f[w - 1]) && char.IsLowSurrogate(f[w]) ? w - 1 : w);
                 sb.Append(leftAlign ? f.PadRight(w) : f.PadLeft(w));
             }
             return sb.ToString();

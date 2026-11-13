@@ -33,6 +33,7 @@ namespace ToolBelt.IO
             if (sourceDirectory is null) throw new ArgumentNullException(nameof(sourceDirectory));
             if (zipPath is null) throw new ArgumentNullException(nameof(zipPath));
             if (!Directory.Exists(sourceDirectory)) throw new DirectoryNotFoundException(sourceDirectory);
+            CheckLevel(level);
 
             string root = Path.GetFullPath(sourceDirectory);
             string zipFull = Path.GetFullPath(zipPath);
@@ -46,9 +47,9 @@ namespace ToolBelt.IO
                 {
                     foreach ((string file, bool isEmptyDirectory) in EnumerateNoLinks(root))
                     {
-                        string full = Path.GetFullPath(file);
-                        if (string.Equals(full, zipFull, PathComparison) || string.Equals(full, temp, PathComparison)) continue;   // the archive being written
-                        string entryName = full.Substring(root.Length)
+                        // The listed path as it is: Path.GetFullPath would drop a trailing dot or space from a name.
+                        if (string.Equals(file, zipFull, PathComparison) || string.Equals(file, temp, PathComparison)) continue;   // the archive being written
+                        string entryName = file.Substring(root.Length)
                             .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                             .Replace(Path.DirectorySeparatorChar, '/');   // only the separator: a backslash is a name character on Unix
                         if (isEmptyDirectory) entryName += "/";
@@ -56,12 +57,12 @@ namespace ToolBelt.IO
 
                         ZipArchiveEntry entry = archive.CreateEntry(entryName, level);
                         // CreateEntry stamps the current time.
-                        try { entry.LastWriteTime = isEmptyDirectory ? Directory.GetLastWriteTime(file) : File.GetLastWriteTime(file); }
+                        try { entry.LastWriteTime = isEmptyDirectory ? Directory.GetLastWriteTime(Exact(file)) : File.GetLastWriteTime(Exact(file)); }
                         catch (ArgumentOutOfRangeException) { }   // outside 1980-2107, which zip cannot store
                         if (!isEmptyDirectory)
                         {
                             using (Stream entryStream = entry.Open())
-                            using (FileStream input = File.OpenRead(file))
+                            using (FileStream input = File.OpenRead(Exact(file)))
                                 input.CopyTo(entryStream);
                         }
                         onEntry?.Invoke(entryName);
@@ -86,12 +87,17 @@ namespace ToolBelt.IO
         /// Extracts the archive into <paramref name="destinationDirectory"/>, rejecting (with <see cref="IOException"/>)
         /// entries that escape it — by <c>../</c>, an absolute name, or a junction or symbolic link already inside the
         /// destination, which is never written through. Files and directories get their archived last-write times. On
-        /// Windows a reserved device name (<c>CON</c>, <c>aux.txt</c>, <c>COM1</c>) is rejected too.
+        /// Windows a reserved device name (<c>CON</c>, <c>aux.txt</c>, <c>COM1</c>) is rejected too. Extraction stops with
+        /// <see cref="InvalidDataException"/> once the files written pass <paramref name="maxTotalBytes"/> (a guard against
+        /// zip bombs, which the archive's own size fields cannot be trusted for); what was extracted before then is kept.
         /// </summary>
-        public static void ExtractToDirectory(string zipPath, string destinationDirectory, bool overwrite = false, Action<string>? onEntry = null)
+        public static void ExtractToDirectory(string zipPath, string destinationDirectory, bool overwrite = false, Action<string>? onEntry = null,
+            long maxTotalBytes = long.MaxValue)
         {
             if (zipPath is null) throw new ArgumentNullException(nameof(zipPath));
             if (destinationDirectory is null) throw new ArgumentNullException(nameof(destinationDirectory));
+            if (maxTotalBytes < 0) throw new ArgumentOutOfRangeException(nameof(maxTotalBytes), maxTotalBytes, "Must be non-negative.");
+            long budget = maxTotalBytes;
 
             string root = Path.GetFullPath(destinationDirectory);
             string rootWithSeparator = root.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
@@ -128,8 +134,20 @@ namespace ToolBelt.IO
                 {
                     using (Stream entryStream = entry.Open())
                     using (var output = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                        entryStream.CopyTo(output);
+                    {
+                        var buffer = new byte[81920];
+                        int read;
+                        while ((read = entryStream.Read(buffer, 0, buffer.Length)) > 0)
+                        {
+                            if (read > budget)
+                                throw new InvalidDataException($"Extracting '{entry.FullName}' passed the {maxTotalBytes}-byte limit.");
+                            budget -= read;
+                            output.Write(buffer, 0, read);
+                        }
+                    }
                     SetTime(temp, entry.LastWriteTime.DateTime, directory: false);
+                    // A read-only file is not replaced by a move (UnauthorizedAccessException); overwrite means replace it.
+                    if (overwrite) ClearReadOnly(target);
 #if NET6_0_OR_GREATER
                     File.Move(temp, target, overwrite);
 #else
@@ -174,23 +192,63 @@ namespace ToolBelt.IO
             return names;
         }
 
-        /// <summary>Adds an entry, replacing every existing one with the same name.</summary>
+        /// <summary>
+        /// Adds an entry, replacing every existing one with the same name. The zip is rewritten beside itself and moved
+        /// over the original once complete, so a failure leaves it as it was.
+        /// </summary>
         public static void AddOrReplaceEntry(string zipPath, string entryName, byte[] content, CompressionLevel level = CompressionLevel.Optimal)
         {
             if (zipPath is null) throw new ArgumentNullException(nameof(zipPath));
             if (entryName is null) throw new ArgumentNullException(nameof(entryName));
             if (content is null) throw new ArgumentNullException(nameof(content));
+            CheckLevel(level);
 
-            using var fs = new FileStream(zipPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            using var archive = OpenArchive(fs, ZipArchiveMode.Update);
-            // GetEntry finds only one of several same-named entries; remove them all.
-            var stale = new List<ZipArchiveEntry>();
-            foreach (ZipArchiveEntry e in EntriesOf(archive))
-                if (string.Equals(e.FullName, entryName, StringComparison.Ordinal)) stale.Add(e);
-            foreach (ZipArchiveEntry e in stale) e.Delete();
-            ZipArchiveEntry entry = archive.CreateEntry(entryName, level);
-            using Stream entryStream = entry.Open();
-            entryStream.Write(content, 0, content.Length);
+            // Updating in place truncated the zip on any failure part way (an unknown level, a full disk): every entry lost.
+            string zipFull = Path.GetFullPath(zipPath);
+            string temp = Path.Combine(Path.GetDirectoryName(zipFull)!, ".zip-" + Guid.NewGuid().ToString("N") + ".tmp");
+            try
+            {
+                using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+                {
+                    if (File.Exists(zipFull))
+                        using (var original = new FileStream(zipFull, FileMode.Open, FileAccess.Read, FileShare.Read))
+                            original.CopyTo(fs);
+                    fs.Position = 0;
+                    using var archive = OpenArchive(fs, ZipArchiveMode.Update);
+                    // GetEntry finds only one of several same-named entries; remove them all.
+                    var stale = new List<ZipArchiveEntry>();
+                    foreach (ZipArchiveEntry e in EntriesOf(archive))
+                        if (string.Equals(e.FullName, entryName, StringComparison.Ordinal)) stale.Add(e);
+                    foreach (ZipArchiveEntry e in stale) e.Delete();
+                    ZipArchiveEntry entry = archive.CreateEntry(entryName, level);
+                    using Stream entryStream = entry.Open();
+                    entryStream.Write(content, 0, content.Length);
+                }
+#if NET6_0_OR_GREATER
+                File.Move(temp, zipFull, overwrite: true);
+#else
+                if (File.Exists(zipFull)) File.Delete(zipFull);
+                File.Move(temp, zipFull);
+#endif
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            }
+        }
+
+        private static void ClearReadOnly(string path)
+        {
+            if (!File.Exists(path)) return;
+            FileAttributes attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReadOnly) != 0) File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+        }
+
+        // ZipArchive.CreateEntry takes any value and fails later, part way through writing.
+        private static void CheckLevel(CompressionLevel level)
+        {
+            if (!Enum.IsDefined(typeof(CompressionLevel), level))
+                throw new ArgumentOutOfRangeException(nameof(level), level, "Not a defined CompressionLevel.");
         }
 
         /// <summary>
@@ -268,8 +326,12 @@ namespace ToolBelt.IO
             // On Windows "aux.txt" or "x\CON" opens a device: the data went to it (or the write failed with a misleading error).
             if (Path.DirectorySeparatorChar == '\\')
                 foreach (string part in normalized.Split(Path.DirectorySeparatorChar))
+                {
                     if (IsDeviceName(part))
                         throw new IOException($"Zip entry '{entryName}' uses the reserved device name '{part}'.");
+                    if (IsBadWindowsName(part))
+                        throw new IOException($"Zip entry '{entryName}' has a name Windows does not allow ('{part}').");
+                }
             string full;
             // .NET Framework's path APIs throw ArgumentException for '<', '|', '"' and the like.
             try { full = Path.GetFullPath(Path.Combine(root, normalized)); }
@@ -278,6 +340,16 @@ namespace ToolBelt.IO
             if (!full.Equals(root, PathComparison) && !full.StartsWith(rootWithSeparator, PathComparison))
                 throw new IOException($"Zip entry '{entryName}' would extract outside the target directory.");
             return full;
+        }
+
+        // Windows refuses '<', '>', '"', '|', '?', '*' and control characters in a name (the write failed part way with a
+        // bare IOException), and drops a trailing dot or space, so "a." was written as "a", another entry's file.
+        private static bool IsBadWindowsName(string part)
+        {
+            if (part.Length > 0 && part != "." && part != ".." && (part[part.Length - 1] == '.' || part[part.Length - 1] == ' ')) return true;
+            foreach (char c in part)
+                if (c < ' ' || c == '<' || c == '>' || c == '"' || c == '|' || c == '?' || c == '*') return true;
+            return false;
         }
 
         private static bool IsDeviceName(string part)
@@ -317,12 +389,56 @@ namespace ToolBelt.IO
             {
                 string dir = pending.Pop();
                 bool any = false;
-                foreach (string f in Directory.EnumerateFiles(dir))
-                    if (!IsLink(f, File.GetAttributes(f))) { any = true; yield return (f, false); }
-                foreach (string d in Directory.EnumerateDirectories(dir))
-                    if (!IsLink(d, File.GetAttributes(d))) { any = true; pending.Push(d); }
+                foreach (string f in List(dir, directories: false))
+                    if (!IsLink(Exact(f), File.GetAttributes(Exact(f)))) { any = true; yield return (f, false); }
+                foreach (string d in List(dir, directories: true))
+                    if (!IsLink(Exact(d), File.GetAttributes(Exact(d)))) { any = true; pending.Push(d); }
                 if (!any && !string.Equals(dir, root, PathComparison)) yield return (dir, true);
             }
+        }
+
+        // Win32 path normalisation drops a trailing dot or space from each name, so a listed file "a." was read, replaced
+        // or deleted as "a" (another file) and a folder "d." could not be opened. The \\?\ form is used as written.
+        private static string Exact(string path)
+        {
+            if (Path.DirectorySeparatorChar != '\\' || !NeedsExact(path)) return path;
+            string plain = path.Replace('/', '\\');
+            return plain[0] == '\\' ? @"\\?\UNC\" + plain.Substring(2) : @"\\?\" + plain;
+        }
+
+        // A full path ("C:\..." or "\\server\share\...") with a name ending in a dot or space, and no "." or ".." to resolve.
+        private static bool NeedsExact(string path)
+        {
+            bool drive = path.Length >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/');
+            bool unc = path.Length >= 3 && (path[0] == '\\' || path[0] == '/') && (path[1] == '\\' || path[1] == '/') && path[2] != '?' && path[2] != '.';
+            if (!drive && !unc) return false;
+            int start = drive ? 3 : 2;
+            bool found = false;
+            for (int i = start; i <= path.Length; i++)
+            {
+                if (i < path.Length && path[i] != '\\' && path[i] != '/') continue;
+                int len = i - start;
+                if (len > 0)
+                {
+                    char last = path[i - 1];
+                    bool dots = (len == 1 && last == '.') || (len == 2 && last == '.' && path[i - 2] == '.');
+                    if (dots) return false;   // left to Path.GetFullPath, which resolves it
+                    if (last == '.' || last == ' ') found = true;
+                }
+                start = i + 1;
+            }
+            return found;
+        }
+
+        // A folder's files or subfolders, listed through the exact form when its name needs it and returned in the plain one.
+        private static string[] List(string dir, bool directories, string pattern = "*")
+        {
+            string exact = Exact(dir);
+            string[] found = directories ? Directory.GetDirectories(exact) : Directory.GetFiles(exact, pattern);
+            if (!ReferenceEquals(exact, dir))
+                for (int i = 0; i < found.Length; i++)
+                    found[i] = dir + found[i].Substring(exact.Length);
+            return found;
         }
 
         // A reparse point that is a link (junction or symbolic link). Other reparse points, such as cloud-file

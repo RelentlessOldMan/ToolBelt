@@ -126,7 +126,7 @@ namespace ToolBelt.IO
                 string dir = pending.Pop();
                 folders.Add(dir);
                 string[] dirs;
-                try { dirs = Directory.GetDirectories(dir); }
+                try { dirs = List(dir, directories: true); }
                 catch (Exception ex) when (IsIoError(ex)) { errors++; Report(options.OnError, dir, ex); unreadable.Add(dir); continue; }
                 for (int i = dirs.Length - 1; i >= 0; i--)
                 {
@@ -148,13 +148,13 @@ namespace ToolBelt.IO
                     // A junction/symlink already sitting in the destination tree would redirect the copy outside it.
                     if (rel.Length > 0 && IsLink(target))
                         throw new IOException($"Destination '{target}' is a link; refusing to copy through it.");
-                    if (!Directory.Exists(target)) { Directory.CreateDirectory(target); created++; }
+                    if (!Directory.Exists(Exact(target))) { Directory.CreateDirectory(Exact(target)); created++; }
                 }
                 catch (Exception ex) when (IsIoError(ex)) { errors++; Report(options.OnError, target, ex); failed.Add(dir); continue; }
                 if (unreadable.Contains(dir)) continue;
 
                 string[] files;
-                try { files = Directory.GetFiles(dir); }
+                try { files = List(dir, directories: false); }
                 catch (Exception ex) when (IsIoError(ex)) { errors++; Report(options.OnError, dir, ex); continue; }
 
                 foreach (string file in files)
@@ -164,21 +164,24 @@ namespace ToolBelt.IO
                     string to = Path.Combine(target, Path.GetFileName(file));
                     try
                     {
+                        // A folder on either side swapped for a link since it was checked would read or write outside the tree.
+                        if (LinkBetween(src, dir)) throw new IOException($"Source folder '{dir}' became a link; refusing to copy through it.");
+                        if (LinkBetween(dst, target)) throw new IOException($"Destination folder '{target}' became a link; refusing to copy through it.");
                         if (IsLink(to)) throw new IOException($"Destination '{to}' is a link; refusing to write through it.");
-                        bool exists = File.Exists(to);
+                        bool exists = File.Exists(Exact(to));
                         if (exists)
                         {
                             bool replace = options.Overwrite switch
                             {
                                 OverwritePolicy.Skip => false,
                                 OverwritePolicy.Fail => throw new IOException($"Destination file '{to}' already exists."),
-                                OverwritePolicy.IfNewer => File.GetLastWriteTimeUtc(file) > File.GetLastWriteTimeUtc(to),
+                                OverwritePolicy.IfNewer => File.GetLastWriteTimeUtc(Exact(file)) > File.GetLastWriteTimeUtc(Exact(to)),
                                 _ => true,
                             };
                             if (!replace) { skipped++; continue; }
                         }
-                        CopyFile(file, to, exists, options.PreserveTimestamps);
-                        bytes += new FileInfo(to).Length;
+                        CopyFile(Exact(file), Exact(to), exists, options.PreserveTimestamps);
+                        bytes += new FileInfo(Exact(to)).Length;
                         copied++;
                     }
                     catch (Exception ex) when (IsIoError(ex)) { errors++; Report(options.OnError, file, ex); }
@@ -218,30 +221,34 @@ namespace ToolBelt.IO
         /// <summary>
         /// Deletes a directory tree (or a single file), clearing read-only attributes and retrying each item up to
         /// <paramref name="retries"/> times, <paramref name="retryDelay"/> apart (100 ms by default), when it is briefly
-        /// locked. A link is removed without touching its target. Returns false if nothing existed at the path. Blocks
-        /// while waiting between retries.
+        /// locked. A link is removed without touching its target, including a folder swapped for a link while the delete
+        /// runs. Returns false if nothing existed at the path. Blocks while waiting between retries;
+        /// <paramref name="cancellationToken"/> ends the wait (and the delete, part done) with
+        /// <see cref="OperationCanceledException"/>.
         /// </summary>
-        public static bool Delete(string path, int retries = 3, TimeSpan? retryDelay = null)
+        public static bool Delete(string path, int retries = 3, TimeSpan? retryDelay = null, CancellationToken cancellationToken = default)
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
             if (retries < 0) throw new ArgumentOutOfRangeException(nameof(retries), retries, "Must be non-negative.");
             TimeSpan delay = RequireDelay(retryDelay);
             string full = Path.GetFullPath(path);
+            cancellationToken.ThrowIfCancellationRequested();
             if (File.Exists(full))
             {
-                Retry(() => { ClearReadOnly(full); File.Delete(full); }, retries, delay);
+                Retry(() => { ClearReadOnly(full); File.Delete(full); }, retries, delay, cancellationToken);
                 return true;
             }
             if (!Directory.Exists(full)) return false;
-            DeleteTree(full, retries, delay, deleteRoot: true);
+            DeleteTree(full, retries, delay, deleteRoot: true, cancellationToken);
             return true;
         }
 
         /// <summary>
         /// Makes <paramref name="path"/> an empty directory: creates it if missing, otherwise deletes everything inside it.
-        /// A link (junction or symbolic link) throws <see cref="IOException"/> rather than emptying its target.
+        /// A link (junction or symbolic link) throws <see cref="IOException"/> rather than emptying its target. Retries
+        /// and <paramref name="cancellationToken"/> work as in <see cref="Delete"/>.
         /// </summary>
-        public static void EnsureEmpty(string path, int retries = 3, TimeSpan? retryDelay = null)
+        public static void EnsureEmpty(string path, int retries = 3, TimeSpan? retryDelay = null, CancellationToken cancellationToken = default)
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
             if (retries < 0) throw new ArgumentOutOfRangeException(nameof(retries), retries, "Must be non-negative.");
@@ -249,16 +256,17 @@ namespace ToolBelt.IO
             string full = Path.GetFullPath(path);
             if (File.Exists(full)) throw new IOException($"'{path}' is a file, not a directory.");
             if (Directory.Exists(full) && IsLink(full)) throw new IOException($"'{path}' is a link; refusing to empty its target.");
+            cancellationToken.ThrowIfCancellationRequested();
             Directory.CreateDirectory(full);
-            DeleteTree(full, retries, delay, deleteRoot: false);
+            DeleteTree(full, retries, delay, deleteRoot: false, cancellationToken);
         }
 
-        private static void DeleteTree(string root, int retries, TimeSpan delay, bool deleteRoot)
+        private static void DeleteTree(string root, int retries, TimeSpan delay, bool deleteRoot, CancellationToken token)
         {
             if (IsLink(root))
             {
                 // Remove the link only; recursing would delete the target's contents.
-                if (deleteRoot) Retry(() => { ClearReadOnly(root); Directory.Delete(root, recursive: false); }, retries, delay);
+                if (deleteRoot) Retry(() => { ClearReadOnly(root); Directory.Delete(root, recursive: false); }, retries, delay, token);
                 return;
             }
 
@@ -271,24 +279,41 @@ namespace ToolBelt.IO
                 string dir = pending.Pop();
                 order.Add(dir);
                 string[] subs;
-                try { subs = Directory.GetDirectories(dir); }
+                try { subs = List(dir, directories: true); }
                 catch (DirectoryNotFoundException) { continue; }   // removed meanwhile: the delete's goal is met
                 foreach (string sub in subs)
                 {
-                    if (IsLink(sub)) Retry(() => { ClearReadOnly(sub); Directory.Delete(sub, recursive: false); }, retries, delay);
+                    if (IsLink(sub)) Retry(() => { ClearReadOnly(sub); Directory.Delete(Exact(sub), recursive: false); }, retries, delay, token);
                     else pending.Push(sub);
                 }
             }
             for (int i = order.Count - 1; i >= 0; i--)
             {
+                token.ThrowIfCancellationRequested();
                 string dir = order[i];
-                string[] files;
-                try { files = Directory.GetFiles(dir); }
-                catch (DirectoryNotFoundException) { files = Array.Empty<string>(); }   // removed meanwhile
-                foreach (string file in files)
-                    Retry(() => { ClearReadOnly(file); File.Delete(file); }, retries, delay);
+                // A folder swapped for a link since it was listed (while a retry waited on a locked file, say) would have its
+                // target's files deleted: each file is checked just before it goes, and such a folder loses only the link.
+                bool swapped = LinkBetween(root, dir);
+                if (!swapped)
+                {
+                    string[] files;
+                    try { files = List(dir, directories: false); }
+                    catch (DirectoryNotFoundException) { files = Array.Empty<string>(); }   // removed meanwhile
+                    foreach (string file in files)
+                    {
+                        Retry(() =>
+                        {
+                            if (LinkBetween(root, dir)) { swapped = true; return; }
+                            ClearReadOnly(file);
+                            File.Delete(Exact(file));
+                        }, retries, delay, token);
+                        if (swapped) break;
+                    }
+                }
+                // A link above this folder is removed in its own turn; this folder, seen through it, is not touched.
+                if (swapped && !IsLink(dir)) continue;
                 if (i > 0 || deleteRoot)
-                    Retry(() => { ClearReadOnly(dir); Directory.Delete(dir, recursive: false); }, retries, delay);
+                    Retry(() => { ClearReadOnly(dir); Directory.Delete(Exact(dir), recursive: false); }, retries, delay, token);
             }
         }
 
@@ -319,8 +344,8 @@ namespace ToolBelt.IO
                 string[] files, dirs;
                 try
                 {
-                    files = Directory.GetFiles(dir, pattern);
-                    dirs = Directory.GetDirectories(dir);
+                    files = ListMatching(dir, pattern);
+                    dirs = List(dir, directories: true);
                 }
                 catch (Exception ex) when (IsIoError(ex))
                 {
@@ -337,7 +362,10 @@ namespace ToolBelt.IO
             }
         }
 
-        /// <summary>Total size, file count and subdirectory count of a tree; unreadable parts are counted and skipped.</summary>
+        /// <summary>
+        /// Total size, file count and subdirectory count of a tree; unreadable parts are counted and skipped.
+        /// Linked folders are not followed, and a file symbolic link counts as a file of the link's own size, not its target's.
+        /// </summary>
         public static DirectorySummary Summarize(string path, Action<string, Exception>? onError = null)
         {
             string full = FullDirectory(path, nameof(path));
@@ -350,11 +378,11 @@ namespace ToolBelt.IO
             {
                 string dir = pending.Pop();
                 string[] fileList, dirList;
-                try { fileList = Directory.GetFiles(dir); dirList = Directory.GetDirectories(dir); }
+                try { fileList = List(dir, directories: false); dirList = List(dir, directories: true); }
                 catch (Exception ex) when (IsIoError(ex)) { inaccessible++; onError?.Invoke(dir, ex); continue; }
                 foreach (string f in fileList)
                 {
-                    try { bytes += new FileInfo(f).Length; files++; }
+                    try { bytes += new FileInfo(Exact(f)).Length; files++; }
                     catch (Exception ex) when (IsIoError(ex)) { inaccessible++; onError?.Invoke(f, ex); }
                 }
                 foreach (string d in dirList)
@@ -374,7 +402,7 @@ namespace ToolBelt.IO
         {
             if (root is null) throw new ArgumentNullException(nameof(root));
             if (path is null) throw new ArgumentNullException(nameof(path));
-            string r = FullDirectory(root, nameof(root)), p = Path.GetFullPath(path);
+            string r = FullDirectory(root, nameof(root)), p = FullExact(path);
             if (!IsSameOrInside(p, r)) throw new ArgumentException($"'{path}' is not inside '{root}'.", nameof(path));
             return Relative(r, p);
         }
@@ -474,9 +502,9 @@ namespace ToolBelt.IO
             while (pending.Count > 0)
             {
                 string dir = pending.Pop();
-                if (File.Exists(Path.Combine(dir, name))) return true;
+                if (File.Exists(Exact(Path.Combine(dir, name)))) return true;
                 string[] dirs;
-                try { dirs = Directory.GetDirectories(dir); }
+                try { dirs = List(dir, directories: true); }
                 catch (Exception ex) when (IsIoError(ex)) { continue; }
                 foreach (string d in dirs)
                     if (!IsLink(d)) pending.Push(d);
@@ -501,6 +529,7 @@ namespace ToolBelt.IO
         {
             try
             {
+                path = Exact(path);
                 FileAttributes a = File.GetAttributes(path);
                 if ((a & FileAttributes.ReparsePoint) == 0) return false;
 #if NET6_0_OR_GREATER
@@ -517,6 +546,7 @@ namespace ToolBelt.IO
         private static void ClearReadOnly(string path)
         {
             FileAttributes a;
+            path = Exact(path);
             try { a = File.GetAttributes(path); }
             catch (FileNotFoundException) { return; }        // already gone (someone else deleted it): nothing to clear
             catch (DirectoryNotFoundException) { return; }
@@ -533,7 +563,8 @@ namespace ToolBelt.IO
             return delay;
         }
 
-        private static void Retry(Action action, int retries, TimeSpan delay)
+        // The wait is on the token's handle, not Thread.Sleep, so cancelling ends it at once.
+        private static void Retry(Action action, int retries, TimeSpan delay, CancellationToken token)
         {
             for (int attempt = 0; ; attempt++)
             {
@@ -542,9 +573,155 @@ namespace ToolBelt.IO
                 catch (FileNotFoundException) { return; }
                 catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < retries)
                 {
-                    if (delay > TimeSpan.Zero) Thread.Sleep(delay); // transient lock: wait and try again
+                    // transient lock: wait and try again
+                    if (delay > TimeSpan.Zero) token.WaitHandle.WaitOne(delay);
+                    token.ThrowIfCancellationRequested();
                 }
             }
+        }
+
+        // True if a folder from path up to root (not included) is a link: one swapped in after the tree was listed.
+        private static bool LinkBetween(string root, string path)
+        {
+            for (string? p = path; p != null && p.Length > root.Length; p = Path.GetDirectoryName(p))
+                if (IsLink(p)) return true;
+            return false;
+        }
+
+        // Win32 path normalisation drops a trailing dot or space from each name, so a listed file "a." was read, replaced
+        // or deleted as "a" (another file) and a folder "d." could not be opened. The \\?\ form is used as written.
+        internal static string Exact(string path)
+        {
+            if (Path.DirectorySeparatorChar != '\\' || !NeedsExact(path)) return path;
+            string plain = path.Replace('/', '\\');
+            return plain[0] == '\\' ? @"\\?\UNC\" + plain.Substring(2) : @"\\?\" + plain;
+        }
+
+        // A full path ("C:\..." or "\\server\share\...") with a name ending in a dot or space, and no "." or ".." to resolve.
+        private static bool NeedsExact(string path)
+        {
+            bool drive = path.Length >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/');
+            bool unc = path.Length >= 3 && (path[0] == '\\' || path[0] == '/') && (path[1] == '\\' || path[1] == '/') && path[2] != '?' && path[2] != '.';
+            if (!drive && !unc) return false;
+            int start = drive ? 3 : 2;
+            bool found = false;
+            for (int i = start; i <= path.Length; i++)
+            {
+                if (i < path.Length && path[i] != '\\' && path[i] != '/') continue;
+                int len = i - start;
+                if (len > 0)
+                {
+                    char last = path[i - 1];
+                    bool dots = (len == 1 && last == '.') || (len == 2 && last == '.' && path[i - 2] == '.');
+                    if (dots) return false;   // left to Path.GetFullPath, which resolves it
+                    if (last == '.' || last == ' ') found = true;
+                }
+                start = i + 1;
+            }
+            return found;
+        }
+
+        // Path.GetFullPath, except that a name ending in a dot or space (as listed by Walk) keeps it.
+        private static string FullExact(string path)
+        {
+            string exact = Exact(path);
+            if (ReferenceEquals(exact, path)) return Path.GetFullPath(path);
+            string full = Path.GetFullPath(exact);
+            return full.StartsWith(@"\\?\UNC\", StringComparison.Ordinal) ? @"\\" + full.Substring(8)
+                : full.StartsWith(@"\\?\", StringComparison.Ordinal) ? full.Substring(4) : full;
+        }
+
+        // A folder's files matching pattern. .NET Framework's listing also matched each file's 8.3 short name ("*.txt" listed
+        // a.txtx, whose short name is A~1.TXT) and refused a pattern ending in ".." that .NET Core takes, so there the
+        // listing is of every file and the pattern is applied here, by the rules .NET Core uses.
+        private static string[] ListMatching(string dir, string pattern)
+        {
+#if NET6_0_OR_GREATER
+            return List(dir, directories: false, pattern);
+#else
+            if (Path.DirectorySeparatorChar != '\\' || pattern == "*") return List(dir, directories: false, pattern);
+            string expression = DosExpression(pattern);
+            var kept = new List<string>();
+            foreach (string f in List(dir, directories: false))
+                if (DosMatch(expression, Path.GetFileName(f))) kept.Add(f);
+            return kept.ToArray();
+#endif
+        }
+
+#if !NET6_0_OR_GREATER
+        // .NET Core's Win32 pattern translation: '?' is DOS_QM ('>'), a '.' before '?' or '*' is DOS_DOT ('"'), and a
+        // final "*." is DOS_STAR ('<'); "*.*" is "*".
+        private static string DosExpression(string pattern)
+        {
+            if (pattern == "*.*") return "*";
+            var sb = new System.Text.StringBuilder(pattern.Length);
+            for (int i = 0; i < pattern.Length; i++)
+            {
+                char c = pattern[i];
+                if (c == '.')
+                {
+                    if (i >= 1 && i == pattern.Length - 1 && pattern[i - 1] == '*') sb[sb.Length - 1] = '<';   // DOS_STAR: a final "*." is a name with no extension
+                    else if (i < pattern.Length - 1 && (pattern[i + 1] == '?' || pattern[i + 1] == '*')) sb.Append('"');
+                    else sb.Append('.');
+                }
+                else sb.Append(c == '?' ? '>' : c);
+            }
+            return sb.ToString();
+        }
+
+        // FsRtlIsNameInExpression's rules, case-insensitive: '*' any run; '<' any run that does not take the name's last
+        // '.'; '>' one character other than '.', or nothing at a '.' or the end; '"' a '.', or nothing at the end.
+        private static bool DosMatch(string expression, string name)
+        {
+            int lastDot = name.LastIndexOf('.');
+            var memo = new Dictionary<long, bool>();
+            bool At(int p, int n)
+            {
+                if (p == expression.Length) return n == name.Length;
+                long key = ((long)p << 32) | (uint)n;
+                if (memo.TryGetValue(key, out bool known)) return known;
+                bool result;
+                char c = expression[p];
+                switch (c)
+                {
+                    case '*':
+                        result = false;
+                        for (int k = n; k <= name.Length && !result; k++) result = At(p + 1, k);
+                        break;
+                    case '<':
+                        result = false;
+                        for (int k = n; k <= name.Length && !result; k++)
+                        {
+                            if (k > n && k - 1 == lastDot) break;   // it may not take the last dot
+                            result = At(p + 1, k);
+                        }
+                        break;
+                    case '>':
+                        result = n < name.Length && name[n] != '.' ? At(p + 1, n + 1) : At(p + 1, n);
+                        break;
+                    case '"':
+                        result = n < name.Length ? name[n] == '.' && At(p + 1, n + 1) : At(p + 1, n);
+                        break;
+                    default:
+                        result = n < name.Length && char.ToUpperInvariant(c) == char.ToUpperInvariant(name[n]) && At(p + 1, n + 1);
+                        break;
+                }
+                memo[key] = result;
+                return result;
+            }
+            return At(0, 0);
+        }
+#endif
+
+        // A folder's files or subfolders, listed through the exact form when its name needs it and returned in the plain one.
+        private static string[] List(string dir, bool directories, string pattern = "*")
+        {
+            string exact = Exact(dir);
+            string[] found = directories ? Directory.GetDirectories(exact) : Directory.GetFiles(exact, pattern);
+            if (!ReferenceEquals(exact, dir))
+                for (int i = 0; i < found.Length; i++)
+                    found[i] = dir + found[i].Substring(exact.Length);
+            return found;
         }
 
         private static void Report(Action<string, Exception>? onError, string path, Exception ex)

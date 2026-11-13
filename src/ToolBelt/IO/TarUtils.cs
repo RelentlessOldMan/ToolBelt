@@ -44,13 +44,14 @@ namespace ToolBelt.IO
                 using (var writer = new TarWriter(output, TarEntryFormat.Pax, leaveOpen: false))
                 foreach ((string path, bool isEmptyDirectory) in EnumerateNoLinks(root))
                 {
-                    string full = Path.GetFullPath(path);
-                    if (string.Equals(full, archiveFull, PathComparison) || string.Equals(full, temp, PathComparison)) continue;   // the archive being written
-                    string name = Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/');   // a backslash is a name character on Unix
+                    // The listed path as it is: Path.GetFullPath (and GetRelativePath) would drop a trailing dot or space from a name.
+                    if (string.Equals(path, archiveFull, PathComparison) || string.Equals(path, temp, PathComparison)) continue;   // the archive being written
+                    string name = path.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                        .Replace(Path.DirectorySeparatorChar, '/');   // a backslash is a name character on Unix
                     if (isEmptyDirectory) name += "/";
                     if (filter != null && !filter(name)) continue;
-                    if (isEmptyDirectory) writer.WriteEntry(new PaxTarEntry(TarEntryType.Directory, name) { ModificationTime = Directory.GetLastWriteTimeUtc(path) });
-                    else writer.WriteEntry(path, name);
+                    if (isEmptyDirectory) writer.WriteEntry(new PaxTarEntry(TarEntryType.Directory, name) { ModificationTime = Directory.GetLastWriteTimeUtc(Exact(path)) });
+                    else writer.WriteEntry(Exact(path), name);
                     onEntry?.Invoke(name);
                 }
                 File.Move(temp, archiveFull, overwrite: true);
@@ -66,13 +67,17 @@ namespace ToolBelt.IO
         /// Extracts into <paramref name="destinationDirectory"/>, rejecting escaping entries. Links are never created: a link
         /// entry throws <see cref="InvalidDataException"/>, or is skipped when <paramref name="skipLinks"/>. Files and
         /// directories get their archived modification times; on Unix files keep their permission bits, less group and
-        /// other write. On Windows a reserved device name (<c>CON</c>, <c>aux.txt</c>, <c>COM1</c>) is rejected.
+        /// other write. On Windows a reserved device name (<c>CON</c>, <c>aux.txt</c>, <c>COM1</c>) is rejected. An entry
+        /// that would take the files written past <paramref name="maxTotalBytes"/> throws <see cref="InvalidDataException"/>
+        /// before it is written (a guard against gzip bombs); what was extracted before it is kept.
         /// </summary>
         public static void ExtractToDirectory(string archivePath, string destinationDirectory, bool overwrite = false, bool? gzip = null,
-            bool skipLinks = false, Action<string>? onEntry = null)
+            bool skipLinks = false, Action<string>? onEntry = null, long maxTotalBytes = long.MaxValue)
         {
             if (archivePath is null) throw new ArgumentNullException(nameof(archivePath));
             if (destinationDirectory is null) throw new ArgumentNullException(nameof(destinationDirectory));
+            if (maxTotalBytes < 0) throw new ArgumentOutOfRangeException(nameof(maxTotalBytes), maxTotalBytes, "Must be non-negative.");
+            long budget = maxTotalBytes;
             string root = Path.GetFullPath(destinationDirectory);
             string rootWithSep = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;
             Directory.CreateDirectory(root);
@@ -102,8 +107,14 @@ namespace ToolBelt.IO
                         // "..." too: Windows drops trailing dots, so it resolves to the destination with its separator.
                         if (target.Length <= rootWithSep.Length)
                             throw new InvalidDataException($"Archive entry '{entry.Name}' names the destination directory itself.");
+                        // "dir/" as a file: the directory was made, then writing the file over it failed with a bare IOException.
+                        if (entry.Name.EndsWith("/", StringComparison.Ordinal) || entry.Name.EndsWith("\\", StringComparison.Ordinal))
+                            throw new InvalidDataException($"Archive entry '{entry.Name}' is a file named like a directory.");
                         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                         if (File.Exists(target) && !overwrite) throw new IOException($"Destination file already exists: {target}");
+                        if (entry.Length > budget)
+                            throw new InvalidDataException($"Extracting '{entry.Name}' would pass the {maxTotalBytes}-byte limit.");
+                        budget -= entry.Length;
                         WriteFile(target, entry, overwrite);
                         break;
                     case TarEntryType.SymbolicLink:
@@ -157,6 +168,12 @@ namespace ToolBelt.IO
                 SetTime(temp, entry.ModificationTime, directory: false);
                 // The permission bits, less group and other write (as tar does under the usual umask); never setuid or sticky.
                 if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temp, entry.Mode & (UnixFileMode)0b111_101_101);
+                // A read-only file is not replaced by a move (UnauthorizedAccessException); overwrite means replace it.
+                if (overwrite && File.Exists(target))
+                {
+                    FileAttributes attributes = File.GetAttributes(target);
+                    if ((attributes & FileAttributes.ReadOnly) != 0) File.SetAttributes(target, attributes & ~FileAttributes.ReadOnly);
+                }
                 File.Move(temp, target, overwrite);
             }
             finally
@@ -208,12 +225,26 @@ namespace ToolBelt.IO
             // On Windows "aux.txt" or "x/CON" opens a device: the data went to it (or the write failed with a misleading error).
             if (Path.DirectorySeparatorChar == '\\')
                 foreach (string part in relative.Split('/'))
+                {
                     if (IsDeviceName(part))
                         throw new InvalidDataException($"Archive entry '{entryName}' uses the reserved device name '{part}'.");
+                    if (IsBadWindowsName(part))
+                        throw new InvalidDataException($"Archive entry '{entryName}' has a name Windows does not allow ('{part}').");
+                }
             string target = Path.GetFullPath(Path.Combine(rootWithSep, relative));
             if (!(target + Path.DirectorySeparatorChar).StartsWith(rootWithSep, PathComparison))
                 throw new InvalidDataException($"Archive entry '{entryName}' would extract outside the destination.");
             return target;
+        }
+
+        // Windows refuses '<', '>', '"', '|', '?', '*' and control characters in a name (the write failed part way with a
+        // bare IOException), and drops a trailing dot or space, so "a." was written as "a", another entry's file.
+        private static bool IsBadWindowsName(string part)
+        {
+            if (part.Length > 0 && part != "." && part != ".." && (part[part.Length - 1] == '.' || part[part.Length - 1] == ' ')) return true;
+            foreach (char c in part)
+                if (c < ' ' || c == '<' || c == '>' || c == '"' || c == '|' || c == '?' || c == '*') return true;
+            return false;
         }
 
         private static bool IsDeviceName(string part)
@@ -252,12 +283,56 @@ namespace ToolBelt.IO
             {
                 string dir = pending.Pop();
                 bool any = false;
-                foreach (string f in Directory.EnumerateFiles(dir))
-                    if (!IsLink(f, File.GetAttributes(f))) { any = true; yield return (f, false); }
-                foreach (string d in Directory.EnumerateDirectories(dir))
-                    if (!IsLink(d, File.GetAttributes(d))) { any = true; pending.Push(d); }
+                foreach (string f in List(dir, directories: false))
+                    if (!IsLink(Exact(f), File.GetAttributes(Exact(f)))) { any = true; yield return (f, false); }
+                foreach (string d in List(dir, directories: true))
+                    if (!IsLink(Exact(d), File.GetAttributes(Exact(d)))) { any = true; pending.Push(d); }
                 if (!any && !string.Equals(dir, root, PathComparison)) yield return (dir, true);
             }
+        }
+
+        // Win32 path normalisation drops a trailing dot or space from each name, so a listed file "a." was read, replaced
+        // or deleted as "a" (another file) and a folder "d." could not be opened. The \\?\ form is used as written.
+        private static string Exact(string path)
+        {
+            if (Path.DirectorySeparatorChar != '\\' || !NeedsExact(path)) return path;
+            string plain = path.Replace('/', '\\');
+            return plain[0] == '\\' ? @"\\?\UNC\" + plain.Substring(2) : @"\\?\" + plain;
+        }
+
+        // A full path ("C:\..." or "\\server\share\...") with a name ending in a dot or space, and no "." or ".." to resolve.
+        private static bool NeedsExact(string path)
+        {
+            bool drive = path.Length >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/');
+            bool unc = path.Length >= 3 && (path[0] == '\\' || path[0] == '/') && (path[1] == '\\' || path[1] == '/') && path[2] != '?' && path[2] != '.';
+            if (!drive && !unc) return false;
+            int start = drive ? 3 : 2;
+            bool found = false;
+            for (int i = start; i <= path.Length; i++)
+            {
+                if (i < path.Length && path[i] != '\\' && path[i] != '/') continue;
+                int len = i - start;
+                if (len > 0)
+                {
+                    char last = path[i - 1];
+                    bool dots = (len == 1 && last == '.') || (len == 2 && last == '.' && path[i - 2] == '.');
+                    if (dots) return false;   // left to Path.GetFullPath, which resolves it
+                    if (last == '.' || last == ' ') found = true;
+                }
+                start = i + 1;
+            }
+            return found;
+        }
+
+        // A folder's files or subfolders, listed through the exact form when its name needs it and returned in the plain one.
+        private static string[] List(string dir, bool directories, string pattern = "*")
+        {
+            string exact = Exact(dir);
+            string[] found = directories ? Directory.GetDirectories(exact) : Directory.GetFiles(exact, pattern);
+            if (!ReferenceEquals(exact, dir))
+                for (int i = 0; i < found.Length; i++)
+                    found[i] = dir + found[i].Substring(exact.Length);
+            return found;
         }
 
         // A reparse point that is a link (junction or symbolic link); other reparse points, such as cloud-file
@@ -336,55 +411,89 @@ namespace ToolBelt.IO
                     if (_nextSize is long s) size = s;
                     _nextSize = null;
                 }
-                if (size < 0 || size > long.MaxValue - Block) size = 0;   // unreadable: TarReader rejects the header
+                if (size > long.MaxValue - Block) throw Unreadable("size field");
                 _dataLeft = (size + Block - 1) / Block * Block;
                 if (type == 'x' && size > 0) { _pax = new MemoryStream((int)size); _paxLeft = size; }
                 return true;
             }
 
-            // The 12-byte size field: octal digits, or base-256 when the high bit of the first byte is set. -1 if unreadable.
+            // The guard is only as good as its agreement with TarReader on where each header starts, so anything the two
+            // could read differently is refused rather than guessed at: a size field that is not plain octal (a leading NUL
+            // read as 0 here let TarReader find gigabytes), or PAX records that are not exactly "<length> <key>=<value>\n".
+
+            // The 12-byte size field: octal digits between leading and trailing NULs or spaces, or base-256 (0x80 then
+            // eleven bytes, big-endian).
             private long ParseSize()
             {
                 const int at = 124, length = 12;
                 long value = 0;
-                if ((_header[at] & 0x80) != 0)
+                if (_header[at] == 0x80)
                 {
-                    if (_header[at] == 0xFF) return -1;   // negative
-                    value = _header[at] & 0x7F;
                     for (int i = 1; i < length; i++)
                     {
-                        if (value > (long.MaxValue >> 8)) return -1;
+                        if (value > (long.MaxValue >> 8)) throw Unreadable("size field");
                         value = (value << 8) | _header[at + i];
                     }
                     return value;
                 }
-                int k = 0;
-                while (k < length && _header[at + k] == ' ') k++;
-                for (; k < length && _header[at + k] != 0 && _header[at + k] != ' '; k++)
+                int start = 0, end = length;
+                while (start < end && (_header[at + start] == 0 || _header[at + start] == ' ')) start++;
+                while (end > start && (_header[at + end - 1] == 0 || _header[at + end - 1] == ' ')) end--;
+                for (int k = start; k < end; k++)
                 {
                     int digit = _header[at + k] - '0';
-                    if (digit < 0 || digit > 7 || value > (long.MaxValue >> 3)) return -1;
+                    if (digit < 0 || digit > 7 || value > (long.MaxValue >> 3)) throw Unreadable("size field");
                     value = value * 8 + digit;
                 }
                 return value;
             }
 
-            // PAX records are "<length> <key>=<value>\n"; only "size" matters here.
+            // PAX records are "<length> <key>=<value>\n". TarReader ignores the length and splits at each newline, so a
+            // length that does not end exactly on a record's newline, a value that is not plain digits, or a repeated
+            // "size" is refused. Only "size" matters here.
             private static long? PaxSize(byte[] data)
             {
+                long? size = null;
                 int pos = 0;
                 while (pos < data.Length)
                 {
-                    int space = Array.IndexOf(data, (byte)' ', pos);
-                    if (space < 0 || !int.TryParse(System.Text.Encoding.ASCII.GetString(data, pos, space - pos), out int length)
-                        || length <= space - pos + 1 || pos + length > data.Length) return null;
-                    string record = System.Text.Encoding.UTF8.GetString(data, space + 1, pos + length - space - 2);
-                    if (record.StartsWith("size=", StringComparison.Ordinal))
-                        return long.TryParse(record.Substring(5), out long size) && size >= 0 ? size : null;
-                    pos += length;
+                    if (data[pos] == 0)
+                    {
+                        for (int i = pos; i < data.Length; i++) if (data[i] != 0) throw Unreadable("PAX header");
+                        break;   // NUL padding: TarReader finds no further record either
+                    }
+                    int length = 0, k = pos;
+                    for (; k < data.Length && data[k] >= '0' && data[k] <= '9'; k++)
+                    {
+                        if (length > (int.MaxValue - 9) / 10) throw Unreadable("PAX header");
+                        length = length * 10 + (data[k] - '0');
+                    }
+                    int recordEnd = pos + length;   // exclusive; the newline is at recordEnd - 1
+                    if (k == pos || k >= data.Length || data[k] != ' ' || length <= k - pos + 1 || length > data.Length - pos
+                        || data[recordEnd - 1] != '\n' || Array.IndexOf(data, (byte)'\n', k, recordEnd - 1 - k) >= 0)
+                        throw Unreadable("PAX header");
+                    int keyStart = k + 1;
+                    if (recordEnd - 1 - keyStart >= 5 && data[keyStart] == 's' && data[keyStart + 1] == 'i' && data[keyStart + 2] == 'z'
+                        && data[keyStart + 3] == 'e' && data[keyStart + 4] == '=')
+                    {
+                        if (size != null) throw Unreadable("PAX header");
+                        long value = 0;
+                        int digits = recordEnd - 1 - (keyStart + 5);
+                        if (digits < 1 || digits > 18) throw Unreadable("PAX size");
+                        for (int i = keyStart + 5; i < recordEnd - 1; i++)
+                        {
+                            if (data[i] < '0' || data[i] > '9') throw Unreadable("PAX size");
+                            value = value * 10 + (data[i] - '0');
+                        }
+                        size = value;
+                    }
+                    pos = recordEnd;
                 }
-                return null;
+                return size;
             }
+
+            private static InvalidDataException Unreadable(string what)
+                => new InvalidDataException($"Archive has a malformed {what}, which TarReader could read differently from this guard; refusing it.");
 
             public override bool CanRead => true;
             public override bool CanSeek => false;

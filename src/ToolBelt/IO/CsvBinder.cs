@@ -8,7 +8,9 @@ namespace ToolBelt.IO
 {
     /// <summary>
     /// Maps between string field arrays (as produced by <see cref="CsvLine"/>) and typed objects using a
-    /// header of column names. Columns match public properties case-insensitively. Values convert with the
+    /// header of column names. Columns match public properties case-insensitively, an exact-case name first (a column
+    /// that matches two properties differing only in case, neither exactly, throws <see cref="ArgumentException"/>); a
+    /// property hidden with <c>new</c> is the derived one. Values convert with the
     /// invariant culture: numbers, bool, enums (by name or number), char, <see cref="Guid"/>, <see cref="TimeSpan"/>,
     /// <see cref="DateTime"/> and <see cref="DateTimeOffset"/> (round-trip "O" format, Kind and offset kept),
     /// <see cref="Uri"/> and strings; an empty field is null for a nullable or reference-type property, except a string,
@@ -19,16 +21,36 @@ namespace ToolBelt.IO
     public sealed class CsvBinder<T> where T : new()
     {
         private readonly List<string> _header;
-        private readonly Dictionary<string, PropertyInfo> _properties;
+        private readonly PropertyInfo?[] _columns;   // the property each header column binds to, or null
 
         public CsvBinder(IEnumerable<string> header)
         {
             if (header is null) throw new ArgumentNullException(nameof(header));
             _header = new List<string>(header);
-            _properties = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
+            // One property per name, the most derived: a property hidden with `new` was bound (or written) as the base one,
+            // whichever GetProperties listed last. Then a column takes the property of its exact name, or the only one that
+            // matches ignoring case: with Name and NAME both declared, "name" picked one by listing order.
+            var byName = new Dictionary<string, PropertyInfo>(StringComparer.Ordinal);
             foreach (PropertyInfo p in typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance))
-                if (p.GetIndexParameters().Length == 0)
-                    _properties[p.Name] = p;
+            {
+                if (p.GetIndexParameters().Length != 0) continue;
+                if (!byName.TryGetValue(p.Name, out PropertyInfo? seen) || p.DeclaringType!.IsSubclassOf(seen.DeclaringType!))
+                    byName[p.Name] = p;
+            }
+            _columns = new PropertyInfo?[_header.Count];
+            for (int i = 0; i < _header.Count; i++)
+            {
+                string? column = _header[i];
+                if (column is null) continue;
+                if (byName.TryGetValue(column, out PropertyInfo? exact)) { _columns[i] = exact; continue; }
+                foreach (PropertyInfo p in byName.Values)
+                {
+                    if (!string.Equals(p.Name, column, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (_columns[i] != null)
+                        throw new ArgumentException($"Column '{column}' matches both '{_columns[i]!.Name}' and '{p.Name}'.", nameof(header));
+                    _columns[i] = p;
+                }
+            }
         }
 
         public IReadOnlyList<string> Header => _header;
@@ -44,7 +66,8 @@ namespace ToolBelt.IO
             object record = new T();
             for (int i = 0; i < _header.Count; i++)
             {
-                if (!_properties.TryGetValue(_header[i], out PropertyInfo? prop) || !prop.CanWrite)
+                PropertyInfo? prop = _columns[i];
+                if (prop is null || !prop.CanWrite)
                     continue; // no matching writable property; ignore the column
                 if (!TryConvert(fields[i] ?? string.Empty, prop.PropertyType, out object? value))
                     throw new FormatException($"Column '{_header[i]}': cannot convert '{fields[i]}' to {prop.PropertyType.Name}.");
@@ -60,7 +83,8 @@ namespace ToolBelt.IO
             var result = new string[_header.Count];
             for (int i = 0; i < _header.Count; i++)
             {
-                if (_properties.TryGetValue(_header[i], out PropertyInfo? prop) && prop.CanRead)
+                PropertyInfo? prop = _columns[i];
+                if (prop != null && prop.CanRead)
                     result[i] = FormatValue(prop.GetValue(record));
                 else
                     result[i] = string.Empty;
@@ -79,9 +103,11 @@ namespace ToolBelt.IO
             _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty,
         };
 
-        // "R" can lose the last bit on .NET Framework (as CsvDialect.FormatNumber notes); G17 / G9 always round-trip.
+        // "R" can lose the last bit on .NET Framework (as CsvDialect.FormatNumber notes); G17 / G9 always round-trip. There
+        // -0 also formats as "0" (and "-0" parses as +0), so the sign of zero is written, and read, here.
         private static string FormatDouble(double d)
         {
+            if (d == 0) return BitConverter.DoubleToInt64Bits(d) < 0 ? "-0" : "0";
             string s = d.ToString("R", CultureInfo.InvariantCulture);
             if (!double.IsNaN(d) && double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) != d)
                 s = d.ToString("G17", CultureInfo.InvariantCulture);
@@ -90,6 +116,7 @@ namespace ToolBelt.IO
 
         private static string FormatSingle(float f)
         {
+            if (f == 0) return 1 / f < 0 ? "-0" : "0";
             string s = f.ToString("R", CultureInfo.InvariantCulture);
             if (!float.IsNaN(f) && float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) != f)
                 s = f.ToString("G9", CultureInfo.InvariantCulture);
@@ -131,6 +158,11 @@ namespace ToolBelt.IO
                 if (typeof(IConvertible).IsAssignableFrom(t))
                 {
                     value = Convert.ChangeType(s, t, inv);
+                    if (s.Length > 0 && s[0] == '-')
+                    {
+                        if (value is double d && d == 0) value = -0.0;
+                        else if (value is float f && f == 0) value = -0.0f;
+                    }
                     return true;
                 }
                 return false;

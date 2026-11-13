@@ -7,20 +7,23 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 
 1. **The fourth pass:** every section re-queued by its last pass goes round again until a pass finds ≤ 1 minor bug.
    As of round 53 all 17 sections are re-queued; the order is in REVIEW-PLAN.md. The cross-cutting rounds (54 to 57)
-   are done.
-1. **BUGLIST 56-1** (`Thread.Sleep` in library code) is fixed with section 8 or 15, whichever comes first.
+   are done. Round 58 (IO) found 39 bugs, 7 severe, so IO stays re-queued; section 14 is next.
+1. **BUGLIST 56-1** (`Thread.Sleep` in library code): the DirectoryUtils part is fixed (round 58); the Windows parts go
+   with section 15.
 
 ## Built
 
 - **The library** (2026-09-25 to 2026-10-05): 29+ divisions in the core plus the Windows, WPF and WinForms
   satellites. The README's Layout is the inventory.
-- **The review** (2026-10-07 onward): 57 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0. Three full passes over all 17
+- **The review** (2026-10-07 onward): 58 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
   sections, two rounds on flaky tests and the incomplete beta/gamma harness, and four cross-cutting rounds (round 54,
   throwing callbacks: 36 bugs, 2 severe; round 55, cancellation and dispose races: 17 bugs, 2 severe, both a Ctrl+C
   handler letting a token callback's exception escape; round 56, non-finite and extreme numerics: 34 bugs, 2 severe,
-  both hangs on data near MaxValue; round 57, the whole suite on .NET Framework 4.8: 4 bugs, none severe).
-- **Checks every round passes:** the full verify (core 3141 tests, Windows 115, WPF 162, WinForms 91,
-  MathChecks 40 at v2026.11.13.0), the overflow-checked build with no failures (since round 48), and the special
+  both hangs on data near MaxValue; round 57, the whole suite on .NET Framework 4.8: 4 bugs, none severe). The fourth
+  pass began with IO (round 58: 39 bugs, 7 severe, mostly junction swaps mid-operation, the tar guard and names
+  ending in a dot).
+- **Checks every round passes:** the full verify (core 3185 tests, Windows 115, WPF 162, WinForms 91,
+  MathChecks 40 at v2026.11.13.1), the overflow-checked build with no failures (since round 48), and the special
   functions against mpmath (graded in condition-number units).
 - **.NET Framework 4.8:** since round 57 the whole core suite compiles and passes there (3079 tests; net8-only
   types' tests are guarded out).
@@ -51,6 +54,10 @@ Written as rules a future session can apply.
 - A fix can break a cross-check in another suite. Run MathChecks every round.
 - Perf regression tests must be sized so the old code clearly fails (5-10x the limit), including on one slow core.
 - A stack-overflow fail-first test kills the test process (exit 127, "Stack overflow."). Count that as the failure.
+- To make a name ending in a dot or space in a test, prefix `\\?\` to a path that is already full: `Path.GetFullPath`
+  itself drops the dot, so the test silently writes the plain name twice.
+- A swap-race test (a folder replaced by a junction mid-operation) must swap after the check it targets, e.g. from a
+  filter callback on a file inside that folder; swapping earlier is caught by the old once-per-folder check.
 - Some fail-first tests only fail where the bug lives: on .NET Framework, in the checked build, or under one-core
   affinity. Say so in the test's comment.
 - `Check.Close` passes NaN against NaN but must fail when only one side is NaN (fixed in round 18); write any new

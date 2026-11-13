@@ -68,7 +68,11 @@ namespace ToolBelt.IO
         public static T LoadOrDefault<T>(string path, T fallback, JsonSerializerOptions? options = null)
             => File.Exists(path ?? throw new ArgumentNullException(nameof(path))) ? Load<T>(path, options) : fallback;
 
-        /// <summary>Loads without throwing; false (with the reason) if the file is missing or invalid.</summary>
+        /// <summary>
+        /// Loads without throwing for a bad file; false (with the reason) if the file is missing, unreadable or invalid. An
+        /// exception from <typeparamref name="T"/>'s own constructor or setters, or one for a type the serializer cannot
+        /// handle, still propagates: those are faults in the type, not the file.
+        /// </summary>
         public static bool TryLoad<T>(string path, out T? value, out string? error, JsonSerializerOptions? options = null)
         {
             if (path is null) throw new ArgumentNullException(nameof(path));

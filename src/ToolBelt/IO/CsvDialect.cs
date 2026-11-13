@@ -45,6 +45,8 @@ namespace ToolBelt.IO
         /// <summary>Formats a number with this dialect's decimal separator (round-trippable).</summary>
         public string FormatNumber(double value)
         {
+            // .NET Framework formats -0 as "0" (and parses "-0" as +0), so the sign of zero is written, and read, here.
+            if (value == 0) return BitConverter.DoubleToInt64Bits(value) < 0 ? "-0" : "0";
             string s = value.ToString("R", CultureInfo.InvariantCulture);
             // "R" can lose the last bit on .NET Framework; G17 always round-trips.
             if (!double.IsNaN(value) && double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) != value)
@@ -62,7 +64,9 @@ namespace ToolBelt.IO
                 if (s.IndexOf('.') >= 0) { value = 0; return false; }   // a '.' in a decimal-comma file is not ours to guess about
                 s = s.Replace(DecimalSeparator, '.');
             }
-            return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+            if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value)) return false;
+            if (value == 0 && s.Length > 0 && s[0] == '-') value = -0.0;
+            return true;
         }
 
         public double ParseNumber(string field)

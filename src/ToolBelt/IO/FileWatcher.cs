@@ -263,6 +263,7 @@ namespace ToolBelt.IO
         {
             if (directory is null) throw new ArgumentNullException(nameof(directory));
             DirectoryUtils.CheckSearchPattern(pattern, nameof(pattern));
+            directory = Path.GetFullPath(directory);   // so every listed path is full, as keep and the keys expect
             var comparer = Path.DirectorySeparatorChar == '\\' ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
             var files = new Dictionary<string, (long, DateTime)>(comparer);
             IEnumerable<string> paths;
@@ -277,8 +278,9 @@ namespace ToolBelt.IO
                 if (keep != null && !keep(p)) continue;
                 try
                 {
-                    var fi = new FileInfo(p);
-                    files[fi.FullName] = (fi.Length, fi.LastWriteTimeUtc);
+                    // By the exact name, keyed by the listed one: FileInfo("a.") is "a", another file.
+                    var fi = new FileInfo(DirectoryUtils.Exact(p));
+                    files[p] = (fi.Length, fi.LastWriteTimeUtc);
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
             }

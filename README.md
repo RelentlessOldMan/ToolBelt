@@ -399,7 +399,7 @@ src/
     IO/
       AtomicFile.cs         crash-safe write (temp + swap, optional .bak backup)
       ByteSize.cs           human-readable byte sizes (format + parse, binary/decimal)
-      CsvBinder.cs          map string rows <-> typed objects by header (invariant round-trip: dates, Guid, TimeSpan, enums, nullables)
+      CsvBinder.cs          map string rows <-> typed objects by header (invariant round-trip: dates, Guid, TimeSpan, enums, nullables, -0; exact case first)
       CsvLine.cs            RFC 4180 CSV line parse + format (an unterminated quote throws)
       CsvDialect.cs         delimiter/decimal/header presets (Excel European, tab, pipe) + Detect sniffing
       FileRetention.cs      prune by count/age/total size (+ dry run), numbered rotation, timestamped names
@@ -407,14 +407,14 @@ src/
       DotEnv.cs             .env key=value parser (comments, quotes + inline comments, export, BOM)
       FixedWidth.cs         fixed column-width record parse + format
       HexDump.cs            classic offset/hex/ascii hex dump
-      LineReader.cs         enumerate lines with byte offsets (mixed line endings; ASCII-compatible encodings, UTF-8 BOM skipped)
-      SafeFileName.cs       sanitize a string into a filename safe on every OS (Windows rules everywhere)
+      LineReader.cs         enumerate lines with byte offsets (mixed line endings; ASCII-compatible encodings, UTF-8 BOM skipped; line-length cap)
+      SafeFileName.cs       sanitize a string into a filename safe on every OS (Windows rules everywhere; capped in UTF-8 bytes)
       StreamUtils.cs        copy-with-progress (+ cancellation) / read-exactly
       StreamWrappers.cs     CountingStream (bytes read/written) and TeeStream (duplicate reads or writes); closed after Dispose even when leaving the inner open
       TempFile.cs           disposable temp file & directory scopes
-      ZipUtils.cs           zip create/extract/list/read (size-capped, keeps empty dirs and times); Zip-Slip guarded, links never followed
-      TarUtils.cs           tar/.tar.gz create/extract/list (keeps empty dirs); traversal rejected, links never created or followed (net8)
-      DirectoryUtils.cs     tree copy (overwrite/filter policies), delete w/ read-only + lock retry (delay checked up front), never follows links
+      ZipUtils.cs           zip create/extract/list/read (entry and total size caps, keeps empty dirs and times; update via a copy); Zip-Slip guarded, links never followed
+      TarUtils.cs           tar/.tar.gz create/extract/list (keeps empty dirs, total size cap); traversal rejected, links never created or followed (net8)
+      DirectoryUtils.cs     tree copy (overwrite/filter policies), delete w/ read-only + cancellable lock retry, never follows links (re-checked per file)
       ChecksumManifest.cs   SHA-256 tree manifest in sha256sum format: create/save/verify/compare directories (with a file filter)
       FileWatcher.cs        debounced, coalescing FileSystemWatcher; wait-until-stable; rescans on overflow/restart/dir moves
     Numerics/
@@ -826,6 +826,8 @@ tests/
       IOReview2Tests.cs     (second-pass regressions: copy through junctions, hard links, truncated archives, watcher filters)
       IOReview3Tests.cs     (third-pass regressions: safe replace on copy and create, tar metadata bombs, device names, archive times, watcher dispose)
       IONetFrameworkReview57Tests.cs (round 57: zip names .NET Framework cannot read, copies into the source through a junction)
+      IOReview58Tests.cs    (fourth pass: junction swaps mid-operation, tar guard parsing, names ending in a dot, archive names, -0, surrogates)
+      IOReview58ApiTests.cs (fourth pass: cancellable delete, line-length and archive total caps)
       CoverageGapTests.cs   (behaviour behind coverage holes found by a coverlet run)
     Numerics/
       AngleTests.cs

@@ -26,9 +26,10 @@ namespace ToolBelt.IO
             if (content.Length > 0 && content[0] == '\uFEFF')
                 content = content.Substring(1);
 
-            foreach (string rawLine in content.Split('\n'))
+            // A lone CR ends a line too (classic Mac files): splitting at '\n' alone ran such a file together as one line.
+            foreach (string rawLine in content.Replace("\r\n", "\n").Split('\n', '\r'))
             {
-                string line = rawLine.TrimEnd('\r').Trim();
+                string line = rawLine.Trim();
                 if (line.Length == 0 || line[0] == '#')
                     continue;
 

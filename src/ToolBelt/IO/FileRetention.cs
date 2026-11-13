@@ -102,8 +102,11 @@ namespace ToolBelt.IO
                 try
                 {
                     long len = f.Length;
-                    if ((f.Attributes & FileAttributes.ReadOnly) != 0) f.Attributes &= ~FileAttributes.ReadOnly;
-                    f.Delete();
+                    // By the exact name: FileInfo.Delete of a listed "a." deleted "a", another file.
+                    string exact = Exact(f.FullName);
+                    FileAttributes attributes = File.GetAttributes(exact);
+                    if ((attributes & FileAttributes.ReadOnly) != 0) File.SetAttributes(exact, attributes & ~FileAttributes.ReadOnly);
+                    File.Delete(exact);
                     deleted.Add(f.FullName);
                     freed += len;
                 }
@@ -113,6 +116,50 @@ namespace ToolBelt.IO
                 }
             }
             return new PruneResult(kept, deleted, failed, freed);
+        }
+
+        // Win32 path normalisation drops a trailing dot or space from each name, so a listed file "a." was read, replaced
+        // or deleted as "a" (another file) and a folder "d." could not be opened. The \\?\ form is used as written.
+        private static string Exact(string path)
+        {
+            if (Path.DirectorySeparatorChar != '\\' || !NeedsExact(path)) return path;
+            string plain = path.Replace('/', '\\');
+            return plain[0] == '\\' ? @"\\?\UNC\" + plain.Substring(2) : @"\\?\" + plain;
+        }
+
+        // A full path ("C:\..." or "\\server\share\...") with a name ending in a dot or space, and no "." or ".." to resolve.
+        private static bool NeedsExact(string path)
+        {
+            bool drive = path.Length >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/');
+            bool unc = path.Length >= 3 && (path[0] == '\\' || path[0] == '/') && (path[1] == '\\' || path[1] == '/') && path[2] != '?' && path[2] != '.';
+            if (!drive && !unc) return false;
+            int start = drive ? 3 : 2;
+            bool found = false;
+            for (int i = start; i <= path.Length; i++)
+            {
+                if (i < path.Length && path[i] != '\\' && path[i] != '/') continue;
+                int len = i - start;
+                if (len > 0)
+                {
+                    char last = path[i - 1];
+                    bool dots = (len == 1 && last == '.') || (len == 2 && last == '.' && path[i - 2] == '.');
+                    if (dots) return false;   // left to Path.GetFullPath, which resolves it
+                    if (last == '.' || last == ' ') found = true;
+                }
+                start = i + 1;
+            }
+            return found;
+        }
+
+        // A folder's files or subfolders, listed through the exact form when its name needs it and returned in the plain one.
+        private static string[] List(string dir, bool directories, string pattern = "*")
+        {
+            string exact = Exact(dir);
+            string[] found = directories ? Directory.GetDirectories(exact) : Directory.GetFiles(exact, pattern);
+            if (!ReferenceEquals(exact, dir))
+                for (int i = 0; i < found.Length; i++)
+                    found[i] = dir + found[i].Substring(exact.Length);
+            return found;
         }
 
         // Windows-style wildcard match ('*' any run, '?' one character), case-insensitive.
@@ -149,33 +196,40 @@ namespace ToolBelt.IO
             if (keep < 1) throw new ArgumentOutOfRangeException(nameof(keep), keep, "Keep at least one rotated copy.");
             if (!File.Exists(path)) return false;
             string Numbered(int n) => path + "." + n.ToString(CultureInfo.InvariantCulture);
-            if (File.Exists(Numbered(keep))) File.Delete(Numbered(keep));
+            // One listing, read before anything moves. Every copy at or above keep goes (cleanup that stopped at the first
+            // missing number left path.7 behind a gap at 6), and every name a copy moves onto is checked first: a
+            // directory there failed the rotation half done, with some copies already renamed.
+            List<int> present = NumberedCopies(path);
+            foreach (int n in present)
+                if (n < keep && Directory.Exists(Numbered(n + 1)))
+                    throw new IOException($"Cannot rotate: '{Numbered(n + 1)}' is a directory.");
+            if (Directory.Exists(Numbered(1))) throw new IOException($"Cannot rotate: '{Numbered(1)}' is a directory.");
+            foreach (int n in present)
+                if (n >= keep) File.Delete(Numbered(n));
             // From the highest copy present, not from keep: probing every number made keep = int.MaxValue take hours.
-            for (int n = HighestNumbered(path, keep - 1); n >= 1; n--)
-                if (File.Exists(Numbered(n))) File.Move(Numbered(n), Numbered(n + 1));
+            for (int i = present.Count - 1; i >= 0; i--)
+                if (present[i] < keep) File.Move(Numbered(present[i]), Numbered(present[i] + 1));
             File.Move(path, Numbered(1));
-            // Copies beyond `keep` left by an earlier, larger setting.
-            for (long n = (long)keep + 1; n <= int.MaxValue && File.Exists(Numbered((int)n)); n++) File.Delete(Numbered((int)n));
             return true;
         }
 
-        // The highest n ≤ limit for which path.n exists, read from one directory listing.
-        private static int HighestNumbered(string path, int limit)
+        // Every n for which path.n is a file, written as Numbered writes it (no sign or leading zero), ascending.
+        private static List<int> NumberedCopies(string path)
         {
             string full = Path.GetFullPath(path);
             string prefix = Path.GetFileName(full) + ".";
             StringComparison cmp = Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            int highest = 0;
+            var numbers = new List<int>();
             foreach (string file in Directory.GetFiles(Path.GetDirectoryName(full)!))
             {
                 string name = Path.GetFileName(file);
                 if (name.Length <= prefix.Length || !name.StartsWith(prefix, cmp)) continue;
                 string digits = name.Substring(prefix.Length);
                 if (digits[0] == '0' || !digits.All(c => c >= '0' && c <= '9')) continue;   // as Numbered writes it
-                if (int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out int n) && n <= limit && n > highest)
-                    highest = n;
+                if (int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out int n) && n >= 1) numbers.Add(n);
             }
-            return highest;
+            numbers.Sort();
+            return numbers;
         }
 
         /// <summary>

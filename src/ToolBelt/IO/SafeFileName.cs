@@ -11,8 +11,9 @@ namespace ToolBelt.IO
     /// <c>" * / : &lt; &gt; ? \ |</c> are replaced on every OS (so a name made on Linux still works on Windows),
     /// trailing dots and spaces (which Windows strips) are trimmed, Windows reserved device names (CON, PRN,
     /// AUX, NUL, COM0-9, LPT0-9 and their superscript-digit forms, CONIN$, CONOUT$, also with an extension or
-    /// trailing spaces before it) are escaped, and the result is capped in length without splitting a surrogate
-    /// pair. An empty result becomes "_".
+    /// trailing spaces before it) are escaped, and the result is capped at <c>maxLength</c> UTF-8 bytes (the Unix
+    /// limit, which also keeps it within Windows' limit in characters) without splitting a surrogate pair. An empty
+    /// result becomes "_".
     /// </summary>
     public static class SafeFileName
     {
@@ -28,12 +29,20 @@ namespace ToolBelt.IO
         // The Windows set, which is a superset of every other platform's (Unix forbids only '/' and NUL).
         private static bool IsInvalid(char c) => c < 32 || "\"*/:<>?\\|".IndexOf(c) >= 0;
 
+        // Capped in UTF-8 bytes: Linux and macOS limit a name to 255 bytes, so 255 UTF-16 characters of CJK (765 bytes)
+        // failed there. A UTF-8 length is never less than the UTF-16 one, so this caps Windows' 255 characters too.
         private static string Truncate(string s, int maxLength)
         {
-            if (s.Length <= maxLength) return s;
-            int cut = maxLength;
-            if (char.IsHighSurrogate(s[cut - 1])) cut--;   // don't split a surrogate pair
-            return s.Substring(0, cut).TrimEnd(' ', '.');
+            int bytes = 0, cut = 0;
+            while (cut < s.Length)
+            {
+                bool pair = char.IsHighSurrogate(s[cut]) && cut + 1 < s.Length && char.IsLowSurrogate(s[cut + 1]);
+                int size = pair ? 4 : s[cut] < 0x80 ? 1 : s[cut] < 0x800 ? 2 : 3;   // a lone surrogate is written as U+FFFD
+                if (bytes + size > maxLength) break;
+                bytes += size;
+                cut += pair ? 2 : 1;
+            }
+            return cut == s.Length ? s : s.Substring(0, cut).TrimEnd(' ', '.');
         }
 
         public static string MakeSafe(string name, char replacement = '_', int maxLength = 255)

@@ -84,7 +84,8 @@ namespace ToolBelt.IO
             {
                 string rel = DirectoryUtils.GetRelativePath(directory, file);
                 if (fileFilter != null && !fileFilter(rel)) continue;
-                try { pairs.Add(new KeyValuePair<string, string>(rel, HashFile(file))); }
+                // The exact name: a listed "a." opened by its plain path is "a", another file.
+                try { pairs.Add(new KeyValuePair<string, string>(rel, HashFile(DirectoryUtils.Exact(file)))); }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
                     if (onError is null) throw;

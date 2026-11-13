@@ -31,24 +31,27 @@ namespace ToolBelt.IO
     /// Latin-1 and other single-byte code pages do; UTF-16 and UTF-32 throw <see cref="ArgumentException"/>).
     /// A leading UTF-8 byte order mark is skipped (the first line's offset is then 3). Reading starts at the stream's
     /// current position, and offsets are positions in the stream (for a stream that cannot seek, counted from where reading began).
+    /// A line longer than <c>maxLineBytes</c> throws <see cref="InvalidDataException"/> (a stream with no line breaks
+    /// otherwise grew one buffer until memory ran out).
     /// </summary>
     public static class LineReader
     {
         private static readonly byte[] Bom = { 0xEF, 0xBB, 0xBF };
 
-        public static IEnumerable<TextLine> ReadLines(Stream stream, Encoding? encoding = null)
+        public static IEnumerable<TextLine> ReadLines(Stream stream, Encoding? encoding = null, int maxLineBytes = 0x7FFFFFC7)
         {
             if (stream is null) throw new ArgumentNullException(nameof(stream));
+            if (maxLineBytes < 0) throw new ArgumentOutOfRangeException(nameof(maxLineBytes), maxLineBytes, "Must be non-negative.");
             encoding ??= Encoding.UTF8;
             byte[] lineBreak = encoding.GetBytes("\r\n");
             if (lineBreak.Length != 2 || lineBreak[0] != (byte)'\r' || lineBreak[1] != (byte)'\n')
                 throw new ArgumentException(
                     $"LineReader splits on single CR/LF bytes, which {encoding.WebName} does not use; use a StreamReader instead.",
                     nameof(encoding));
-            return Iterate(stream, encoding);
+            return Iterate(stream, encoding, maxLineBytes);
         }
 
-        private static IEnumerable<TextLine> Iterate(Stream stream, Encoding encoding)
+        private static IEnumerable<TextLine> Iterate(Stream stream, Encoding encoding, int maxLineBytes)
         {
             var buffer = new byte[4096];
             var line = new List<byte>();
@@ -109,6 +112,8 @@ namespace ToolBelt.IO
                     }
                     else
                     {
+                        if (line.Count >= maxLineBytes)
+                            throw new InvalidDataException($"The line at byte {lineStart} is longer than {maxLineBytes} bytes.");
                         line.Add(b);
                     }
                 }
