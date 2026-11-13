@@ -174,11 +174,14 @@ namespace ToolBelt.Tests.Objects
             Check.Equal(typeof(int), flat["T"]);
         }
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public sealed class HasMemory
         {
             public ReadOnlyMemory<byte> M { get; set; }
         }
+#endif
 
+#if !NETFRAMEWORK   // ReadOnlyMemory is not in netstandard2.0
         public void ReadOnlyMemory_ComparesContent()
         {
             var a = new HasMemory { M = new byte[] { 1, 2 } };
@@ -188,6 +191,7 @@ namespace ToolBelt.Tests.Objects
             var flat = FlattenObject.Flatten(a);
             Check.Equal((byte)2, flat["M[1]"]);
         }
+#endif
 
         // ---- PropertyPath ----
 

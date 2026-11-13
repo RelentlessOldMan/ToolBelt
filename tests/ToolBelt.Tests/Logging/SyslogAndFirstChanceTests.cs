@@ -132,7 +132,7 @@ namespace ToolBelt.Tests.Logging
         public void Tcp_FailuresAreCountedNotThrown()
         {
             int port;
-            using (var probe = new TcpListener(IPAddress.Loopback, 0)) { probe.Start(); port = ((IPEndPoint)probe.LocalEndpoint).Port; probe.Stop(); }
+            var probe = new TcpListener(IPAddress.Loopback, 0); probe.Start(); try { port = ((IPEndPoint)probe.LocalEndpoint).Port; } finally { probe.Stop(); }
             using var sink = new SyslogSink("127.0.0.1", port, SyslogTransport.Tcp);
             sink.Emit(new LogEvent(DateTimeOffset.Now, LogLevel.Error, "c", "nobody listening", null));
             Check.Equal(1L, sink.FailedSends);

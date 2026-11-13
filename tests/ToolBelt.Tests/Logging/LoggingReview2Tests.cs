@@ -17,7 +17,7 @@ namespace ToolBelt.Tests.Logging
     public sealed class LoggingReview2Tests
     {
         private static LogEvent Event(string message, string category = "c") =>
-            new LogEvent(DateTimeOffset.UnixEpoch, LogLevel.Info, category, message, null);
+            new LogEvent(DateTimeOffset.FromUnixTimeSeconds(0), LogLevel.Info, category, message, null);
 
         private sealed class DelegateSink : ILogSink
         {
@@ -27,6 +27,7 @@ namespace ToolBelt.Tests.Logging
             public void Dispose() { }
         }
 
+        [Serializable]   // .NET Framework's Exception.Data takes only serializable values
         private sealed class ThrowingValue
         {
             public override string ToString() => throw new InvalidOperationException("no text");
@@ -222,7 +223,7 @@ namespace ToolBelt.Tests.Logging
                 if (e.Message.Contains("repeated")) throw new IOException("summary failed");
                 written.Add(e.Message);
             });
-            var sink = new RateLimitedSink(inner, TimeSpan.FromHours(1), () => DateTimeOffset.UnixEpoch);
+            var sink = new RateLimitedSink(inner, TimeSpan.FromHours(1), () => DateTimeOffset.FromUnixTimeSeconds(0));
             for (int i = 0; i < 3; i++) sink.Emit(Event("same"));
             Check.Throws<IOException>(() => sink.Emit(Event("different")));
             Check.True(written.Contains("different"), string.Join(",", written));   // was lost

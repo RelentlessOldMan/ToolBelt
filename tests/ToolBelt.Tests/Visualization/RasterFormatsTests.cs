@@ -31,7 +31,7 @@ namespace ToolBelt.Tests.Visualization
                 Check.Equal(w, img.Width, name);
                 Check.Equal(h, img.Height, name);
                 byte[] expected = Convert.FromBase64String(rgba);
-                int bad = Enumerable.Range(0, expected.Length).FirstOrDefault(i => expected[i] != img.Pixels[i], -1);
+                int bad = Enumerable.Range(0, expected.Length).Where(i => expected[i] != img.Pixels[i]).DefaultIfEmpty(-1).First();
                 Check.Equal(-1, bad, $"{name}: first differing byte");
             }
         }

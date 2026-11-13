@@ -115,6 +115,7 @@ namespace ToolBelt.Tests.Documents
             public Inner Window { get; } = new Inner();
         }
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Settings_GetOnlyCollectionsAndObjectsLoadBack()
         {
             string dir = Path.Combine(Path.GetTempPath(), "tb-r35-" + Guid.NewGuid().ToString("N"));
@@ -138,6 +139,7 @@ namespace ToolBelt.Tests.Documents
             }
             finally { Directory.Delete(dir, true); }
         }
+#endif
 
         // ---------------- PdfWriter ----------------
 

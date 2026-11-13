@@ -299,7 +299,7 @@ src/
       Deadband.cs           deadband shaping + report-by-exception DeadbandFilter
       FirstOrderLag.cs      time-constant low-pass, exact for any (irregular) update interval
     Diagnostics/
-      Benchmark.cs          micro-benchmark harness (warmup, stats, bytes/op, compare-to-baseline)
+      Benchmark.cs          micro-benchmark harness (warmup, stats, bytes/op, compare-to-baseline; .NET Framework counts the domain's bytes)
       MetricsRegistry.cs    named counters / gauges / timers with percentile snapshots (thread-safe)
       ScopedTimer.cs        time a using-block to a callback / metrics (injectable clock)
       ExceptionUtils.cs     root-cause / flatten / describe / transient-vs-permanent classify
@@ -638,6 +638,7 @@ tests/
   ToolBelt.Tests/           hand-rolled, zero-dependency console test runner (exit 0 == all green)
     Framework/
       TestRunner.cs         reflection-based discovery ( *Tests classes )
+      TestPlatform.cs       platform checks that compile on .NET Framework too
       Check.cs              minimal assertion helpers (Close fails when only one side is NaN)
     Guards/
       GuardTests.cs, GuardHardeningTests.cs
@@ -824,6 +825,7 @@ tests/
       IOReviewTests.cs      (review round 8 regressions: links in zip/tar, encodings, CSV/.env parsing, overflow-safe sizes)
       IOReview2Tests.cs     (second-pass regressions: copy through junctions, hard links, truncated archives, watcher filters)
       IOReview3Tests.cs     (third-pass regressions: safe replace on copy and create, tar metadata bombs, device names, archive times, watcher dispose)
+      IONetFrameworkReview57Tests.cs (round 57: zip names .NET Framework cannot read, copies into the source through a junction)
       CoverageGapTests.cs   (behaviour behind coverage holes found by a coverlet run)
     Numerics/
       AngleTests.cs
@@ -1092,7 +1094,7 @@ scripts/
   test.ps1                  build once + launch the test exe directly (-Configuration X; other args go to the runner)
   verify.sh                 full verify (Git Bash): sln build, the four suites, MathChecks; one line per suite
   checked-build.sh          core suite against an overflow-checked library build, in a scratch worktree
-  net48.sh                  chosen core test folders on .NET Framework 4.8 against the netstandard2.0 build
+  net48.sh                  chosen core test folders (or all of them) on .NET Framework 4.8 against the netstandard2.0 build
   coverage.ps1              line/branch coverage of the core via the coverlet.console global tool (+ HTML report)
   gen-distribution-references.py  regenerates the 40-digit distribution reference table (needs mpmath)
   gen-png-fixtures.py     regenerates the PNG decoder fixtures (needs Pillow, used as a cross-check)

@@ -2,7 +2,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+#if !NETFRAMEWORK
 using System.Formats.Tar;
+#endif
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -115,6 +117,7 @@ namespace ToolBelt.Tests.IO
             return h;
         }
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Tar_HugeMetadataEntryIsRejectedBeforeAllocating()
         {
             // TarReader allocated the declared size of a PAX header (here 1.5 GB) before reading it: a 1.5 KB archive could
@@ -151,7 +154,9 @@ namespace ToolBelt.Tests.IO
             Check.Equal(1300L, new FileInfo(Path.Combine(tmp.Combine("pax"), "p.txt")).Length);
             Check.Equal("q", File.ReadAllText(Path.Combine(tmp.Combine("pax"), "q.txt")));
         }
+#endif
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Tar_TruncatedHeaderIsInvalidData()
         {
             using var tmp = new TempDirectory();
@@ -168,7 +173,9 @@ namespace ToolBelt.Tests.IO
             Check.Throws<InvalidDataException>(() => TarUtils.ExtractToDirectory(tar, tmp.Combine("dst")));
             Check.Throws<InvalidDataException>(() => TarUtils.ListEntries(tar));
         }
+#endif
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Tar_ReservedDeviceNamesAreRejected()
         {
             if (Path.DirectorySeparatorChar != '\\') return;
@@ -184,7 +191,9 @@ namespace ToolBelt.Tests.IO
             }
             Check.False(File.Exists(Path.Combine(tmp.Combine("dst"), "x", "COM1.log")), "COM1.log written");
         }
+#endif
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Tar_FailedCreateKeepsTheExistingArchive()
         {
             // FileMode.Create truncated the old archive before the run, and a failure then deleted it.
@@ -199,7 +208,9 @@ namespace ToolBelt.Tests.IO
             Check.True(File.Exists(tar) && File.ReadAllBytes(tar).SequenceEqual(good), "the existing archive was lost");
             Check.Equal(1, Directory.GetFiles(tmp.Path).Length, "a temp file was left behind");
         }
+#endif
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Tar_ExtractRestoresModificationTimes()
         {
             using var tmp = new TempDirectory();
@@ -214,6 +225,7 @@ namespace ToolBelt.Tests.IO
             Check.Equal(Y2001, File.GetLastWriteTimeUtc(Path.Combine(dst, "d", "a.txt")));
             Check.Equal(Y2001, Directory.GetLastWriteTimeUtc(Path.Combine(dst, "empty")));
         }
+#endif
 
         // ---------------- ZipUtils ----------------
 

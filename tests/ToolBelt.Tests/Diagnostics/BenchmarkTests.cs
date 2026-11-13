@@ -34,7 +34,8 @@ namespace ToolBelt.Tests.Diagnostics
 
         public void MeasuresAllocation()
         {
-            // Allocating a sizable array should register non-zero bytes-per-op (accurate on net8.0).
+            // Allocating a sizable array should register about its size per op, on .NET Framework too (where the heap's net
+            // change was used and a collection during the run took it to 0).
             var r = Benchmark.Run("alloc", () => { var buf = new byte[4096]; GC.KeepAlive(buf); },
                 iterations: 2000, warmupIterations: 200);
             Check.True(r.AllocatedBytesPerOperation >= 4000, $"expected ~4096 B/op, got {r.AllocatedBytesPerOperation}");

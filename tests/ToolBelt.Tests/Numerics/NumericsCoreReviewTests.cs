@@ -486,6 +486,7 @@ namespace ToolBelt.Tests.Numerics
             Check.Equal(new Vector2(0, 0).GetHashCode(), new Vector2(-0.0, -0.0).GetHashCode());
         }
 
+#if !NETFRAMEWORK   // the .NET 6 Random members are net8.0-only
         public void DeterministicRandom_Net6MembersComeFromTheGenerator()
         {
             // Unoverridden, these went through Random's own (version-dependent) derivation from Sample().
@@ -497,6 +498,7 @@ namespace ToolBelt.Tests.Numerics
             Span<byte> span = stackalloc byte[11]; b.NextBytes(span);
             Check.True(span.SequenceEqual(bytes), "span NextBytes must match the array overload");
         }
+#endif
 
         public void Containers_ExposeReadOnlyViewsAndRejectNonFinitePoints()
         {

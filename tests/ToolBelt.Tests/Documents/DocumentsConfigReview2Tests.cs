@@ -93,6 +93,7 @@ namespace ToolBelt.Tests.Documents
 
         // ---------------- SettingsStore / EnvironmentVariables ----------------
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Settings_AValueTheTypeRejectsFallsBackToDefaults()
         {
             string dir = Path.Combine(Path.GetTempPath(), "tb-r26-" + Guid.NewGuid().ToString("N"));
@@ -109,6 +110,7 @@ namespace ToolBelt.Tests.Documents
             }
             finally { Directory.Delete(dir, true); }
         }
+#endif
 
         public void Env_GetListAcceptsNullSeparators()
         {

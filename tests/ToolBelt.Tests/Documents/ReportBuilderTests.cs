@@ -57,7 +57,7 @@ namespace ToolBelt.Tests.Documents
         public void Html_TocLinksResolveToHeadings()
         {
             string html = Sample().ToHtml();
-            var hrefs = Regex.Matches(html, "href=\"#([^\"]+)\"").Select(m => m.Groups[1].Value).ToArray();
+            var hrefs = Regex.Matches(html, "href=\"#([^\"]+)\"").Cast<Match>().Select(m => m.Groups[1].Value).ToArray();
             Check.Equal("summary,details,summary-1", string.Join(",", hrefs));
             foreach (string id in hrefs) Check.True(html.Contains("id=\"" + id + "\""), $"no target for #{id}");
         }

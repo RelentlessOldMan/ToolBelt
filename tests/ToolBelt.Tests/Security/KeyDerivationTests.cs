@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using ToolBelt.Security;
@@ -34,7 +35,7 @@ namespace ToolBelt.Tests.Security
                 using var framework = new Rfc2898DeriveBytes(pw, salt, iterations, HashAlgorithmName.SHA256);
                 byte[] theirs = framework.GetBytes(keyLength);
 
-                Check.True(mine.AsSpan().SequenceEqual(theirs), $"t{t}: iter={iterations} len={keyLength}");
+                Check.True(mine.SequenceEqual(theirs), $"t{t}: iter={iterations} len={keyLength}");
             }
         }
 
@@ -44,14 +45,14 @@ namespace ToolBelt.Tests.Security
             var salt = Encoding.ASCII.GetBytes("some-salt-value");
             byte[] mine = KeyDerivation.Pbkdf2(pw, salt, 250, 64, KdfHash.Sha512);
             using var framework = new Rfc2898DeriveBytes(pw, salt, 250, HashAlgorithmName.SHA512);
-            Check.True(mine.AsSpan().SequenceEqual(framework.GetBytes(64)));
+            Check.True(mine.SequenceEqual(framework.GetBytes(64)));
         }
 
         public void GenerateSalt()
         {
             Check.Equal(16, KeyDerivation.GenerateSalt().Length);
             Check.Equal(32, KeyDerivation.GenerateSalt(32).Length);
-            Check.False(KeyDerivation.GenerateSalt().AsSpan().SequenceEqual(KeyDerivation.GenerateSalt()));
+            Check.False(KeyDerivation.GenerateSalt().SequenceEqual(KeyDerivation.GenerateSalt()));
         }
 
         public void InvalidArguments_Throw()

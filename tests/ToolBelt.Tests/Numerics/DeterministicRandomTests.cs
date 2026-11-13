@@ -113,7 +113,7 @@ namespace ToolBelt.Tests.Numerics
             var bb = new byte[64];
             a.NextBytes(ba);
             b.NextBytes(bb);
-            Check.True(((ReadOnlySpan<byte>)ba).SequenceEqual(bb), "same seed must yield same bytes");
+            Check.True(ba.SequenceEqual(bb), "same seed must yield same bytes");
         }
 
         public void NextBytes_PartialTailBlock_FillsExactly()

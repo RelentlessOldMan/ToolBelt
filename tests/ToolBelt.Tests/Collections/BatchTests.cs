@@ -20,7 +20,7 @@ namespace ToolBelt.Tests.Collections
             var batches = Enumerable.Range(0, 23).Batch(5).ToList();
             for (int i = 0; i < batches.Count - 1; i++)
                 Check.Equal(5, batches[i].Count);
-            Check.Equal(3, batches[^1].Count); // 23 = 4*5 + 3
+            Check.Equal(3, batches[batches.Count - 1].Count); // 23 = 4*5 + 3
         }
 
         public void BatchCount_IsCeilingDivision()

@@ -21,7 +21,7 @@ namespace ToolBelt.Tests.IO
         {
             try
             {
-                if (OperatingSystem.IsWindows())
+                if (TestPlatform.IsWindows)
                 {
                     var psi = new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
                     { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
@@ -29,8 +29,12 @@ namespace ToolBelt.Tests.IO
                     p.WaitForExit(10000);
                     return Directory.Exists(link);
                 }
+#if NETFRAMEWORK
+                return false;   // .NET Framework has no CreateSymbolicLink (and runs only on Windows)
+#else
                 Directory.CreateSymbolicLink(link, target);
                 return true;
+#endif
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is System.ComponentModel.Win32Exception)
             {
@@ -90,7 +94,7 @@ namespace ToolBelt.Tests.IO
 
         public void Zip_FailedCreateLeavesNoPartialArchive()
         {
-            if (!OperatingSystem.IsWindows()) return;
+            if (!TestPlatform.IsWindows) return;
             using var tmp = new TempDirectory();
             string src = tmp.Combine("src"), zip = tmp.Combine("a.zip");
             Directory.CreateDirectory(src);
@@ -130,6 +134,7 @@ namespace ToolBelt.Tests.IO
 
         // ---------------- TarUtils ----------------
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Tar_ExtractDoesNotWriteThroughAJunctionInTheDestination()
         {
             using var tmp = new TempDirectory();
@@ -143,7 +148,9 @@ namespace ToolBelt.Tests.IO
             Check.Throws<InvalidDataException>(() => TarUtils.ExtractToDirectory(tar, dst));
             Check.False(File.Exists(Path.Combine(outside, "evil.txt")), "extraction escaped through the junction");
         }
+#endif
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Tar_KeepsEmptyDirectories()
         {
             using var tmp = new TempDirectory();
@@ -155,6 +162,7 @@ namespace ToolBelt.Tests.IO
             Check.True(Directory.Exists(Path.Combine(dst, "empty", "deeper")));
             Check.Equal("a", File.ReadAllText(Path.Combine(dst, "a.txt")));
         }
+#endif
 
         // ---------------- LineReader ----------------
 
@@ -296,12 +304,19 @@ namespace ToolBelt.Tests.IO
         {
             using var tmp = new TempDirectory();
             string p = tmp.Combine(new string('n', 230) + ".txt");
+#if NETFRAMEWORK
+            // The whole path is past MAX_PATH, which .NET Framework refuses unless long paths are enabled: only then is
+            // there anything for AtomicFile to get right.
+            try { File.WriteAllText(p, "probe"); File.Delete(p); }
+            catch (Exception ex) when (ex is PathTooLongException || ex is DirectoryNotFoundException) { return; }
+#endif
             AtomicFile.WriteAllText(p, "x");
             Check.Equal("x", File.ReadAllText(p));
             AtomicFile.WriteAllText(p, "y", backup: true);
             Check.Equal("y", File.ReadAllText(p));
         }
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void JsonFile_LongFileNameStillWorks()
         {
             using var tmp = new TempDirectory();
@@ -309,19 +324,24 @@ namespace ToolBelt.Tests.IO
             JsonFile.Save(p, new[] { 1, 2 });
             Check.Equal(2, JsonFile.Load<int[]>(p).Length);
         }
+#endif
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void JsonFile_NullForANullableValueType()
         {
             Check.Null(JsonFile.Deserialize<int?>("null"));
             Check.Throws<System.Text.Json.JsonException>(() => JsonFile.Deserialize<int[]>("null"));
         }
+#endif
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void JsonFile_NullArgumentsAreCheckedEagerly()
         {
             Check.Throws<ArgumentNullException>(() => JsonLines.Read<int>((TextReader)null!));
             Check.Throws<ArgumentNullException>(() => JsonLines.ReadAsync<int>(null!));
             Check.Throws<ArgumentNullException>(() => JsonFile.TryLoad<int>(null!, out _, out _));
         }
+#endif
 
         // ---------------- SafeFileName ----------------
 
@@ -409,7 +429,7 @@ namespace ToolBelt.Tests.IO
 
         public void ChecksumManifest_UnreadableDirectoryThrowsWithoutAnErrorCallback()
         {
-            if (!OperatingSystem.IsWindows()) return;
+            if (!TestPlatform.IsWindows) return;
             using var tmp = new TempDirectory();
             string root = tmp.Combine("root");
             Directory.CreateDirectory(Path.Combine(root, "sub"));

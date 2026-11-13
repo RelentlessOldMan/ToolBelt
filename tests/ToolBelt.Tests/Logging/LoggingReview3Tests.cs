@@ -19,7 +19,7 @@ namespace ToolBelt.Tests.Logging
     public sealed class LoggingReview3Tests
     {
         private static LogEvent Event(string message, string category = "c") =>
-            new LogEvent(DateTimeOffset.UnixEpoch, LogLevel.Info, category, message, null);
+            new LogEvent(DateTimeOffset.FromUnixTimeSeconds(0), LogLevel.Info, category, message, null);
 
         private sealed class DelegateSink : ILogSink
         {

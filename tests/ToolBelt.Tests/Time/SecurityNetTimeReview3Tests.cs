@@ -47,12 +47,15 @@ namespace ToolBelt.Tests.Time
             Check.Equal(Hashing.ToHex(Hashing.Sha256(new byte[] { 0xF0, 0x9F, 0x98, 0x80 })), Hashing.ToHex(Hashing.Sha256("\U0001F600")));
         }
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void AuthenticatedEncryption_LoneSurrogateThrows()
         {
             var key = new byte[32];
             Check.Equal("plaintext", Check.Throws<ArgumentException>(() => AuthenticatedEncryption.Encrypt(key, "\uD800")).ParamName);
         }
+#endif
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void SecretsFile_LoneSurrogatePassphraseIsAnArgumentException()
         {
             var file = new SecretsFile();
@@ -61,6 +64,7 @@ namespace ToolBelt.Tests.Time
             byte[] data = file.ToBytes("pp", 1000);
             Check.Equal("passphrase", Check.Throws<ArgumentException>(() => SecretsFile.FromBytes(data, "\uD800")).ParamName);
         }
+#endif
 
         // ---- checked build ----
 

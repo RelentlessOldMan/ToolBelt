@@ -71,10 +71,15 @@ table, round log). Unreleased bugs are tracked in [BUGLIST.md](BUGLIST.md).
 - Long commit messages go in `commit-msg.tmp` at the repo root (gitignored), committed with `-F` and removed after.
   Never write into `.git\`. End messages with the attribution lines the session provides.
 - `git add -A` before committing new files (`commit -a` skips untracked ones).
-- A review round's release: bump `<Version>` in `Directory.Build.props` to `0.N.0`, commit
-  `Review round N: <section>`, tag `v0.N.0`, push branch and tag, `dotnet pack -c Release` the four `src/*` projects into a
-  temp folder, and `gh release create` with the notes and the `.nupkg` files attached. Packages are attached to
-  GitHub releases only; never published to NuGet.
+- Versions are date-based, `YYYY.M.D.N` (today's local date, no leading zeros; `N` counts that day's releases from
+  0). `<Version>` in `Directory.Build.props` is the one source and the counter: `scripts/bump-version.ps1` works
+  out the next one, writes it back and prints it. Never type a version by hand, reuse one or go backwards. Releases up
+  to round 56 used `0.N.0`; round 57 was the first date version.
+- A review round's release: run `powershell -NoProfile -File scripts/bump-version.ps1` (it prints `<ver>`), commit
+  `Review round N: <section>` with the records, tag `v<ver>`, push branch and tag, `dotnet pack -c Release` the four
+  `src/*` projects into a temp folder, and `gh release create v<ver> --title "ToolBelt v<ver>"` with the notes and the
+  `.nupkg` files attached (NuGet drops a trailing `.0`, so `2026.11.13.0` packs as `2026.11.13`). Packages are
+  attached to GitHub releases only; never published to NuGet.
 - Then update REVIEW-PLAN.md (tracker row, next marker, Releases row, round log), README (test-file line, API
   notes), BUGLIST.md and `docs/status.md`.
 

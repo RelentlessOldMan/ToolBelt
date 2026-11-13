@@ -232,6 +232,7 @@ namespace ToolBelt.Tests.Documents
 
         public sealed class FloatSettings { public double Gain { get; set; } = double.NaN; }
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Settings_NaNRoundTrips()
         {
             string dir = Path.Combine(Path.GetTempPath(), "tb-r7-" + Guid.NewGuid().ToString("N"));
@@ -243,7 +244,9 @@ namespace ToolBelt.Tests.Documents
             }
             finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
         }
+#endif
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Settings_LockedFileYieldsDefaultsWithAWarning()
         {
             string dir = Path.Combine(Path.GetTempPath(), "tb-r7-" + Guid.NewGuid().ToString("N"));
@@ -261,6 +264,7 @@ namespace ToolBelt.Tests.Documents
             }
             finally { Directory.Delete(dir, true); }
         }
+#endif
 
         // ---------------- helpers ----------------
 

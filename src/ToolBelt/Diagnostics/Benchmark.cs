@@ -32,7 +32,10 @@ namespace ToolBelt.Diagnostics
         public double Percentile95Nanoseconds { get; }
         public double StdDevNanoseconds { get; }
         public double OperationsPerSecond { get; }
-        /// <summary>Bytes allocated per operation. Accurate on modern runtimes; a best-effort estimate on the legacy target.</summary>
+        /// <summary>
+        /// Bytes allocated per operation, by the benchmarking thread. On .NET Framework (where that counter does not exist)
+        /// it is the whole application domain's allocation, so work on other threads during the run is counted too.
+        /// </summary>
         public long AllocatedBytesPerOperation { get; }
         /// <summary>Mean time relative to the baseline candidate (1.0 for the baseline). Set only by <see cref="Benchmark.Compare"/>.</summary>
         public double RelativeToBaseline { get; internal set; } = 1.0;
@@ -131,10 +134,36 @@ namespace ToolBelt.Diagnostics
         private static long AllocatedBytes()
         {
 #if NETSTANDARD2_0
-            return GC.GetTotalMemory(false); // best-effort proxy; may be perturbed by collections
+            // GC.GetTotalMemory is the heap's net change, which a collection during the run took to zero. The per-thread
+            // counter exists on every .NET Core runtime; .NET Framework has only the domain's, behind a switch that, once
+            // on, stays on for the process.
+            if (ThreadAllocated != null) return ThreadAllocated();
+            try
+            {
+                if (!AppDomain.MonitoringIsEnabled) AppDomain.MonitoringIsEnabled = true;
+                return AppDomain.CurrentDomain.MonitoringTotalAllocatedMemorySize;
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PlatformNotSupportedException
+                                       || ex is InvalidOperationException)
+            {
+                return GC.GetTotalMemory(false);
+            }
 #else
             return GC.GetAllocatedBytesForCurrentThread();
 #endif
         }
+
+#if NETSTANDARD2_0
+        private static readonly Func<long>? ThreadAllocated = FindThreadAllocated();
+
+        private static Func<long>? FindThreadAllocated()
+        {
+            var method = typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread", System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.Static, null, Type.EmptyTypes, null);
+            return method != null && method.ReturnType == typeof(long)
+                ? (Func<long>)Delegate.CreateDelegate(typeof(Func<long>), method)
+                : null;
+        }
+#endif
     }
 }

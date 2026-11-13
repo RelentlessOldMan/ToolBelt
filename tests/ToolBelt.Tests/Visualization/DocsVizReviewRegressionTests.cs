@@ -47,17 +47,17 @@ namespace ToolBelt.Tests.Visualization
         {
             // Valid signature + IHDR claiming a big RGBA16 image, then a tiny (empty) zlib stream.
             var ms = new MemoryStream();
-            ms.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+            ms.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, 0, 8);
             void Chunk(string type, byte[] data)
             {
                 var len = new byte[] { (byte)(data.Length >> 24), (byte)(data.Length >> 16), (byte)(data.Length >> 8), (byte)data.Length };
-                ms.Write(len);
+                ms.Write(len, 0, 4);
                 var td = Encoding.ASCII.GetBytes(type).Concat(data).ToArray();
-                ms.Write(td);
+                ms.Write(td, 0, td.Length);
                 uint crc = 0xFFFFFFFF;
                 foreach (byte b in td) { crc ^= b; for (int k = 0; k < 8; k++) crc = (crc & 1) != 0 ? 0xEDB88320 ^ (crc >> 1) : crc >> 1; }
                 crc ^= 0xFFFFFFFF;
-                ms.Write(new[] { (byte)(crc >> 24), (byte)(crc >> 16), (byte)(crc >> 8), (byte)crc });
+                ms.Write(new[] { (byte)(crc >> 24), (byte)(crc >> 16), (byte)(crc >> 8), (byte)crc }, 0, 4);
             }
             Chunk("IHDR", new byte[] { (byte)(width >> 24), (byte)(width >> 16), (byte)(width >> 8), (byte)width,
                                       (byte)(height >> 24), (byte)(height >> 16), (byte)(height >> 8), (byte)height, 8, 6, 0, 0, 0 });

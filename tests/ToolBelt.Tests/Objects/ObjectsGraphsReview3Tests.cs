@@ -148,6 +148,7 @@ namespace ToolBelt.Tests.Objects
 
         public enum Small : byte { A, B }
 
+#if !NETFRAMEWORK   // Span<T> is not in .NET Framework
         public void TryConvert_Conversions()
         {
             Check.False(TypeUtils.TryConvert(4294967297L, typeof(DayOfWeek), out _), "2^32 + 1 to DayOfWeek");
@@ -179,6 +180,7 @@ namespace ToolBelt.Tests.Objects
             Check.True(v is null, "Span result");
             Check.Equal("type", Check.Throws<ArgumentException>(() => TypeUtils.DefaultValue(typeof(Span<int>))).ParamName);
         }
+#endif
 
         public sealed class WithAddress { public IPAddress? Address { get; set; } public int N { get; set; } }
         public sealed class Throwing { public int P => throw new InvalidOperationException("boom"); }

@@ -160,6 +160,7 @@ namespace ToolBelt.Tests.Objects
             Check.Equal((object)5, ActivatorUtils.Create(typeof(int?), 5));
         }
 
+#if !NETFRAMEWORK   // Span<T> is not in .NET Framework
         public void ActivatorUtils_RefLikeTypesAreNotCreated()
         {
             object? instance = null;
@@ -170,6 +171,7 @@ namespace ToolBelt.Tests.Objects
             Check.False(ActivatorUtils.TryCreate(typeof(int).MakeByRefType(), Array.Empty<object?>(), out _));
             Check.False(ActivatorUtils.TryCreate(typeof(int).MakePointerType(), Array.Empty<object?>(), out _));
         }
+#endif
 
         public sealed class Overloads
         {

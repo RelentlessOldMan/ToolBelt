@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.IO;
 using System.Text;
 using ToolBelt.Security;
@@ -37,7 +38,7 @@ namespace ToolBelt.Tests.Security
             byte[] h = Hashing.Sha256("x");
             Check.Equal(32, h.Length);
             Check.Equal(64, Hashing.ToHex(h).Length);
-            Check.True(h.AsSpan().SequenceEqual(Convert.FromBase64String(Hashing.ToBase64(h))));
+            Check.True(h.SequenceEqual(Convert.FromBase64String(Hashing.ToBase64(h))));
         }
 
         public void NullArguments_Throw()

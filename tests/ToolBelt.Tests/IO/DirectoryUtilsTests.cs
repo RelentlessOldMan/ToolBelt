@@ -203,7 +203,7 @@ namespace ToolBelt.Tests.IO
 
         public void Walk_SkipsAndReportsAnUnreadableSubtree()
         {
-            if (!OperatingSystem.IsWindows()) return;
+            if (!TestPlatform.IsWindows) return;
             using var tmp = new TempDirectory();
             string src = BuildTree(tmp);
             var sub = new DirectoryInfo(Path.Combine(src, "sub"));
@@ -269,7 +269,7 @@ namespace ToolBelt.Tests.IO
         {
             try
             {
-                if (OperatingSystem.IsWindows())
+                if (TestPlatform.IsWindows)
                 {
                     // A junction needs no special privilege (unlike a directory symlink).
                     var psi = new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
@@ -278,8 +278,12 @@ namespace ToolBelt.Tests.IO
                     p.WaitForExit(10000);
                     return Directory.Exists(link);
                 }
+#if NETFRAMEWORK
+                return false;   // .NET Framework has no CreateSymbolicLink (and runs only on Windows)
+#else
                 Directory.CreateSymbolicLink(link, target);
                 return true;
+#endif
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is System.ComponentModel.Win32Exception)
             {

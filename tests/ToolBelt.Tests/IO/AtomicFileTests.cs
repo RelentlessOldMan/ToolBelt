@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.IO;
 using System.Text;
 using ToolBelt.IO;
@@ -63,7 +64,7 @@ namespace ToolBelt.Tests.IO
                 string path = Path.Combine(dir, "data.bin");
                 var bytes = new byte[] { 1, 2, 3, 4, 5 };
                 AtomicFile.WriteAllBytes(path, bytes);
-                Check.True(File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes));
+                Check.True(File.ReadAllBytes(path).SequenceEqual(bytes));
             }
             finally { Directory.Delete(dir, true); }
         }

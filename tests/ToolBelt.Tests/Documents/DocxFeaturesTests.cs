@@ -128,7 +128,7 @@ namespace ToolBelt.Tests.Documents
 
         public void OpensInWordWithExpectedLayout()
         {
-            if (!OperatingSystem.IsWindows()) return;                                   // COM automation is Windows-only
+            if (!TestPlatform.IsWindows) return;                                   // COM automation is Windows-only
             Type? wordType = Type.GetTypeFromProgID("Word.Application");
             if (wordType is null) return;                                             // Word not installed: structural tests above stand
             using var tmp = new TempDirectory();
@@ -177,7 +177,8 @@ namespace ToolBelt.Tests.Documents
             finally
             {
                 word.Quit(0);
-                System.Runtime.InteropServices.Marshal.FinalReleaseComObject(word);
+                // Statically bound: a dynamic call binds against the object, which after Quit is gone (0x80010114 on .NET Framework).
+                System.Runtime.InteropServices.Marshal.FinalReleaseComObject((object)word);
             }
         }
     }

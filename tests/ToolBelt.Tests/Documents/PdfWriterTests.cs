@@ -9,7 +9,7 @@ namespace ToolBelt.Tests.Documents
 {
     public sealed class PdfWriterTests
     {
-#if NETSTANDARD2_0
+#if NETFRAMEWORK
         private static readonly Encoding Latin1 = Encoding.GetEncoding(28591);
 #else
         private static readonly Encoding Latin1 = Encoding.Latin1;

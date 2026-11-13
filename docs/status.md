@@ -5,27 +5,25 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 
 ## Next
 
-1. **Cross-cutting rounds** (planned 2026-11-04), each across the whole library rather than one section. Throwing
-   callbacks was round 54, cancellation and dispose races round 55, non-finite and extreme numerics round 56; still
-   to do:
-   - the whole suite on .NET Framework 4.8 and in the overflow-checked build.
-1. **Then:** every section re-queued by its last pass goes round again until a pass finds ≤ 1 minor bug. As of
-   round 53 all 17 sections are re-queued.
+1. **The fourth pass:** every section re-queued by its last pass goes round again until a pass finds ≤ 1 minor bug.
+   As of round 53 all 17 sections are re-queued; the order is in REVIEW-PLAN.md. The cross-cutting rounds (54 to 57)
+   are done.
+1. **BUGLIST 56-1** (`Thread.Sleep` in library code) is fixed with section 8 or 15, whichever comes first.
 
 ## Built
 
 - **The library** (2026-09-25 to 2026-10-05): 29+ divisions in the core plus the Windows, WPF and WinForms
   satellites. The README's Layout is the inventory.
-- **The review** (2026-10-07 onward): 56 rounds, released as v0.1.0 to v0.56.0. Three full passes over all 17
-  sections, two rounds on flaky tests and the incomplete beta/gamma harness, and three cross-cutting rounds (round 54,
+- **The review** (2026-10-07 onward): 57 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0. Three full passes over all 17
+  sections, two rounds on flaky tests and the incomplete beta/gamma harness, and four cross-cutting rounds (round 54,
   throwing callbacks: 36 bugs, 2 severe; round 55, cancellation and dispose races: 17 bugs, 2 severe, both a Ctrl+C
   handler letting a token callback's exception escape; round 56, non-finite and extreme numerics: 34 bugs, 2 severe,
-  both hangs on data near MaxValue).
-- **Checks every round passes:** the full verify (core 3134 tests, Windows 115, WPF 162, WinForms 91,
-  MathChecks 40 at v0.56.0), the overflow-checked build with no failures (since round 48), and the special
+  both hangs on data near MaxValue; round 57, the whole suite on .NET Framework 4.8: 4 bugs, none severe).
+- **Checks every round passes:** the full verify (core 3141 tests, Windows 115, WPF 162, WinForms 91,
+  MathChecks 40 at v2026.11.13.0), the overflow-checked build with no failures (since round 48), and the special
   functions against mpmath (graded in condition-number units).
-- **Unverified:** the whole core suite on .NET Framework 4.8 has never been run in one go; rounds only ran the
-  section under review there. That is one of the cross-cutting rounds.
+- **.NET Framework 4.8:** since round 57 the whole core suite compiles and passes there (3079 tests; net8-only
+  types' tests are guarded out).
 
 ## Not built
 
@@ -37,7 +35,8 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 - `scripts/verify.sh`: about 3 minutes (measured 2026-11-12: build 50 s, core suite 76 s, the rest under 30 s). Some tests start
   processes, use the clipboard or time themselves, so a busy machine can make them flaky (see Lessons).
 - `scripts/checked-build.sh`: about 2.5 minutes, a full non-incremental build of the core plus the core suite.
-- `scripts/net48.sh` for one section: under a minute (Text, Identifiers, Enums, Guards: 309 tests in 2 s).
+- `scripts/net48.sh` for one section: under a minute (Text, Identifiers, Enums, Guards: 309 tests in 2 s). Every
+  folder: about 4 minutes (build about 1 minute, tests 168 s).
 - Memory: a few core image tests (PNG and BMP size limits) each allocate an image buffer of about 2 GB, near the
   largest array; the peak hasn't been measured. Nothing else needs more than a few GB. No GPU.
 
@@ -68,8 +67,11 @@ Written as rules a future session can apply.
   so make only the target instance misbehave (round 54's get-only collection test passed at HEAD until then).
 - A race that loses only sometimes (a timer against a delay) needs many instances in one test: 200 probes failed
   every run on the old code where one probe passed.
-- `net48.sh` takes whole folders, and several folders hold net8-only tests. Until the net48 round, run a round's
-  files there through a scratch copy that includes single files.
+- `net48.sh` takes whole folders, and every folder compiles there since round 57. Keep it so: a test of a
+  net8-only type goes under `#if !NETFRAMEWORK`, and a test uses portable APIs (`TestPlatform.IsWindows`, LINQ
+  `SequenceEqual`, no index-from-end). A test folder that uses another's helpers needs both on the command line.
+- On .NET Framework, `ZipArchive` refuses to write names with ':' or NUL and throws reading them: build such archives
+  by patching the name bytes over a placeholder.
 - A cancellation test should check `CancellationToken == caller's token`, not just the exception type: four types
   passed type-only tests for many rounds while handing out an internal linked token.
 - Start a test's cancel from the event it races (the server has the request), not from a timer started before the

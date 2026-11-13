@@ -28,7 +28,7 @@ namespace ToolBelt.Tests.Visualization
         public void SignaturePresent()
         {
             byte[] png = PngWriter.Encode(new ImageBuffer(2, 2, Rgba.White));
-            Check.True(png.AsSpan(0, 8).SequenceEqual(Signature));
+            Check.True(png.Take(8).SequenceEqual(Signature));
         }
 
         public void LargerImageWithDrawing()
@@ -66,7 +66,7 @@ namespace ToolBelt.Tests.Visualization
         // reconstructs the pixels from the inflated scanlines. Uses its own checksum code (differential).
         private static (int Width, int Height, byte[] Rgba) DecodeAndValidate(byte[] png)
         {
-            Check.True(png.AsSpan(0, 8).SequenceEqual(Signature), "PNG signature");
+            Check.True(png.Take(8).SequenceEqual(Signature), "PNG signature");
 
             int pos = 8;
             byte[]? ihdr = null;

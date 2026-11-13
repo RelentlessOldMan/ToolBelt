@@ -1,3 +1,4 @@
+#if !NETFRAMEWORK   // ArrayPoolScope is net8.0-only (the netstandard2.0 build has no ArrayPool)
 using System;
 using ToolBelt.Runtime;
 using ToolBelt.Tests.Framework;
@@ -82,3 +83,4 @@ namespace ToolBelt.Tests.Runtime
         }
     }
 }
+#endif

@@ -91,7 +91,7 @@ namespace ToolBelt.Tests.Collections
                             bool a = d.TryPopBack(out int gb);
                             bool e = model.Count > 0;
                             Check.Equal(e, a, $"trial {trial} op {op}: pop-back had element");
-                            if (e) { Check.Equal(model[^1], gb, $"trial {trial} op {op}: pop-back value"); model.RemoveAt(model.Count - 1); }
+                            if (e) { Check.Equal(model[model.Count - 1], gb, $"trial {trial} op {op}: pop-back value"); model.RemoveAt(model.Count - 1); }
                             break;
                         }
                     }

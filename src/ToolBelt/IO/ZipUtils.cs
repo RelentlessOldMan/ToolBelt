@@ -99,9 +99,9 @@ namespace ToolBelt.IO
             Directory.CreateDirectory(root);
 
             using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
+            using var archive = OpenArchive(fs, ZipArchiveMode.Read);
             var directoryTimes = new List<(string Path, DateTime Time)>();
-            foreach (ZipArchiveEntry entry in archive.Entries)
+            foreach (ZipArchiveEntry entry in EntriesOf(archive))
             {
                 string target = SafeTarget(root, rootWithSeparator, entry.FullName);
                 EnsureNoLinks(rootWithSeparator, target, entry.FullName);
@@ -169,8 +169,8 @@ namespace ToolBelt.IO
             if (zipPath is null) throw new ArgumentNullException(nameof(zipPath));
             var names = new List<string>();
             using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
-            foreach (ZipArchiveEntry entry in archive.Entries) names.Add(entry.FullName);
+            using var archive = OpenArchive(fs, ZipArchiveMode.Read);
+            foreach (ZipArchiveEntry entry in EntriesOf(archive)) names.Add(entry.FullName);
             return names;
         }
 
@@ -182,10 +182,10 @@ namespace ToolBelt.IO
             if (content is null) throw new ArgumentNullException(nameof(content));
 
             using var fs = new FileStream(zipPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            using var archive = new ZipArchive(fs, ZipArchiveMode.Update);
+            using var archive = OpenArchive(fs, ZipArchiveMode.Update);
             // GetEntry finds only one of several same-named entries; remove them all.
             var stale = new List<ZipArchiveEntry>();
-            foreach (ZipArchiveEntry e in archive.Entries)
+            foreach (ZipArchiveEntry e in EntriesOf(archive))
                 if (string.Equals(e.FullName, entryName, StringComparison.Ordinal)) stale.Add(e);
             foreach (ZipArchiveEntry e in stale) e.Delete();
             ZipArchiveEntry entry = archive.CreateEntry(entryName, level);
@@ -206,7 +206,8 @@ namespace ToolBelt.IO
             long cap = Math.Min(maxBytes, 0x7FFFFFC7L);   // the largest byte array the runtime allows
 
             using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
+            using var archive = OpenArchive(fs, ZipArchiveMode.Read);
+            EntriesOf(archive);
             ZipArchiveEntry? entry = archive.GetEntry(entryName);
             if (entry is null) return null;
             if (entry.Length > cap)
@@ -237,6 +238,24 @@ namespace ToolBelt.IO
             using var reader = new StreamReader(new MemoryStream(bytes), encoding ?? Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
             return reader.ReadToEnd();
         }
+
+        // .NET Framework's ZipArchive passes each name it reads through its path checks, so an archive with an entry named
+        // "x.txt:hidden" or holding a NUL threw ArgumentException (blaming no argument) from every read, where .NET Core reads
+        // it and extraction refuses the name with IOException. Update mode reads the names in the constructor.
+        private static ZipArchive OpenArchive(Stream stream, ZipArchiveMode mode)
+        {
+            try { return new ZipArchive(stream, mode); }
+            catch (ArgumentException ex) { throw UnreadableName(ex); }
+        }
+
+        private static System.Collections.ObjectModel.ReadOnlyCollection<ZipArchiveEntry> EntriesOf(ZipArchive archive)
+        {
+            try { return archive.Entries; }
+            catch (ArgumentException ex) { throw UnreadableName(ex); }
+        }
+
+        private static IOException UnreadableName(ArgumentException ex)
+            => new IOException("The archive has an entry name with a character not allowed in a file name, which .NET Framework cannot read.", ex);
 
         // Resolves an entry name against the root and verifies it stays inside — the Zip Slip guard.
         private static string SafeTarget(string root, string rootWithSeparator, string entryName)

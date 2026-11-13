@@ -109,7 +109,7 @@ namespace ToolBelt.IO
             string dst = FullDirectory(destination, nameof(destination));
             if (!Directory.Exists(src)) throw new DirectoryNotFoundException($"Source directory '{source}' does not exist.");
             // Through a link (a junction j → src makes j\c the same folder as src\c) the string check alone passed.
-            if (IsSameOrInside(dst, src) || IsSameOrInside(ResolveLinks(dst), ResolveLinks(src)))
+            if (IsSameOrInside(dst, src) || IsSameOrInside(ResolveLinks(dst), ResolveLinks(src)) || InsideByMark(dst, src))
                 throw new ArgumentException("The destination may not be the source or lie inside it.", nameof(destination));
 
             int copied = 0, skipped = 0, created = 0, errors = 0;
@@ -434,6 +434,56 @@ namespace ToolBelt.IO
             return full;
 #endif
         }
+
+        // Where links cannot be read (before net6), a link along either path hid a destination inside the source, which was
+        // then copied into itself once with no error. A uniquely named mark in the destination's nearest existing folder,
+        // found in the source's tree (links not followed, as Copy does), shows it is inside. A folder the mark cannot be
+        // written to is not checked.
+        private static bool InsideByMark(string dst, string src)
+        {
+#if NET6_0_OR_GREATER
+            return false;
+#else
+            if (!LinkAlong(dst) && !LinkAlong(src)) return false;
+            string existing = dst;
+            while (!Directory.Exists(existing))
+            {
+                string? parent = Path.GetDirectoryName(existing);
+                if (parent is null) return false;
+                existing = parent;
+            }
+            string name = ".toolbelt-copy-probe-" + Guid.NewGuid().ToString("N");
+            string mark = Path.Combine(existing, name);
+            try { using (new FileStream(mark, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose)) return HasFile(src, name); }
+            catch (Exception ex) when (IsIoError(ex)) { return false; }
+#endif
+        }
+
+#if !NET6_0_OR_GREATER
+        private static bool LinkAlong(string full)
+        {
+            for (string? p = full; p != null; p = Path.GetDirectoryName(p))
+                if (Directory.Exists(p) && IsLink(p)) return true;
+            return false;
+        }
+
+        private static bool HasFile(string root, string name)
+        {
+            var pending = new Stack<string>();
+            pending.Push(root);
+            while (pending.Count > 0)
+            {
+                string dir = pending.Pop();
+                if (File.Exists(Path.Combine(dir, name))) return true;
+                string[] dirs;
+                try { dirs = Directory.GetDirectories(dir); }
+                catch (Exception ex) when (IsIoError(ex)) { continue; }
+                foreach (string d in dirs)
+                    if (!IsLink(d)) pending.Push(d);
+            }
+            return false;
+        }
+#endif
 
         private static string FullDirectory(string path, string name)
         {

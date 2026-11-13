@@ -157,8 +157,8 @@ namespace ToolBelt.Tests.Framework
             }
             catch (TargetInvocationException tie) when (tie.InnerException is not null)
             {
-                // Unwrap the reflection layer so the real assertion failure surfaces.
-                throw tie.InnerException;
+                // Unwrap the reflection layer so the real assertion failure surfaces, keeping its stack trace.
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(tie.InnerException).Throw();
             }
         }
 

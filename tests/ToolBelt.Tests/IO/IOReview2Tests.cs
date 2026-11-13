@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+#if !NETFRAMEWORK
 using System.Formats.Tar;
+#endif
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -17,6 +19,7 @@ namespace ToolBelt.Tests.IO
     {
         // ---------------- TarUtils ----------------
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Tar_PaxGlobalHeaderIsSkipped()
         {
             // .NET's TarWriter (and GNU tar) name a global header "$TMPDIR/GlobalHead.%p.%n": an absolute path, which the
@@ -34,7 +37,9 @@ namespace ToolBelt.Tests.IO
             Check.Equal("hi", File.ReadAllText(Path.Combine(dst, "a.txt")));
             Check.Equal("a.txt", string.Join("|", TarUtils.ListEntries(tar)));
         }
+#endif
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Tar_FileEntryResolvingToTheRootIsInvalidData()
         {
             // "x/.." is the destination itself: opening it as a file threw UnauthorizedAccessException.
@@ -45,6 +50,7 @@ namespace ToolBelt.Tests.IO
                 w.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, "x/..") { DataStream = new MemoryStream(new byte[] { 1 }) });
             Check.Throws<InvalidDataException>(() => TarUtils.ExtractToDirectory(tar, dst));
         }
+#endif
 
         // ---------------- ZipUtils ----------------
 
@@ -185,9 +191,13 @@ namespace ToolBelt.Tests.IO
         {
             try
             {
-                if (OperatingSystem.IsWindows()) return Run("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"") && Directory.Exists(link);
+                if (TestPlatform.IsWindows) return Run("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"") && Directory.Exists(link);
+#if NETFRAMEWORK
+                return false;   // .NET Framework has no CreateSymbolicLink (and runs only on Windows)
+#else
                 Directory.CreateSymbolicLink(link, target);
                 return true;
+#endif
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is System.ComponentModel.Win32Exception)
             {
@@ -199,7 +209,7 @@ namespace ToolBelt.Tests.IO
         {
             try
             {
-                return (OperatingSystem.IsWindows()
+                return (TestPlatform.IsWindows
                     ? Run("cmd.exe", $"/c mklink /H \"{link}\" \"{target}\"")
                     : Run("ln", $"\"{target}\" \"{link}\"")) && File.Exists(link);
             }
@@ -237,6 +247,7 @@ namespace ToolBelt.Tests.IO
             finally { Directory.Delete(j); }
         }
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Extract_ReplacesAHardLinkedFileInsteadOfWritingThroughIt()
         {
             using var tmp = new TempDirectory();
@@ -264,7 +275,9 @@ namespace ToolBelt.Tests.IO
             Check.Equal("safe", File.ReadAllText(outside), "copy wrote through the hard link");
             Check.Equal("archive", File.ReadAllText(Path.Combine(d3, "x.txt")));
         }
+#endif
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Tar_TruncatedArchiveLeavesTheExistingFileIntact()
         {
             using var tmp = new TempDirectory();
@@ -280,6 +293,7 @@ namespace ToolBelt.Tests.IO
             Check.Equal("original", File.ReadAllText(Path.Combine(dst, "big.bin")));
             Check.Equal(1, Directory.GetFiles(dst).Length, "a temporary file was left behind");
         }
+#endif
 
         // ---------------- robustness: entry names ----------------
 
@@ -287,14 +301,23 @@ namespace ToolBelt.Tests.IO
         {
             using var tmp = new TempDirectory();
             string dst = tmp.Combine("dst");
+            // .NET Framework's ZipArchive refuses to create these names, so a same-length placeholder is written and the
+            // real name patched over it in both the local and the central header.
             void Write(string zip, string name)
             {
-                using var fs = new FileStream(zip, FileMode.Create);
-                using var z = new ZipArchive(fs, ZipArchiveMode.Create);
-                using var s = z.CreateEntry(name).Open();
-                s.Write(new byte[] { 1, 2, 3 }, 0, 3);
+                string placeholder = new string('q', name.Length);
+                using (var fs = new FileStream(zip, FileMode.Create))
+                using (var z = new ZipArchive(fs, ZipArchiveMode.Create))
+                using (var s = z.CreateEntry(placeholder).Open())
+                    s.Write(new byte[] { 1, 2, 3 }, 0, 3);
+                byte[] bytes = File.ReadAllBytes(zip), from = Encoding.ASCII.GetBytes(placeholder), to = Encoding.ASCII.GetBytes(name);
+                int patched = 0;
+                for (int i = 0; i + from.Length <= bytes.Length; i++)
+                    if (bytes.Skip(i).Take(from.Length).SequenceEqual(from)) { Array.Copy(to, 0, bytes, i, to.Length); patched++; }
+                Check.Equal(2, patched);
+                File.WriteAllBytes(zip, bytes);
             }
-            if (OperatingSystem.IsWindows())
+            if (TestPlatform.IsWindows)
             {
                 Write(tmp.Combine("ads.zip"), "x.txt:hidden");
                 Check.Throws<IOException>(() => ZipUtils.ExtractToDirectory(tmp.Combine("ads.zip"), dst));
@@ -304,6 +327,7 @@ namespace ToolBelt.Tests.IO
             Check.Throws<IOException>(() => ZipUtils.ExtractToDirectory(tmp.Combine("nul.zip"), dst));
         }
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void Tar_EntryNamesWithAStreamOrOnlyDotsAreInvalidData()
         {
             using var tmp = new TempDirectory();
@@ -316,13 +340,14 @@ namespace ToolBelt.Tests.IO
             }
             Write(tmp.Combine("dots.tar"), "...");
             Check.Throws<InvalidDataException>(() => TarUtils.ExtractToDirectory(tmp.Combine("dots.tar"), dst));
-            if (OperatingSystem.IsWindows())
+            if (TestPlatform.IsWindows)
             {
                 Write(tmp.Combine("ads.tar"), "x.txt:hidden");
                 Check.Throws<InvalidDataException>(() => TarUtils.ExtractToDirectory(tmp.Combine("ads.tar"), dst));
                 Check.False(File.Exists(Path.Combine(dst, "x.txt")), "an alternate data stream was written");
             }
         }
+#endif
 
         // ---------------- robustness: everything else ----------------
 
@@ -389,9 +414,10 @@ namespace ToolBelt.Tests.IO
             Check.Throws<ArgumentException>(() => CsvLine.Parse("a\nb", '\n'));
         }
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void JsonFile_SaveKeepsTheTargetsHiddenAttribute()
         {
-            if (!OperatingSystem.IsWindows()) return;
+            if (!TestPlatform.IsWindows) return;
             using var tmp = new TempDirectory();
             string p = tmp.Combine("settings.json");
             JsonFile.Save(p, new { A = 1 });
@@ -399,5 +425,6 @@ namespace ToolBelt.Tests.IO
             JsonFile.Save(p, new { A = 2 });
             Check.True((File.GetAttributes(p) & FileAttributes.Hidden) != 0, "the Hidden attribute was dropped");
         }
+#endif
     }
 }

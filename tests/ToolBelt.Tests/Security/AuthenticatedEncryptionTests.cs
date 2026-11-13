@@ -1,3 +1,4 @@
+#if !NETFRAMEWORK   // AuthenticatedEncryption is net8.0-only (AES-GCM)
 using System;
 using System.Security.Cryptography;
 using System.Text;
@@ -153,3 +154,4 @@ namespace ToolBelt.Tests.Security
         }
     }
 }
+#endif

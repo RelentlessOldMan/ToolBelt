@@ -1,4 +1,4 @@
-#if !NETSTANDARD2_0
+#if !NETFRAMEWORK   // JsonFile, SettingsStore, TarUtils and SecretsFile are net8.0-only
 using System;
 using System.Collections.Generic;
 using System.Formats.Tar;

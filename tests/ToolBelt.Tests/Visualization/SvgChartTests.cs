@@ -77,7 +77,7 @@ namespace ToolBelt.Tests.Visualization
             PlotFrame f = SvgChart.Layout(new[] { Line(y) }, opts);
             XDocument doc = Parse(SvgChart.Render(new[] { Line(y) }, opts));
             string d = doc.Descendants(Ns + "path").Single().Attribute("d")!.Value;
-            var nums = Regex.Matches(d, @"-?\d+(\.\d+)?").Select(m => double.Parse(m.Value, CultureInfo.InvariantCulture)).ToArray();
+            var nums = Regex.Matches(d, @"-?\d+(\.\d+)?").Cast<Match>().Select(m => double.Parse(m.Value, CultureInfo.InvariantCulture)).ToArray();
             Check.True(nums.Length >= 4 && nums.Length % 2 == 0);
             for (int i = 0; i < nums.Length; i += 2)
             {

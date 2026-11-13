@@ -381,6 +381,7 @@ namespace ToolBelt.Tests.Time
 
         // ---- SecretsFile ----
 
+#if !NETFRAMEWORK   // uses a net8.0-only type
         public void SecretsFile_LoneSurrogate_IsRejectedInsteadOfAltered()
         {
             var s = new SecretsFile();
@@ -395,5 +396,6 @@ namespace ToolBelt.Tests.Time
             Check.True(back.TryGet("emoji😀", out string? v));
             Check.Equal("v😀", v);
         }
+#endif
     }
 }

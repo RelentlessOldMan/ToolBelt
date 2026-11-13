@@ -25,7 +25,7 @@ fix the bugs → cut a release → move on to the next round. This file is the t
    - the section's files still pass their tests when the library is built with `CheckForOverflowUnderflow=true`
      (drop-in users may have it on). Build in a scratch worktree with the property added to
      `src/ToolBelt/ToolBelt.csproj` only, so test-side arithmetic stays unchecked.
-4. **Release.** Bump the version, commit (`Review round N: <section>`), push, tag `v0.N.0`, and create a GitHub
+4. **Release.** Bump the version (`scripts/bump-version.ps1`), commit (`Review round N: <section>`), push, tag `v<version>`, and create a GitHub
    release (`gh release create`) whose notes list the fixes.
 5. **Record.** Update the tracker table and the round log below, then start the next round.
 
@@ -63,14 +63,14 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56). **next: the cross-cutting rounds, the whole suite on .NET Framework 4.8 and in the checked build** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). **next: the fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8, 14, 17, 4, 5, 7, 13, 15, 3, 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
 ## Releases
 
-There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Build.props`) and starts at
-`v0.1.0`; each round bumps the minor version.
+Round 1 added `<Version>` (a shared `Directory.Build.props`) at `v0.1.0`, and each round to 56 bumped the minor
+version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Git and releases").
 
 | Release | Round | Section | Bugs fixed | Commit |
 |---------|-------|---------|-----------:|--------|
@@ -130,6 +130,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.54.0 | 54 | Throwing callbacks (cross-cutting) | 36 | (see tag) |
 | v0.55.0 | 55 | Cancellation and dispose races (cross-cutting) | 17 | (see tag) |
 | v0.56.0 | 56 | Non-finite and extreme numerics (cross-cutting) | 34 | (see tag) |
+| v2026.11.13.0 | 57 | The whole suite on .NET Framework 4.8 and in the checked build (cross-cutting) | 4 | (see tag) |
 
 ## Round log
 
@@ -2602,3 +2603,42 @@ for the new huge-time labels and fails on the old code too.
 - **Checked build:** the core suite in a checked build is green (3134).
 - **.NET Framework 4.8:** this round's tests plus the existing review tests for the changed areas that compile there
   (271) all pass.
+
+### Round 57: the whole suite on .NET Framework 4.8 and in the checked build, cross-cutting (v2026.11.13.0)
+
+The fourth cross-cutting round: no reviewers; the whole core suite was made to compile on .NET Framework 4.8 and run
+there against the netstandard2.0 build, for the first time in one go, and the whole core suite ran in the checked
+build. **4 library bugs, none severe**, counting BUGLIST 54-1; BUGLIST 52-1 (the suite did not compile there) is
+closed. Regression tests are in `IO/IONetFrameworkReview57Tests` (7 tests; 6 fail on the old code on .NET
+Framework, and the 7th checks the fix does not refuse a copy beside the source); `BenchmarkTests.MeasuresAllocation`,
+`IOReview2Tests.Zip_EntryNamesWithAStreamOrNulAreRefused` and `IOReview2Tests.Copy_IntoTheSourceThroughAJunctionIsRefusedNotEndless`
+also fail there on the old code.
+
+- **DirectoryUtils.Copy through a link (netstandard2.0):** links are resolved only on net6+, so on .NET Framework
+  `Copy(src, j\c)` with a junction j → src was not refused and copied the tree into itself once. Where a link lies
+  along either path, a uniquely named mark (deleted on close) in the destination's nearest existing folder is looked
+  for in the source's tree; finding it refuses the copy.
+- **ZipUtils on .NET Framework:** its ZipArchive puts every name it reads through the path checks, so an archive
+  holding "x.txt:hidden", a NUL or '|' threw ArgumentException (blaming no argument) from ExtractToDirectory,
+  ListEntries, ReadEntryBytes and AddOrReplaceEntry, where .NET Core reads the name and extraction refuses it with
+  IOException. All four throw IOException there now.
+- **Benchmark allocation (54-1):** the netstandard2.0 build measured with `GC.GetTotalMemory(false)`, the heap's net
+  change, which a collection takes back to 0 (`MeasuresAllocation` got 0 B/op for 4096). It now uses the per-thread
+  counter where the runtime has it (found by reflection) and the application domain's monitored total on .NET
+  Framework (that switch, once on, stays on for the process; documented).
+- **The suite on .NET Framework (52-1):** net8-only APIs in tests replaced with portable ones (index-from-end, span
+  `SequenceEqual`, `MatchCollection` LINQ, two-argument `FirstOrDefault`, `DateTimeOffset.UnixEpoch`,
+  `MemoryStream.Write(byte[])`, `TcpListener` in `using`, `OperatingSystem.IsWindows` via a new
+  `Framework/TestPlatform`), and tests of net8-only types (tar, JSON files, settings and secrets stores,
+  AuthenticatedEncryption, ArrayPoolScope, `ReadOnlyMemory`, `Span` reflection) guarded with `#if !NETFRAMEWORK`.
+  `net48.sh` references the framework assemblies the tests use (zip, HttpClient, Microsoft.CSharp).
+- **Tests that were wrong on .NET Framework:** the zip name tests built their archives with ZipArchive, which refuses
+  those names there (they now patch the real name over a placeholder); the Word automation test released the
+  `dynamic` application after Quit through a dynamic call that binds against the dead object (0x80010114); a
+  throwing `Exception.Data` value must be serializable there; and `AtomicFile_LongFileNameStillWorks` goes past
+  MAX_PATH, which .NET Framework refuses for every API unless long paths are enabled, so it runs there only when
+  plain `File.WriteAllText` accepts the path.
+- **Found while testing:** the test runner rethrew a test's exception with `throw ex.InnerException`, losing the
+  stack trace; it keeps it now.
+- **Checked build:** the whole core suite in the checked build is green (3141).
+- **.NET Framework 4.8:** the whole core suite there: 3079 tests, all green, in 168 s.

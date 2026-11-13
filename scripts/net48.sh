@@ -33,6 +33,8 @@ done
   echo "    <Compile Include=\"$REPO/tests/ToolBelt.Tests/Framework/*.cs\" />"
   for f in "${folders[@]}"; do echo "    <Compile Include=\"$REPO/tests/ToolBelt.Tests/$f/**/*.cs\" />"; done
   echo "    <ProjectReference Include=\"$REPO/src/ToolBelt/ToolBelt.csproj\" />"
+  # Framework assemblies the tests use as references (zip readers, HttpClient, dynamic for the Word automation test); built into net8.0.
+  echo '    <Reference Include="System.IO.Compression" /><Reference Include="System.IO.Compression.FileSystem" /><Reference Include="System.Net.Http" /><Reference Include="Microsoft.CSharp" />'
   echo '  </ItemGroup>'
   echo '</Project>'
 } > "$DIR/net48.csproj"

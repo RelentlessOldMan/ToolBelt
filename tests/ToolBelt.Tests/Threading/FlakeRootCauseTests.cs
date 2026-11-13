@@ -50,7 +50,7 @@ namespace ToolBelt.Tests.Threading
             }), capacity: 1);
             var producers = new Task[4];
             for (int p = 0; p < producers.Length; p++)
-                producers[p] = Task.Run(() => { for (int i = 0; i < 25; i++) sink.Emit(new LogEvent(DateTimeOffset.UnixEpoch, LogLevel.Info, "c", "m", null)); });
+                producers[p] = Task.Run(() => { for (int i = 0; i < 25; i++) sink.Emit(new LogEvent(DateTimeOffset.FromUnixTimeSeconds(0), LogLevel.Info, "c", "m", null)); });
             Check.True(Task.WaitAll(producers, TimeSpan.FromSeconds(20)));
             sink.Dispose();
             Check.Equal(100, written);
