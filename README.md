@@ -1079,6 +1079,9 @@ tests/
 scripts/
   build.ps1                 build wrapper (disables the persistent build server)
   test.ps1                  build once + launch the test exe directly (-Configuration X; other args go to the runner)
+  verify.sh                 full verify (Git Bash): sln build, the four suites, MathChecks; one line per suite
+  checked-build.sh          core suite against an overflow-checked library build, in a scratch worktree
+  net48.sh                  chosen core test folders on .NET Framework 4.8 against the netstandard2.0 build
   coverage.ps1              line/branch coverage of the core via the coverlet.console global tool (+ HTML report)
   gen-distribution-references.py  regenerates the 40-digit distribution reference table (needs mpmath)
   gen-png-fixtures.py     regenerates the PNG decoder fixtures (needs Pillow, used as a cross-check)
