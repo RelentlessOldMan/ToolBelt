@@ -526,13 +526,21 @@ namespace ToolBelt.Tests.Time
 
         public async Task Http_CallerCancellation_IsNotRetried()
         {
-            using var server = new RawServer(async (head, ns, n) => { await Task.Delay(TimeSpan.FromSeconds(3)); await Respond(ns, "200 OK", Body); });
-            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+            // Cancelled once the server has the request: a 300 ms timer started before the call fired, on a starved
+            // machine, before the server had counted anything, and the test saw 0 requests (BUGLIST 52-2).
+            using var cts = new CancellationTokenSource();
+            using var server = new RawServer(async (head, ns, n) =>
+            {
+                cts.CancelAfter(1);
+                await Task.Delay(TimeSpan.FromSeconds(3));
+                await Respond(ns, "200 OK", Body);
+            });
             string dest = TempFile();
             try
             {
                 await Check.ThrowsAsync<OperationCanceledException>(() => HttpDownload.ToFileAsync(server.Url, dest,
                     new HttpDownloadOptions { MaxAttempts = 3, RetryBaseDelay = TimeSpan.FromMilliseconds(10) }, cts.Token));
+                await Task.Delay(200);   // room for a retry that should not come
                 Check.Equal(1, server.Requests);
             }
             finally { Cleanup(dest); }

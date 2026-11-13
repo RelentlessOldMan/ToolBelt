@@ -50,6 +50,11 @@ namespace ToolBelt.Resilience
                 {
                     throw new ObjectDisposedException(nameof(Bulkhead));
                 }
+                catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested && oce.CancellationToken != cancellationToken)
+                {
+                    // The wait saw the linked token; the caller should see their own.
+                    throw new OperationCanceledException(oce.Message, oce, cancellationToken);
+                }
                 if (_disposed)
                 {
                     // Granted the slot just as Dispose ran (the semaphore prefers a grant over the cancellation).

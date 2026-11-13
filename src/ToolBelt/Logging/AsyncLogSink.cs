@@ -69,7 +69,14 @@ namespace ToolBelt.Logging
             AsyncLogSink? consuming = t_consuming;
             if (consuming != this && (consuming == null || !_blocks))
             {
-                _pipeline.TryEnqueue(logEvent);
+                // After Dispose this threw the pipeline's InvalidOperationException ("completed"), not the
+                // ObjectDisposedException the other sinks throw.
+                if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(AsyncLogSink));
+                try { _pipeline.TryEnqueue(logEvent); }
+                catch (Exception ex) when (Volatile.Read(ref _disposed) != 0 && (ex is InvalidOperationException || ex is OperationCanceledException))
+                {
+                    throw new ObjectDisposedException(nameof(AsyncLogSink));   // Dispose ran while this was queueing
+                }
                 return;
             }
             if (consuming != this)

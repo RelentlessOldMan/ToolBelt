@@ -75,7 +75,10 @@ namespace ToolBelt.Cli
                 {
                     if (cts.IsCancellationRequested) return;       // second Ctrl+C: let the runtime terminate
                     e.Cancel = true;
-                    try { cts.Cancel(); } catch (ObjectDisposedException) { }   // Ctrl+C racing with RunAsync unwinding
+                    try { cts.Cancel(); }
+                    catch (ObjectDisposedException) { }   // Ctrl+C racing with RunAsync unwinding
+                    // A token callback the body registered threw: out of the CancelKeyPress handler, that ended the process.
+                    catch (AggregateException ex) { TryWrite(err, "A cancellation callback failed: " + Text(ex, () => Unwrap(ex).Message)); }
                 };
                 Console.CancelKeyPress += handler;
             }
@@ -151,7 +154,10 @@ namespace ToolBelt.Cli
             return false;
         }
 
-        /// <summary>A token that trips on the first Ctrl+C (which is then suppressed); dispose to unhook.</summary>
+        /// <summary>
+        /// A token that trips on the first Ctrl+C (which is then suppressed); dispose to unhook. An exception thrown by a
+        /// callback registered on the token is swallowed: it would otherwise end the process from the Ctrl+C handler.
+        /// </summary>
         public static CancellationTokenSource CreateInterruptSource()
         {
             var cts = new InterruptSource();
@@ -168,7 +174,9 @@ namespace ToolBelt.Cli
                 {
                     if (IsCancellationRequested) return;
                     e.Cancel = true;
-                    try { Cancel(); } catch (ObjectDisposedException) { }
+                    try { Cancel(); }
+                    catch (ObjectDisposedException) { }
+                    catch (AggregateException) { /* a registered callback threw: out of this handler it ended the process */ }
                 };
                 Console.CancelKeyPress += _handler;
             }

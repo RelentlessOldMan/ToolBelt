@@ -243,8 +243,10 @@ namespace ToolBelt.Net
                     throw new TimeoutException($"No data from {url} for {options.ReadTimeout}.", ex);
                 }
                 // The disposed response fails the pending read with an IOException where the stream ignores the token
-                // (.NET Framework): the caller cancelled, so say so.
-                catch (Exception ex) when (ct.IsCancellationRequested && !(ex is OperationCanceledException || ex is ProgressFailure))
+                // (.NET Framework): the caller cancelled, so say so. A read cancelled through the idle token carries that
+                // token, not the caller's, so it is re-raised with theirs too.
+                catch (Exception ex) when (ct.IsCancellationRequested && !(ex is ProgressFailure)
+                                           && !(ex is OperationCanceledException oce && oce.CancellationToken == ct))
                 {
                     throw new OperationCanceledException("The download was canceled.", ex, ct);
                 }

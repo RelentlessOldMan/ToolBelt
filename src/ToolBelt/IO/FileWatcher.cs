@@ -398,7 +398,7 @@ namespace ToolBelt.IO
         private DirectorySnapshot? _snapshot;
         private int _flushing;
         private volatile bool _rescanRequested;
-        private bool _disposed;
+        private volatile bool _disposed;
         private readonly bool _matchAll;
 
         public FileWatcher(string directory, FileWatcherOptions? options = null)
@@ -552,6 +552,10 @@ namespace ToolBelt.IO
                 // the tick ends, and signalling a disposed handle threw on the timer thread, which ended the process.
                 if (!_timer.Dispose(done) || done.WaitOne(TimeSpan.FromSeconds(5))) done.Dispose();
             }
+            // A Flush on another thread that passed its disposed check could still be raising after Dispose returned.
+            // Raise rechecks under the gate, so once Dispose has held it no event starts; the wait is bounded, as above,
+            // for a handler that marshals synchronously to this thread. (Reentrant: from a handler it is ours already.)
+            if (Monitor.TryEnter(_raiseGate, TimeSpan.FromSeconds(5))) Monitor.Exit(_raiseGate);
             IsRunning = false;
         }
 
@@ -688,6 +692,7 @@ namespace ToolBelt.IO
             if (batch.Count == 0 || _disposed) return;   // no events after Dispose, even from an in-flight tick
             lock (_raiseGate) // reentrant, so a handler that calls Flush() does not deadlock
             {
+                if (_disposed) return;   // checked again here: Dispose may have run while this waited for the gate
                 var previous = _raisingOn;
                 _raisingOn = this;
                 try { Changed?.Invoke(this, new FileChangesEventArgs(batch)); }
@@ -705,6 +710,7 @@ namespace ToolBelt.IO
             if (_disposed) return;   // as Raise: no events after Dispose, even from an in-flight tick
             lock (_raiseGate)
             {
+                if (_disposed) return;
                 var previous = _raisingOn;
                 _raisingOn = this;
                 try { Error?.Invoke(this, new ErrorEventArgs(ex)); }

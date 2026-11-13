@@ -51,6 +51,10 @@ namespace ToolBelt.Logging
         private TcpClient? _tcp;
         private NetworkStream? _tcpStream;
         private bool _disposed;
+        // Read and written outside the gate: Dispose closes the socket an Emit is blocked on (a connect, a full send buffer)
+        // instead of waiting behind it, for up to the connect timeout or the send timeout.
+        private volatile bool _closing;
+        private volatile TcpClient? _inUse;
         private long _failed;
         private long _retryAtTimestamp;   // Stopwatch timestamp before which no reconnect is attempted
         private TimeSpan _backoff;
@@ -96,7 +100,8 @@ namespace ToolBelt.Logging
             byte[] payload = Encoding.UTF8.GetBytes(line);
             lock (_gate)
             {
-                if (_disposed) return;
+                // Returned silently after Dispose, where the other sinks throw ObjectDisposedException.
+                if (_disposed) throw new ObjectDisposedException(nameof(SyslogSink));
                 try
                 {
                     if (_transport == SyslogTransport.Udp) SendUdp(payload);
@@ -185,7 +190,10 @@ namespace ToolBelt.Logging
             long now = System.Diagnostics.Stopwatch.GetTimestamp();
             if (now < _retryAtTimestamp)
                 throw new SocketException((int)SocketError.TryAgain); // backing off after a failed connect: don't block
+            if (_closing) throw new ObjectDisposedException(nameof(SyslogSink));   // a stale-connection retry after Dispose began
             var client = new TcpClient { NoDelay = true, SendTimeout = 5000 };
+            _inUse = client;
+            if (_closing) { client.Dispose(); throw new ObjectDisposedException(nameof(SyslogSink)); }   // Dispose missed it
             try
             {
                 // TcpClient.Connect has no timeout (an unreachable host takes ~21 s on Windows), so race the async connect.
@@ -270,6 +278,8 @@ namespace ToolBelt.Logging
 
         public void Dispose()
         {
+            _closing = true;
+            try { _inUse?.Dispose(); } catch { }   // fails a blocked connect or send now, so the gate frees
             lock (_gate)
             {
                 if (_disposed) return;

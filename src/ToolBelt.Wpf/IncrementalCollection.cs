@@ -68,10 +68,12 @@ namespace ToolBelt.Wpf
 
         /// <summary>
         /// Loads and appends the next page, returning how many items were added (0 when there is nothing more). If a
-        /// page is already loading, waits for that load instead.
+        /// page is already loading, waits for that load instead. A token already cancelled starts nothing.
         /// </summary>
         public Task<int> LoadMoreAsync(CancellationToken cancellationToken = default)
         {
+            // A cancelled token started a fetch anyway, and a loader that ignored its token appended the page.
+            if (cancellationToken.IsCancellationRequested) return Task.FromCanceled<int>(cancellationToken);
             LoadState? load = _load;
             if (load != null && !load.Task.IsCompleted)
                 return load.Cancelling ? LoadAfterAsync(load.Task, cancellationToken) : Join(load, cancellationToken);
@@ -117,6 +119,8 @@ namespace ToolBelt.Wpf
                 if (t.IsFaulted) mine.TrySetException(t.Exception!.InnerExceptions);
                 else if (t.IsCanceled)
                 {
+                    // The last waiter cancelled the load through its own token: it sees that token, not the load's.
+                    if (cancellationToken.IsCancellationRequested) { mine.TrySetCanceled(cancellationToken); return; }
                     try { t.GetAwaiter().GetResult(); }
                     catch (OperationCanceledException oce) { mine.TrySetCanceled(oce.CancellationToken); }
                 }

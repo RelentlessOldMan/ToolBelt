@@ -410,7 +410,7 @@ src/
       LineReader.cs         enumerate lines with byte offsets (mixed line endings; ASCII-compatible encodings, UTF-8 BOM skipped)
       SafeFileName.cs       sanitize a string into a filename safe on every OS (Windows rules everywhere)
       StreamUtils.cs        copy-with-progress (+ cancellation) / read-exactly
-      StreamWrappers.cs     CountingStream (bytes read/written) and TeeStream (duplicate reads or writes)
+      StreamWrappers.cs     CountingStream (bytes read/written) and TeeStream (duplicate reads or writes); closed after Dispose even when leaving the inner open
       TempFile.cs           disposable temp file & directory scopes
       ZipUtils.cs           zip create/extract/list/read (size-capped, keeps empty dirs and times); Zip-Slip guarded, links never followed
       TarUtils.cs           tar/.tar.gz create/extract/list (keeps empty dirs); traversal rejected, links never created or followed (net8)
@@ -498,7 +498,7 @@ src/
       AsyncLazy.cs          run-once async initialization (result cached)
       AsyncManualResetEvent.cs  awaitable manual-reset event
       AsyncCountdownEvent.cs  awaitable countdown latch
-      ConcurrentPipeline.cs  bounded producer-consumer (block / drop-newest / drop-oldest)
+      ConcurrentPipeline.cs  bounded producer-consumer (block / drop-newest / drop-oldest); CompleteAsync throws if a Dispose cut the drain short
       KeyedLock.cs          per-key async locks (lock striping, ref-counted)
       ParallelUtils.cs      bounded-concurrency async fan-out (fail-fast / collect-all)
       PeriodicWorker.cs     run an action on an interval, graceful stop (injectable delay)
@@ -572,7 +572,7 @@ src/
       Logger.cs             thread-safe fan-out logger (levels, category, injectable clock)
       LogSinks.cs           DelegateSink / TextWriterSink (console) / RollingMemorySink
       FileSink.cs           file sink with size-based rotation + retention
-      SyslogSink.cs         RFC 5424 syslog over UDP or TCP (octet counting, connect timeout + back-off); failures counted, never thrown
+      SyslogSink.cs         RFC 5424 syslog over UDP or TCP (octet counting, connect timeout + back-off); failures counted, never thrown (Emit after Dispose throws ObjectDisposedException)
       AsyncLogSink.cs       off-thread bounded-queue sink (built on ConcurrentPipeline)
       LogDecorators.cs      FilterSink / RouterSink / RateLimitedSink (composable sink wrappers)
       LogFormatters.cs      plain / compact / single-line-JSON line formatters
@@ -930,6 +930,7 @@ tests/
       ConcurrencyReview3Tests.cs (third-pass regressions: child stdin, token-bucket rounding, worker delay cancellation, retry policy nulls)
       FlakeRootCauseTests.cs  (round 46: pipeline, async log sink and process readers run off the thread pool)
       CallbackReview54Tests.cs (round 54, cross-cutting: throwing comparers, hashes, clocks, handlers, error sinks and token callbacks)
+      CancelDisposeReview55Tests.cs (round 55, cross-cutting: the caller's token, cancelled tokens honoured, Dispose racing the work)
       KeyedLockTests.cs
       ParallelUtilsTests.cs
       PeriodicWorkerTests.cs
@@ -1059,6 +1060,7 @@ tests/
     WpfReview2Tests.cs      (round 33 review regressions: numeric clamping, hotkey threading, theme adoption, drag filtering, validation)
     WpfReview3Tests.cs      (round 49 review regressions: numeric deletions, shared-load cancellation, theme follow failures, hotkey gestures)
     CallbackReview54Tests.cs  (round 54: throwing handlers in validation, commands and incremental loading)
+    CancelDisposeReview55Tests.cs (round 55: incremental loading's cancelled tokens)
     UiReviewRegressionTests.cs  (2026-10-05 review regressions: WPF satellite)
   ToolBelt.WinForms.Tests/  WinForms UI satellite tests (net8.0-windows)
     ControlExtensionsTests.cs

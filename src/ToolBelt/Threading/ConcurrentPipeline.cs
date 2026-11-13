@@ -39,6 +39,7 @@ namespace ToolBelt.Threading
         private readonly Task _loop;
         private long _dropped;
         private int _completed;
+        private volatile bool _drained; // the consumer stopped because the buffer emptied after completion
         private int _disposed;
         [ThreadStatic] private static object? t_reporting; // the pipeline whose onError this thread is running
 
@@ -117,13 +118,19 @@ namespace ToolBelt.Threading
 
         private static InvalidOperationException Completed() => new InvalidOperationException("The pipeline has been completed.");
 
-        /// <summary>Signals that no more items will be added, then waits for the buffer to drain.</summary>
+        /// <summary>
+        /// Signals that no more items will be added, then waits for the buffer to drain. Throws
+        /// <see cref="ObjectDisposedException"/> if the pipeline was disposed before every buffered item was processed.
+        /// </summary>
         public async Task CompleteAsync()
         {
             // Under the gate, so no enqueue can land after the consumer has seen "completed and empty".
             lock (_gate) Volatile.Write(ref _completed, 1);
             _signal.Release(); // wake the consumer so it can observe completion
             await _loop.ConfigureAwait(false);
+            // A Dispose racing the drain stopped the consumer with items still buffered, and this reported success.
+            if (!_drained)
+                throw new ObjectDisposedException(GetType().Name, "The pipeline was disposed before its buffer drained.");
         }
 
         private void Consume(CancellationToken ct)
@@ -131,7 +138,11 @@ namespace ToolBelt.Threading
             while (true)
             {
                 try { _signal.Wait(ct); }
-                catch (OperationCanceledException) { break; }
+                catch (OperationCanceledException)
+                {
+                    lock (_gate) _drained = _completed == 1 && _queue.Count == 0; // nothing was left to lose
+                    break;
+                }
 
                 while (true)
                 {
@@ -152,7 +163,7 @@ namespace ToolBelt.Threading
                 }
 
                 lock (_gate)
-                    if (_completed == 1 && _queue.Count == 0) break;
+                    if (_completed == 1 && _queue.Count == 0) { _drained = true; break; }
             }
         }
 

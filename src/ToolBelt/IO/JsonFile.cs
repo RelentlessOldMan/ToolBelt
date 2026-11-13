@@ -173,6 +173,9 @@ namespace ToolBelt.IO
             string? line;
             while ((line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false)) != null)
             {
+                // A line already in the reader's buffer comes back without looking at the token, so a cancel mid-stream
+                // was ignored until the buffer ran dry.
+                cancellationToken.ThrowIfCancellationRequested();
                 lineNumber++;
                 if (string.IsNullOrWhiteSpace(line)) continue;
                 yield return ParseLine<T>(line, lineNumber, options);

@@ -33,7 +33,9 @@ namespace ToolBelt.Process
         /// If set, the child is killed (the whole tree on .NET Core 3.0+ builds, only the direct child on the
         /// netstandard2.0 build) after this elapses and the result is flagged timed out. Reading the output counts
         /// too: if a grandchild keeps the output pipes open past the timeout, the run ends timed out with the output
-        /// read so far (allowing a second's grace for output still in flight). Must be between zero and
+        /// read so far (allowing a second's grace for output still in flight). The exit code is then the child's own if
+        /// it had exited, and -1 if it was killed. A grandchild still running once the child has exited is not killed
+        /// (its parent is gone, so it is no longer in the tree); put the child in a job object for that. Must be between zero and
         /// <see cref="int.MaxValue"/> milliseconds; <see cref="System.Threading.Timeout.InfiniteTimeSpan"/> means no
         /// timeout. An invalid value throws before the child starts.
         /// </summary>
@@ -45,7 +47,9 @@ namespace ToolBelt.Process
         /// <summary>
         /// Invoked for each line of standard output as it arrives, on a background thread. If it throws, the run
         /// still completes and the first such exception is rethrown to the caller. No call starts after the run returns
-        /// (a grandchild may still be writing to an inherited pipe after a timeout).
+        /// (a grandchild may still be writing to an inherited pipe after a timeout), and the run waits up to a second
+        /// for a call already under way; one that runs longer than that carries on after the run returns, and anything
+        /// it throws then is dropped.
         /// </summary>
         public Action<string>? OnOutputLine { get; set; }
 
@@ -136,9 +140,10 @@ namespace ToolBelt.Process
 
             // A grandchild that inherited the output pipes can hold them open after the child is gone, so the
             // wait for the rest of the output is bounded too.
+            bool killed = timedOut;
             if (!run.OutputClosed.Wait(OutputBudget(run, timeoutMs, timedOut)))
                 timedOut = true;
-            return Finish(run, timedOut, options);
+            return Finish(run, timedOut, killed, options);
         }
 
         public static async Task<ProcessResult> RunAsync(
@@ -169,11 +174,11 @@ namespace ToolBelt.Process
 
             if (canceled)
             {
-                run.Done = true;
+                StopCallbacks(run);
                 run.Process.Dispose();
                 throw new OperationCanceledException(cancellationToken);
             }
-            return Finish(run, timedOut, options);
+            return Finish(run, timedOut, !exited, options);
         }
 
         private sealed class RunState
@@ -187,7 +192,8 @@ namespace ToolBelt.Process
             public Stopwatch Stopwatch = null!;
             public string CommandLine = "";
             public Exception? CallbackError;
-            public volatile bool Done;   // the run has returned (or thrown): no more callbacks
+            public int Done;             // the run has returned (or thrown): no more callbacks
+            public int CallbacksRunning; // raised before Done is checked, so StopCallbacks can wait for the ones under way
 
             public Task Exited => ExitedSource.Task;
             public Task OutputClosed => Task.WhenAll(OutputEnd.Task, ErrorEnd.Task);
@@ -273,10 +279,29 @@ namespace ToolBelt.Process
             // crash the host, so it is reported the same way.
             try { lock (buffer) buffer.AppendLine(line); }
             catch (Exception ex) { Interlocked.CompareExchange(ref run.CallbackError, ex, null); }
-            // After a timeout or a cancel the reader threads kept calling back after Run had returned.
-            if (callback is null || run.Done) return;
-            try { callback(line); }
-            catch (Exception ex) { Interlocked.CompareExchange(ref run.CallbackError, ex, null); }
+            // After a timeout or a cancel the reader threads kept calling back after Run had returned. Counting the call
+            // before reading Done (both full fences) means StopCallbacks either sees it running or it sees Done.
+            if (callback is null) return;
+            Interlocked.Increment(ref run.CallbacksRunning);
+            try
+            {
+                if (Volatile.Read(ref run.Done) != 0) return;
+                try { callback(line); }
+                catch (Exception ex) { Interlocked.CompareExchange(ref run.CallbackError, ex, null); }
+            }
+            finally { Interlocked.Decrement(ref run.CallbacksRunning); }
+        }
+
+        // A callback already running when Done was checked kept going after the run returned, and its exception, raised
+        // after Finish had read CallbackError, was lost. Waits a bounded time: a callback that never returns can't hang Run.
+        private static void StopCallbacks(RunState run)
+        {
+            Interlocked.Exchange(ref run.Done, 1);
+            if (Volatile.Read(ref run.CallbacksRunning) == 0) return;
+            var wait = Stopwatch.StartNew();
+            var spin = new SpinWait();
+            while (Volatile.Read(ref run.CallbacksRunning) != 0 && wait.ElapsedMilliseconds < OutputGraceMilliseconds)
+                spin.SpinOnce();
         }
 
         private static void WriteInput(StreamWriter stdin, string text, Encoding? encoding)
@@ -296,11 +321,12 @@ namespace ToolBelt.Process
             catch (ObjectDisposedException) { /* the run already finished */ }
         }
 
-        private static ProcessResult Finish(RunState run, bool timedOut, ProcessRunOptions options)
+        private static ProcessResult Finish(RunState run, bool timedOut, bool killed, ProcessRunOptions options)
         {
-            run.Done = true;
+            StopCallbacks(run);
             run.Stopwatch.Stop();
-            int exitCode = timedOut ? -1 : run.Process.ExitCode;
+            // A child that exited on time but left a grandchild holding the pipes had its real exit code replaced by -1.
+            int exitCode = killed ? -1 : run.Process.ExitCode;
             run.Process.Dispose();
 
             Exception? callbackError = Volatile.Read(ref run.CallbackError);

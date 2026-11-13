@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54). **next: the cross-cutting rounds, cancellation and dispose races** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55). **next: the cross-cutting rounds, non-finite and extreme numerics** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -128,6 +128,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.52.0 | 52 | Binary formats & images, third pass | 18 | (see tag) |
 | v0.53.0 | 53 | Filters & control, third pass | 20 | (see tag) |
 | v0.54.0 | 54 | Throwing callbacks (cross-cutting) | 36 | (see tag) |
+| v0.55.0 | 55 | Cancellation and dispose races (cross-cutting) | 17 | (see tag) |
 
 ## Round log
 
@@ -2485,3 +2486,68 @@ other 4 guard the rewritten sorts and the unchanged command paths.
 - **Checked build:** the core suite in a checked build is green (3059).
 - **.NET Framework 4.8:** this round's tests plus the existing tests for every changed type (303) ran there. All pass
   except 54-1.
+
+### Round 55: Cancellation and dispose races, cross-cutting (v0.55.0)
+
+The second cross-cutting round: the whole library, for what a cancelled token and a Dispose racing the work do. Does
+the OperationCanceledException carry the caller's token? Does a cancelled token stop the work? Does a disposed object
+say so, or report success, keep working, or wait behind a blocked call? Reviewers: one for correctness and one for
+robustness, fresh. **17 confirmed bugs, 2 severe** (the two Ctrl+C handlers, where a throwing token callback escaped
+the CancelKeyPress handler: an unhandled exception there ends the process. The handler throwing is reproduced; the
+crash under a real signal is inferred). Regression tests are in `Threading/CancelDisposeReview55Tests` (18 core
+tests) and `ToolBelt.Wpf.Tests/CancelDisposeReview55Tests` (3); 19 fail on the old code and 2 guard the pipeline's
+successful drains. BUGLIST 52-2 was a test bug, fixed here.
+
+- **The wrong token:** AsyncLock and Bulkhead waited on a token linked with their own dispose token, and a caller who
+  cancelled got an exception carrying the linked token. HttpDownload's body read is cancelled through an idle-timer
+  token linked to the caller's; that cancellation came out as a TaskCanceledException with the idle token (the
+  re-raise skipped every OperationCanceledException). WPF IncrementalCollection's sole or last waiter, which cancels
+  the shared load, got the load's internal token. Each now re-raises with the caller's token.
+- **WPF IncrementalCollection:** a token already cancelled still started a fetch, and a loader that ignored its token
+  appended the page and returned success. It now returns a cancelled task before anything starts.
+- **JsonLines.ReadAsync (net8):** `ReadLineAsync(token)` returns a line already in the reader's buffer without
+  looking at the token, so a cancel at record 3 of 100 still yielded all 100. The token is checked per record.
+- **ConcurrentPipeline.CompleteAsync:** a Dispose racing the drain stopped the consumer with items buffered, and
+  CompleteAsync still reported success (0 of 10 processed, 20 of 20 runs). It now throws ObjectDisposedException
+  unless the buffer emptied (a Dispose after an empty drain is still a success).
+- **ConsoleApp.RunAsync and CreateInterruptSource (severe):** the Ctrl+C handlers caught only
+  ObjectDisposedException from `Cancel()`, so a token callback the body registered that threw raised an
+  AggregateException out of the CancelKeyPress handler. RunAsync now writes the failure to its error writer and the
+  run ends Interrupted. The interrupt source drops it. Tested by raising the handlers through reflection.
+- **ProcessRunner:**
+  - an `OnOutputLine` call already under way when the run ended kept running after Run returned, and its exception,
+    raised after the run had read the first-error slot, was lost (20 of 20 runs). Calls are now counted in before
+    the done flag is read, and the run waits up to a second for the ones under way. A call that runs longer still
+    outlives the run, which is documented;
+  - a child that exited on time but left a grandchild holding the output pipes had its exit code replaced by -1. It
+    keeps the child's own code (still TimedOut, as documented). A grandchild still running once its parent has
+    exited is not in the process tree any more, so it is not killed; the docs now say so and point at a job object.
+- **AsyncLogSink, SyslogSink:** Emit after Dispose threw the pipeline's InvalidOperationException ("completed"), or,
+  in SyslogSink, returned silently, where FileSink throws ObjectDisposedException. Both throw ObjectDisposedException.
+- **SyslogSink.Dispose:** waited behind an Emit blocked in a connect (up to the connect timeout) or a full send
+  buffer (up to the 5 s send timeout), since both run under the sink's lock. Dispose now closes the socket in use
+  first, which fails the blocked call, and a retry after Dispose began does not reconnect.
+- **CountingStream, TeeStream:** with the inner streams left open, the wrapper kept reading, writing, counting and
+  teeing after Dispose, and its `Can*` properties stayed true. It is now closed: operations throw
+  ObjectDisposedException and `Can*` are false. A second TeeStream Dispose no longer flushes again.
+- **FileWatcher.Dispose:** a Flush on another thread that had passed its disposed check could raise Changed after
+  Dispose returned. Raise rechecks under its gate, and Dispose waits for the gate (bounded at 5 s, as for the tick,
+  for a handler that marshals synchronously to the disposing thread).
+- **BUGLIST 52-2 (test bug):** `Http_CallerCancellation_IsNotRetried` started a 300 ms timer before the call, and the
+  raw test server counts a request only after reading its whole head on a pool thread. On a starved core the cancel
+  came first and the test saw 0 requests (a retry would show 2 or more). The test now cancels from the server once it
+  has the request, and waits 200 ms for a retry that should not come.
+- **Checked and left as is:** the async primitives (AsyncManualResetEvent, AsyncCountdownEvent, PauseTokenSource,
+  KeyedLock), TaskExtensions, TaskRace, ParallelUtils, Retry, CronScheduler's Start/Dispose race, HealthCheck,
+  SingleInstanceApp, ConsoleSpinner, WPF AsyncRelayCommand and NotifyTaskCompletion. PeriodicWorker's Dispose from
+  the work callback deadlocks, as documented. Not reached by the robustness reviewer this round: Messenger,
+  GlobalHotkeys, PlotPresenter, SingleInstance, ClipboardUtils, JobObject, ResourceSampler, EventLogWriter,
+  TcpLineClient, MetricsRegistry, FirstChanceMonitor, ObjectPool, Memoize (the section passes cover them).
+- **Found while testing:** on .NET Framework the HttpDownload test first cancelled from `OnProgress`, which never
+  fired there because the framework's response stream did not return the 5-byte partial body. The cancel now comes
+  from the server. More test files that don't compile on net48 (`IOReview2Tests`, `IOReview3Tests`, `IOReviewTests`,
+  `LoggingReview2Tests`, `LoggingReview3Tests`, `SyslogAndFirstChanceTests`, `FlakeRootCauseTests`,
+  `SecurityNetTimeReviewTests`, `SecurityNetTimeReview2Tests`) are added to BUGLIST 52-1.
+- **Checked build:** the core suite in a checked build is green (3077).
+- **.NET Framework 4.8:** this round's tests plus the existing tests for every changed type that compile there (216)
+  all pass.
