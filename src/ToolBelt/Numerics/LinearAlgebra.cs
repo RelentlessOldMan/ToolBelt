@@ -73,9 +73,17 @@ namespace ToolBelt.Numerics
             if (b.Length != n) throw new ArgumentException("Right-hand side length must match the matrix size.", nameof(b));
             if (!Decompose(a, out double[,] lu, out int[] pivot, out _, out int[] shift))
                 throw new InvalidOperationException("Matrix is singular; the system has no unique solution.");
+            // The rows were scaled by 2^−shift, so b is too. A common 2^k (taken out of x after) keeps the scaled b near 1:
+            // scaling b alone underflowed a small b on a huge row and overflowed a large b on a tiny one.
+            int k = int.MinValue;
+            for (int i = 0; i < n; i++)
+                if (b[i] != 0) k = Math.Max(k, Exponent(Math.Abs(b[i])) - shift[i]);
+            if (k == int.MinValue) k = 0;
             var scaled = new double[n];
-            for (int i = 0; i < n; i++) scaled[i] = ScaleB(b[i], -shift[i]); // the rows were scaled by 2^−shift
-            return SolveDecomposed(lu, pivot, scaled);
+            for (int i = 0; i < n; i++) scaled[i] = ScaleB(b[i], -shift[i] - k);
+            double[] x = SolveDecomposed(lu, pivot, scaled);
+            for (int i = 0; i < n; i++) x[i] = ScaleB(x[i], k);
+            return x;
         }
 
         public static double Determinant(double[,] a)
@@ -116,9 +124,9 @@ namespace ToolBelt.Numerics
             for (int col = 0; col < n; col++)
             {
                 Array.Clear(e, 0, n);
-                e[col] = ScaleB(1, -shift[col]); // A⁻¹ = (DA)⁻¹·D for the row scaling D
+                e[col] = 1; // A⁻¹ = (DA)⁻¹·D for the row scaling D, applied after the solve so e stays 1, not subnormal
                 double[] x = SolveDecomposed(lu, pivot, e);
-                for (int row = 0; row < n; row++) inverse[row, col] = x[row];
+                for (int row = 0; row < n; row++) inverse[row, col] = ScaleB(x[row], -shift[col]);
             }
             return inverse;
         }
@@ -126,9 +134,12 @@ namespace ToolBelt.Numerics
         // LU with partial pivoting. Returns false if the matrix is singular: a pivot at or below n·ε times the largest
         // entry of its own original row, i.e. what is left once elimination has cancelled that row away (relative per
         // row, so neither a uniformly tiny matrix nor diag(1e20, 1) is "singular"; one global scale rejected the
-        // latter), or exactly zero when exactZeroOnly. Non-finite entries throw. A row whose largest entry is beyond 2⁹⁶⁰
-        // or below 2⁻⁹⁶⁰ is first scaled by 2^−shift[row] (exactly) to bring it nearer 1: elimination overflowed on rows
-        // near double.MaxValue (1e308 − (−1e308)) and lost subnormal ones.
+        // latter), or exactly zero when exactZeroOnly. Non-finite entries throw. A row whose largest entry is within
+        // 2^(n + 24) of the overflow threshold, or below 2⁻⁹⁶⁰, is first scaled by 2^−shift[row] (exactly) so that entry
+        // is in [1, 2): elimination overflowed on rows near double.MaxValue (1e308 − (−1e308)) and lost subnormal ones,
+        // and partial pivoting can grow entries by 2^(n−1) (a fixed 2⁹⁶⁰ threshold left a 70×70 Wilkinson matrix of
+        // 1e288s too little headroom, an all-NaN answer). Ordinary rows are left alone, so their pivots are unchanged.
+        // An elimination that overflows anyway throws rather than return NaN.
         private static bool Decompose(double[,] a, out double[,] lu, out int[] pivot, out int sign, out int[] shift,
             bool exactZeroOnly = false)
         {
@@ -152,8 +163,7 @@ namespace ToolBelt.Numerics
             {
                 if (rowMax[i] == 0) continue;
                 int e = Exponent(rowMax[i]);
-                if (e >= 960) shift[i] = e - 959;   // largest entry into [2⁹⁵⁹, 2⁹⁶⁰): room for elimination to grow
-                else if (e < -960) shift[i] = e;    // largest entry into [1, 2)
+                if (e >= 1000 - Math.Min(n, 1000) || e < -960) shift[i] = e; // largest entry into [1, 2)
                 else continue;
                 for (int j = 0; j < n; j++) lu[i, j] = ScaleB(lu[i, j], -shift[i]);
                 rowMax[i] = ScaleB(rowMax[i], -shift[i]);
@@ -191,6 +201,9 @@ namespace ToolBelt.Numerics
                     for (int j = col + 1; j < n; j++) lu[row, j] -= factor * lu[col, j];
                 }
             }
+            foreach (double v in lu)
+                if (double.IsNaN(v) || double.IsInfinity(v))
+                    throw new InvalidOperationException("The elimination overflowed: pivot growth took an entry beyond the double range.");
             return true;
         }
 

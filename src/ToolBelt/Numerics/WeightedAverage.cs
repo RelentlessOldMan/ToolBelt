@@ -38,6 +38,24 @@ namespace ToolBelt.Numerics
             // Weights are scaled by a power of two (exact) so the largest is in [0.5, 1): 1e308-sized weights no longer
             // overflow the weight sum, and no product exceeds its value. The mean is unchanged by a common weight scale.
             int weightShift = -1 - Exponent(maxWeight);
+            if (allFinite)
+            {
+                // About the first value: r + Σ w(v − r) / Σ w is exact for equal values ({0.1, 0.1, 0.1} averaged to
+                // 0.10000000000000002) and stays within the values' range; deviations that overflow fall through.
+                double r = double.NaN, lo = double.PositiveInfinity, hi = double.NegativeInfinity, dev = 0, total = 0;
+                for (int i = 0; i < values.Count; i++)
+                {
+                    if (weights[i] == 0) continue;
+                    double v = values[i], w = ScaleB(weights[i], weightShift);
+                    if (double.IsNaN(r)) r = v;
+                    if (v < lo) lo = v;
+                    if (v > hi) hi = v;
+                    dev += (v - r) * w;
+                    total += w;
+                }
+                double mean = r + dev / total;
+                if (!double.IsNaN(mean) && !double.IsInfinity(mean)) return Math.Max(lo, Math.Min(hi, mean));
+            }
             double average = Sum(values, weights, weightShift, 1.0);
             // Values near double.MaxValue can still overflow the sum (1e308 + 1e308): retry with values scaled by 2⁻³².
             if (double.IsInfinity(average) && allFinite)

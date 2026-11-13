@@ -35,8 +35,9 @@ namespace ToolBelt.Numerics
             _halfSpan = 0.5 * max - 0.5 * min;
             _binWidth = double.IsInfinity(_span) ? 2 * (_halfSpan / binCount) : _span / binCount;
             if (!(_span > 0)) throw new ArgumentException($"The range [{min:R}, {max:R}) is too narrow to bin.", nameof(max));
-            // Bins narrower than the spacing of doubles there would share a bound.
-            if (_binWidth < 1e-290)
+            // Bins narrower than the spacing of doubles there would share a bound: checked near the subnormals and wherever
+            // a bin is under 64 ulps of the range's ends (only 9 of [1e16, 1e16 + 16)'s 64 bounds were distinct).
+            if (_binWidth < 1e-290 || _binWidth < Math.Max(Math.Abs(min), Math.Abs(max)) * 1.4210854715202004e-14)
                 for (int i = 1; i <= binCount; i++)
                     if (!(LowerBound(i - 1) < (i == binCount ? max : LowerBound(i))))
                         throw new ArgumentException($"The range [{min:R}, {max:R}) is too narrow for {binCount} bins.", nameof(binCount));

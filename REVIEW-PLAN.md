@@ -44,7 +44,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 3 | 20 / 45 | re-queue (20 bugs, 1 severe) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 3 | 13 / 60 | re-queue (13 bugs, 1 severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 3 | 25 / 86 | re-queue (25 bugs, 1 severe) |
-| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 3 | 24 / 95 | re-queue (24 bugs, 2 severe) |
+| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 4 | 24 / 119 | re-queue (24 bugs, none severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 3 | 21 / 82 | re-queue (21 bugs, 2 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 3 | 18 / 47 | re-queue (18 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 3 | 17 / 64 | re-queue (17 bugs, 2 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60); **next: 4, 5, 7, 13, 15, 3, 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61); **next: 5, 7, 13, 15, 3, 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -134,11 +134,37 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.1 | 58 | IO, fourth pass | 39 | (see tag) |
 | v2026.11.13.2 | 59 | Objects, functional, grids, graphs, intervals, fourth pass | 27 | (see tag) |
 | v2026.11.13.3 | 60 | WinForms, tooling and docs, fourth pass (plus 3 in section 14) | 25 | (see tag) |
+| v2026.11.13.4 | 61 | Numerics core, fourth pass | 24 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 61: Numerics core, fourth pass (v2026.11.13.4)
+
+Two fresh reviewers (correctness, robustness): 24 findings, **24 bugs, none severe** (13 normal), so section 4 stays
+re-queued. Regression tests are in `NumericsCoreReview4Tests` (25 tests, all failing on the old code). Almost all are
+extreme-range bugs: overflow, subnormals, or one rounding too many.
+
+- **AdaptiveSimpson** spent its whole 10M-evaluation budget on a constant 1e308 (the Simpson weights overflowed and
+  ∞ − ∞ never met the tolerance), and integrated 1 over [0, 3ε] to 0. **Simpson** over a subnormal dx did the same.
+- **LinearAlgebra.Solve / Inverse** returned all-NaN for a 70×70 Wilkinson matrix of 1e288s: rows near the overflow
+  threshold now keep n + 24 bits of headroom for pivot growth, and an elimination that overflows anyway throws.
+- **RunningStatistics.Sum** after the running total overflowed came from the mean, off by 1e292 for a true sum of 61;
+  it comes from a scaled double-double copy now (plus an unscaled sum of tiny values).
+- **Angle:** differences of finite angles near ±MaxValue were NaN, 3.6e17° (a multiple of 360) swallowed a 10° offset,
+  and small negative angles collapsed to 0 or snapped to the ulp of 360.
+- **Splines:** MonotoneCubic's Fritsch-Carlson limiter and both splines' secants overflowed (a 1e10 rise over 1e-300)
+  to NaN; Akima's derivative was 0·∞ for flat data on tiny x with huge y. **LookupTable** missed a knot's own y.
+- **Means.Geometric** was hundreds of ulps off near 1e±300 and fell below the harmonic mean; it sums mantissa logs and
+  exponents separately now. **WeightedAverage** and **ExponentialMovingAverage** drifted off equal or constant input.
+- **Polynomial:** the cubic lost a double root next to the simple root ((x + 8.078125)²(x + 8.09375)); Fit's design
+  matrix past Array.MaxLength threw OutOfMemoryException (now ArgumentOutOfRangeException).
+- **ScatteredInterpolation:** NaN when every sample was beyond MaxValue away, results an ulp outside the samples'
+  range, a last grid coordinate past max, ±∞ sample values accepted, and a grid past Array.MaxLength threw OOM.
+- **Others:** Histogram accepted bins narrower than the ulp at 1e16; WeightedChoice was biased for subnormal weights;
+  Percentile rounded the rank twice (p = 29 of 101 points missed sorted[29]); Differentiation.Sample accepted ±∞ x.
+
 ### Round 60: WinForms, tooling and docs, fourth pass (v2026.11.13.3)
 
 Two fresh reviewers (correctness, robustness): 23 findings, one raised by both, so **22 bugs, none severe** (4

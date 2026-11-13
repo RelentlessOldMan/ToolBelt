@@ -31,7 +31,8 @@ namespace ToolBelt.Numerics
             if (sorted.Length == 1)
                 return sorted[0];
 
-            double rank = percentile / 100.0 * (sorted.Length - 1);
+            // Multiplied before dividing: p / 100 rounds first (the 29th percentile of 101 points ranked 28.999999999999996).
+            double rank = percentile * (sorted.Length - 1) / 100.0;
             int lo = (int)Math.Floor(rank);
             int hi = (int)Math.Ceiling(rank);
             if (lo == hi)

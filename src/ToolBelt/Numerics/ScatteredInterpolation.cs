@@ -33,6 +33,8 @@ namespace ToolBelt.Numerics
             Validate(samples, power, nearest, radius);
             if (columns < 1) throw new ArgumentOutOfRangeException(nameof(columns), columns, "The grid needs at least one column.");
             if (rows < 1) throw new ArgumentOutOfRangeException(nameof(rows), rows, "The grid needs at least one row.");
+            if ((long)rows * columns > 0x7FFFFFC7) // Array.MaxLength: past it the allocation threw OutOfMemoryException
+                throw new ArgumentOutOfRangeException(nameof(rows), rows, $"A {rows} × {columns} grid exceeds Array.MaxLength (0x7FFFFFC7) cells.");
             var grid = new double[rows, columns];
             var scratch = new List<(double, double)>(samples.Count);
             for (int r = 0; r < rows; r++)
@@ -57,6 +59,9 @@ namespace ToolBelt.Numerics
                 double mid = (min + max) / 2;
                 return double.IsInfinity(mid) && !double.IsInfinity(min) && !double.IsInfinity(max) ? 0.5 * min + 0.5 * max : mid;
             }
+            // The ends exactly: min + (max − min) could round past max (0.1 to 0.7 ended at 0.7000000000000001).
+            if (i == 0) return min;
+            if (i == n - 1) return max;
             double plain = min + (max - min) * i / (n - 1);
             // Not-finite, not just infinite: at i = 0 an overflowed span gave ∞ · 0 = NaN.
             if ((double.IsNaN(plain) || double.IsInfinity(plain)) && !double.IsInfinity(min) && !double.IsInfinity(max))
@@ -67,22 +72,41 @@ namespace ToolBelt.Numerics
         private static double Evaluate(IReadOnlyList<(double X, double Y, double Value)> samples, double x, double y,
             double power, int? nearest, double? radius, List<(double D, double V)> scratch)
         {
-            scratch.Clear();
-            double maxDistance = radius is double rr ? rr : double.PositiveInfinity;
-            double minDistance = double.PositiveInfinity;
-            foreach (var s in samples)
+            // Distances, not squared distances: d² over- or underflowed (1e200 away, or 1e-160), and the weights 1/d^p
+            // then became ∞/∞ or 0/0. A distance beyond the double range (1e308 to −1e308) redoes them all in quarters,
+            // which only scales the weights' common factor: when every one overflowed the result was ∞/∞ = NaN.
+            double scale = 1;
+            for (int pass = 0; ; pass++)
             {
-                // Distances, not squared distances: d² over- or underflowed (1e200 away, or 1e-160), and the
-                // weights 1/d^p then became ∞/∞ or 0/0.
-                double d = Hypot(s.X - x, s.Y - y);
-                if (d == 0) return s.Value; // exact at a sample (first one wins for duplicates)
-                if (d <= maxDistance)
+                scratch.Clear();
+                double maxDistance = radius is double rr ? rr * scale : double.PositiveInfinity;
+                double minDistance = double.PositiveInfinity;
+                bool overflowed = false;
+                foreach (var s in samples)
                 {
-                    scratch.Add((d, s.Value));
-                    if (d < minDistance) minDistance = d;
+                    if (s.X == x && s.Y == y) return s.Value; // exact at a sample (first one wins for duplicates)
+                    double d = Hypot(scale * s.X - scale * x, scale * s.Y - scale * y);
+                    if (double.IsInfinity(d)) { overflowed = true; break; }
+                    if (d <= maxDistance)
+                    {
+                        scratch.Add((d, s.Value));
+                        if (d < minDistance) minDistance = d;
+                    }
                 }
+                if (overflowed && pass == 0) { scale = 0.25; continue; }
+                return Weighted(scratch, minDistance, power, nearest);
             }
+        }
+
+        private static double Weighted(List<(double D, double V)> scratch, double minDistance, double power, int? nearest)
+        {
             if (scratch.Count == 0) return double.NaN;
+            if (minDistance == 0) // distances that underflowed to 0 in quarters: only those nearest count
+            {
+                double sum = 0; int count = 0;
+                foreach (var (d, v) in scratch) if (d == 0) { sum += v / scratch.Count; count++; }
+                return Clamp(sum / count * scratch.Count, scratch);
+            }
             if (nearest is int k && k < scratch.Count)
             {
                 scratch.Sort((a, b) => a.D.CompareTo(b.D));
@@ -101,9 +125,17 @@ namespace ToolBelt.Numerics
                 // Values near double.MaxValue overflowed the sum: average them divided by the count, then scale back.
                 num = 0;
                 foreach (var (d, v) in scratch) num += Math.Pow(minDistance / d, power) * (v / scratch.Count);
-                return num / den * scratch.Count;
+                return Clamp(num / den * scratch.Count, scratch);
             }
-            return num / den;
+            return Clamp(num / den, scratch);
+        }
+
+        // Within the range of the samples used, as promised: rounding left equal values of 0.1 at 0.09999999999999999.
+        private static double Clamp(double value, List<(double D, double V)> scratch)
+        {
+            double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
+            foreach (var (_, v) in scratch) { if (v < lo) lo = v; if (v > hi) hi = v; }
+            return value < lo ? lo : value > hi ? hi : value;
         }
 
         private static double Hypot(double a, double b)
@@ -126,6 +158,8 @@ namespace ToolBelt.Numerics
             {
                 if (double.IsNaN(s.X) || double.IsNaN(s.Y) || double.IsNaN(s.Value)) throw new ArgumentException("Samples must not contain NaN.", nameof(samples));
                 if (double.IsInfinity(s.X) || double.IsInfinity(s.Y)) throw new ArgumentException("Sample coordinates must be finite.", nameof(samples));
+                // An infinite value made every weighted mean ∞ or ∞ − ∞ = NaN, far from it as well.
+                if (double.IsInfinity(s.Value)) throw new ArgumentException("Sample values must be finite.", nameof(samples));
             }
         }
     }

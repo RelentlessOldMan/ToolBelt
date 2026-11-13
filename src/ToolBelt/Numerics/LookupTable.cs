@@ -114,7 +114,19 @@ namespace ToolBelt.Numerics
             return lo;
         }
 
+        // Exact at the knots, and never outside [y0, y1] between them: y0 + (y1 − y0) rounds, so a knot returned
+        // 1.39e-17 for 1e-17 (a jump against Clamp's value just past it) and InverseLookup could land outside the table.
         private static double Lerp(double x0, double y0, double x1, double y1, double x)
+        {
+            if (x == x0) return y0;
+            if (x == x1) return y1;
+            double v = LerpCore(x0, y0, x1, y1, x);
+            if ((x > x0) == (x < x1)) // between the knots (either order)
+                v = Math.Max(Math.Min(y0, y1), Math.Min(Math.Max(y0, y1), v));
+            return v;
+        }
+
+        private static double LerpCore(double x0, double y0, double x1, double y1, double x)
         {
             double dx = x1 - x0, dv = x - x0, dy = y1 - y0;
             if (!double.IsInfinity(dx) && !double.IsInfinity(dv) && !double.IsInfinity(dy))

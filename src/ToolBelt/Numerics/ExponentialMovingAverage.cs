@@ -36,10 +36,19 @@ namespace ToolBelt.Numerics
         {
             if (double.IsNaN(sample) || double.IsInfinity(sample))
                 throw new ArgumentException("Only finite samples can be averaged.", nameof(sample));
-            if (Count == 0)
+            if (Count == 0 || _alpha == 1)
                 _value = sample;
             else
-                _value = _alpha * sample + (1 - _alpha) * _value;
+            {
+                // As a step toward the sample: α·s + (1 − α)·v drifted on constant input (0.1 at α = 0.3 became
+                // 0.10000000000000002), where s − v is 0. A step that overflows (1e308 to −1e308) is taken in halves.
+                double step = sample - _value;
+                double next = double.IsInfinity(step)
+                    ? 2 * (0.5 * _value + _alpha * (0.5 * sample - 0.5 * _value))
+                    : _value + _alpha * step;
+                // Never past the sample or behind the old average.
+                _value = Math.Max(Math.Min(sample, _value), Math.Min(Math.Max(sample, _value), next));
+            }
             Count++;
             return _value;
         }

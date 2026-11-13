@@ -21,17 +21,23 @@ namespace ToolBelt.Numerics
         /// <summary>Normalizes to the range (-180, 180].</summary>
         public static double NormalizeSignedDegrees(double degrees)
         {
-            double d = NormalizeDegrees(degrees);
-            return d > 180.0 ? d - 360.0 : d;
+            // Straight from the remainder (exact), and each step below is exact too: going through [0, 360) rounded a
+            // small negative angle to 360, so −1e-15 came out 0.
+            double d = degrees % 360.0;
+            if (d > 180.0) d -= 360.0;
+            else if (d <= -180.0) d += 360.0;
+            return d + 0.0; // + 0.0 turns −0 into +0
         }
 
         /// <summary>The shortest signed rotation from <paramref name="from"/> to <paramref name="to"/>, in (-180, 180].</summary>
+        // Each angle is reduced (exactly) before the subtraction: to − from overflowed for 1.7e308 and −1.7e308 (NaN) and
+        // lost the small part of a large angle (3.6e17 to 10 was 0, not 10).
         public static double DifferenceDegrees(double from, double to)
-            => NormalizeSignedDegrees(to - from);
+            => NormalizeSignedDegrees(to % 360.0 - from % 360.0);
 
         /// <summary>Interpolates from <paramref name="from"/> toward <paramref name="to"/> along the shortest arc, result in [0, 360).</summary>
         public static double LerpDegrees(double from, double to, double t)
-            => NormalizeDegrees(from + DifferenceDegrees(from, to) * t);
+            => NormalizeDegrees(from % 360.0 + DifferenceDegrees(from, to) * t);
 
         public static double DegreesToRadians(double degrees) => degrees * (Math.PI / 180.0);
 

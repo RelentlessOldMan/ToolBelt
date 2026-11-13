@@ -45,7 +45,10 @@ namespace ToolBelt.Numerics
 
             // Secant slopes between points.
             var delta = new double[n - 1];
-            for (int i = 0; i < n - 1; i++) delta[i] = (_y[i + 1] - _y[i]) / (_x[i + 1] - _x[i]);
+            // A rise over a tiny step ({0, 1e-300, 1}) overflowed to ∞ and the tangents became NaN: a secant beyond 2¹⁰¹⁶
+            // is held there. The curve still passes through every point and stays monotone; it is just flatter at the
+            // knots of such a step.
+            for (int i = 0; i < n - 1; i++) delta[i] = CapSlope((_y[i + 1] - _y[i]) / (_x[i + 1] - _x[i]));
 
             // Initial tangents: endpoints use the adjacent secant, interior uses the average.
             _m = new double[n];
@@ -68,12 +71,27 @@ namespace ToolBelt.Numerics
                 {
                     double alpha = _m[i] / delta[i];
                     double beta = _m[i + 1] / delta[i];
-                    double s = alpha * alpha + beta * beta;
-                    if (s > 9)
+                    double r = Math.Max(Math.Abs(alpha), Math.Abs(beta));
+                    if (r > 2.1) // possibly outside the circle of radius 3 (r ≤ 2.1 means alpha² + beta² < 9)
                     {
-                        double tau = 3.0 / Math.Sqrt(s);
-                        _m[i] = tau * alpha * delta[i];
-                        _m[i + 1] = tau * beta * delta[i];
+                        // 3·(alpha, beta)/|(alpha, beta)|, formed so neither the squares nor a ratio beyond the double
+                        // range (a 1e10 secant beside a 1e-300 one) overflows: 0·∞ gave NaN tangents.
+                        if (double.IsInfinity(r))
+                        {
+                            // Only the infinite components' direction survives, and it is always outside the circle.
+                            double ua = double.IsInfinity(alpha) ? Math.Sign(alpha) : 0;
+                            double ub = double.IsInfinity(beta) ? Math.Sign(beta) : 0;
+                            double unit = Math.Sqrt(ua * ua + ub * ub);
+                            _m[i] = 3 * (ua / unit) * delta[i];
+                            _m[i + 1] = 3 * (ub / unit) * delta[i];
+                            continue;
+                        }
+                        double a = alpha / r, b = beta / r, norm = r * Math.Sqrt(a * a + b * b);
+                        if (norm > 3)
+                        {
+                            _m[i] = 3 * (alpha / norm) * delta[i];
+                            _m[i + 1] = 3 * (beta / norm) * delta[i];
+                        }
                     }
                 }
             }
@@ -122,5 +140,9 @@ namespace ToolBelt.Numerics
         }
 
         private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
+
+        private const double MaxSlope = 7.022238808055922e305; // 2¹⁰¹⁶: three of them still fit in a double
+
+        private static double CapSlope(double s) => Math.Abs(s) > MaxSlope ? Math.Sign(s) * MaxSlope : s;
     }
 }

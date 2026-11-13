@@ -52,6 +52,9 @@ namespace ToolBelt.Numerics
             if (x.Count < 3) throw new ArgumentException("At least three samples are required for uneven spacing.", nameof(x));
 
             int n = x.Count;
+            for (int i = 0; i < n; i++) // an infinite position made every nearby derivative 0 or NaN
+                if (double.IsNaN(x[i]) || double.IsInfinity(x[i]))
+                    throw new ArgumentException($"x[{i}] is {x[i]}; positions must be finite.", nameof(x));
             for (int i = 1; i < n; i++)
                 if (!(x[i] > x[i - 1])) // a repeated x divided by zero and returned ±∞
                     throw new ArgumentException($"x values must be strictly ascending (x[{i}] = {x[i]}, x[{i - 1}] = {x[i - 1]}).", nameof(x));

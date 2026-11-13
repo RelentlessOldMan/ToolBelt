@@ -23,6 +23,11 @@ namespace ToolBelt.Numerics
         private double _min = double.PositiveInfinity;
         private double _max = double.NegativeInfinity;
         private double _sum;
+        // A second copy of the sum, read once _sum has overflowed: values of at least 2⁻⁹⁰⁰ scaled by 2⁻⁶⁴ (which cannot
+        // overflow for any count) and summed as a double-double (hi + lo, renormalised after each value: a single
+        // compensation term still lost the 61 behind the rounding error it carried), so huge values that cancel leave the
+        // rest exact; smaller values unscaled on their own, where 2⁻⁶⁴ would have rounded them away.
+        private double _scaledSum, _scaledCompensation, _smallSum;
 
         /// <summary>Adds one sample.</summary>
         public void Push(double value)
@@ -48,6 +53,15 @@ namespace ToolBelt.Numerics
             if (value < _min) _min = value;
             if (value > _max) _max = value;
             _sum += value;
+            if (Math.Abs(value) >= 1.1830521861667747e-271) // 2^-900
+            {
+                double x = value * (1.0 / 18446744073709551616.0), t = _scaledSum + x;
+                double bp = t - _scaledSum, error = (_scaledSum - (t - bp)) + (x - bp); // TwoSum: t + error = sum + x exactly
+                double lo = _scaledCompensation + error;
+                _scaledSum = t + lo;
+                _scaledCompensation = lo - (_scaledSum - t);
+            }
+            else _smallSum += value;
         }
 
         /// <summary>Adds a batch of samples.</summary>
@@ -62,9 +76,11 @@ namespace ToolBelt.Numerics
 
         /// <summary>
         /// The sum of the samples. When the running total overflowed but the true sum is within range (1e308 + 1e308 −
-        /// 1e308) it is recovered from the mean; a sum truly beyond the double range is ±∞.
+        /// 1e308) it is recovered from a copy kept scaled by 2⁻⁶⁴; a sum truly beyond the double range is ±∞.
         /// </summary>
-        public double Sum => double.IsInfinity(_sum) ? _mean * _count : _sum;
+        // The mean was the old fallback, but its rounding error (ε·max|x|) swamped a small sum left after huge values
+        // cancelled: 1.7e308, 3e307, −1.7e308, −3e307, 61 summed to −6.5e292.
+        public double Sum => double.IsInfinity(_sum) ? ScaleB(_scaledSum + _scaledCompensation, 64) + _smallSum : _sum;
 
         public double Mean => _count > 0 ? _mean : double.NaN;
 
@@ -133,6 +149,7 @@ namespace ToolBelt.Numerics
             _min = double.PositiveInfinity;
             _max = double.NegativeInfinity;
             _sum = 0;
+            _scaledSum = _scaledCompensation = _smallSum = 0;
         }
     }
 }

@@ -74,6 +74,8 @@ namespace ToolBelt.Numerics
                 throw new ArgumentException($"Need at least {(long)degree + 1} points to fit degree {degree}.", nameof(x));
 
             int n = x.Count, m = degree + 1;
+            if ((long)n * m > 0x7FFFFFC7) // Array.MaxLength: the n × (degree + 1) design matrix threw OutOfMemoryException
+                throw new ArgumentOutOfRangeException(nameof(degree), degree, $"{n} points at degree {degree} need more than Array.MaxLength (0x7FFFFFC7) cells.");
             double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
             for (int k = 0; k < n; k++)
             {
@@ -254,6 +256,10 @@ namespace ToolBelt.Numerics
                 double sqrtD = Math.Sqrt(discriminant);
                 double t = Cbrt(-q / 2 + sqrtD) + Cbrt(-q / 2 - sqrtD);
                 roots.Add(Polish(ScaleB(t - shift, k), b, c, d));
+                // Just past the tolerance the "complex pair" may be a double root that rounding pushed over (the double
+                // root of (x + 8.078125)²(x + 8.09375) was lost). A double root is a turning point where the cubic is 0
+                // within the round-off of evaluating it there.
+                if (discriminant <= 1024 * discTol) AddDoubleRoot(roots, B, C, D, k);
             }
             else if (discriminant < -discTol)
             {
@@ -288,6 +294,10 @@ namespace ToolBelt.Numerics
                     double x1 = Polish(ScaleB(ySimple, k), b, c, d);
                     roots.Add(x1);
                     AddDeflated(roots, x1, b, c, d, real: false);
+                    // Next to the double root f' is small, so x1 is only good to about ε·|f| / f' (3e-10 for
+                    // (x + 8.078125)²(x + 8.09375)), and that error tipped the deflated pair to "complex": then the
+                    // double root is the turning point where the cubic is 0 within round-off.
+                    if (roots.Count == 1) AddDoubleRoot(roots, B, C, D, k);
                 }
                 else
                 {
@@ -302,6 +312,25 @@ namespace ToolBelt.Numerics
                 for (int i = 0; i < roots.Count; i++) roots[i] = ScaleB(roots[i], ks); // a root beyond the range is ±∞
             roots.Sort();
             return roots.ToArray();
+        }
+
+        // The turning point of y³ + By² + Cy + D (|B|, |C|, |D| ≤ 1) at which the cubic is 0 within its evaluation error,
+        // if there is one, as x = y·2^k.
+        private static void AddDoubleRoot(List<double> roots, double B, double C, double D, int k)
+        {
+            double disc = B * B - 3 * C; // of 3y² + 2By + C
+            if (disc < 0) return;
+            double qq = -(B + (B >= 0 ? Math.Sqrt(disc) : -Math.Sqrt(disc)));
+            if (qq == 0) return;
+            double best = double.NaN, bestRatio = 1;
+            foreach (double y in new[] { qq / 3, C / qq })
+            {
+                double f = ((y + B) * y + C) * y + D;
+                double bound = 8 * Epsilon * (Math.Abs(y * y * y) + Math.Abs(B * y * y) + Math.Abs(C * y) + Math.Abs(D));
+                double ratio = bound > 0 ? Math.Abs(f) / bound : (f == 0 ? 0 : double.PositiveInfinity);
+                if (ratio <= bestRatio) { bestRatio = ratio; best = y; }
+            }
+            if (!double.IsNaN(best)) roots.Add(ScaleB(best, k));
         }
 
         // The least ks ≥ 0 that keeps every |c_i / c_3| / 2^((3 − i)·ks) below 2^1023, so the monic coefficients are finite.

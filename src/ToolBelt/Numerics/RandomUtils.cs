@@ -84,14 +84,14 @@ namespace ToolBelt.Numerics
                 if (weights[i] > max) max = weights[i];
             }
             if (total <= 0) throw new ArgumentException("Weights must sum to a positive value.", nameof(weights));
-            // Finite weights can still sum to ∞ (three of 1e308 always chose the last); then work in units of the largest.
-            double scale = 1;
-            if (double.IsInfinity(total))
-            {
-                scale = 1 / max;
-                total = 0;
-                for (int i = 0; i < weights.Count; i++) total += weights[i] * scale;
-            }
+            // Always in units of a power of two near the largest weight (exact, so ordinary weights choose as before):
+            // finite weights can sum to ∞ (three of 1e308 always chose the last), and subnormal ones quantised the target
+            // (three of ε came out 1/6, 1/3, 1/2).
+            int e = (int)((BitConverter.DoubleToInt64Bits(max) >> 52) & 0x7FF) - 1023; // −1023 for a subnormal max
+            e = Math.Max(-1022, Math.Min(1022, e));
+            double scale = BitConverter.Int64BitsToDouble((long)(1023 - e) << 52); // 2^−e
+            total = 0;
+            for (int i = 0; i < weights.Count; i++) total += weights[i] * scale;
 
             double target = random.NextDouble() * total;
             double cumulative = 0;

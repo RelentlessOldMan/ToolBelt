@@ -853,6 +853,7 @@ tests/
       NumericsCoreReviewTests.cs     (review regressions: QR fit, cancellation-free roots, extreme magnitudes, NaN rejection, fast primes)
       NumericsCoreReview2Tests.cs    (second-pass regressions: finite overflow at ±1e308, checked arithmetic, decimal-exact rounding)
       NumericsCoreReview3Tests.cs    (third-pass regressions: LU and cubic overflow, false root convergence, tiny-scale splines and stats)
+      NumericsCoreReview4Tests.cs    (fourth-pass regressions: overflowing Simpson, LU growth, angles, splines, means, IDW, cubic double roots)
       NumericsExtremeReview56Tests.cs (round 56, cross-cutting: values near MaxValue, subnormals, infinities, sizes past Array.MaxLength)
       NumericsReviewRegressionTests.cs  (2026-10-05 review regressions: Numerics and Signal)
       StreamingQuantileTests.cs

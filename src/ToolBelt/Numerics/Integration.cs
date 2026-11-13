@@ -53,14 +53,20 @@ namespace ToolBelt.Numerics
             int intervals = y.Count - 1;
             int even = intervals - (intervals % 2); // largest even interval count
             double sum = 0;
+            // A subnormal dx / 3 rounds (ε / 3 is 0, so [1, 1, 1] over ε integrated to 0): there the samples are scaled
+            // first and divided after. Elsewhere dx / 3 is kept, so ordinary results are unchanged.
+            bool tiny = dx < 1e-290;
             for (int i = 0; i < even; i += 2)
             {
                 double s = y[i] + 4 * y[i + 1] + y[i + 2];
                 // Samples near double.MaxValue overflow the weighted sum: use eighths of it instead.
                 if (double.IsInfinity(s) && IsFinite(y[i]) && IsFinite(y[i + 1]) && IsFinite(y[i + 2]))
-                    sum += (0.125 * y[i] + 0.5 * y[i + 1] + 0.125 * y[i + 2]) * (dx / 3.0) * 8;
+                {
+                    double eighths = 0.125 * y[i] + 0.5 * y[i + 1] + 0.125 * y[i + 2];
+                    sum += tiny ? eighths * dx / 3.0 * 8 : eighths * (dx / 3.0) * 8;
+                }
                 else
-                    sum += s * (dx / 3.0);
+                    sum += tiny ? s * dx / 3.0 : s * (dx / 3.0);
             }
             if (even != intervals) // trailing odd interval
             {
@@ -129,8 +135,22 @@ namespace ToolBelt.Numerics
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
 
+        // Samples near double.MaxValue overflow the weighted sum (and a span over the whole range overflows b − a) though
+        // the piece itself is in range: only then is it formed from quartered samples, exactly scaled back by 4.
         private static double SimpsonPiece(double a, double b, double fa, double fb, double fm)
-            => (b - a) / 6.0 * (fa + 4 * fm + fb);
+        {
+            double span = b - a;
+            if (Math.Abs(span) < 1e-290)
+            {
+                // A subnormal span / 6 rounds (1 over [0, 3ε] integrated to 0): scale the samples first, divide after.
+                double s = fa + 4 * fm + fb;
+                return IsFinite(s) ? span * s / 6.0 : span * (0.25 * fa + fm + 0.25 * fb) / 6.0 * 4;
+            }
+            double h6 = (b - a) / 6.0, piece = h6 * (fa + 4 * fm + fb);
+            if (IsFinite(piece)) return piece;
+            if (!IsFinite(h6)) h6 = (0.5 * b - 0.5 * a) / 3.0;
+            return h6 * (0.25 * fa + fm + 0.25 * fb) * 4;
+        }
 
         private static double Recurse(Func<double, double> f, double a, double b,
             double fa, double fb, double fm, double whole, double tol, int depth, ref int budget)
@@ -146,9 +166,15 @@ namespace ToolBelt.Numerics
 
             // The absolute tolerance halves per split; once the difference is at round-off level relative to
             // the piece, splitting further cannot help (a large integrand took millions of evaluations).
+            // A piece beyond the double range is the integral overflowing: splitting cannot bring it back (∞ − ∞ was NaN,
+            // so it split until the budget ran out).
+            if (double.IsInfinity(combined)) return combined;
             double diff = Math.Abs(combined - whole);
             if (depth <= 0 || diff <= 15 * tol || diff <= 1e-14 * Math.Abs(combined))
-                return combined + (combined - whole) / 15.0; // Richardson correction
+            {
+                double corrected = combined + (combined - whole) / 15.0; // Richardson correction
+                return IsFinite(corrected) ? corrected : combined + (combined / 15.0 - whole / 15.0);
+            }
 
             return Recurse(f, a, lm, fa, fm, fleft, leftArea, tol / 2, depth - 1, ref budget)
                  + Recurse(f, lm, b, fm, fb, fright, rightArea, tol / 2, depth - 1, ref budget);

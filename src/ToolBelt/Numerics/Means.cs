@@ -9,7 +9,7 @@ namespace ToolBelt.Numerics
     /// values to be strictly positive (NaN is rejected); arithmetic mean and RMS accept any values. Each is
     /// computed so that it does not overflow or underflow when the mean itself is representable (1e308 values,
     /// subnormals). For positive data the ordering HM ≤ GM ≤ AM ≤ RMS holds up to rounding (equal values can come
-    /// out an ulp apart).
+    /// out an ulp apart), and each mean lies between the smallest and largest value.
     /// </summary>
     public static class Means
     {
@@ -45,14 +45,31 @@ namespace ToolBelt.Numerics
         public static double Geometric(IReadOnlyList<double> values)
         {
             Require(values);
-            double sumLog = 0;
+            // Each value split into a power of two and a mantissa in [1, 2): only the mantissas' logs are summed
+            // (compensated), and the exponents exactly. exp(Σ ln x / n) lost hundreds of ulps at large exponents (three
+            // equal 1e300s gave 9.999999999999763e299) and fell below the harmonic mean.
+            long exponents = 0;
+            double sum = 0, compensation = 0, min = double.PositiveInfinity, max = 0;
+            bool infinite = false;
             for (int i = 0; i < values.Count; i++)
             {
-                if (!(values[i] > 0))
+                double v = values[i];
+                if (!(v > 0))
                     throw new ArgumentException("Geometric mean requires strictly positive values.", nameof(values));
-                sumLog += Math.Log(values[i]);
+                if (double.IsPositiveInfinity(v)) { infinite = true; continue; }
+                if (v < min) min = v;
+                if (v > max) max = v;
+                int e = Exponent(v);
+                exponents += e;
+                double term = Math.Log(ScaleB(v, -e)), t = sum + term;
+                compensation += Math.Abs(sum) >= Math.Abs(term) ? (sum - t) + term : (term - t) + sum;
+                sum = t;
             }
-            return Math.Exp(sumLog / values.Count);
+            if (infinite) return double.PositiveInfinity;
+            int n = values.Count;
+            long q = exponents / n, r = exponents % n;
+            double g = ScaleB(Math.Exp((sum + compensation) / n + (double)r / n * 0.69314718055994531), (int)q);
+            return Math.Max(min, Math.Min(max, g));
         }
 
         /// <summary>Harmonic mean (n / sum of reciprocals). Requires positive values.</summary>
@@ -94,6 +111,23 @@ namespace ToolBelt.Numerics
             }
             return max * Math.Sqrt(sumSquares / values.Count);
         }
+
+        // floor(log2 x) for a positive finite x, subnormals included.
+        private static int Exponent(double x)
+        {
+            int e = (int)((BitConverter.DoubleToInt64Bits(x) >> 52) & 0x7FF);
+            return e == 0 ? Exponent(x * 18446744073709551616.0) - 64 : e - 1023;
+        }
+
+        // x·2^k without overflowing the factor itself (2^k alone is out of range for |k| > 1023).
+        private static double ScaleB(double x, int k)
+        {
+            while (k > 1000) { x *= Pow2(1000); k -= 1000; }
+            while (k < -1000) { x *= Pow2(-1000); k += 1000; }
+            return x * Pow2(k);
+        }
+
+        private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
 
         private static void Require(IReadOnlyList<double> values)
         {
