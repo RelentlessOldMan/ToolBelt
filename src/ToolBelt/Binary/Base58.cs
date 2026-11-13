@@ -17,6 +17,8 @@ namespace ToolBelt.Binary
         private const string Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
         private static readonly sbyte[] Reverse = BuildReverse();
 
+        private const long FiftyEightToTheTen = 430804206899405824L;
+
         public static string Encode(byte[] data)
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
@@ -33,11 +35,18 @@ namespace ToolBelt.Binary
             // trailing zero byte (already zero) keeps the BigInteger non-negative
             var number = new BigInteger(littleEndianUnsigned);
 
+            // Ten digits per big division (58¹⁰ < 2⁶³), the rest in a long: one division per digit made encoding about
+            // seven times slower than decoding.
             var digits = new List<char>();
             while (number > 0)
             {
-                number = BigInteger.DivRem(number, 58, out BigInteger remainder);
-                digits.Add(Alphabet[(int)remainder]);
+                number = BigInteger.DivRem(number, FiftyEightToTheTen, out BigInteger remainder);
+                long r = (long)remainder;
+                for (int k = 0; k < 10 && (r > 0 || !number.IsZero); k++)
+                {
+                    digits.Add(Alphabet[(int)(r % 58)]);
+                    r /= 58;
+                }
             }
             for (int i = 0; i < leadingZeros; i++)
                 digits.Add('1');

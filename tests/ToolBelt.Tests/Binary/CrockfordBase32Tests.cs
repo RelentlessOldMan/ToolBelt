@@ -28,7 +28,7 @@ namespace ToolBelt.Tests.Binary
             Check.True(CrockfordBase32.Decode("91jprv3f").SequenceEqual(canonical), "case-insensitive");
 
             // 'O' decodes as 0, 'I'/'L' as 1.
-            Check.True(CrockfordBase32.Decode("O1").SequenceEqual(CrockfordBase32.Decode("01")));
+            Check.True(CrockfordBase32.Decode("OG").SequenceEqual(CrockfordBase32.Decode("0G")));
             Check.True(CrockfordBase32.Decode("I0").SequenceEqual(CrockfordBase32.Decode("10")));
             Check.True(CrockfordBase32.Decode("L0").SequenceEqual(CrockfordBase32.Decode("10")));
         }

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Numerics;
 using System.Text;
 
 namespace ToolBelt.Visualization
@@ -177,8 +178,38 @@ namespace ToolBelt.Visualization
         {
             if (double.IsNaN(value) || double.IsInfinity(value))
                 throw new ArgumentOutOfRangeException(name, value, "SVG numbers must be finite.");
-            string s = value.ToString("0.######", CultureInfo.InvariantCulture);
-            return s == "-0" ? "0" : s;
+            return SixDecimals(value);
+        }
+
+        // The double's exact value rounded to six decimals (halves away from zero), without trailing zeros or a negative
+        // zero. "0.######" rounded to 15 significant digits first: 0.7551384999999999 came out 0.755139, 4503599627370497
+        // as 4503599627370500, and values past about 7e11 differed between .NET Framework and .NET.
+        private static string SixDecimals(double value)
+        {
+            if (value == Math.Floor(value) && Math.Abs(value) < 9007199254740992.0)
+                return ((long)value).ToString(CultureInfo.InvariantCulture);       // an integer, exactly (−0 gives "0")
+            long bits = BitConverter.DoubleToInt64Bits(value);
+            bool negative = bits < 0;
+            int exponent = (int)((bits >> 52) & 0x7FF);
+            long mantissa = bits & 0xFFFFFFFFFFFFFL;
+            if (exponent == 0) exponent = 1; else mantissa |= 1L << 52;
+            exponent -= 1075;                                                       // |value| = mantissa · 2^exponent
+            BigInteger scaled;                                                      // round(|value| · 10⁶)
+            if (exponent >= 0) scaled = (new BigInteger(mantissa) << exponent) * 1000000;
+            else
+            {
+                BigInteger product = new BigInteger(mantissa) * 1000000;
+                int shift = -exponent;
+                scaled = product >> shift;
+                if (!(product - (scaled << shift) < BigInteger.One << (shift - 1))) scaled += 1;
+            }
+            if (scaled.IsZero) return "0";
+            BigInteger whole = BigInteger.DivRem(scaled, 1000000, out BigInteger fraction);
+            var sb = new StringBuilder();
+            if (negative) sb.Append('-');
+            sb.Append(whole.ToString(CultureInfo.InvariantCulture));
+            if (!fraction.IsZero) sb.Append('.').Append(((int)fraction).ToString("D6", CultureInfo.InvariantCulture).TrimEnd('0'));
+            return sb.ToString();
         }
 
         private static string EscapeText(string text) => Escape(text, attribute: false);

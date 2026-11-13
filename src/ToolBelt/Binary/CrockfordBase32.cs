@@ -69,6 +69,10 @@ namespace ToolBelt.Binary
             int tail = symbols % 8;
             if (tail == 1 || tail == 3 || tail == 6)
                 throw new FormatException($"Invalid Crockford Base32 length ({symbols} symbols).");
+            // The last symbol's unused low bits must be zero, as the encoder writes them: "01" and "00" both decoded to
+            // 0x00, so two spellings of one ID or key compared unequal.
+            if ((buffer & ((1 << bits) - 1)) != 0)
+                throw new FormatException("Non-canonical Crockford Base32: the unused bits of the last symbol are not zero.");
             return bytes.ToArray();
         }
 

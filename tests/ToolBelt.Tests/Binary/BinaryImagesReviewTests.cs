@@ -53,7 +53,7 @@ namespace ToolBelt.Tests.Binary
             Check.Throws<FormatException>(() => CrockfordBase32.Decode("C"));
             Check.Throws<FormatException>(() => CrockfordBase32.Decode("CSQ"));
             Check.Throws<FormatException>(() => CrockfordBase32.Decode("Cſ"));   // long s used to fold to 'S'
-            Check.True(CrockfordBase32.Decode("cs").SequenceEqual(CrockfordBase32.Decode("CS")));
+            Check.True(CrockfordBase32.Decode("cr").SequenceEqual(CrockfordBase32.Decode("CR")));
         }
 
         public void Base64Url_RejectsTheStandardAlphabetAndWhitespace()
@@ -88,7 +88,8 @@ namespace ToolBelt.Tests.Binary
 
         public void Png_RowWiderThanIntIsRejectedUpFront()
         {
-            // 40M × 1 RGBA16: 4e7 pixels is under MaxPixels, but a row is 2.56e9 bits — rowBytes wrapped negative.
+            // 40M × 1 RGBA16: 4e7 pixels is under MaxPixels, but a row is 2.56e9 bits — rowBytes wrapped negative. Since
+            // round 68 the row is sized in bytes (3.2e8, allowed), so the 8-byte stream fails as truncated, still up front.
             var ms = new MemoryStream();
             ms.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, 0, 8);
             var ihdr = new byte[13];
@@ -99,7 +100,7 @@ namespace ToolBelt.Tests.Binary
             Chunk(ms, "IDAT", new byte[] { 0x78, 0x9C, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01 });
             Chunk(ms, "IEND", Array.Empty<byte>());
             var ex = Check.Throws<InvalidDataException>(() => PngReader.Decode(ms.ToArray()));
-            Check.True(ex.Message.Contains("too large"), ex.Message);
+            Check.True(ex.Message.Contains("truncated"), ex.Message);
         }
 
         public void Bmp_WideImageStrideDoesNotWrap()

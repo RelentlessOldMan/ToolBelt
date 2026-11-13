@@ -45,7 +45,9 @@ namespace ToolBelt.Tests.Binary
             // 1e-7 was written as width="0" height="0" viewBox="0 0 0 0": an SVG no viewer renders.
             Check.Equal("width", Check.Throws<ArgumentOutOfRangeException>(() => new SvgDocument(1e-7, 1)).ParamName);
             Check.Equal("height", Check.Throws<ArgumentOutOfRangeException>(() => new SvgDocument(1, 4e-7)).ParamName);
-            Check.True(new SvgDocument(1e-6, 5e-7).ToString().Contains("viewBox=\"0 0 0.000001 0.000001\""));
+            // The double nearest 5e-7 is just below 0.0000005, so it rounds to 0 exactly (round 68); just above it is kept.
+            Check.Equal("height", Check.Throws<ArgumentOutOfRangeException>(() => new SvgDocument(1, 5e-7)).ParamName);
+            Check.True(new SvgDocument(1e-6, 5.000001e-7).ToString().Contains("viewBox=\"0 0 0.000001 0.000001\""));
         }
 
         public void PathBuilder_ANonFiniteArgument_LeavesThePathUnchangedAndNamesIt()

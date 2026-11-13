@@ -27,12 +27,46 @@ namespace ToolBelt.Visualization
 
         public static ImageBuffer Load(string path) => Decode(File.ReadAllBytes(path ?? throw new ArgumentNullException(nameof(path))));
 
+        /// <summary>Decodes a PNG read from <paramref name="stream"/>, which is read chunk by chunk up to IEND.</summary>
         public static ImageBuffer Decode(Stream stream)
         {
             if (stream is null) throw new ArgumentNullException(nameof(stream));
+            // CopyTo read an endless or huge source to the end (past IEND), and failed at 2 GB with an IOException.
             using var ms = new MemoryStream();
-            stream.CopyTo(ms);
+            var header = new byte[8];
+            if (ReadFully(stream, header, 8) < 8) throw new InvalidDataException("Not a PNG file.");
+            ms.Write(header, 0, 8);
+            var buffer = new byte[1 << 16];
+            while (true)
+            {
+                int got = ReadFully(stream, header, 8);
+                ms.Write(header, 0, got);
+                if (got < 8) break;                                              // truncated: Decode(byte[]) says so
+                long rest = (long)unchecked((uint)Be32(header, 0)) + 4;                  // body and CRC
+                if (ms.Length + rest > 0x7FFFFFC7) throw new InvalidDataException("PNG stream is too large (over 2 GB).");
+                for (long left = rest; left > 0;)
+                {
+                    int n = stream.Read(buffer, 0, (int)Math.Min(buffer.Length, left));
+                    if (n <= 0) { left = 0; rest = -1; break; }
+                    ms.Write(buffer, 0, n);
+                    left -= n;
+                }
+                if (rest < 0) break;
+                if (header[4] == 'I' && header[5] == 'E' && header[6] == 'N' && header[7] == 'D') break;
+            }
             return Decode(ms.ToArray());
+        }
+
+        private static int ReadFully(Stream stream, byte[] buffer, int count)
+        {
+            int got = 0;
+            while (got < count)
+            {
+                int n = stream.Read(buffer, got, count - got);
+                if (n <= 0) break;
+                got += n;
+            }
+            return got;
         }
 
         public static ImageBuffer Decode(byte[] data)
@@ -128,8 +162,8 @@ namespace ToolBelt.Visualization
             int bitsPerPixel = channels * bitDepth;
             long expected = 0;
             foreach (var p in passes) if (p.W > 0 && p.H > 0) expected += (long)p.H * (1 + ((long)p.W * bitsPerPixel + 7) / 8);
-            // A row of a wide 16-bit RGBA image (W × 64 bits) overflows int long before MaxPixels does.
-            if ((long)width * bitsPerPixel + 7 > int.MaxValue || expected > int.MaxValue)
+            // Row sizes in bytes, not bits: a row of 2^28 bytes or more (100 megapixels by 1 in RGBA8) was refused.
+            if (((long)width * bitsPerPixel + 7) / 8 > 0x7FFFFFC7 || expected > int.MaxValue)
                 throw new InvalidDataException($"PNG image {width}x{height} is too large.");
             using var zlib = new ZlibReader(idat.ToArray(), expected);
 
@@ -140,7 +174,7 @@ namespace ToolBelt.Visualization
             foreach (var p in passes)
             {
                 if (p.W == 0 || p.H == 0) continue;
-                int rowBytes = (p.W * bitsPerPixel + 7) / 8;
+                int rowBytes = (int)(((long)p.W * bitsPerPixel + 7) / 8);
                 var prev = new byte[rowBytes];
                 var cur = new byte[rowBytes];
                 for (int r = 0; r < p.H; r++)
@@ -259,23 +293,42 @@ namespace ToolBelt.Visualization
                 _deflate = new DeflateStream(new MemoryStream(zlib, 2, zlib.Length - 6), CompressionMode.Decompress);
             }
 
+            // Data past the last scanline is drained into the checksum and ignored (libpng and Pillow accept it); it used
+            // to fail as a "checksum mismatch". The drain stops after as much again as the image (at least 64 KiB): it was
+            // bounded only by 1032 times the file, so a 1 MB file inflated 1 GB of padding. Past that the rest is ignored
+            // unchecked, as libpng stops after the last row.
+            public void Finish()
+            {
+                long limit = _read + Math.Max(1 << 16, _expected);
+                _pos = _len = 0;
+                while (_read < limit)
+                    if (Read(_block, 0, (int)Math.Min(_block.Length, limit - _read)) == 0)
+                    {
+                        if (((_b << 16) | _a) != _adler) throw new InvalidDataException("zlib checksum mismatch in PNG data.");
+                        return;
+                    }
+            }
+
+            // Rows are served from a 64 KiB block: a deflate read per filter byte and per row cost about 4 µs, so a 1 × 10⁷
+            // image (a 19 KB file) took 43 s.
+            private readonly byte[] _block = new byte[1 << 16];
+            private int _pos, _len;
+
             public void ReadExactly(byte[] buffer, int count)
             {
                 for (int got = 0; got < count;)
                 {
-                    int n = Read(buffer, got, count - got);
-                    if (n == 0) throw new InvalidDataException($"PNG image data is truncated ({_read} of {_expected} bytes).");
+                    if (_pos == _len)
+                    {
+                        _pos = 0;
+                        _len = Read(_block, 0, _block.Length);
+                        if (_len == 0) throw new InvalidDataException($"PNG image data is truncated ({_read} of {_expected} bytes).");
+                    }
+                    int n = Math.Min(count - got, _len - _pos);
+                    Buffer.BlockCopy(_block, _pos, buffer, got, n);
+                    _pos += n;
                     got += n;
                 }
-            }
-
-            // Data past the last scanline is drained into the checksum and ignored (libpng and Pillow accept it); it used
-            // to fail as a "checksum mismatch". Inflating is bounded by the compressed size, so this can't run away in memory.
-            public void Finish()
-            {
-                var scratch = new byte[1 << 16];
-                while (Read(scratch, 0, scratch.Length) > 0) { }
-                if (((_b << 16) | _a) != _adler) throw new InvalidDataException("zlib checksum mismatch in PNG data.");
             }
 
             private int Read(byte[] buffer, int offset, int count)

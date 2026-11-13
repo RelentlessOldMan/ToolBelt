@@ -653,6 +653,7 @@ tests/
       BinaryImagesReviewTests.cs  (review regressions: VarInt overflow, strict Base32/Base64url/QP decoding, overflow-safe range checks, PNG/BMP sizes, SVG escaping)
       BinaryImagesReview2Tests.cs (second-pass regressions: exact line clipping, XML whitespace escaping, QP soft breaks and blank runs, image size limits, negative SVG lengths)
       BinaryImagesReview3Tests.cs (third-pass regressions: atomic SVG elements, exact far-line clipping, strict PNG chunk layout, streamed PNG encode/decode, canonical Base32/Base64url)
+      BinaryImagesReview4Tests.cs (fourth-pass regressions: tall-narrow PNG speed, bounded drain and stream reads, exact SVG number rounding, zero-width text, canonical Crockford/Base85, Base58 encode speed)
       BitsTests.cs
       Crc16Tests.cs
       Crc32Tests.cs

@@ -3,7 +3,7 @@
   <!-- Shared by every project in the repo. The version is YYYY.M.D.N, set by scripts/bump-version.ps1 once per release
        (see CLAUDE.md, "Git and releases"); never edit it by hand. -->
   <PropertyGroup>
-    <Version>2026.11.13.10</Version>
+    <Version>2026.11.13.11</Version>
     <Authors>RelentlessOldMan</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/RelentlessOldMan/ToolBelt</RepositoryUrl>

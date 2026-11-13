@@ -46,7 +46,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 4 | 23 / 109 | re-queue (23 bugs, none severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 4 | 24 / 119 | re-queue (24 bugs, none severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 4 | 24 / 106 | re-queue (24 bugs, 1 severe) |
-| 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 3 | 18 / 47 | re-queue (18 bugs, 1 severe) |
+| 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 4 | 10 / 57 | re-queue (10 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 4 | 29 / 93 | re-queue (29 bugs, 5 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 4 | 39 / 125 | re-queue (39 bugs, 7 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 3 | 13 / 52 | re-queue (13 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67); **next: 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68); **next: 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -141,11 +141,42 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.8 | 65 | Windows satellite, fourth pass | 25 | (see tag) |
 | v2026.11.13.9 | 66 | Statistics, fourth pass | 23 | (see tag) |
 | v2026.11.13.10 | 67 | Filters & control, fourth pass | 14 | (see tag) |
+| v2026.11.13.11 | 68 | Binary formats & images, fourth pass | 10 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 68: Binary formats & images, fourth pass (v2026.11.13.11)
+
+Two fresh reviewers (correctness, robustness): 9 findings plus a slow Base58 encode the robustness reviewer noted, all
+confirmed, so **10 bugs, 1 severe**. Section 6 stays re-queued. The regression tests are in
+`BinaryImagesReview4Tests` (14 tests); 13 failed on the old code, and the 14th is a differential guard (Base58 against
+a naive one-digit-per-division encoder). Three older tests changed with the behaviour: a 40M × 1 RGBA16 row is now
+allowed (so its 8-byte stream fails as truncated), and the Crockford and SVG examples used non-canonical or
+just-below-half inputs. The checked build caught an unchecked length cast in the new stream reader before release.
+
+- **Severe: tall, narrow PNGs decoded at about 4 µs a row.** Each row took two deflate reads, so 1 × 10⁷ (a 19 KB
+  file) took 43 s. Rows are now served from a 64 KiB block.
+- **PNG limits:** data past the last scanline was inflated and checksummed to the end (a 1 MB file could inflate 1 GB);
+  the drain now stops after as much again as the image, at least 64 KiB, and ignores the rest unchecked, as libpng
+  does. A row's size was compared in bits with int.MaxValue, so 2^25 × 1 RGBA16 or 10⁸ × 1 RGBA8 (within MaxPixels)
+  was refused. Decode(Stream) copied the whole source (past IEND, failing at 2 GB with an IOException); it now reads
+  chunk by chunk, stops at IEND and refuses a stream over 2 GB as invalid data.
+- **SVG numbers:** "0.######" rounded to 15 significant digits first (0.7551384999999999 gave 0.755139,
+  4503599627370497 gave 4503599627370500) and differed between .NET Framework and .NET past about 7e11. SvgUtils and
+  SvgDocument now round the exact binary value to six decimals, halves away from zero, on both frameworks.
+- **Text width:** combining marks outside U+0300–036F, zero-width and format characters, variation selectors, astral
+  marks and tags counted as an average letter; NBSP counted as a letter; every part of a ZWJ emoji sequence and each
+  skin-tone modifier counted an em. A width that overflows to ∞ (a font size near MaxValue) is refused, naming
+  fontSize.
+- **Canonical decoding:** Crockford Base32 accepted non-zero unused bits in the last symbol ("01" and "00" both gave
+  0x00), and Base85 accepted any spelling of a short final group ("!#" and "!!"); both now have one spelling per
+  value. Base85's documentation called it btoa-style, but it has no z/y shorthand, delimiters or whitespace skipping;
+  it now says so.
+- **Base58:** encoding divided the whole number once per digit, about seven times slower than decoding (17.6 s for
+  100 KB); it now takes ten digits per division.
+
 ### Round 67: Filters & control, fourth pass (v2026.11.13.10)
 
 Two fresh reviewers (correctness, robustness): 15 findings, 13 after merging the two that both found, all confirmed,

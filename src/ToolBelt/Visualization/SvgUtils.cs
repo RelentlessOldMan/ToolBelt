@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Numerics;
 using System.Text;
 
 namespace ToolBelt.Visualization
@@ -29,8 +30,8 @@ namespace ToolBelt.Visualization
         }
 
         /// <summary>
-        /// Formats a coordinate or length: invariant culture, at most six decimals, no trailing zeros, and no
-        /// negative zero. Throws for NaN or infinity, which SVG cannot represent — a non-finite coordinate is
+        /// Formats a coordinate or length: invariant culture, the exact value rounded to at most six decimals (halves
+        /// away from zero), no trailing zeros, and no negative zero. Throws for NaN or infinity, which SVG cannot represent — a non-finite coordinate is
         /// always a bug upstream, so it fails here rather than producing an unrenderable document.
         /// </summary>
         public static string Number(double value) => Number(value, nameof(value));
@@ -40,8 +41,38 @@ namespace ToolBelt.Visualization
         {
             if (double.IsNaN(value) || double.IsInfinity(value))
                 throw new ArgumentOutOfRangeException(paramName, value, "SVG numbers must be finite.");
-            string s = value.ToString("0.######", CultureInfo.InvariantCulture);
-            return s == "-0" ? "0" : s;
+            return SixDecimals(value);
+        }
+
+        // The double's exact value rounded to six decimals (halves away from zero), without trailing zeros or a negative
+        // zero. "0.######" rounded to 15 significant digits first: 0.7551384999999999 came out 0.755139, 4503599627370497
+        // as 4503599627370500, and values past about 7e11 differed between .NET Framework and .NET.
+        private static string SixDecimals(double value)
+        {
+            if (value == Math.Floor(value) && Math.Abs(value) < 9007199254740992.0)
+                return ((long)value).ToString(CultureInfo.InvariantCulture);       // an integer, exactly (−0 gives "0")
+            long bits = BitConverter.DoubleToInt64Bits(value);
+            bool negative = bits < 0;
+            int exponent = (int)((bits >> 52) & 0x7FF);
+            long mantissa = bits & 0xFFFFFFFFFFFFFL;
+            if (exponent == 0) exponent = 1; else mantissa |= 1L << 52;
+            exponent -= 1075;                                                       // |value| = mantissa · 2^exponent
+            BigInteger scaled;                                                      // round(|value| · 10⁶)
+            if (exponent >= 0) scaled = (new BigInteger(mantissa) << exponent) * 1000000;
+            else
+            {
+                BigInteger product = new BigInteger(mantissa) * 1000000;
+                int shift = -exponent;
+                scaled = product >> shift;
+                if (!(product - (scaled << shift) < BigInteger.One << (shift - 1))) scaled += 1;
+            }
+            if (scaled.IsZero) return "0";
+            BigInteger whole = BigInteger.DivRem(scaled, 1000000, out BigInteger fraction);
+            var sb = new StringBuilder();
+            if (negative) sb.Append('-');
+            sb.Append(whole.ToString(CultureInfo.InvariantCulture));
+            if (!fraction.IsZero) sb.Append('.').Append(((int)fraction).ToString("D6", CultureInfo.InvariantCulture).TrimEnd('0'));
+            return sb.ToString();
         }
 
         /// <summary>An SVG color, <c>#rrggbb</c> (alpha is separate — see <see cref="Opacity"/>).</summary>
@@ -112,7 +143,8 @@ namespace ToolBelt.Visualization
         /// <summary>
         /// Estimates the rendered width of <paramref name="text"/> in a Helvetica/Arial-like sans-serif at
         /// <paramref name="fontSize"/>, from the standard Helvetica advance widths for printable ASCII. Non-ASCII
-        /// letters use an average width, East Asian wide characters a full em, and combining marks zero. Bold is
+        /// letters use an average width, East Asian wide characters and emoji a full em (an emoji joined by U+200D counts
+        /// once), and combining marks, joiners and variation selectors zero. Bold is
         /// approximated by a uniform widening. An estimate for layout (centering, right-aligning, avoiding overlap)
         /// — the real width depends on the viewer's font, so leave a little slack.
         /// </summary>
@@ -122,9 +154,29 @@ namespace ToolBelt.Visualization
             if (!(fontSize >= 0) || double.IsInfinity(fontSize))                   // ∞ gave NaN for "" and ∞ otherwise
                 throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be non-negative and finite.");
             double units = 0;
-            foreach (char ch in text)
-                units += AdvanceWidth(ch);
-            return units / 1000.0 * fontSize * (bold ? BoldFactor : 1.0);
+            bool joined = false;
+            for (int i = 0; i < text.Length; i++)
+            {
+                char ch = text[i];
+                if (char.IsHighSurrogate(ch) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    // An astral character: about an em, but nothing after a zero-width joiner (the parts of an emoji
+                    // sequence render as one glyph), for a skin-tone modifier, or for an astral mark or tag.
+                    int cp = char.ConvertToUtf32(ch, text[i + 1]);
+                    bool zero = joined || (cp >= 0x1F3FB && cp <= 0x1F3FF) || IsZeroWidth(CharUnicodeInfo.GetUnicodeCategory(text, i));
+                    units += zero ? 0 : 1000;
+                    joined = false;
+                    i++;
+                    continue;
+                }
+                // A symbol joined by U+200D (the heart in a couple emoji) is part of the glyph before it.
+                units += joined && CharUnicodeInfo.GetUnicodeCategory(ch) == UnicodeCategory.OtherSymbol ? 0 : AdvanceWidth(ch);
+                if (ch != '\uFE0F') joined = ch == '\u200D';             // a variation selector keeps the join
+            }
+            double width = units / 1000.0 * fontSize * (bold ? BoldFactor : 1.0);
+            if (double.IsInfinity(width))                                          // a finite size near MaxValue gave ∞
+                throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size too large: the width is not representable.");
+            return width;
         }
 
         private const double BoldFactor = 1.07;
@@ -132,13 +184,19 @@ namespace ToolBelt.Visualization
         private static int AdvanceWidth(char ch)
         {
             if (ch >= 32 && ch <= 126) return HelveticaWidths[ch - 32];
-            if (ch >= '̀' && ch <= 'ͯ') return 0;          // combining diacritics
+            if (ch == '\u00A0') return 278;                          // no-break space: a space
+            // Combining marks of every block (only U+0300–036F were zero), joiners, variation selectors and other
+            // format characters take no advance.
+            if (IsZeroWidth(CharUnicodeInfo.GetUnicodeCategory(ch))) return 0;
             if (char.IsLowSurrogate(ch)) return 0;                   // counted with its high surrogate
             if (char.IsHighSurrogate(ch)) return 1000;               // astral (emoji etc.): about an em
             if (IsWide(ch)) return 1000;
             if (char.IsControl(ch)) return 0;
             return 556;                                              // average Latin/Greek/Cyrillic letter
         }
+
+        private static bool IsZeroWidth(UnicodeCategory category)
+            => category == UnicodeCategory.NonSpacingMark || category == UnicodeCategory.EnclosingMark || category == UnicodeCategory.Format;
 
         private static bool IsWide(char ch)
             => (ch >= 'ᄀ' && ch <= 'ᅟ')    // Hangul Jamo

@@ -6,9 +6,12 @@ using System.Text;
 namespace ToolBelt.Binary
 {
     /// <summary>
-    /// Ascii85 (btoa-style) binary-to-text encoding: each 4-byte group becomes 5 printable characters in
-    /// the range '!'..'u'. A short final group is padded and emitted as <c>bytes+1</c> characters, so the
-    /// original length is recovered exactly. No <c>z</c> shorthand or <c>&lt;~ ~&gt;</c> delimiters.
+    /// Ascii85 binary-to-text encoding (the Adobe alphabet without its framing): each 4-byte group becomes 5
+    /// printable characters in the range '!'..'u'. A short final group is padded and emitted as <c>bytes+1</c>
+    /// characters, so the original length is recovered exactly. Unlike btoa and Adobe's filter there is no
+    /// <c>z</c> or <c>y</c> shorthand, no <c>&lt;~ ~&gt;</c> delimiters, and whitespace is not skipped: every
+    /// character must be in '!'..'u'. Decoding is canonical: a short final group must be spelled as the encoder
+    /// writes it.
     /// </summary>
     public static class Base85
     {
@@ -69,6 +72,18 @@ namespace ToolBelt.Binary
                         throw new FormatException("Ascii85 group overflows 32 bits.");
 
                     uint v = (uint)value;
+                    if (n < 5)
+                    {
+                        // The encoder pads with zero bytes; the group must be what it writes for these n − 1 bytes ("!#"
+                        // and "!!" both decoded to 0x00).
+                        uint kept = v & ~(uint.MaxValue >> (8 * (n - 1)));
+                        uint d = kept;
+                        var canonical = new char[5];
+                        for (int j = 4; j >= 0; j--) { canonical[j] = (char)('!' + d % 85); d /= 85; }
+                        for (int j = 0; j < n; j++)
+                            if (canonical[j] != text[i + j])
+                                throw new FormatException($"Non-canonical Ascii85 final group at index {i}.");
+                    }
                     for (int k = 0; k < n - 1; k++) // full group -> 4 bytes; partial -> n-1
                         bytes.Add((byte)(v >> (24 - k * 8)));
                     i += 5;
