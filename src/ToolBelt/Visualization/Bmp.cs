@@ -22,7 +22,8 @@ namespace ToolBelt.Visualization
             int headerSize = includeAlpha ? 108 : 40;                       // BITMAPV4HEADER : BITMAPINFOHEADER
             int offset = 14 + headerSize;
             long size = offset + wideStride * h;
-            if (size > int.MaxValue) throw new ArgumentException("Image too large for BMP.", nameof(image));
+            // The largest byte array, not int.MaxValue: in between, new byte[size] threw OutOfMemoryException.
+            if (size > 0x7FFFFFC7) throw new ArgumentException("Image too large for BMP.", nameof(image));
             int stride = (int)wideStride;
             var data = new byte[size];
 

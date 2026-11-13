@@ -72,6 +72,7 @@ namespace ToolBelt.Visualization
         public static string StrokeAttributes(Rgba? stroke, double width = 1, string? dashArray = null)
         {
             if (stroke is null) return string.Empty;
+            if (!(width >= 0)) throw new ArgumentOutOfRangeException(nameof(width), width, "Stroke width must be non-negative.");   // SVG rejects a negative one
             Rgba c = stroke.Value;
             var sb = new StringBuilder();
             sb.Append("stroke=\"").Append(Color(c)).Append("\" stroke-width=\"").Append(Number(width, nameof(width))).Append('"');
@@ -118,7 +119,8 @@ namespace ToolBelt.Visualization
         public static double EstimateTextWidth(string text, double fontSize, bool bold = false)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
-            if (!(fontSize >= 0)) throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be non-negative.");
+            if (!(fontSize >= 0) || double.IsInfinity(fontSize))                   // ∞ gave NaN for "" and ∞ otherwise
+                throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be non-negative and finite.");
             double units = 0;
             foreach (char ch in text)
                 units += AdvanceWidth(ch);
@@ -218,26 +220,23 @@ namespace ToolBelt.Visualization
         /// <summary>True until a command has been added.</summary>
         public bool IsEmpty => _d.Length == 0;
 
-        public PathBuilder MoveTo(double x, double y) => Cmd('M', x, y);
-        public PathBuilder LineTo(double x, double y) => Cmd('L', x, y);
-        public PathBuilder HorizontalTo(double x) => Cmd('H', x);
-        public PathBuilder VerticalTo(double y) => Cmd('V', y);
+        public PathBuilder MoveTo(double x, double y) => Cmd("M", N(x, nameof(x)), N(y, nameof(y)));
+        public PathBuilder LineTo(double x, double y) => Cmd("L", N(x, nameof(x)), N(y, nameof(y)));
+        public PathBuilder HorizontalTo(double x) => Cmd("H", N(x, nameof(x)));
+        public PathBuilder VerticalTo(double y) => Cmd("V", N(y, nameof(y)));
 
         /// <summary>Cubic Bézier to (x, y) with control points (x1, y1) and (x2, y2).</summary>
-        public PathBuilder CubicTo(double x1, double y1, double x2, double y2, double x, double y) => Cmd('C', x1, y1, x2, y2, x, y);
+        public PathBuilder CubicTo(double x1, double y1, double x2, double y2, double x, double y)
+            => Cmd("C", N(x1, nameof(x1)), N(y1, nameof(y1)), N(x2, nameof(x2)), N(y2, nameof(y2)), N(x, nameof(x)), N(y, nameof(y)));
 
         /// <summary>Quadratic Bézier to (x, y) with control point (x1, y1).</summary>
-        public PathBuilder QuadraticTo(double x1, double y1, double x, double y) => Cmd('Q', x1, y1, x, y);
+        public PathBuilder QuadraticTo(double x1, double y1, double x, double y)
+            => Cmd("Q", N(x1, nameof(x1)), N(y1, nameof(y1)), N(x, nameof(x)), N(y, nameof(y)));
 
         /// <summary>Elliptical arc to (x, y).</summary>
         public PathBuilder ArcTo(double rx, double ry, double rotationDegrees, bool largeArc, bool sweep, double x, double y)
-        {
-            Separator();
-            _d.Append('A').Append(SvgUtils.Number(rx)).Append(' ').Append(SvgUtils.Number(ry)).Append(' ')
-              .Append(SvgUtils.Number(rotationDegrees)).Append(' ').Append(largeArc ? '1' : '0').Append(' ')
-              .Append(sweep ? '1' : '0').Append(' ').Append(SvgUtils.Number(x)).Append(' ').Append(SvgUtils.Number(y));
-            return this;
-        }
+            => Cmd("A", N(rx, nameof(rx)), N(ry, nameof(ry)), N(rotationDegrees, nameof(rotationDegrees)),
+                   largeArc ? "1" : "0", sweep ? "1" : "0", N(x, nameof(x)), N(y, nameof(y)));
 
         public PathBuilder Close()
         {
@@ -262,15 +261,13 @@ namespace ToolBelt.Visualization
 
         public override string ToString() => _d.ToString();
 
-        private PathBuilder Cmd(char op, params double[] args)
+        // The arguments arrive already formatted, so a non-finite one throws (naming itself) before anything is written.
+        private static string N(double value, string name) => SvgUtils.Number(value, name);
+
+        private PathBuilder Cmd(string op, params string[] args)
         {
             Separator();
-            _d.Append(op);
-            for (int i = 0; i < args.Length; i++)
-            {
-                if (i > 0) _d.Append(' ');
-                _d.Append(SvgUtils.Number(args[i]));
-            }
+            _d.Append(op).Append(string.Join(" ", args));
             return this;
         }
 

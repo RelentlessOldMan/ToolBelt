@@ -42,9 +42,9 @@ namespace ToolBelt.Tests.Binary
 
         public void Decode_HandlesSoftBreaksAndCaseInsensitiveHex()
         {
-            Check.True(((ReadOnlySpan<byte>)Decode("a=\r\nb")).SequenceEqual(Ascii("ab")));   // =\r\n soft break
-            Check.True(((ReadOnlySpan<byte>)Decode("a=\nb")).SequenceEqual(Ascii("ab")));      // =\n soft break
-            Check.True(((ReadOnlySpan<byte>)Decode("=c3=a9")).SequenceEqual(new byte[] { 0xC3, 0xA9 })); // lowercase
+            Check.True(System.Linq.Enumerable.SequenceEqual(Decode("a=\r\nb"), Ascii("ab")));   // =\r\n soft break
+            Check.True(System.Linq.Enumerable.SequenceEqual(Decode("a=\nb"), Ascii("ab")));      // =\n soft break
+            Check.True(System.Linq.Enumerable.SequenceEqual(Decode("=c3=a9"), new byte[] { 0xC3, 0xA9 })); // lowercase
         }
 
         public void LinesNeverExceed76Chars()
@@ -71,7 +71,7 @@ namespace ToolBelt.Tests.Binary
                 var data = new byte[r.Next(0, 300)];
                 r.NextBytes(data);
                 byte[] back = QuotedPrintable.Decode(QuotedPrintable.Encode(data));
-                Check.True(((ReadOnlySpan<byte>)data).SequenceEqual(back), $"round-trip failed at trial {trial} (len {data.Length})");
+                Check.True(System.Linq.Enumerable.SequenceEqual(data, back), $"round-trip failed at trial {trial} (len {data.Length})");
             }
         }
 

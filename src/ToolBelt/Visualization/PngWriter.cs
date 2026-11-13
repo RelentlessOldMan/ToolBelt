@@ -10,7 +10,8 @@ namespace ToolBelt.Visualization
     /// core code can emit raster images (plots, heat maps) on any operating system without a platform
     /// assembly. Writes 8-bit truecolor-with-alpha (color type 6) with the no-op scanline filter, which is
     /// perfectly acceptable for plots and heat maps. The two required checksums (CRC-32 for chunks, Adler-32
-    /// for the zlib stream) are computed here.
+    /// for the zlib stream) are computed here. Rows are compressed as they are read and written out in 64 KiB IDAT
+    /// chunks, so any <see cref="ImageBuffer"/> can be written and memory stays at the image plus one chunk.
     /// </summary>
     public static class PngWriter
     {
@@ -33,9 +34,7 @@ namespace ToolBelt.Visualization
             ihdr[12] = 0; // interlace: none
             WriteChunk(stream, "IHDR", ihdr);
 
-            byte[] filtered = BuildFilteredScanlines(image);
-            byte[] zlib = ZlibCompress(filtered);
-            WriteChunk(stream, "IDAT", zlib);
+            WriteImageData(image, stream);
 
             WriteChunk(stream, "IEND", Array.Empty<byte>());
         }
@@ -54,50 +53,87 @@ namespace ToolBelt.Visualization
             Write(image, fs);
         }
 
-        private static byte[] BuildFilteredScanlines(ImageBuffer image)
+        private const int ChunkSize = 1 << 16;
+
+        // The zlib stream (header, deflate, Adler-32) of the filtered scanlines, written as it is produced. Building the
+        // filtered scanlines and the compressed stream in memory first capped images near 2 GB with an exception thrown
+        // after the header was already written (Save left a 33-byte .png), and OutOfMemoryException just below that.
+        private static void WriteImageData(ImageBuffer image, Stream stream)
         {
             int rowBytes = image.Width * 4;
             byte[] pixels = image.Pixels;
-            // One filter byte per row on top of the pixels: in int this wrapped for images near the 2 GB limit.
-            long size = (long)image.Height * (rowBytes + 1);
-            if (size > int.MaxValue) throw new ArgumentException($"A {image.Width} × {image.Height} image is too large for PNG.", nameof(image));
-            var output = new byte[size];
-            for (int y = 0; y < image.Height; y++)
+            var sink = new MemoryStream();
+            sink.WriteByte(0x78); // zlib header (CMF)
+            sink.WriteByte(0x9C); // FLG (checkbits make 0x789C a multiple of 31)
+            uint a = 1, b = 0;
+            using (var deflate = new DeflateStream(sink, CompressionLevel.Optimal, leaveOpen: true))
             {
-                int dst = y * (rowBytes + 1);
-                output[dst] = 0; // filter type: None
-                Buffer.BlockCopy(pixels, y * rowBytes, output, dst + 1, rowBytes);
+                void Put(byte[] data, int offset, int count)
+                {
+                    for (int done = 0; done < count;)
+                    {
+                        int n = Math.Min(ChunkSize, count - done);
+                        Adler32(data, offset + done, n, ref a, ref b);
+                        deflate.Write(data, offset + done, n);
+                        Drain(sink, stream, all: false);
+                        done += n;
+                    }
+                }
+
+                // Each row is led by its filter byte (0: None). Narrow rows are batched to about one chunk per write.
+                if (rowBytes + 1 <= ChunkSize)
+                {
+                    int rowsPerBatch = ChunkSize / (rowBytes + 1);
+                    var batch = new byte[Math.Min(rowsPerBatch, image.Height) * (rowBytes + 1)];
+                    for (int y = 0; y < image.Height;)
+                    {
+                        int rows = Math.Min(rowsPerBatch, image.Height - y), n = 0;
+                        for (int r = 0; r < rows; r++, y++)
+                        {
+                            batch[n++] = 0;
+                            Buffer.BlockCopy(pixels, y * rowBytes, batch, n, rowBytes);
+                            n += rowBytes;
+                        }
+                        Put(batch, 0, n);
+                    }
+                }
+                else
+                {
+                    var filter = new byte[1];
+                    for (int y = 0; y < image.Height; y++)
+                    {
+                        Put(filter, 0, 1);
+                        Put(pixels, y * rowBytes, rowBytes);
+                    }
+                }
             }
-            return output;
+            var adler = new byte[4];
+            WriteBe32(adler, 0, (b << 16) | a);
+            sink.Write(adler, 0, 4);
+            Drain(sink, stream, all: true);
         }
 
-        private static byte[] ZlibCompress(byte[] data)
+        private static void Drain(MemoryStream sink, Stream stream, bool all)
         {
-            byte[] deflated;
-            using (var ms = new MemoryStream())
-            {
-                using (var deflate = new DeflateStream(ms, CompressionLevel.Optimal, leaveOpen: true))
-                    deflate.Write(data, 0, data.Length);
-                deflated = ms.ToArray();
-            }
-
-            var result = new byte[2 + deflated.Length + 4];
-            result[0] = 0x78; // zlib header (CMF)
-            result[1] = 0x9C; // FLG (checkbits make 0x789C a multiple of 31)
-            Buffer.BlockCopy(deflated, 0, result, 2, deflated.Length);
-            WriteBe32(result, result.Length - 4, Adler32(data));
-            return result;
+            byte[] buffer = sink.GetBuffer();
+            int length = (int)sink.Length, start = 0;
+            for (; length - start >= ChunkSize; start += ChunkSize) WriteChunk(stream, "IDAT", buffer, start, ChunkSize);
+            if (all && length > start) { WriteChunk(stream, "IDAT", buffer, start, length - start); start = length; }
+            Buffer.BlockCopy(buffer, start, buffer, 0, length - start);
+            sink.SetLength(length - start);
         }
 
-        private static void WriteChunk(Stream stream, string type, byte[] data)
+        private static void WriteChunk(Stream stream, string type, byte[] data) => WriteChunk(stream, type, data, 0, data.Length);
+
+        private static void WriteChunk(Stream stream, string type, byte[] data, int offset, int count)
         {
             var length = new byte[4];
-            WriteBe32(length, 0, (uint)data.Length);
+            WriteBe32(length, 0, (uint)count);
             stream.Write(length, 0, 4);
 
-            var typeAndData = new byte[4 + data.Length];
+            var typeAndData = new byte[4 + count];
             for (int i = 0; i < 4; i++) typeAndData[i] = (byte)type[i];
-            Buffer.BlockCopy(data, 0, typeAndData, 4, data.Length);
+            Buffer.BlockCopy(data, offset, typeAndData, 4, count);
             stream.Write(typeAndData, 0, typeAndData.Length);
 
             var crc = new byte[4];
@@ -140,16 +176,15 @@ namespace ToolBelt.Visualization
             return crc ^ 0xFFFFFFFFu;
         }
 
-        private static uint Adler32(byte[] data)
+        private static void Adler32(byte[] data, int offset, int count, ref uint a, ref uint b)
         {
             const uint mod = 65521;
-            uint a = 1, b = 0;
-            foreach (byte d in data)
+            for (int i = offset, stop = offset + count; i < stop;)
             {
-                a = (a + d) % mod;
-                b = (b + a) % mod;
+                int end = Math.Min(stop, i + 5552);                    // the most bytes before b can pass 2^32
+                for (; i < end; i++) { a += data[i]; b += a; }
+                a %= mod; b %= mod;
             }
-            return (b << 16) | a;
         }
     }
 }

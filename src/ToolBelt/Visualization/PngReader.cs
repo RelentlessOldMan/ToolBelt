@@ -11,9 +11,12 @@ namespace ToolBelt.Visualization
     /// half of <see cref="PngWriter"/>, for loading reference images, masks and test fixtures on any OS. Supports every
     /// standard PNG: greyscale, RGB, palette, grey+alpha and RGBA; bit depths 1, 2, 4, 8 and 16 (16-bit is reduced to 8);
     /// all five scanline filters; Adam7 interlacing; and tRNS transparency. Chunk CRCs and the zlib checksum are verified,
-    /// and decompression is bounded by the header (itself capped at <see cref="MaxPixels"/>) and grows its buffer only as data
-    /// actually inflates, so a tiny file claiming a huge image fails without a huge allocation. Ancillary chunks
-    /// (gamma, text, ICC profiles) are ignored.
+    /// and the chunk layout is checked (IHDR first and once, PLTE and tRNS once and before the image data, consecutive
+    /// IDAT chunks, a closing IEND). Image data is inflated one scanline at a time straight into the image (capped at
+    /// <see cref="MaxPixels"/>), so memory is the image plus the compressed data. Deflate expands at most 1032-fold, so
+    /// data too short to hold the image fails as truncated before the image is allocated: a tiny file claiming a huge
+    /// image can't force a huge allocation. Decompressed data past the last scanline is checksummed and
+    /// ignored, as libpng does. Ancillary chunks (gamma, text, ICC profiles) are ignored.
     /// </summary>
     public static class PngReader
     {
@@ -41,18 +44,25 @@ namespace ToolBelt.Visualization
             int width = 0, height = 0, bitDepth = 0, colorType = -1, interlace = 0;
             byte[]? palette = null, trns = null;
             var idat = new MemoryStream();
-            bool sawHeader = false, sawEnd = false;
+            bool sawHeader = false, sawEnd = false, sawData = false, dataEnded = false;
             int pos = 8;
             while (pos + 12 <= data.Length && !sawEnd)
             {
                 int length = Be32(data, pos);
                 if (length < 0 || pos + 12L + length > data.Length) throw new InvalidDataException("Truncated PNG chunk.");
+                for (int k = pos + 4; k < pos + 8; k++)                                 // chunk types are ASCII letters only
+                    if (!((data[k] >= 'A' && data[k] <= 'Z') || (data[k] >= 'a' && data[k] <= 'z')))
+                        throw new InvalidDataException("Bad PNG chunk type.");
                 string type = System.Text.Encoding.ASCII.GetString(data, pos + 4, 4);
                 if (Crc32(data, pos + 4, length + 4) != unchecked((uint)Be32(data, pos + 8 + length))) throw new InvalidDataException($"CRC mismatch in PNG chunk {type}.");
+                if (!sawHeader && type != "IHDR") throw new InvalidDataException($"PNG chunk {type} before IHDR.");
+                if (sawData && type != "IDAT") dataEnded = true;
                 int body = pos + 8;
                 switch (type)
                 {
                     case "IHDR":
+                        // A second IHDR (after the image data) silently re-described the pixels already read.
+                        if (sawHeader) throw new InvalidDataException("Duplicate IHDR.");
                         if (length != 13) throw new InvalidDataException("Bad IHDR length.");
                         width = Be32(data, body);
                         height = Be32(data, body + 4);
@@ -63,15 +73,20 @@ namespace ToolBelt.Visualization
                         sawHeader = true;
                         break;
                     case "PLTE":
+                        if (palette != null || sawData || trns != null) throw new InvalidDataException("PLTE out of order or repeated.");
+                        if (colorType == 0 || colorType == 4) throw new InvalidDataException("PLTE in a greyscale PNG.");
+                        if (length == 0 || length % 3 != 0 || length > 768) throw new InvalidDataException("Bad PLTE length.");
                         palette = new byte[length];
                         Array.Copy(data, body, palette, 0, length);
                         break;
                     case "tRNS":
+                        if (trns != null || sawData || (colorType == 3 && palette == null)) throw new InvalidDataException("tRNS out of order or repeated.");
                         trns = new byte[length];
                         Array.Copy(data, body, trns, 0, length);
                         break;
                     case "IDAT":
-                        if (!sawHeader) throw new InvalidDataException("IDAT before IHDR.");
+                        if (dataEnded) throw new InvalidDataException("IDAT chunks are not consecutive.");
+                        sawData = true;
                         idat.Write(data, body, length);
                         break;
                     case "IEND":
@@ -84,6 +99,7 @@ namespace ToolBelt.Visualization
                 pos += 12 + length;
             }
             if (!sawHeader) throw new InvalidDataException("PNG has no IHDR.");
+            if (!sawEnd) throw new InvalidDataException("PNG is truncated (no IEND).");
             if (width <= 0 || height <= 0 || (long)width * height > MaxPixels) throw new InvalidDataException($"Unsupported PNG size {width}x{height}.");
             if (interlace > 1) throw new InvalidDataException("Unknown PNG interlace method.");
             int channels = colorType switch { 0 => 1, 2 => 3, 3 => 1, 4 => 2, 6 => 4, _ => throw new InvalidDataException($"Bad PNG colour type {colorType}.") };
@@ -115,12 +131,12 @@ namespace ToolBelt.Visualization
             // A row of a wide 16-bit RGBA image (W × 64 bits) overflows int long before MaxPixels does.
             if ((long)width * bitsPerPixel + 7 > int.MaxValue || expected > int.MaxValue)
                 throw new InvalidDataException($"PNG image {width}x{height} is too large.");
-            byte[] raw = Inflate(idat.ToArray(), expected);
+            using var zlib = new ZlibReader(idat.ToArray(), expected);
 
             var image = new ImageBuffer(width, height);
             byte[] px = image.Pixels;
             int filterBpp = Math.Max(1, bitsPerPixel / 8);
-            int offset = 0;
+            var filterByte = new byte[1];
             foreach (var p in passes)
             {
                 if (p.W == 0 || p.H == 0) continue;
@@ -129,16 +145,16 @@ namespace ToolBelt.Visualization
                 var cur = new byte[rowBytes];
                 for (int r = 0; r < p.H; r++)
                 {
-                    byte filter = raw[offset];
-                    Array.Copy(raw, offset + 1, cur, 0, rowBytes);
-                    offset += 1 + rowBytes;
-                    Unfilter(filter, cur, prev, filterBpp);
+                    zlib.ReadExactly(filterByte, 1);
+                    zlib.ReadExactly(cur, rowBytes);
+                    Unfilter(filterByte[0], cur, prev, filterBpp);
                     int y = p.Y0 + r * p.Dy;
                     for (int c = 0; c < p.W; c++)
                         WritePixel(px, (y * width + p.X0 + c * p.Dx) * 4, cur, c, colorType, bitDepth, channels, palette, trns);
                     (prev, cur) = (cur, prev);
                 }
             }
+            zlib.Finish();
             return image;
         }
 
@@ -216,36 +232,71 @@ namespace ToolBelt.Visualization
             px[d + 3] = trns != null && index < trns.Length ? trns[index] : (byte)255;
         }
 
-        private static byte[] Inflate(byte[] zlib, long expected)
+        // The zlib stream of the image data, read a scanline at a time with a running Adler-32. Inflating it whole into a
+        // growing buffer peaked at about three times the decoded size (2.2 GB for a 10000 x 10000 16-bit RGBA file).
+        private sealed class ZlibReader : IDisposable
         {
-            if (zlib.Length < 6) throw new InvalidDataException("PNG image data is empty.");
-            int cmf = zlib[0], flg = zlib[1];
-            if ((cmf & 0x0F) != 8 || ((cmf << 8) | flg) % 31 != 0) throw new InvalidDataException("Bad zlib header in PNG data.");
-            if ((flg & 0x20) != 0) throw new InvalidDataException("Preset zlib dictionaries are not allowed in PNG.");
-            if (expected > int.MaxValue) throw new InvalidDataException("PNG image too large.");
-            byte[] output = InflateExactly(new DeflateStream(new MemoryStream(zlib, 2, zlib.Length - 6), CompressionMode.Decompress), (int)expected);
-            uint adler = unchecked((uint)Be32(zlib, zlib.Length - 4));
-            if (Adler32(output) != adler) throw new InvalidDataException("zlib checksum mismatch in PNG data.");
-            return output;
-        }
+            private readonly DeflateStream _deflate;
+            private readonly uint _adler;
+            private readonly long _expected;
+            private long _read;
+            private uint _a = 1, _b;
 
-        // Reads exactly `expected` bytes, growing the buffer only as data actually inflates — a tiny file whose header claims
-        // a huge image fails as truncated without first allocating the full claimed size.
-        private static byte[] InflateExactly(Stream deflate, int expected)
-        {
-            using (deflate)
+            public ZlibReader(byte[] zlib, long expected)
             {
-                var buffer = new byte[Math.Min(expected, 1 << 16)];
-                int read = 0;
-                while (read < expected)
-                {
-                    if (read == buffer.Length) Array.Resize(ref buffer, (int)Math.Min(expected, (long)buffer.Length * 2));
-                    int n = deflate.Read(buffer, read, buffer.Length - read);
-                    if (n == 0) throw new InvalidDataException($"PNG image data is truncated ({read} of {expected} bytes).");
-                    read += n;
-                }
-                return buffer;
+                if (zlib.Length < 6) throw new InvalidDataException("PNG image data is empty.");
+                int cmf = zlib[0], flg = zlib[1];
+                // CINFO above 7 (a window past 32 KiB) is invalid zlib.
+                if ((cmf & 0x0F) != 8 || (cmf >> 4) > 7 || ((cmf << 8) | flg) % 31 != 0) throw new InvalidDataException("Bad zlib header in PNG data.");
+                if ((flg & 0x20) != 0) throw new InvalidDataException("Preset zlib dictionaries are not allowed in PNG.");
+                // A deflate stream inflates to at most 1032 bytes per byte (a 258-byte match in 2 bits). Checking first
+                // keeps the image from being allocated for data that can't fill it: streaming into a pre-allocated image
+                // let a 65-byte file claiming 7000 x 7000 allocate 187 MB.
+                if (expected > 1032L * (zlib.Length - 6) + 258)
+                    throw new InvalidDataException($"PNG image data is truncated ({zlib.Length} bytes can't inflate to {expected}).");
+                _adler = unchecked((uint)Be32(zlib, zlib.Length - 4));
+                _expected = expected;
+                _deflate = new DeflateStream(new MemoryStream(zlib, 2, zlib.Length - 6), CompressionMode.Decompress);
             }
+
+            public void ReadExactly(byte[] buffer, int count)
+            {
+                for (int got = 0; got < count;)
+                {
+                    int n = Read(buffer, got, count - got);
+                    if (n == 0) throw new InvalidDataException($"PNG image data is truncated ({_read} of {_expected} bytes).");
+                    got += n;
+                }
+            }
+
+            // Data past the last scanline is drained into the checksum and ignored (libpng and Pillow accept it); it used
+            // to fail as a "checksum mismatch". Inflating is bounded by the compressed size, so this can't run away in memory.
+            public void Finish()
+            {
+                var scratch = new byte[1 << 16];
+                while (Read(scratch, 0, scratch.Length) > 0) { }
+                if (((_b << 16) | _a) != _adler) throw new InvalidDataException("zlib checksum mismatch in PNG data.");
+            }
+
+            private int Read(byte[] buffer, int offset, int count)
+            {
+                int n;
+                try { n = _deflate.Read(buffer, offset, count); }
+                catch (InvalidDataException ex)                                 // net8 says "unsupported compression method"
+                {
+                    throw new InvalidDataException("PNG image data is corrupt (bad deflate stream).", ex);
+                }
+                for (int i = offset, stop = offset + n; i < stop;)
+                {
+                    int end = Math.Min(stop, i + 5552);
+                    for (; i < end; i++) { _a += buffer[i]; _b += _a; }
+                    _a %= 65521; _b %= 65521;
+                }
+                _read += n;
+                return n;
+            }
+
+            public void Dispose() => _deflate.Dispose();
         }
 
         private static int Be32(byte[] b, int i) => unchecked((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]);
@@ -271,17 +322,5 @@ namespace ToolBelt.Visualization
             return crc ^ 0xFFFFFFFFu;
         }
 
-        private static uint Adler32(byte[] data)
-        {
-            uint a = 1, b = 0;
-            int i = 0;
-            while (i < data.Length)
-            {
-                int end = Math.Min(data.Length, i + 5552);
-                for (; i < end; i++) { a += data[i]; b += a; }
-                a %= 65521; b %= 65521;
-            }
-            return (b << 16) | a;
-        }
     }
 }

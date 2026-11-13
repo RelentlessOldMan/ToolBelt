@@ -7,7 +7,8 @@ namespace ToolBelt.Binary
     /// Base64url encoding (RFC 4648 §5): the URL- and filename-safe alphabet where <c>+</c> becomes
     /// <c>-</c> and <c>/</c> becomes <c>_</c>, with padding <c>=</c> omitted on output. Decoding accepts
     /// only unpadded input in the URL-safe alphabet (no <c>=</c>, <c>+</c>, <c>/</c> or whitespace), as JWT
-    /// requires. This is the encoding used by JWT and many web APIs.
+    /// requires, and rejects non-zero unused bits in the last character (so <c>QR</c> is not a second spelling of
+    /// <c>QQ</c>). This is the encoding used by JWT and many web APIs.
     /// </summary>
     public static class Base64Url
     {
@@ -60,6 +61,11 @@ namespace ToolBelt.Binary
                 };
             }
 
+            // The last character of a 2- or 3-character group carries 4 or 2 unused bits, which an encoder leaves zero.
+            int unused = i % 4 == 2 ? 0xF : i % 4 == 3 ? 0x3 : 0;
+            if (unused != 0 && (Sextet(text[i - 1]) & unused) != 0)
+                throw new FormatException("Invalid base64url: non-zero bits after the last byte.");
+
             // Re-pad to a multiple of four.
             switch (i % 4)
             {
@@ -78,5 +84,8 @@ namespace ToolBelt.Binary
 
             return Convert.FromBase64CharArray(chars, 0, i);
         }
+
+        private static int Sextet(char c)
+            => c >= 'A' && c <= 'Z' ? c - 'A' : c >= 'a' && c <= 'z' ? c - 'a' + 26 : c >= '0' && c <= '9' ? c - '0' + 52 : c == '-' ? 62 : 63;
     }
 }

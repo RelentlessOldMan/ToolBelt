@@ -7,7 +7,9 @@ namespace ToolBelt.Binary
     /// <summary>
     /// LEB128 variable-length integer encoding (as used by Protocol Buffers, DWARF, WebAssembly).
     /// Unsigned values use base-128 with a continuation bit; signed values are ZigZag-mapped first so
-    /// small-magnitude negatives stay short. Decoding validates termination and rejects over-long input.
+    /// small-magnitude negatives stay short. Decoding validates termination and rejects input longer than ten bytes or
+    /// past 64 bits. A zero-padded (non-minimal) encoding such as <c>80 00</c> decodes like the minimal one, as Protocol
+    /// Buffers, DWARF and WebAssembly allow; compare encodings, not decoded values, if canonical form matters.
     /// </summary>
     public static class VarInt
     {

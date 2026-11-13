@@ -9,3 +9,5 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 
 | ID | Pri | Section | Status | Summary | Found by |
 |----|-----|---------|--------|---------|----------|
+| 52-1 | P3 | 17 / net48 round | confirmed | The Visualization test folder doesn't compile on .NET Framework 4.8 (span `AsSpan`/`SequenceEqual`, `ZipArchive` reference, `MemoryStream.Write(byte[])`, two-argument `FirstOrDefault`), so `net48.sh Visualization` can't run. Fix in the whole-suite net48 round. | round 52 net48 run |
+| 52-2 | P3 | 13 | suspected | `SecurityNetTimeReviewTests.Http_CallerCancellation_IsNotRetried` failed once in a reviewer's one-core checked-build run; it passed in the round 52 checked build. Probably timing; look at it in the cancellation round. | round 52 reviewer |

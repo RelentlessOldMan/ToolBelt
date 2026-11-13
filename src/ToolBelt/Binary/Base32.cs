@@ -8,8 +8,9 @@ namespace ToolBelt.Binary
     /// <summary>
     /// RFC 4648 Base32 encoding and decoding (the standard <c>A–Z 2–7</c> alphabet). Encoding pads to a
     /// multiple of eight characters with <c>'='</c> by default. Decoding is case-insensitive, tolerates
-    /// padding and interior whitespace, and rejects any other character, data after padding, and lengths
-    /// no encoder can produce (1, 3 or 6 symbols in the final group).
+    /// padding and interior whitespace, and rejects any other character, data after padding, and anything no encoder
+    /// can produce: 1, 3 or 6 symbols in the final group, partial padding, or non-zero unused bits in the last symbol
+    /// (so each byte string has exactly one accepted spelling, up to case, padding and whitespace).
     /// </summary>
     public static class Base32
     {
@@ -68,6 +69,7 @@ namespace ToolBelt.Binary
             int bits = 0;
             int symbols = 0;
             bool padded = false;
+            int pads = 0;
 
             foreach (char c in text)
             {
@@ -76,6 +78,7 @@ namespace ToolBelt.Binary
                 if (c == '=')
                 {
                     padded = true; // padding only ever trails
+                    pads++;
                     continue;
                 }
                 if (padded)
@@ -98,6 +101,12 @@ namespace ToolBelt.Binary
             int tail = symbols % 8;
             if (tail == 1 || tail == 3 || tail == 6)
                 throw new FormatException($"Invalid Base32 length ({symbols} symbols).");
+            // "MY=" or "MY====" used to decode like "MY" / "MY======".
+            if (pads != 0 && pads != (8 - tail) % 8)
+                throw new FormatException($"Invalid Base32 padding ({pads} '=' after {symbols} symbols).");
+            // "MZ" used to decode like "MY": the bits past the last whole byte must be zero.
+            if ((buffer & ((1 << bits) - 1)) != 0)
+                throw new FormatException("Invalid Base32: non-zero bits after the last byte.");
             return bytes.ToArray();
         }
 

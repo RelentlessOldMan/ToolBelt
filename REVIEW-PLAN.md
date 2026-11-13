@@ -46,7 +46,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 3 | 25 / 86 | re-queue (25 bugs, 1 severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 3 | 24 / 95 | re-queue (24 bugs, 2 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 3 | 21 / 82 | re-queue (21 bugs, 2 severe) |
-| 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 2 | 10 / 29 | re-queue (10 bugs) |
+| 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 3 | 18 / 47 | re-queue (18 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 3 | 17 / 64 | re-queue (17 bugs, 2 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 3 | 19 / 86 | re-queue (19 bugs, 4 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 3 | 13 / 52 | re-queue (13 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6, 1. **next: 6** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1. **next: 1** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -125,6 +125,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.49.0 | 49 | WPF satellite, third pass | 20 | (see tag) |
 | v0.50.0 | 50 | Text & small types, third pass | 17 | (see tag) |
 | v0.51.0 | 51 | WinForms, tooling and docs, third pass | 18 | (see tag) |
+| v0.52.0 | 52 | Binary formats & images, third pass | 18 | (see tag) |
 
 ## Round log
 
@@ -2268,3 +2269,63 @@ covers a doc-only fix. The script and generator fixes were proven by repro in a 
   - the package contents
 - **Checked build:** the core suite in a checked build is green.
 - **Re-queued:** yes (18 bugs, 3 severe).
+
+### Round 52: Binary formats & images, third pass (v0.52.0)
+
+Reviewers: one for correctness and one for robustness, fresh to the section. **17 confirmed bugs, 1 severe**, plus
+one found while fixing them (rounding near a half, below). Regression tests are in `BinaryImagesReview3Tests` (25
+tests); 22 fail on the old code. Of the other three, one covers a doc-only fix (VarInt), and two guard the rewrites:
+ordinary segments against exact clipping, and maximally compressed PNG data still decoding.
+
+- **SvgDocument (severe):** a NaN or infinite number threw halfway through writing an element, leaving a broken
+  element such as `<line x1="0" y1="` in the document, so every later `ToString` was invalid XML. Each element is
+  now built whole and appended only once every number has formatted. The error names the real parameter (`y1`,
+  `cx`, `strokeWidth`, `points`) instead of `value`.
+- **PathBuilder:** the same partial write (`M1 ` left after `MoveTo(1, NaN)`), and the same wrong parameter name.
+- **SvgDocument:** a size under 0.0000005 was written as `width="0"`, which no viewer renders. It is now rejected.
+- **SvgUtils:** `StrokeAttributes` accepted a negative width (an SVG error), and `EstimateTextWidth` returned NaN or
+  infinity for an infinite font size. Both are now rejected.
+- **ImageBuffer.DrawLineClipped:** far endpoints drew the wrong pixels. `x0 + t·dx` cancelled (pixels off at 1e17,
+  one pixel of a 1000-pixel row lit at 1e200), and `x1 - x0` overflowed to infinity near 1e308, so nothing was
+  drawn. Liang–Barsky's `t` can't be fixed in doubles: for endpoints at ±1e20 every `t` rounds to 0.5 and it picks
+  the wrong edge. The clipper now works along the major axis. Each clipped end is fixed exactly by an endpoint or an
+  edge, and its other coordinate is read off the line in exact arithmetic on the doubles' binary expansions
+  (BigInteger) once coordinates pass 2^40. It is graded against an exact rational Liang–Barsky over 600 far lines
+  and 3,000 ordinary ones (stress-tested at 60,000).
+- **ImageBuffer.DrawLineClipped (found while fixing):** an end lying within about 1e-12 of a half rounded the wrong
+  way, because the double nearest 19.4999… is 19.5 and then rounds half-to-even to 20. A result that close to a half
+  is now rounded from the exact value.
+- **PngReader:**
+  - decompressed data past the last scanline was reported as a "checksum mismatch"; libpng and Pillow accept it. It
+    is now checksummed and ignored.
+  - Lenient where the format is strict: CINFO above 7, PLTE in a greyscale image, a PLTE length of 0, over 768 or not
+    a multiple of 3, a chunk type that isn't four letters, a missing IEND (a cut-off file decoded), a second IHDR
+    (it silently re-described the pixels), any chunk before IHDR, PLTE or tRNS repeated, out of order or after the
+    data, and IDAT chunks that aren't consecutive. All are now rejected.
+  - Decoding inflated the whole image data into a growing buffer, so memory peaked near three times the scanlines
+    (2.2 GB for 10000 × 10000 16-bit RGBA). It now inflates a scanline at a time straight into the image. Data too
+    short to fill the image (deflate expands at most 1032-fold) fails before the image is allocated.
+  - On .NET 8 a corrupt deflate stream surfaced the runtime's "unsupported compression method" message. It now says
+    the PNG data is corrupt.
+- **PngWriter:** the filtered scanlines and the compressed stream were built in memory, so an image near 2 GB threw
+  OutOfMemoryException or ArgumentException after the 33-byte header was already written (`Save` left a broken
+  file). Rows are now compressed as they are read and written in 64 KiB IDAT chunks.
+- **Bmp.Encode:** a size between the largest array and `int.MaxValue` threw OutOfMemoryException instead of
+  ArgumentException.
+- **Hex.Encode:** 1 GiB of input overflowed `data.Length * 2` (OverflowException). Input past the longest string is now
+  an ArgumentException naming `data`.
+- **Base32 / Base64Url:** non-canonical input decoded: `MZ` like `MY`, `QR` like `QQ` (non-zero unused bits), and
+  Base32 partial padding (`MY=`). Each byte string now has exactly one accepted spelling. Graded by an exhaustive
+  differential: a string is accepted iff re-encoding its bytes gives it back.
+- **Crc32, Crc16, Adler32:** an offset outside the array was reported as `count`. It is now `offset`.
+- **VarInt (doc):** the doc said over-long input is rejected, but a zero-padded `80 00` decodes like `00`, as
+  Protocol Buffers, DWARF and WebAssembly allow. The doc now says so.
+- **Tests on .NET Framework:** `QuotedPrintableTests` used span `SequenceEqual`, so the Binary tests didn't compile
+  on net48.
+- **Checked and found correct:** half-to-even rounding of clipped ends is consistent with `DrawLine`, and Base58's
+  quadratic decode is documented.
+- **Checked build:** the core suite in a checked build is green (3006).
+- **.NET Framework 4.8:** the Binary tests (145, which include every new test) are green. The Visualization test
+  folder still doesn't compile on net48 (spans, `ZipArchive`, LINQ overloads in older tests); that is on the bug list
+  for the net48 cross-cutting round.
+- **Re-queued:** yes (18 bugs, 1 severe).

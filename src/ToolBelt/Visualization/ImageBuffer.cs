@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Numerics;
 
 namespace ToolBelt.Visualization
 {
@@ -121,35 +122,134 @@ namespace ToolBelt.Visualization
 
         /// <summary>
         /// Draws a line between real-valued pixel coordinates, clipped to the rectangle [left, right] × [top, bottom]
-        /// before rounding, so a far off-canvas endpoint keeps its slope and costs nothing. Nothing is drawn if
-        /// a coordinate is NaN or the segment misses the rectangle.
+        /// before rounding, so a far off-canvas endpoint (anywhere in the double range) keeps its slope and costs
+        /// nothing. Nothing is drawn if a coordinate is NaN or infinite, or the segment misses the rectangle.
         /// </summary>
         public void DrawLineClipped(double x0, double y0, double x1, double y1, Rgba color,
             int left, int top, int right, int bottom)
         {
-            if (double.IsNaN(x0) || double.IsNaN(y0) || double.IsNaN(x1) || double.IsNaN(y1)) return;
-            // Liang–Barsky against the rectangle; an infinite coordinate is handled by the same comparisons.
-            double t0 = 0, t1 = 1, dx = x1 - x0, dy = y1 - y0;
-            if (double.IsInfinity(x0) || double.IsInfinity(y0) || double.IsInfinity(x1) || double.IsInfinity(y1)
-                || double.IsInfinity(dx) || double.IsInfinity(dy)) return;
-            if (!ClipEdge(-dx, x0 - left, ref t0, ref t1) || !ClipEdge(dx, right - x0, ref t0, ref t1)
-                || !ClipEdge(-dy, y0 - top, ref t0, ref t1) || !ClipEdge(dy, bottom - y0, ref t0, ref t1))
+            if (!IsFinite(x0) || !IsFinite(y0) || !IsFinite(x1) || !IsFinite(y1)) return;
+            // Clip along the major axis, reading each end off the line where it is cut. Liang–Barsky's parameter t lost
+            // the far case: for endpoints at ±1e20 every t rounds to 0.5, so it picked the wrong edge and drew a corner-
+            // to-corner diagonal, and x0 + t·dx cancelled catastrophically (pixels off at 1e17, the whole canvas at 1e200).
+            // Halved deltas only choose the axis: x1 - x0 overflows to ∞ for endpoints near ±1e308.
+            double hx = x1 * 0.5 - x0 * 0.5, hy = y1 * 0.5 - y0 * 0.5;
+            if (hx == 0 && hy == 0)
+            {
+                if (x0 >= left && x0 <= right && y0 >= top && y0 <= bottom)
+                    DrawLine(ToEdge(x0, left, right), ToEdge(y0, top, bottom), ToEdge(x0, left, right), ToEdge(y0, top, bottom), color);
                 return;
-            // Clamp after rounding: floating-point error can put a clipped end just past the rectangle (and past int).
-            DrawLine(ToEdge(x0 + t0 * dx, left, right), ToEdge(y0 + t0 * dy, top, bottom),
-                     ToEdge(x0 + t1 * dx, left, right), ToEdge(y0 + t1 * dy, top, bottom), color);
+            }
+            if (Math.Abs(hx) >= Math.Abs(hy))
+            {
+                if (!ClipMajor(x0, y0, x1, y1, left, right, top, bottom, out var a, out var b)) return;
+                DrawLine(ToEdge(a.U, left, right), ToEdge(a.V, top, bottom), ToEdge(b.U, left, right), ToEdge(b.V, top, bottom), color);
+            }
+            else
+            {
+                if (!ClipMajor(y0, x0, y1, x1, top, bottom, left, right, out var a, out var b)) return;
+                DrawLine(ToEdge(a.V, left, right), ToEdge(a.U, top, bottom), ToEdge(b.V, left, right), ToEdge(b.U, top, bottom), color);
+            }
         }
 
-        private static int ToEdge(double v, int lo, int hi) => (int)Math.Max(lo, Math.Min(hi, Math.Round(v)));
-
-        private static bool ClipEdge(double p, double q, ref double t0, ref double t1)
+        // The part of the segment (u0, v0)–(u1, v1), u0 ≠ u1, inside [uLo, uHi] × [vLo, vHi], as its two ends in the
+        // segment's own direction (DrawLine breaks ties by direction). False if it misses. Each end is bounded by an
+        // endpoint, a u edge or a v edge, which fixes one of its coordinates exactly; the other is read off the line and
+        // rounded exactly (rounding a correctly rounded quotient again turned 31.4999... into 32).
+        private static bool ClipMajor(double u0, double v0, double u1, double v1, double uLo, double uHi, double vLo, double vHi,
+            out (double U, double V) a, out (double U, double V) b)
         {
-            if (p == 0) return q >= 0;
-            double t = q / p;
-            if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
-            else { if (t < t0) return false; if (t < t1) t1 = t; }
+            // Each bound: its u (for comparing), its v, and whether it was cut by a v edge (then V is that edge).
+            var lo = u0 <= u1 ? (U: u0, V: v0, VEdge: false) : (U: u1, V: v1, VEdge: false);
+            var hi = u0 <= u1 ? (U: u1, V: v1, VEdge: false) : (U: u0, V: v0, VEdge: false);
+            a = b = default;
+            if (uLo > lo.U) lo = (uLo, RoundedAlong(uLo, u0, v0, u1, v1), false);
+            if (uHi < hi.U) hi = (uHi, RoundedAlong(uHi, u0, v0, u1, v1), false);
+            if (v0 == v1)
+            {
+                if (v0 < vLo || v0 > vHi) return false;
+            }
+            else
+            {
+                // The line is monotone in v, so the u where it crosses vLo and vHi bound the part between them.
+                double ca = Along(vLo, v0, u0, v1, u1), cb = Along(vHi, v0, u0, v1, u1);
+                var (cLo, eLo, cHi, eHi) = ca <= cb ? (ca, vLo, cb, vHi) : (cb, vHi, ca, vLo);
+                if (cLo > lo.U) lo = (cLo, eLo, true);
+                if (cHi < hi.U) hi = (cHi, eHi, true);
+            }
+            if (lo.U > hi.U) return false;
+            // An end cut by a v edge lies on that edge; its u is the exact crossing, rounded once.
+            (double U, double V) End((double U, double V, bool VEdge) e)
+                => e.VEdge ? (RoundedAlong(e.V, v0, u0, v1, u1), e.V) : (e.U, e.V);
+            (a, b) = u0 <= u1 ? (End(lo), End(hi)) : (End(hi), End(lo));
             return true;
         }
+
+        // The v coordinate at u on the line through (u0, v0) and (u1, v1), u0 ≠ u1. Up to 2^40 doubles are within 2^-11 of
+        // a pixel; past that v0 + (u - u0)·slope cancels huge terms, so it is computed exactly on the doubles' binary
+        // expansions (each double is an integer times 2^e) and rounded once at the end.
+        private static double Along(double u, double u0, double v0, double u1, double v1)
+        {
+            const double Small = 1099511627776.0;                               // 2^40
+            if (Math.Abs(u0) <= Small && Math.Abs(v0) <= Small && Math.Abs(u1) <= Small && Math.Abs(v1) <= Small)
+                return v0 + (u - u0) * (v1 - v0) / (u1 - u0);                   // a tiny u1 - u0 overflows to ±∞, not NaN
+            Exact(u, u0, v0, u1, v1, out BigInteger num, out BigInteger den);
+            BigInteger whole = BigInteger.DivRem(num, den, out BigInteger rem);
+            int shift = Math.Max(0, den.ToByteArray().Length * 8 - 64);         // keep the fraction's parts in double range
+            return (double)whole + (double)(rem >> shift) / (double)(den >> shift);
+        }
+
+        // Along, rounded half-to-even to an integer from the exact value rather than from its nearest double. Up to 2^40
+        // the double is within about 2^-10, which settles the rounding unless it lies near a half (a slope of -1/2 through
+        // (-6998.66, 3499.33) crosses x = -39 a hair off 19.5); past 2^40, or near a half, it is computed exactly.
+        private static double RoundedAlong(double u, double u0, double v0, double u1, double v1)
+        {
+            const double Small = 1099511627776.0;                               // 2^40
+            if (Math.Abs(u0) <= Small && Math.Abs(v0) <= Small && Math.Abs(u1) <= Small && Math.Abs(v1) <= Small)
+            {
+                double f = Along(u, u0, v0, u1, v1);
+                if (Math.Abs(f - Math.Floor(f) - 0.5) > 1.0 / 64) return Math.Round(f);   // NaN (∞ - ∞) falls through
+            }
+            Exact(u, u0, v0, u1, v1, out BigInteger num, out BigInteger den);
+            BigInteger q = BigInteger.DivRem(num, den, out BigInteger r);
+            if (r.Sign < 0) { q -= 1; r += den; }                               // floor
+            int c = (r << 1).CompareTo(den);
+            if (c > 0 || (c == 0 && !q.IsEven)) q += 1;
+            return (double)q;
+        }
+
+        // v = num / den exactly, den > 0, from the doubles' binary expansions (each an integer times 2^e).
+        private static void Exact(double u, double u0, double v0, double u1, double v1, out BigInteger num, out BigInteger den)
+        {
+            int e = Math.Min(0, Math.Min(Math.Min(LowBit(u), LowBit(u0)), Math.Min(LowBit(v0), Math.Min(LowBit(u1), LowBit(v1)))));
+            BigInteger bu = Scaled(u, e), bu0 = Scaled(u0, e), bv0 = Scaled(v0, e), bu1 = Scaled(u1, e), bv1 = Scaled(v1, e);
+            num = bv0 * (bu1 - bu0) + (bu - bu0) * (bv1 - bv0);
+            den = bu1 - bu0;
+            if (den.Sign < 0) { num = -num; den = -den; }
+            den <<= -e;
+        }
+
+        // The exponent of a double's lowest mantissa bit (zero has none), and the double as an integer multiple of 2^e.
+        private static int LowBit(double v)
+        {
+            if (v == 0) return int.MaxValue;
+            int biased = (int)((BitConverter.DoubleToInt64Bits(v) >> 52) & 0x7FF);
+            return Math.Max(1, biased) - 1075;
+        }
+
+        private static BigInteger Scaled(double v, int e)
+        {
+            if (v == 0) return BigInteger.Zero;
+            long bits = BitConverter.DoubleToInt64Bits(v);
+            int biased = (int)((bits >> 52) & 0x7FF);
+            long mantissa = (bits & 0xFFFFFFFFFFFFFL) | (biased == 0 ? 0 : 1L << 52);
+            var m = new BigInteger(mantissa) << (Math.Max(1, biased) - 1075 - e);
+            return bits < 0 ? -m : m;
+        }
+
+        private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        private static int ToEdge(double v, int lo, int hi) => (int)Math.Max(lo, Math.Min(hi, Math.Round(v)));
 
         /// <summary>Draws a rectangle (outline, or filled), clipping to the canvas.</summary>
         public void DrawRectangle(int x, int y, int width, int height, Rgba color, bool filled = false)

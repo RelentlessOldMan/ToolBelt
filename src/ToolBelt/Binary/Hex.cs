@@ -12,6 +12,7 @@ namespace ToolBelt.Binary
     {
         private const string LowerDigits = "0123456789abcdef";
         private const string UpperDigits = "0123456789ABCDEF";
+        private const int MaxStringLength = 0x3FFFFFDF;                          // the CLR's longest string
 
         /// <summary>Encodes bytes as a hex string (lowercase unless <paramref name="upperCase"/> is set).</summary>
         public static string Encode(byte[] data, bool upperCase = false)
@@ -19,6 +20,9 @@ namespace ToolBelt.Binary
             if (data is null)
                 throw new ArgumentNullException(nameof(data));
 
+            // data.Length * 2 wrapped int at 1 GiB (OverflowException); past this a string can't hold the result anyway.
+            if (data.Length > MaxStringLength / 2)
+                throw new ArgumentException($"{data.Length} bytes is too long to encode as one hex string.", nameof(data));
             string digits = upperCase ? UpperDigits : LowerDigits;
             var chars = new char[data.Length * 2];
             for (int i = 0; i < data.Length; i++)

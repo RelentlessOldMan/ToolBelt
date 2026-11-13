@@ -24,6 +24,9 @@ namespace ToolBelt.Visualization
         {
             if (!(width > 0) || double.IsInfinity(width)) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive and finite.");
             if (!(height > 0) || double.IsInfinity(height)) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive and finite.");
+            // Sizes are written to six decimals, so 1e-7 came out as width="0", which no viewer renders.
+            if (F(width, nameof(width)) == "0") throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be at least 0.0000005.");
+            if (F(height, nameof(height)) == "0") throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be at least 0.0000005.");
             _width = width;
             _height = height;
         }
@@ -36,11 +39,13 @@ namespace ToolBelt.Visualization
             NonNegative(height, nameof(height));
             NonNegative(cornerRadius, nameof(cornerRadius));   // a NaN radius was dropped silently
             if (stroke != null) NonNegative(strokeWidth, nameof(strokeWidth));
-            _body.Append("<rect x=\"").Append(F(x)).Append("\" y=\"").Append(F(y))
-                 .Append("\" width=\"").Append(F(width)).Append("\" height=\"").Append(F(height)).Append('"');
-            if (cornerRadius > 0) _body.Append(" rx=\"").Append(F(cornerRadius)).Append('"');
-            AppendPaint(fill, stroke, strokeWidth);
-            _body.Append("/>\n");
+            // Each element is built aside and appended whole, so a non-finite coordinate can't leave half an element behind.
+            var e = new StringBuilder();
+            e.Append("<rect x=\"").Append(F(x, nameof(x))).Append("\" y=\"").Append(F(y, nameof(y)))
+             .Append("\" width=\"").Append(F(width, nameof(width))).Append("\" height=\"").Append(F(height, nameof(height))).Append('"');
+            if (cornerRadius > 0) e.Append(" rx=\"").Append(F(cornerRadius, nameof(cornerRadius))).Append('"');
+            AppendPaint(e, fill, stroke, strokeWidth);
+            _body.Append(e).Append("/>\n");
             return this;
         }
 
@@ -49,10 +54,12 @@ namespace ToolBelt.Visualization
         {
             if (stroke is null) throw new ArgumentNullException(nameof(stroke));
             NonNegative(strokeWidth, nameof(strokeWidth));
-            _body.Append("<line x1=\"").Append(F(x1)).Append("\" y1=\"").Append(F(y1))
-                 .Append("\" x2=\"").Append(F(x2)).Append("\" y2=\"").Append(F(y2))
-                 .Append("\" stroke=\"").Append(EscapeAttr(stroke)).Append("\" stroke-width=\"").Append(F(strokeWidth))
-                 .Append("\"/>\n");
+            var e = new StringBuilder();
+            e.Append("<line x1=\"").Append(F(x1, nameof(x1))).Append("\" y1=\"").Append(F(y1, nameof(y1)))
+             .Append("\" x2=\"").Append(F(x2, nameof(x2))).Append("\" y2=\"").Append(F(y2, nameof(y2)))
+             .Append("\" stroke=\"").Append(EscapeAttr(stroke)).Append("\" stroke-width=\"").Append(F(strokeWidth, nameof(strokeWidth)))
+             .Append("\"/>\n");
+            _body.Append(e);
             return this;
         }
 
@@ -62,10 +69,11 @@ namespace ToolBelt.Visualization
         {
             if (stroke != null) NonNegative(strokeWidth, nameof(strokeWidth));
             if (!(radius >= 0)) throw new ArgumentOutOfRangeException(nameof(radius), radius, "Radius must be non-negative.");
-            _body.Append("<circle cx=\"").Append(F(cx)).Append("\" cy=\"").Append(F(cy))
-                 .Append("\" r=\"").Append(F(radius)).Append('"');
-            AppendPaint(fill, stroke, strokeWidth);
-            _body.Append("/>\n");
+            var e = new StringBuilder();
+            e.Append("<circle cx=\"").Append(F(cx, nameof(cx))).Append("\" cy=\"").Append(F(cy, nameof(cy)))
+             .Append("\" r=\"").Append(F(radius, nameof(radius))).Append('"');
+            AppendPaint(e, fill, stroke, strokeWidth);
+            _body.Append(e).Append("/>\n");
             return this;
         }
 
@@ -83,9 +91,10 @@ namespace ToolBelt.Visualization
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
             if (stroke != null) NonNegative(strokeWidth, nameof(strokeWidth));
-            _body.Append("<path d=\"").Append(EscapeAttr(data)).Append('"');
-            AppendPaint(fill, stroke, strokeWidth);
-            _body.Append("/>\n");
+            var e = new StringBuilder();
+            e.Append("<path d=\"").Append(EscapeAttr(data)).Append('"');
+            AppendPaint(e, fill, stroke, strokeWidth);
+            _body.Append(e).Append("/>\n");
             return this;
         }
 
@@ -98,10 +107,12 @@ namespace ToolBelt.Visualization
             if (anchor is null) throw new ArgumentNullException(nameof(anchor));
             if (fontFamily is null) throw new ArgumentNullException(nameof(fontFamily));
             NonNegative(fontSize, nameof(fontSize));
-            _body.Append("<text x=\"").Append(F(x)).Append("\" y=\"").Append(F(y))
-                 .Append("\" font-size=\"").Append(F(fontSize)).Append("\" font-family=\"").Append(EscapeAttr(fontFamily))
-                 .Append("\" fill=\"").Append(EscapeAttr(fill)).Append("\" text-anchor=\"").Append(EscapeAttr(anchor))
-                 .Append("\">").Append(EscapeText(text)).Append("</text>\n");
+            var e = new StringBuilder();
+            e.Append("<text x=\"").Append(F(x, nameof(x))).Append("\" y=\"").Append(F(y, nameof(y)))
+             .Append("\" font-size=\"").Append(F(fontSize, nameof(fontSize))).Append("\" font-family=\"").Append(EscapeAttr(fontFamily))
+             .Append("\" fill=\"").Append(EscapeAttr(fill)).Append("\" text-anchor=\"").Append(EscapeAttr(anchor))
+             .Append("\">").Append(EscapeText(text)).Append("</text>\n");
+            _body.Append(e);
             return this;
         }
 
@@ -119,9 +130,9 @@ namespace ToolBelt.Visualization
         {
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-            sb.Append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"").Append(F(_width))
-              .Append("\" height=\"").Append(F(_height))
-              .Append("\" viewBox=\"0 0 ").Append(F(_width)).Append(' ').Append(F(_height)).Append("\">\n");
+            sb.Append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"").Append(F(_width, "width"))
+              .Append("\" height=\"").Append(F(_height, "height"))
+              .Append("\" viewBox=\"0 0 ").Append(F(_width, "width")).Append(' ').Append(F(_height, "height")).Append("\">\n");
             sb.Append(_body);
             sb.Append("</svg>\n");
             return sb.ToString();
@@ -137,22 +148,23 @@ namespace ToolBelt.Visualization
             foreach (var (x, y) in points)
             {
                 if (!first) sb.Append(' ');
-                sb.Append(F(x)).Append(',').Append(F(y));
+                sb.Append(F(x, nameof(points))).Append(',').Append(F(y, nameof(points)));
                 first = false;
             }
-            _body.Append('<').Append(tag).Append(" points=\"").Append(sb).Append('"');
+            var e = new StringBuilder();
+            e.Append('<').Append(tag).Append(" points=\"").Append(sb).Append('"');
             // A polyline defaults to no fill; a polygon honors the fill argument.
-            if (tag == "polyline") AppendPaint("none", stroke ?? "black", strokeWidth);
-            else AppendPaint(fill, stroke, strokeWidth);
-            _body.Append("/>\n");
+            if (tag == "polyline") AppendPaint(e, "none", stroke ?? "black", strokeWidth);
+            else AppendPaint(e, fill, stroke, strokeWidth);
+            _body.Append(e).Append("/>\n");
             return this;
         }
 
-        private void AppendPaint(string? fill, string? stroke, double strokeWidth)
+        private static void AppendPaint(StringBuilder e, string? fill, string? stroke, double strokeWidth)
         {
-            _body.Append(" fill=\"").Append(fill is null ? "none" : EscapeAttr(fill)).Append('"');
+            e.Append(" fill=\"").Append(fill is null ? "none" : EscapeAttr(fill)).Append('"');
             if (stroke != null)
-                _body.Append(" stroke=\"").Append(EscapeAttr(stroke)).Append("\" stroke-width=\"").Append(F(strokeWidth)).Append('"');
+                e.Append(" stroke=\"").Append(EscapeAttr(stroke)).Append("\" stroke-width=\"").Append(F(strokeWidth, nameof(strokeWidth))).Append('"');
         }
 
         private static void NonNegative(double value, string name)
@@ -161,10 +173,10 @@ namespace ToolBelt.Visualization
         }
 
         // NaN/∞ used to be written as "NaN"/"Infinity" (an unrenderable document) and -0.0000001 as "-0".
-        private static string F(double value)
+        private static string F(double value, string name)
         {
             if (double.IsNaN(value) || double.IsInfinity(value))
-                throw new ArgumentOutOfRangeException(nameof(value), value, "SVG numbers must be finite.");
+                throw new ArgumentOutOfRangeException(name, value, "SVG numbers must be finite.");
             string s = value.ToString("0.######", CultureInfo.InvariantCulture);
             return s == "-0" ? "0" : s;
         }
