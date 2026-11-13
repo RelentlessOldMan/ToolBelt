@@ -42,6 +42,8 @@ namespace ToolBelt.Net
         {
             if (address is null) throw new ArgumentNullException(nameof(address));
             if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();   // ::ffff:127.x.x.x
+            // IPAddress.IsLoopback also compares the scope ID, so ::1%1 would not count.
+            if (address.AddressFamily == AddressFamily.InterNetworkV6 && address.ScopeId != 0) address = new IPAddress(address.GetAddressBytes());
             return IPAddress.IsLoopback(address);
         }
 

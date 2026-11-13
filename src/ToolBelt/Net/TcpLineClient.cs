@@ -33,6 +33,8 @@ namespace ToolBelt.Net
         private bool _eof;
         private bool _discarding;         // skipping the rest of a line that exceeded MaxLineLength
         private bool _atStart = true;     // nothing decoded yet: a byte order mark from the peer is dropped
+        private int _bytePos, _byteLen;   // read but not yet decoded, after a decoding error: _bytes[_bytePos.._byteLen)
+        private Exception? _decodeError;  // raised once the text decoded before the bad bytes has been read
 
         /// <param name="host">The host to connect to.</param>
         /// <param name="port">The TCP port, 0-65535.</param>
@@ -122,7 +124,8 @@ namespace ToolBelt.Net
         /// The next line (without its terminator), or null at end of stream. Throws <see cref="IOException"/> if the read
         /// timeout expires (the partial line is kept for the next call) and <see cref="InvalidDataException"/> if the
         /// line exceeds <see cref="MaxLineLength"/> (that line is dropped up to its terminator; the next call returns the
-        /// line after it).
+        /// line after it). With an encoding that throws on invalid bytes, the line holding them throws
+        /// <see cref="DecoderFallbackException"/> and is dropped the same way; the lines around it are kept.
         /// </summary>
         public string? ReadLine()
         {
@@ -164,17 +167,69 @@ namespace ToolBelt.Net
                     _line.Append(c);
                 }
 
+                if (_decodeError != null)
+                {
+                    Exception error = _decodeError;
+                    _decodeError = null;
+                    _line.Clear();
+                    _discarding = !_eof;   // skip the rest of the bad line, as for an overlong one
+                    throw error;
+                }
                 if (_eof) break;
-                int read = _stream.Read(_bytes, 0, _bytes.Length);   // throws IOException on timeout; state is kept
-                _charPos = 0;
-                _charLen = _decoder.GetChars(_bytes, 0, read, _chars, 0, flush: read == 0);
-                if (read == 0) _eof = true;
+                int start = 0, count;
+                if (_bytePos < _byteLen)
+                {
+                    start = _bytePos;
+                    count = _byteLen - _bytePos;
+                    _bytePos = _byteLen = 0;
+                }
+                else count = _stream.Read(_bytes, 0, _bytes.Length);   // throws IOException on timeout; state is kept
+                Decode(start, count);
             }
 
             if (_line.Length == 0) return null;
             string last = _line.ToString();
             _line.Clear();
             return last;
+        }
+
+        // Decodes _bytes[start, start + count) into _chars; a count of 0 is the end of the stream. When the encoding throws,
+        // the bytes are decoded again one at a time to find the bad ones: the text before them is kept for ReadLine, the
+        // error waits until that text is used, and the bytes after them are decoded on the next pass.
+        private void Decode(int start, int count)
+        {
+            _charPos = 0;
+            _charLen = 0;
+            try
+            {
+                _charLen = _decoder.GetChars(_bytes, start, count, _chars, 0, flush: count == 0);
+                if (count == 0) _eof = true;
+                return;
+            }
+            catch (DecoderFallbackException ex)
+            {
+                _decoder.Reset();
+                _decodeError = ex;
+                if (count == 0) { _eof = true; return; }   // the stream ended inside a character
+            }
+            for (int i = start; i < start + count; i++)
+            {
+                try { _charLen += _decoder.GetChars(_bytes, i, 1, _chars, _charLen, flush: false); }
+                catch (DecoderFallbackException ex)
+                {
+                    _decoder.Reset();
+                    _decodeError = ex;
+                    // A byte that exposed an unfinished character can itself be text (an ASCII letter, a line break), so
+                    // it is decoded again; the first byte tried, with a fresh decoder, is bad on its own and is skipped.
+                    _bytePos = i == start || _bytes[i] >= 0x80 ? i + 1 : i;
+                    _byteLen = start + count;
+                    return;
+                }
+            }
+            // Each byte decoded alone: the bad bytes were the end of the previous read, so the error comes first.
+            _charLen = 0;
+            _bytePos = start;
+            _byteLen = start + count;
         }
 
         public void Dispose()

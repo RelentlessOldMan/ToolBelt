@@ -36,7 +36,7 @@ namespace ToolBelt.Time
             if (d.TotalMinutes < 60) return ((int)d.TotalMinutes, "minute");
             if (d.TotalHours < 24) return ((int)d.TotalHours, "hour");
             if (d.TotalDays < 30) return ((int)d.TotalDays, "day");
-            if (d.TotalDays < 365) return ((int)(d.TotalDays / 30), "month");
+            if (d.TotalDays < 365) return (Math.Min(11, (int)(d.TotalDays / 30)), "month");   // 360-364 days is not "12 months"
             return ((int)(d.TotalDays / 365), "year");
         }
     }

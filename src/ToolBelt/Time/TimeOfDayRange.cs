@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Globalization;
 
 namespace ToolBelt.Time
 {
@@ -51,6 +52,14 @@ namespace ToolBelt.Time
         /// <summary>True if the clock time of the given moment falls within the window.</summary>
         public bool Contains(DateTimeOffset moment) => Contains(moment.TimeOfDay);
 
-        public override string ToString() => $"[{Start:hh\\:mm}, {End:hh\\:mm})";
+        /// <summary>"[hh:mm, hh:mm)", with seconds and fractions where an end has them.</summary>
+        public override string ToString() => $"[{Format(Start)}, {Format(End)})";
+
+        private static string Format(TimeSpan t)
+        {
+            if (t.Ticks % TimeSpan.TicksPerMinute == 0) return t.ToString(@"hh\:mm", CultureInfo.InvariantCulture);
+            if (t.Ticks % TimeSpan.TicksPerSecond == 0) return t.ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture);
+            return t.ToString(@"hh\:mm\:ss\.fffffff", CultureInfo.InvariantCulture).TrimEnd('0');
+        }
     }
 }

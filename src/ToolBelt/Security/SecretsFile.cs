@@ -49,7 +49,8 @@ namespace ToolBelt.Security
 
         public void Set(string key, string value)
         {
-            if (string.IsNullOrEmpty(key)) throw new ArgumentException("Key is required.", nameof(key));
+            if (key is null) throw new ArgumentNullException(nameof(key));
+            if (key.Length == 0) throw new ArgumentException("Key is required.", nameof(key));
             if (key.IndexOfAny(new[] { '=', '\r', '\n' }) >= 0) throw new ArgumentException("Keys may not contain '=' or line breaks.", nameof(key));
             if (value is null) throw new ArgumentNullException(nameof(value));
             // Stored as UTF-8, which would turn a lone surrogate into U+FFFD: the value would come back changed, and
@@ -74,7 +75,8 @@ namespace ToolBelt.Security
         /// <summary>Encrypts to bytes (fresh salt and nonce every call).</summary>
         public byte[] ToBytes(string passphrase, int iterations = DefaultIterations)
         {
-            if (string.IsNullOrEmpty(passphrase)) throw new ArgumentException("A passphrase is required.", nameof(passphrase));
+            if (passphrase is null) throw new ArgumentNullException(nameof(passphrase));
+            if (passphrase.Length == 0) throw new ArgumentException("A passphrase is required.", nameof(passphrase));
             if (HasLoneSurrogate(passphrase)) throw new ArgumentException("The passphrase contains an unpaired surrogate.", nameof(passphrase));
             if (iterations < 1000 || iterations > MaxIterations) throw new ArgumentOutOfRangeException(nameof(iterations), iterations, "Use 1000 to 10,000,000 iterations.");
             var plain = new StringBuilder();
@@ -104,7 +106,8 @@ namespace ToolBelt.Security
         public static SecretsFile FromBytes(byte[] data, string passphrase)
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
-            if (string.IsNullOrEmpty(passphrase)) throw new ArgumentException("A passphrase is required.", nameof(passphrase));
+            if (passphrase is null) throw new ArgumentNullException(nameof(passphrase));
+            if (passphrase.Length == 0) throw new ArgumentException("A passphrase is required.", nameof(passphrase));
             if (HasLoneSurrogate(passphrase)) throw new ArgumentException("The passphrase contains an unpaired surrogate.", nameof(passphrase));
             int headerSize = Magic.Length + 4 + SaltSize + NonceSize;
             if (data.Length < headerSize + TagSize || !data.AsSpan(0, Magic.Length).SequenceEqual(Magic))
@@ -141,7 +144,7 @@ namespace ToolBelt.Security
             }
         }
 
-        /// <summary>Encrypts and writes atomically.</summary>
+        /// <summary>Encrypts and writes atomically. An existing file keeps its permissions and attributes.</summary>
         public void Save(string path, string passphrase, int iterations = DefaultIterations)
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
@@ -155,7 +158,13 @@ namespace ToolBelt.Security
                     fs.Write(bytes, 0, bytes.Length);
                     fs.Flush(flushToDisk: true);                            // data on disk before the rename, or a crash can leave an empty file
                 }
-                File.Move(temp, full, overwrite: true);
+                if (File.Exists(full))
+                {
+                    // Replace keeps the old file's ACL and attributes; a move would give it the temp file's inherited ones.
+                    try { File.Replace(temp, full, null); }
+                    catch (FileNotFoundException) when (!File.Exists(full)) { File.Move(temp, full); }   // deleted meanwhile
+                }
+                else File.Move(temp, full, overwrite: true);
             }
             finally
             {

@@ -54,10 +54,14 @@ namespace ToolBelt.Security
             return encoded.Substring(0, length);
         }
 
-        /// <summary>A numeric code of the requested number of digits (leading zeros preserved).</summary>
+        /// <summary>The longest <see cref="NumericCode"/> or <see cref="Password"/>, in characters.</summary>
+        public const int MaxCodeLength = 1 << 28;
+
+        /// <summary>A numeric code of the requested number of digits (leading zeros preserved), at most <see cref="MaxCodeLength"/>.</summary>
         public static string NumericCode(int digits)
         {
-            if (digits < 1) throw new ArgumentOutOfRangeException(nameof(digits), digits, "Digits must be positive.");
+            if (digits < 1 || digits > MaxCodeLength)
+                throw new ArgumentOutOfRangeException(nameof(digits), digits, "Digits must be in [1, MaxCodeLength].");
             using var rng = RandomNumberGenerator.Create();
             var sb = new StringBuilder(digits);
             for (int i = 0; i < digits; i++) sb.Append((char)('0' + NextIndex(rng, 10)));
@@ -65,7 +69,8 @@ namespace ToolBelt.Security
         }
 
         /// <summary>
-        /// A random password of the given length containing at least one character from each requested class.
+        /// A random password of the given length (at most <see cref="MaxCodeLength"/>) containing at least one character
+        /// from each requested class.
         /// </summary>
         public static string Password(int length, PasswordClasses classes = PasswordClasses.All)
         {
@@ -74,6 +79,8 @@ namespace ToolBelt.Security
             var pools = BuildPools(classes);
             if (length < pools.Count)
                 throw new ArgumentOutOfRangeException(nameof(length), length, $"Length must be at least {pools.Count} to include each class.");
+            if (length > MaxCodeLength)
+                throw new ArgumentOutOfRangeException(nameof(length), length, "Length must be at most MaxCodeLength.");
 
             string all = string.Concat(pools.ToArray());
             using var rng = RandomNumberGenerator.Create();

@@ -56,6 +56,7 @@ namespace ToolBelt.Time
                 return false;
 
             int i = 0;
+            while (char.IsWhiteSpace(text[i])) i++;   // not all whitespace (checked above)
             bool negative = false;
             if (text[i] == '-')
             {

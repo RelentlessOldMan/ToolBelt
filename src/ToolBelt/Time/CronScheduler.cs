@@ -16,21 +16,28 @@ namespace ToolBelt.Time
             Action = action;
         }
 
+        // The scheduler writes these from its own threads; a DateTimeOffset? is too wide to read or write atomically, so
+        // an unlocked read could pair one value's time with another's offset.
+        private readonly object _sync = new object();
+        private DateTimeOffset? _nextRun, _lastRun;
+        private int _runCount;
+        private bool _isRunning;
+
         public string Name { get; }
         public CronSchedule Schedule { get; }
         internal Func<CancellationToken, Task> Action { get; }
 
         /// <summary>When the job is next due (null until the scheduler starts, or if the schedule has no later occurrence).</summary>
-        public DateTimeOffset? NextRun { get; internal set; }
+        public DateTimeOffset? NextRun { get { lock (_sync) return _nextRun; } internal set { lock (_sync) _nextRun = value; } }
 
         /// <summary>When the last run started.</summary>
-        public DateTimeOffset? LastRun { get; internal set; }
+        public DateTimeOffset? LastRun { get { lock (_sync) return _lastRun; } internal set { lock (_sync) _lastRun = value; } }
 
         /// <summary>Number of completed runs (successful or not).</summary>
-        public int RunCount { get; internal set; }
+        public int RunCount { get { lock (_sync) return _runCount; } internal set { lock (_sync) _runCount = value; } }
 
         /// <summary>True while a run is in progress.</summary>
-        public bool IsRunning { get; internal set; }
+        public bool IsRunning { get { lock (_sync) return _isRunning; } internal set { lock (_sync) _isRunning = value; } }
     }
 
     /// <summary>
@@ -178,7 +185,9 @@ namespace ToolBelt.Time
                     job.IsRunning = true;
                     job.LastRun = now;
                     started++;
-                    Task t = RunJobAsync(job);
+                    // On the thread pool: a job continued on the caller's synchronization context (a UI thread calling
+                    // RunDue) could never run while that thread blocked in Dispose waiting for it.
+                    Task t = Task.Run(() => RunJobAsync(job));
                     _running.Add((job, t));
                     _running.RemoveAll(r => r.Task.IsCompleted);
                 }
@@ -190,7 +199,6 @@ namespace ToolBelt.Time
 
         private async Task RunJobAsync(ScheduledJob job)
         {
-            await Task.Yield();
             CurrentJob.Value = job;
             try { await job.Action(_cts.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) when (_cts.IsCancellationRequested) { }

@@ -53,7 +53,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 3 | 8 / 75 | re-queue (8 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 3 | 17 / 55 | re-queue (17 bugs) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 3 | 18 / 67 | re-queue (18 bugs, 1 severe) |
-| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 3 | 16 / 72 | re-queue (16 bugs, 2 severe) |
+| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 4 | 16 / 88 | re-queue (16 bugs, none severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 4 | 27 / 109 | re-queue (27 bugs, 3 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 3 | 12 / 74 | re-queue (12 bugs, 2 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 3 | 20 / 58 | re-queue (20 bugs) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63); **next: 13, 15, 3, 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64); **next: 15, 3, 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -137,11 +137,38 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.4 | 61 | Numerics core, fourth pass | 24 | (see tag) |
 | v2026.11.13.5 | 62 | Charts, fourth pass | 24 | (see tag) |
 | v2026.11.13.6 | 63 | Documents and config, fourth pass | 29 | (see tag) |
+| v2026.11.13.7 | 64 | Security, net, time, fourth pass | 16 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 64: Security, net, time, fourth pass (v2026.11.13.7)
+
+Two fresh reviewers (correctness, robustness): 16 findings, no duplicates, **16 bugs, none severe** (one is a docs
+fix). Section 13 stays re-queued (≥ 3 bugs). The regression tests are in `SecurityNetTimeReview4Tests` (19 tests; two
+are guards that valid multibyte text and mid-range Unix times are unchanged). Every fix's test failed on the old code.
+
+- **TcpLineClient:** with a strict encoding, a decode error left the old buffer in place, so later calls returned the
+  previous lines again; at the end of the stream that looped forever (never null), and mid-stream the lines around the
+  bad bytes were lost. Now the bad line throws `DecoderFallbackException` once and is dropped; the lines around it are
+  kept.
+- **SecretsFile and HttpDownload:** a save or download over an existing file gave it the temp file's inherited ACL and
+  attributes (an owner-only secrets file became readable by Administrators and SYSTEM). Both now use `File.Replace`,
+  which also stops the netstandard2.0 download deleting the old file before the move.
+- **HttpDownload:** local file errors (a full disk, a parent path that is a file) were retried as network failures.
+- **CronScheduler:** `NextRun`/`LastRun` could be read torn (a summer time with the winter offset); `RunDue` on a UI
+  thread ran jobs on its synchronization context, so a later `Dispose` there deadlocked.
+- **CronSchedule:** the time-zone overload in the calendar's last minute threw ArgumentOutOfRangeException instead of
+  InvalidOperationException.
+- **UnixTime:** Local and Unspecified times within a day of the calendar's ends were clamped (9999-12-31 20:00 PST gave
+  the same seconds as MaxValue).
+- **CryptoRandom:** NumericCode and Password had no length cap (OutOfMemoryException); now `MaxCodeLength`.
+- **AuthenticatedEncryption:** DecryptToString turned invalid UTF-8 into U+FFFD (the encrypt side was already strict).
+- **Small ones:** `::1%1` was not loopback; 360–364 days read "12 months ago"; `" -5m"` did not parse; TimeOfDayRange
+  dropped seconds from ToString; SecretsFile threw ArgumentException for a null key or passphrase; PasswordHasher.Verify
+  did not document its FormatException.
+
 ### Round 63: Documents and config, fourth pass (v2026.11.13.6)
 
 Two fresh reviewers (correctness, robustness): 31 findings, two of them duplicates, so **29 bugs, 5 severe**. Section 7

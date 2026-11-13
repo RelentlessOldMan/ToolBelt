@@ -90,6 +90,7 @@ namespace ToolBelt.Time
 
             // Walk UTC instants, testing each one's wall time in the zone, until the search window or the calendar ends.
             long first = FloorToMinute(after.UtcTicks) + TimeSpan.TicksPerMinute;
+            if (first > DateTime.MaxValue.Ticks) throw new InvalidOperationException(NotFound);   // after is in the calendar's last minute
             TimeSpan offset = OffsetAt(timeZone, first);
             if (first + offset.Ticks < 0)   // a zone behind UTC: its wall clock starts later than year 1's UTC
             {

@@ -39,7 +39,10 @@ namespace ToolBelt.Security
                 Convert.ToBase64String(salt), Convert.ToBase64String(key));
         }
 
-        /// <summary>Verifies a password against an encoded hash in constant time. Returns false on mismatch.</summary>
+        /// <summary>
+        /// Verifies a password against an encoded hash in constant time. Returns false on mismatch; throws
+        /// <see cref="FormatException"/> if <paramref name="encoded"/> is not a hash this class produced.
+        /// </summary>
         public static bool Verify(string password, string encoded)
         {
             if (password is null) throw new ArgumentNullException(nameof(password));

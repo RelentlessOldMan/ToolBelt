@@ -347,7 +347,8 @@ src/
       CidrRange.cs          CIDR block (v4/v6): parse, Contains, network/broadcast, count, enumerate
       IpUtils.cs            private/loopback detection, IPv4 netmask <-> prefix length
       PortCheck.cs          TCP reachability within a timeout + find a free local port
-      TcpLineClient.cs      line-oriented TCP client (connect/read/write timeouts, MaxLineLength, partial lines survive a timeout)
+      TcpLineClient.cs      line-oriented TCP client (connect/read/write timeouts, MaxLineLength, partial lines survive a timeout,
+                            a strict encoding's bad line throws once and is dropped)
       HostInfo.cs           local host/interface info + DNS resolve with a timeout
       HttpDownload.cs       download to file via .part: progress, resume (Range), checksum, transient retry, ReadTimeout
     Quality/
@@ -557,10 +558,10 @@ src/
       ArrayPoolScope.cs     self-returning rented array (ArrayPool on net8, allocation on ns2.0; double-return safe)
     Security/
       Hashing.cs            SHA-256/384/512 (+ legacy MD5) over bytes/string (strict UTF-8)/stream/file; incremental; hex/base64
-      SecretsFile.cs        passphrase-encrypted key/value file (PBKDF2 + AES-GCM, tamper-evident) (net8)
+      SecretsFile.cs        passphrase-encrypted key/value file (PBKDF2 + AES-GCM, tamper-evident; a save keeps the file's ACL) (net8)
       Hmac.cs               HMAC-SHA-256/384/512 with constant-time verify
       ConstantTime.cs       fixed-time equality for secrets (no timing leak)
-      CryptoRandom.cs       CSPRNG bytes / URL-safe token / numeric code / password (unbiased)
+      CryptoRandom.cs       CSPRNG bytes / URL-safe token / numeric code / password (unbiased; lengths capped)
       KeyDerivation.cs      PBKDF2-HMAC-SHA-256/512 (hand-rolled, identical on both TFMs) + salt
       PasswordHasher.cs     encoded PBKDF2 hash + constant-time verify + rehash-needed check (MaxIterations cap)
       AuthenticatedEncryption.cs  AES-GCM AEAD: self-describing nonce‖ct‖tag blob + detached form (net8.0)
@@ -959,6 +960,7 @@ tests/
       SecurityNetTimeReviewTests.cs (round 13 review regressions: cron DST and bounds, durations, CIDR, secrets, TCP lines, downloads)
       SecurityNetTimeReview2Tests.cs (second-pass regressions: cron make-up at the gap edge, octal CIDR, TCP BOM and overlong lines, forged digests, scheduler errors)
       SecurityNetTimeReview3Tests.cs (third-pass regressions: lone-surrogate passwords, checked-build casts, IPv6 connects, cron at MinValue, scheduler dispose)
+      SecurityNetTimeReview4Tests.cs (fourth-pass regressions: TCP decode errors, ACLs kept on save, torn scheduler reads, Unix time at the calendar ends)
       TimeOfDayRangeTests.cs
       UnixTimeTests.cs
     Visualization/

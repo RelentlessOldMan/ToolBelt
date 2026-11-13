@@ -91,9 +91,12 @@ namespace ToolBelt.Security
             return plaintext;
         }
 
-        /// <summary>Verifies, decrypts, and decodes a UTF-8 string. See <see cref="Decrypt"/>.</summary>
+        /// <summary>
+        /// Verifies, decrypts, and decodes a UTF-8 string. See <see cref="Decrypt"/>. Bytes that are not valid UTF-8 throw
+        /// <see cref="DecoderFallbackException"/> rather than turning into U+FFFD.
+        /// </summary>
         public static string DecryptToString(byte[] key, byte[] message, byte[]? associatedData = null)
-            => Encoding.UTF8.GetString(Decrypt(key, message, associatedData));
+            => StrictUtf8.GetString(Decrypt(key, message, associatedData));
 
         // ---------- detached form (explicit nonce, separate tag) for interop and known-answer tests ----------
 

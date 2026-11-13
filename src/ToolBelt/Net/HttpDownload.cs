@@ -124,6 +124,7 @@ namespace ToolBelt.Net
             {
                 if (!options.Resume) TryDelete(partial);   // nothing will resume from it
                 if (ex is ProgressFailure f) ExceptionDispatchInfo.Capture(f.InnerException!).Throw();
+                if (ex is LocalFailure l) ExceptionDispatchInfo.Capture(l.InnerException!).Throw();
                 throw;
             }
         }
@@ -133,6 +134,19 @@ namespace ToolBelt.Net
         private sealed class ProgressFailure : Exception
         {
             public ProgressFailure(Exception inner) : base(inner.Message, inner) { }
+        }
+
+        // An IOException from the local files (a full disk, a parent path that is a file, a locked destination), carried
+        // out of the attempt the same way: retrying would download the same bytes only to fail the same way.
+        private sealed class LocalFailure : Exception
+        {
+            public LocalFailure(Exception inner) : base(inner.Message, inner) { }
+        }
+
+        private static T Local<T>(Func<T> action)
+        {
+            try { return action(); }
+            catch (IOException ex) { throw new LocalFailure(ex); }
         }
 
         private static void Progress(HttpDownloadOptions options, long downloaded, long? total)
@@ -146,15 +160,14 @@ namespace ToolBelt.Net
         private static async Task<HttpDownloadResult> AttemptAsync(
             HttpClient client, string url, string destination, string partial, HttpDownloadOptions options, CancellationToken ct)
         {
-            string? directory = Path.GetDirectoryName(destination);
-            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-
-            long existing = 0;
-            if (options.Resume)
+            long existing = Local(() =>
             {
+                string? directory = Path.GetDirectoryName(destination);
+                if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+                if (!options.Resume) return 0L;
                 if (!File.Exists(partial) && File.Exists(destination)) File.Copy(destination, partial);
-                if (File.Exists(partial)) existing = new FileInfo(partial).Length;
-            }
+                return File.Exists(partial) ? new FileInfo(partial).Length : 0L;
+            });
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             if (existing > 0) request.Headers.Range = new RangeHeaderValue(existing, null);
@@ -169,7 +182,7 @@ namespace ToolBelt.Net
             if (status == 416 && existing > 0 && range != null && range.Length == existing)
             {
                 // "bytes */N" with N == what we have: the partial file is already the whole file.
-                return Finish(destination, partial, options, existing, existing, resumed: true);
+                return Local(() => Finish(destination, partial, options, existing, existing, resumed: true));
             }
             if (status == 206 && existing > 0 && range == null)
             {
@@ -222,7 +235,7 @@ namespace ToolBelt.Net
 #else
                     using Stream input = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
 #endif
-                    using var output = new FileStream(partial, existing > 0 ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None);
+                    using var output = Local(() => new FileStream(partial, existing > 0 ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None));
                     var buffer = new byte[81920];
                     // CancelAfter takes at most int.MaxValue ms on .NET Framework (about 24.8 days); longer waits forever.
                     TimeSpan readTimeout = options.ReadTimeout.TotalMilliseconds > int.MaxValue ? Timeout.InfiniteTimeSpan : options.ReadTimeout;
@@ -233,7 +246,8 @@ namespace ToolBelt.Net
                         // Only the wait for the server is timed: a slow disk or progress callback is not a stalled body.
                         idle.CancelAfter(Timeout.InfiniteTimeSpan);
                         if (read == 0) break;
-                        await output.WriteAsync(buffer, 0, read, ct).ConfigureAwait(false);
+                        try { await output.WriteAsync(buffer, 0, read, ct).ConfigureAwait(false); }
+                        catch (IOException ex) { throw new LocalFailure(ex); }
                         downloaded += read;
                         Progress(options, downloaded, total);
                     }
@@ -245,7 +259,7 @@ namespace ToolBelt.Net
                 // The disposed response fails the pending read with an IOException where the stream ignores the token
                 // (.NET Framework): the caller cancelled, so say so. A read cancelled through the idle token carries that
                 // token, not the caller's, so it is re-raised with theirs too.
-                catch (Exception ex) when (ct.IsCancellationRequested && !(ex is ProgressFailure)
+                catch (Exception ex) when (ct.IsCancellationRequested && !(ex is ProgressFailure) && !(ex is LocalFailure)
                                            && !(ex is OperationCanceledException oce && oce.CancellationToken == ct))
                 {
                     throw new OperationCanceledException("The download was canceled.", ex, ct);
@@ -254,7 +268,7 @@ namespace ToolBelt.Net
 
             if (total.HasValue && downloaded != total.Value)
                 throw new IOException($"The response from {url} ended after {downloaded} of {total.Value} bytes.");
-            return Finish(destination, partial, options, downloaded, total ?? -1, resumed);
+            return Local(() => Finish(destination, partial, options, downloaded, total ?? -1, resumed));
         }
 
         // Verifies the partial file if asked, then moves it over the destination.
@@ -270,12 +284,14 @@ namespace ToolBelt.Net
                     throw new HttpDownloadException($"Checksum mismatch for {destination}: expected {options.ExpectedSha256Hex}, got {sha}.");
                 }
             }
-#if NETSTANDARD2_0
-            if (File.Exists(destination)) File.Delete(destination);
-            File.Move(partial, destination);
-#else
-            File.Move(partial, destination, overwrite: true);
-#endif
+            if (File.Exists(destination))
+            {
+                // One step that keeps the old file's ACL and attributes; deleting first could lose both files if the
+                // move then failed, and a move gives the file the partial's inherited permissions.
+                try { File.Replace(partial, destination, null); }
+                catch (FileNotFoundException) when (!File.Exists(destination)) { File.Move(partial, destination); }   // deleted meanwhile
+            }
+            else File.Move(partial, destination);
             return new HttpDownloadResult(downloaded, total, resumed, sha);
         }
 
@@ -301,7 +317,7 @@ namespace ToolBelt.Net
             if (ct.IsCancellationRequested) return false;   // the caller cancelled
             for (Exception? e = ex; e != null; e = e.InnerException)
             {
-                if (e is HttpDownloadException || e is ProgressFailure) return false;
+                if (e is HttpDownloadException || e is ProgressFailure || e is LocalFailure) return false;
                 // With the caller's token untouched, a cancellation is the HttpClient's own Timeout firing.
                 if (e is OperationCanceledException) return true;
                 if (e is HttpRequestException || e is IOException || e is TimeoutException) return true;
