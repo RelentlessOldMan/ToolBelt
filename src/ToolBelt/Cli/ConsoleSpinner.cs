@@ -64,6 +64,9 @@ namespace ToolBelt.Cli
                         }
                     }
                     catch (OperationCanceledException) { }
+                    // The output broke (a closed pipe): the animation ends. Stop and Dispose deal with the writer; escaping
+                    // here left a faulted task nobody observed when Stop was never called.
+                    catch (Exception) { }
                 });
             }
             else

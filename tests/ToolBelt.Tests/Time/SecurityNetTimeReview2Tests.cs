@@ -327,7 +327,7 @@ namespace ToolBelt.Tests.Time
         {
             var errors = new System.Collections.Generic.List<string>();
             var now = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-            using var s = new CronScheduler((j, e) => { lock (errors) errors.Add(j.Name); }, () => now, Never, TimeZoneInfo.Utc);
+            using var s = new CronScheduler((j, e) => { lock (errors) errors.Add(j?.Name ?? "(scheduler)"); }, () => now, Never, TimeZoneInfo.Utc);
             var bad = s.Add("feb30", "0 0 30 2 *", () => { });
             var good = s.Add("hourly", "0 * * * *", () => { });
             s.Start();

@@ -208,7 +208,9 @@ namespace ToolBelt.Diagnostics
             var watch = Stopwatch.StartNew();
             using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(outer);
             using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(outer);
-            probeCts.CancelAfter(reg.Timeout);
+            // Cancelled below when the timeout wins, not by CancelAfter: its timer could lose the race to the delay (then the
+            // source was disposed with the timer pending, and the abandoned probe's token was never cancelled), and a callback
+            // the probe registered that threw on the timer's thread ended the process.
 
             Task<ProbeResult> probeTask;
             try
@@ -230,6 +232,9 @@ namespace ToolBelt.Diagnostics
 
             if (winner != probeTask)
             {
+                // A callback the probe registered may throw; the probe is abandoned, so that is dropped like its outcome.
+                try { probeCts.Cancel(); }
+                catch (AggregateException) { }
                 ObserveLater(probeTask); // abandoned either way; never let its later fault go unobserved
                 outer.ThrowIfCancellationRequested();
                 return new ProbeReport(reg.Name, reg.FailureStatus,

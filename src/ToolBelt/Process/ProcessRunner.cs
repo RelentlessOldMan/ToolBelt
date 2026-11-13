@@ -44,7 +44,8 @@ namespace ToolBelt.Process
 
         /// <summary>
         /// Invoked for each line of standard output as it arrives, on a background thread. If it throws, the run
-        /// still completes and the first such exception is rethrown to the caller.
+        /// still completes and the first such exception is rethrown to the caller. No call starts after the run returns
+        /// (a grandchild may still be writing to an inherited pipe after a timeout).
         /// </summary>
         public Action<string>? OnOutputLine { get; set; }
 
@@ -168,6 +169,7 @@ namespace ToolBelt.Process
 
             if (canceled)
             {
+                run.Done = true;
                 run.Process.Dispose();
                 throw new OperationCanceledException(cancellationToken);
             }
@@ -185,6 +187,7 @@ namespace ToolBelt.Process
             public Stopwatch Stopwatch = null!;
             public string CommandLine = "";
             public Exception? CallbackError;
+            public volatile bool Done;   // the run has returned (or thrown): no more callbacks
 
             public Task Exited => ExitedSource.Task;
             public Task OutputClosed => Task.WhenAll(OutputEnd.Task, ErrorEnd.Task);
@@ -270,7 +273,8 @@ namespace ToolBelt.Process
             // crash the host, so it is reported the same way.
             try { lock (buffer) buffer.AppendLine(line); }
             catch (Exception ex) { Interlocked.CompareExchange(ref run.CallbackError, ex, null); }
-            if (callback is null) return;
+            // After a timeout or a cancel the reader threads kept calling back after Run had returned.
+            if (callback is null || run.Done) return;
             try { callback(line); }
             catch (Exception ex) { Interlocked.CompareExchange(ref run.CallbackError, ex, null); }
         }
@@ -294,6 +298,7 @@ namespace ToolBelt.Process
 
         private static ProcessResult Finish(RunState run, bool timedOut, ProcessRunOptions options)
         {
+            run.Done = true;
             run.Stopwatch.Stop();
             int exitCode = timedOut ? -1 : run.Process.ExitCode;
             run.Process.Dispose();

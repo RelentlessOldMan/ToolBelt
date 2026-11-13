@@ -81,8 +81,8 @@ namespace ToolBelt.Collections
             ThrowIfKeyNull(key);
             if (_map.TryGetValue(key, out var node))
             {
+                _map.Remove(key); // first: a hash that throws must leave the map and the order agreeing
                 _order.Remove(node);
-                _map.Remove(key);
                 return true;
             }
             return false;

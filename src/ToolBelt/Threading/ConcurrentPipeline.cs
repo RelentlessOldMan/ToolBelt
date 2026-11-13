@@ -173,15 +173,21 @@ namespace ToolBelt.Threading
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
-            _cts.Cancel();
+            // A callback the consumer registered on its token may throw here; it threw out of Dispose, skipping the wait.
+            AggregateException? cancelError = null;
+            try { _cts.Cancel(); }
+            catch (AggregateException ex) { cancelError = ex; }
             // From onError the consumer is this thread: waiting for it deadlocked. It stops when onError returns, and
             // its cancellation source and semaphores are left to the collector (they hold no handles here).
-            if (ReferenceEquals(t_reporting, this)) return;
-            try { _loop.Wait(); }
-            catch (AggregateException) { /* cancellation */ }
-            _cts.Dispose();
-            _signal.Dispose();
-            _space?.Dispose();
+            if (!ReferenceEquals(t_reporting, this))
+            {
+                try { _loop.Wait(); }
+                catch (AggregateException) { /* cancellation */ }
+                _cts.Dispose();
+                _signal.Dispose();
+                _space?.Dispose();
+            }
+            if (cancelError != null) Report(cancelError);
         }
     }
 }

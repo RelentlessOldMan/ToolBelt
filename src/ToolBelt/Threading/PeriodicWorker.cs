@@ -114,13 +114,19 @@ namespace ToolBelt.Threading
                 if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
                 loop = _loop;
             }
-            _cts.Cancel();
+            // A callback the work registered on its token may throw here; it threw out of Dispose, skipping the wait.
+            AggregateException? cancelError = null;
+            try { _cts.Cancel(); }
+            catch (AggregateException ex) { cancelError = ex; }
             // From onError the loop is this thread: waiting for it deadlocked. It stops once onError returns; the
             // token source stays undisposed because the loop still reads its token.
-            if (ReferenceEquals(t_reporting, this)) return;
-            try { loop?.Wait(); }
-            catch (AggregateException) { /* cancellation surfaces here; ignore */ }
-            _cts.Dispose();
+            if (!ReferenceEquals(t_reporting, this))
+            {
+                try { loop?.Wait(); }
+                catch (AggregateException) { /* cancellation surfaces here; ignore */ }
+                _cts.Dispose();
+            }
+            if (cancelError != null) Report(cancelError);
         }
     }
 }

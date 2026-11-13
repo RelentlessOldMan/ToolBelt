@@ -74,7 +74,7 @@ namespace ToolBelt.IO
         /// <summary>
         /// Removes and returns the changes with no activity for at least <paramref name="quiet"/>, in first-seen order. A
         /// change for which <paramref name="isReady"/> returns false stays pending (its quiet period restarts) — used to
-        /// hold back files that are still being written.
+        /// hold back files that are still being written. If <paramref name="isReady"/> throws, nothing is taken.
         /// </summary>
         public IReadOnlyList<FileChange> TakeQuiet(DateTime now, TimeSpan quiet, Func<FileChange, bool>? isReady = null)
         {
@@ -82,13 +82,20 @@ namespace ToolBelt.IO
             foreach (var kv in _pending)
                 if (now - kv.Value.LastActivity >= quiet) due.Add(kv);
             due.Sort((x, y) => x.Value.FirstSeen != y.Value.FirstSeen ? x.Value.FirstSeen.CompareTo(y.Value.FirstSeen) : x.Value.Order.CompareTo(y.Value.Order));
-            var result = new List<FileChange>(due.Count);
-            foreach (var kv in due)
+            // Every isReady call comes before anything changes: one that threw lost the changes already taken.
+            var changes = new FileChange[due.Count];
+            var ready = new bool[due.Count];
+            for (int i = 0; i < due.Count; i++)
             {
-                FileChange change = kv.Value.ToChange(kv.Key);
-                if (isReady != null && !isReady(change)) { kv.Value.LastActivity = now; continue; }
-                _pending.Remove(kv.Key);
-                result.Add(change);
+                changes[i] = due[i].Value.ToChange(due[i].Key);
+                ready[i] = isReady == null || isReady(changes[i]);
+            }
+            var result = new List<FileChange>(due.Count);
+            for (int i = 0; i < due.Count; i++)
+            {
+                if (!ready[i]) { due[i].Value.LastActivity = now; continue; }
+                _pending.Remove(due[i].Key);
+                result.Add(changes[i]);
             }
             return result;
         }
@@ -577,7 +584,7 @@ namespace ToolBelt.IO
                     _coalescer.Add(new FileChange(kind, path, oldPath), DateTime.UtcNow);
                 }
             }
-            catch (Exception ex) when (!(ex is OutOfMemoryException))
+            catch (Exception ex) when (!IsOutOfMemory(ex))
             {
                 RaiseError(ex);   // an exception escaping to the OS watcher's thread would end the process
             }
@@ -629,7 +636,7 @@ namespace ToolBelt.IO
                     Raise(batch);
                 }
             }
-            catch (Exception ex) when (!(ex is OutOfMemoryException))
+            catch (Exception ex) when (!IsOutOfMemory(ex))
             {
                 RaiseError(ex);
             }
@@ -684,10 +691,14 @@ namespace ToolBelt.IO
                 var previous = _raisingOn;
                 _raisingOn = this;
                 try { Changed?.Invoke(this, new FileChangesEventArgs(batch)); }
-                catch (Exception ex) when (!(ex is OutOfMemoryException)) { RaiseError(ex); }
+                catch (Exception ex) when (!IsOutOfMemory(ex)) { RaiseError(ex); }
                 finally { _raisingOn = previous; }
             }
         }
+
+        // Only a real out-of-memory is left to end the process. InsufficientMemoryException (a MemoryFailPoint refusing, which
+        // is recoverable) derives from it, and from a handler it escaped onto the timer or OS watcher thread and did.
+        private static bool IsOutOfMemory(Exception ex) => ex.GetType() == typeof(OutOfMemoryException);
 
         private void RaiseError(Exception ex)
         {
@@ -697,7 +708,7 @@ namespace ToolBelt.IO
                 var previous = _raisingOn;
                 _raisingOn = this;
                 try { Error?.Invoke(this, new ErrorEventArgs(ex)); }
-                catch (Exception handlerEx) when (!(handlerEx is OutOfMemoryException)) { /* a throwing Error handler must not kill the watcher */ }
+                catch (Exception handlerEx) when (!IsOutOfMemory(handlerEx)) { /* a throwing Error handler must not kill the watcher */ }
                 finally { _raisingOn = previous; }
             }
         }

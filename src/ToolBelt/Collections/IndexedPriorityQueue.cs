@@ -50,11 +50,21 @@ namespace ToolBelt.Collections
             if (_indexOf.ContainsKey(key))
                 throw new ArgumentException($"Key '{key}' is already in the queue.", nameof(key));
 
-            int i = _keys.Count;
-            _indexOf[key] = i; // first: a key whose hash throws must leave no orphan heap slot
+            // Comparisons first, then the key's hash: a comparer or hash that throws leaves the queue as it was (a throw
+            // mid-sift left the order broken).
+            int at = FindUp(priority, _keys.Count);
+            _indexOf[key] = at;
             _keys.Add(key);
             _priorities.Add(priority);
-            SiftUp(i);
+            int i = _keys.Count - 1;
+            while (i > at)
+            {
+                int parent = (i - 1) / 2;
+                Place(i, _keys[parent], _priorities[parent]);
+                i = parent;
+            }
+            _keys[at] = key;
+            _priorities[at] = priority;
         }
 
         /// <summary>Changes the priority of an existing key, re-heapifying. Throws if the key is absent.</summary>
@@ -64,10 +74,10 @@ namespace ToolBelt.Collections
             if (!_indexOf.TryGetValue(key, out int i))
                 throw new KeyNotFoundException($"Key '{key}' is not in the queue.");
 
+            // Comparisons first: a throw mid-sift (after the priority was stored) left the order broken.
             int cmp = _comparer.Compare(priority, _priorities[i]);
-            _priorities[i] = priority;
-            if (cmp < 0) SiftUp(i);
-            else if (cmp > 0) SiftDown(i);
+            int at = cmp < 0 ? FindUp(priority, i) : cmp > 0 ? FindDown(priority, i, _keys.Count) : i;
+            Settle(i, at, key, priority);
         }
 
         public bool TryPeekMin(out TKey key, out TPriority priority)
@@ -93,61 +103,90 @@ namespace ToolBelt.Collections
                 return false;
             }
 
+            // Move the last element to the root and sink it. Comparisons first, then the hash: a throw mid-sift lost the
+            // dequeued key (already out of the index) and left the order broken.
+            int last = _keys.Count - 1;
+            TKey movedKey = _keys[last];
+            TPriority moved = _priorities[last];
+            int at = last > 0 ? FindDown(moved, 0, last) : 0;
             key = _keys[0];
             priority = _priorities[0];
             _indexOf.Remove(key);
-
-            int last = _keys.Count - 1;
-            if (last == 0)
-            {
-                _keys.RemoveAt(0);
-                _priorities.RemoveAt(0);
-                return true;
-            }
-
-            // Move the last element to the root and sink it.
-            _keys[0] = _keys[last];
-            _priorities[0] = _priorities[last];
-            _indexOf[_keys[0]] = 0;
             _keys.RemoveAt(last);
             _priorities.RemoveAt(last);
-            SiftDown(0);
+            if (last > 0) Settle(0, at, movedKey, moved);
             return true;
         }
 
-        private void SiftUp(int i)
+        // Where a priority placed in the empty slot i would rise to. Compares only.
+        private int FindUp(TPriority priority, int i)
         {
             while (i > 0)
             {
                 int parent = (i - 1) / 2;
-                if (_comparer.Compare(_priorities[i], _priorities[parent]) >= 0)
+                if (_comparer.Compare(priority, _priorities[parent]) >= 0)
                     break;
-                Swap(i, parent);
                 i = parent;
             }
+            return i;
         }
 
-        private void SiftDown(int i)
+        // Where a priority placed in the empty slot i would sink to among the first n slots. Compares only.
+        private int FindDown(TPriority priority, int i, int n)
         {
-            int n = _keys.Count;
-            while (true)
+            while (i < n / 2) // past n / 2 is a leaf; 2 * i + 1 overflowed int past 2^30 elements
             {
-                if (i >= n / 2) break; // a leaf; 2 * i + 1 overflowed int past 2^30 elements
-                int left = 2 * i + 1, right = 2 * i + 2, smallest = i;
-                if (left < n && _comparer.Compare(_priorities[left], _priorities[smallest]) < 0) smallest = left;
-                if (right < n && _comparer.Compare(_priorities[right], _priorities[smallest]) < 0) smallest = right;
-                if (smallest == i) break;
-                Swap(i, smallest);
-                i = smallest;
+                int child = 2 * i + 1;
+                if (child + 1 < n && _comparer.Compare(_priorities[child + 1], _priorities[child]) < 0)
+                    child++;
+                if (_comparer.Compare(_priorities[child], priority) >= 0)
+                    break;
+                i = child;
             }
+            return i;
         }
 
-        private void Swap(int a, int b)
+        // Moves each entry on the path between slots from and at (at is an ancestor or a descendant of from) one level
+        // toward from and puts the entry at slot at. No comparisons.
+        private void Settle(int from, int at, TKey key, TPriority priority)
         {
-            (_keys[a], _keys[b]) = (_keys[b], _keys[a]);
-            (_priorities[a], _priorities[b]) = (_priorities[b], _priorities[a]);
-            _indexOf[_keys[a]] = a;
-            _indexOf[_keys[b]] = b;
+            if (at < from)
+            {
+                // Rising: at is an ancestor; shift the ancestors on the way down by one.
+                int i = from;
+                while (i > at)
+                {
+                    int parent = (i - 1) / 2;
+                    Place(i, _keys[parent], _priorities[parent]);
+                    i = parent;
+                }
+            }
+            else if (at > from)
+            {
+                // Sinking: from is an ancestor of at; walk up from at carrying each displaced entry up a level.
+                TKey carryKey = key;
+                TPriority carry = priority;
+                int i = at;
+                while (i > from)
+                {
+                    TKey k = _keys[i];
+                    TPriority p = _priorities[i];
+                    Place(i, carryKey, carry);
+                    carryKey = k;
+                    carry = p;
+                    i = (i - 1) / 2;
+                }
+                Place(from, carryKey, carry);
+                return;
+            }
+            Place(at, key, priority);
+        }
+
+        private void Place(int i, TKey key, TPriority priority)
+        {
+            _keys[i] = key;
+            _priorities[i] = priority;
+            _indexOf[key] = i;
         }
     }
 }

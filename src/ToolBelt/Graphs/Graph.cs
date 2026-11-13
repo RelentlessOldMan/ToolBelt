@@ -66,11 +66,27 @@ namespace ToolBelt.Graphs
             if (from is null) throw new ArgumentNullException(nameof(from));
             if (to is null) throw new ArgumentNullException(nameof(to));
             if (double.IsNaN(weight)) throw new ArgumentException("Edge weight must not be NaN.", nameof(weight));
-            AddVertex(from);
-            AddVertex(to);
-            _adjacency[from].Add((to, weight));
-            if (!IsDirected && !Comparer.Equals(from, to)) // avoid double-listing a self loop
-                _adjacency[to].Add((from, weight));
+            // A comparer that throws (hashing `to`, or comparing the endpoints) left `from` added, or half the edge listed;
+            // the vertices added here are removed again.
+            bool addedFrom = AddVertex(from), addedTo = false;
+            List<(T, double)> fromList, toList;
+            bool selfLoop;
+            try
+            {
+                addedTo = AddVertex(to);
+                fromList = _adjacency[from];
+                toList = _adjacency[to];
+                selfLoop = Comparer.Equals(from, to);
+            }
+            catch
+            {
+                if (addedTo) _adjacency.Remove(to);
+                if (addedFrom) _adjacency.Remove(from);
+                throw;
+            }
+            fromList.Add((to, weight));
+            if (!IsDirected && !selfLoop) // avoid double-listing a self loop
+                toList.Add((from, weight));
             _edges.Add(new Edge<T>(from, to, weight));
         }
 

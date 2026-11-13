@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 
 namespace ToolBelt.Wpf
 {
@@ -105,16 +106,36 @@ namespace ToolBelt.Wpf
                 return;
             var names = new List<string>(_errors.Keys);
             _errors.Clear();
+            // Every notification is raised even if a handler throws: the first throw skipped the other properties and the
+            // HasErrors change, so bound views kept showing errors that were gone.
+            var failures = new List<Exception>();
             foreach (var name in names)
-                ErrorsChanged?.Invoke(this, new DataErrorsChangedEventArgs(name));
-            OnPropertyChanged(nameof(HasErrors));
+                Notify(failures, () => ErrorsChanged?.Invoke(this, new DataErrorsChangedEventArgs(name)));
+            Notify(failures, () => OnPropertyChanged(nameof(HasErrors)));
+            ThrowIfAny(failures);
         }
 
-        // HasErrors is announced only when it flips: it was raised on every change, even from one error to two.
+        // HasErrors is announced only when it flips: it was raised on every change, even from one error to two. It is
+        // announced even if an ErrorsChanged handler throws.
         private void RaiseErrorsChanged(string propertyName, bool hadErrors)
         {
-            ErrorsChanged?.Invoke(this, new DataErrorsChangedEventArgs(propertyName));
-            if (HasErrors != hadErrors) OnPropertyChanged(nameof(HasErrors));
+            var failures = new List<Exception>();
+            Notify(failures, () => ErrorsChanged?.Invoke(this, new DataErrorsChangedEventArgs(propertyName)));
+            if (HasErrors != hadErrors) Notify(failures, () => OnPropertyChanged(nameof(HasErrors)));
+            ThrowIfAny(failures);
+        }
+
+        private static void Notify(List<Exception> failures, Action raise)
+        {
+            try { raise(); }
+            catch (Exception ex) { failures.Add(ex); }
+        }
+
+        // One failure is rethrown as itself; several together.
+        private static void ThrowIfAny(List<Exception> failures)
+        {
+            if (failures.Count == 1) ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures.Count > 1) throw new AggregateException(failures);
         }
     }
 }

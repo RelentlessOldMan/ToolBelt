@@ -121,8 +121,11 @@ namespace ToolBelt.Resilience
                 {
                     return await operation(cancellationToken).ConfigureAwait(false);
                 }
-                catch (Exception ex) when (attempt < policy.MaxAttempts && policy.ShouldRetry(ex))
+                // ShouldRetry is called in the catch, not a filter: an exception thrown inside a filter is swallowed and the
+                // filter taken as false, so a predicate's own bug vanished and the operation's exception came out instead.
+                catch (Exception ex) when (attempt < policy.MaxAttempts)
                 {
+                    if (!policy.ShouldRetry(ex)) throw;
                     var delay = policy.DelayForAttempt(attempt);
                     await policy.DelayAsync(delay, cancellationToken).ConfigureAwait(false);
                 }

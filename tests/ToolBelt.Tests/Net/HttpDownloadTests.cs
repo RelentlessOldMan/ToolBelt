@@ -69,6 +69,23 @@ namespace ToolBelt.Tests.Net
             finally { File.Delete(dest); }
         }
 
+        // Round 54: an OnProgress that threw an IOException was taken for a transient network failure and retried.
+        public async Task ThrowingOnProgress_IsNotRetried()
+        {
+            int requests = 0;
+            using var server = new TestServer(ctx => { Interlocked.Increment(ref requests); RespondFull(ctx, 200, Body); });
+            string dest = TempFile();
+            try
+            {
+                var ex = await Check.ThrowsAsync<IOException>(() => HttpDownload.ToFileAsync(server.Url, dest,
+                    new HttpDownloadOptions { MaxAttempts = 3, RetryBaseDelay = TimeSpan.Zero, OnProgress = (d, t) => throw new IOException("progress") }));
+                Check.Equal("progress", ex.Message);
+                Check.Equal(1, Volatile.Read(ref requests));
+                Check.False(File.Exists(dest), "the partial file is removed");
+            }
+            finally { if (File.Exists(dest)) File.Delete(dest); }
+        }
+
         public async Task VerifiesChecksum()
         {
             using var server = new TestServer(ctx => RespondFull(ctx, 200, Body));

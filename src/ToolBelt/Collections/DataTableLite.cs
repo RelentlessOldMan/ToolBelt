@@ -160,19 +160,37 @@ namespace ToolBelt.Collections
             if (c < 0) throw new ArgumentException($"No column named '{column}'.", nameof(column));
             comparer ??= CellComparer.Instance;
 
-            // Decorate with the original index so the sort is stable (List.Sort is not).
             var order = new int[_rows.Count];
             for (int i = 0; i < order.Length; i++) order[i] = i;
-            Array.Sort(order, (x, y) =>
-            {
-                // Swap the operands for descending: negating would leave int.MinValue unchanged.
-                int cmp = descending ? comparer.Compare(_rows[y][c], _rows[x][c]) : comparer.Compare(_rows[x][c], _rows[y][c]);
-                return cmp != 0 ? cmp : x.CompareTo(y); // stable tie-break on original position
-            });
+            // Swap the operands for descending: negating would leave int.MinValue unchanged.
+            MergeSort(order, descending
+                ? (x, y) => comparer.Compare(_rows[y][c], _rows[x][c])
+                : (x, y) => comparer.Compare(_rows[x][c], _rows[y][c]));
 
             var result = CloneSchemaEmpty();
             foreach (int i in order) result._rows.Add((object?[])_rows[i].Clone());
             return result;
+        }
+
+        // A bottom-up merge sort of row indices: stable, and a comparer's exception propagates unchanged (Array.Sort wrapped
+        // it in an InvalidOperationException, or turned an IndexOutOfRangeException into an ArgumentException without it).
+        private static void MergeSort(int[] a, Comparison<int> compare)
+        {
+            int n = a.Length;
+            int[] src = a, dst = new int[n];
+            for (long width = 1; width < n; width *= 2)
+            {
+                for (long lo = 0; lo < n; lo += 2 * width)
+                {
+                    int mid = (int)Math.Min(lo + width, n), hi = (int)Math.Min(lo + 2 * width, n);
+                    int i = (int)lo, j = mid, k = (int)lo;
+                    while (i < mid && j < hi) dst[k++] = compare(src[j], src[i]) < 0 ? src[j++] : src[i++];
+                    while (i < mid) dst[k++] = src[i++];
+                    while (j < hi) dst[k++] = src[j++];
+                }
+                (src, dst) = (dst, src);
+            }
+            if (!ReferenceEquals(src, a)) Array.Copy(src, a, n);
         }
 
         /// <summary>

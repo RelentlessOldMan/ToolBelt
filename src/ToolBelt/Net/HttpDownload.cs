@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -119,11 +120,27 @@ namespace ToolBelt.Net
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 if (!options.Resume) TryDelete(partial);   // nothing will resume from it
+                if (ex is ProgressFailure f) ExceptionDispatchInfo.Capture(f.InnerException!).Throw();
                 throw;
             }
+        }
+
+        // An OnProgress exception, carried out of the attempt so it isn't taken for a network failure: an IOException,
+        // TimeoutException or OperationCanceledException from the callback (a common way to abort) restarted the download.
+        private sealed class ProgressFailure : Exception
+        {
+            public ProgressFailure(Exception inner) : base(inner.Message, inner) { }
+        }
+
+        private static void Progress(HttpDownloadOptions options, long downloaded, long? total)
+        {
+            Action<long, long?>? onProgress = options.OnProgress;
+            if (onProgress == null) return;
+            try { onProgress(downloaded, total); }
+            catch (Exception ex) { throw new ProgressFailure(ex); }
         }
 
         private static async Task<HttpDownloadResult> AttemptAsync(
@@ -192,7 +209,7 @@ namespace ToolBelt.Net
                 throw new HttpDownloadException($"Server returned {status} ({response.ReasonPhrase}) for {url}.");
 
             long downloaded = existing;
-            options.OnProgress?.Invoke(downloaded, total);
+            Progress(options, downloaded, total);
 
             using (var idle = CancellationTokenSource.CreateLinkedTokenSource(ct))
             // Where a response stream ignores cancellation, disposing the response unblocks the read.
@@ -218,7 +235,7 @@ namespace ToolBelt.Net
                         if (read == 0) break;
                         await output.WriteAsync(buffer, 0, read, ct).ConfigureAwait(false);
                         downloaded += read;
-                        options.OnProgress?.Invoke(downloaded, total);
+                        Progress(options, downloaded, total);
                     }
                 }
                 catch (Exception ex) when (idle.IsCancellationRequested && !ct.IsCancellationRequested)
@@ -227,7 +244,7 @@ namespace ToolBelt.Net
                 }
                 // The disposed response fails the pending read with an IOException where the stream ignores the token
                 // (.NET Framework): the caller cancelled, so say so.
-                catch (Exception ex) when (ct.IsCancellationRequested && !(ex is OperationCanceledException))
+                catch (Exception ex) when (ct.IsCancellationRequested && !(ex is OperationCanceledException || ex is ProgressFailure))
                 {
                     throw new OperationCanceledException("The download was canceled.", ex, ct);
                 }
@@ -282,7 +299,7 @@ namespace ToolBelt.Net
             if (ct.IsCancellationRequested) return false;   // the caller cancelled
             for (Exception? e = ex; e != null; e = e.InnerException)
             {
-                if (e is HttpDownloadException) return false;
+                if (e is HttpDownloadException || e is ProgressFailure) return false;
                 // With the caller's token untouched, a cancellation is the HttpClient's own Timeout firing.
                 if (e is OperationCanceledException) return true;
                 if (e is HttpRequestException || e is IOException || e is TimeoutException) return true;

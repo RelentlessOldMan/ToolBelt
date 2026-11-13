@@ -63,13 +63,21 @@ namespace ToolBelt.Threading
             }
         }
 
-        /// <summary>Observes the task's completion and routes any failure to <paramref name="onError"/>.</summary>
+        /// <summary>
+        /// Observes the task's completion and routes any failure to <paramref name="onError"/>. An exception thrown by
+        /// <paramref name="onError"/> itself is dropped, as by the other error sinks here.
+        /// </summary>
         public static void FireAndForget(this Task task, Action<Exception> onError)
         {
             if (task is null) throw new ArgumentNullException(nameof(task));
             if (onError is null) throw new ArgumentNullException(nameof(onError));
             task.ContinueWith(
-                t => onError(t.Exception!.GetBaseException()),
+                t =>
+                {
+                    // Escaping, it faulted the continuation, which nothing observes: an UnobservedTaskException at a later GC.
+                    try { onError(t.Exception!.GetBaseException()); }
+                    catch { }
+                },
                 CancellationToken.None,
                 TaskContinuationOptions.OnlyOnFaulted,
                 TaskScheduler.Default);

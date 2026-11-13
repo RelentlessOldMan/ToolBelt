@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53). **next: the cross-cutting rounds** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54). **next: the cross-cutting rounds, cancellation and dispose races** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -127,6 +127,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.51.0 | 51 | WinForms, tooling and docs, third pass | 18 | (see tag) |
 | v0.52.0 | 52 | Binary formats & images, third pass | 18 | (see tag) |
 | v0.53.0 | 53 | Filters & control, third pass | 20 | (see tag) |
+| v0.54.0 | 54 | Throwing callbacks (cross-cutting) | 36 | (see tag) |
 
 ## Round log
 
@@ -2400,3 +2401,87 @@ conditioning check (accepted designs keep their DC gain).
 - **Checked build:** the core suite in a checked build is green (3026).
 - **.NET Framework 4.8:** the Signal and Control tests (274, which include every new test) are green.
 - **Re-queued:** yes (20 bugs, 1 severe).
+
+### Round 54: Throwing callbacks, cross-cutting (v0.54.0)
+
+The first cross-cutting round: the whole library, for user code that throws inside ours (comparers, hashes, clocks,
+delays, predicates, event handlers, error sinks, and callbacks registered on tokens we cancel). Reviewers: one for
+correctness and one for robustness, fresh. **36 confirmed bugs, 2 severe** (a callback's exception ending the
+process). Regression tests are in `Threading/CallbackReview54Tests` (32 core tests), `HttpDownloadTests` (1) and
+`ToolBelt.Wpf.Tests/CallbackReview54Tests` (8); 37 fail on the old code (one of them by ending the process). The
+other 4 guard the rewritten sorts and the unchanged command paths.
+
+- **HealthCheck (severe):** a probe's timeout was enforced by `CancelAfter`. If the probe registered a token callback
+  that threw, the exception hit the timer thread and ended the process. Separately, the timer could lose the race to
+  the timeout's delay: the source was then disposed with the timer pending, and the abandoned probe's token was never
+  cancelled (15 to 40 of 200 probes on the old code). The timeout path now cancels explicitly and drops the
+  callback's exception.
+- **FileWatcher (severe):** a Changed handler that threw `InsufficientMemoryException`, which derives from
+  `OutOfMemoryException` but is recoverable (a `MemoryFailPoint` refusing), escaped onto the timer or OS watcher
+  thread and ended the process. Only an exact `OutOfMemoryException` is left to propagate; the rest go to `Error`.
+- **CronScheduler:**
+  - a clock that threw once stopped the loop for good, unreported;
+  - so did a delay that threw;
+  - a token callback a running job registered that threw out of Dispose skipped the wait.
+  `onError` is now `Action<ScheduledJob?, Exception>`, and a null job means a scheduler failure. The loop tries again
+  a second later, and Dispose reports the cancel's AggregateException there instead of throwing it.
+- **PeriodicWorker, ConcurrentPipeline Dispose:** the same token-callback throw escaped Dispose and skipped the wait.
+  It goes to `onError`.
+- **ParallelUtils.ForEachAsync:**
+  - in fail-fast mode a body's throwing token callback escaped unobserved;
+  - when the source threw, the callback's exception replaced the source's, and the started bodies were not waited
+    for.
+  The callback's exception is now collected with the bodies' failures.
+- **TaskRace.FirstToComplete, Hedged:** a loser's throwing token callback replaced the winner's result. It is dropped
+  like the loser's outcome.
+- **TaskExtensions.FireAndForget:** an `onError` that threw faulted the continuation, which then surfaced as an
+  UnobservedTaskException at a later GC. It is dropped, as the other error sinks do.
+- **BinaryHeap, TopN, IndexedPriorityQueue:** a comparer that threw mid-sift left the heap out of order or lost an
+  item. In TopN at capacity it left a larger item at the root, so later Adds were measured against the wrong
+  threshold for good. In IndexedPriorityQueue it lost the dequeued key. Every comparison now happens before the heap
+  changes: the target slot is found first, then the path is shifted. Each is graded against a model over 200 to 300
+  randomized trips.
+- **TopN.ToArray, DataTableLite.OrderBy:** `Array.Sort` and `List.Sort` wrapped a comparer's exception in an
+  InvalidOperationException. ToArray is now a heapsort of a copy and OrderBy a stable bottom-up merge sort, so the
+  exception comes out unchanged. Stability and order are graded against LINQ.
+- **Graph.AddEdge:** a hash that threw on `to` left `from` added, or half an undirected edge listed. The vertices
+  added are removed again.
+- **OrderedSet, OrderedDictionary.Remove:** a hash that threw during the map removal left the order list and the map
+  disagreeing (Count ≠ enumeration). The map is removed from first.
+- **FileChangeCoalescer.TakeQuiet:** an `isReady` that threw lost the changes already taken. Every call now comes
+  before anything changes.
+- **Retry:** `ShouldRetry` ran in an exception filter, which swallows an exception thrown inside it (taken as
+  false), so a predicate's own bug vanished and the operation's exception came out. It now runs in the catch.
+- **CircuitBreaker:** a clock that threw while a failure was recorded replaced the operation's exception, and the
+  failure went uncounted. The opening is dated "the next time the clock is read".
+- **RateLimitedSink:**
+  - an inner sink that threw left the window unstarted, so a flood of a failing message was never suppressed;
+  - when both the summary and the event failed, only one exception was reported (now an AggregateException).
+- **HttpDownload:** an `OnProgress` that threw an IOException, TimeoutException or OperationCanceledException (a
+  common way to abort) was taken for a network failure and restarted the download. It is carried out of the attempt
+  and rethrown, and the partial file is removed.
+- **ConsoleSpinner:** a writer that broke (a closed pipe) faulted the animation loop, unobserved when Stop was never
+  called. The animation ends quietly.
+- **ProcessRunner:** after a timeout or cancel, the reader threads kept calling `OnOutputLine` after Run had
+  returned (a grandchild can hold the pipe). No call starts after the run returns.
+- **SettingsStore:**
+  - `Update` with a change that threw partway left Value half-changed, and the next Save wrote it. Value is
+    restored from a snapshot;
+  - a get-only collection whose Add threw had its exception wrapped in a TargetInvocationException. An
+    OutOfMemoryException was then taken for a corrupt file, and the file was moved aside. It is unwrapped.
+- **WPF ValidationObservableObject:** an ErrorsChanged handler that threw stopped ClearAllErrors part way and
+  skipped the HasErrors change. Every notification is now raised; one failure is rethrown, several are aggregated.
+- **WPF AsyncRelayCommand:** a CanExecuteChanged handler that threw after the operation failed replaced the
+  operation's exception. Both are now reported in an AggregateException.
+- **WPF IncrementalCollection:**
+  - a PropertyChanged handler that threw on IsLoading = true left IsLoading stuck, so no later load ran;
+  - one that threw on IsLoading = false replaced the load's exception. Both are now reported in an
+    AggregateException.
+- **Checked and left as is:** Messenger stops delivery at a throwing handler, as its docs say.
+- **Found while testing (not this round):** on .NET Framework, `Benchmark.AllocatedBytesPerOperation` reports 987
+  B/op for a 4096-byte allocation. Its fallback is `GC.GetTotalMemory`, which drops at each collection. Recorded as
+  BUGLIST 54-1 for the net48 round. Also: the Threading, Collections, Logging, Time and IO test folders don't compile
+  on net48 (UnixEpoch, Index, TarWriter, System.Text.Json), which is BUGLIST 52-1 widened.
+- **Checked build:** the core suite in a checked build is green (3059).
+- **.NET Framework 4.8:** this round's tests plus the existing tests for every changed type (303) ran there. All pass
+  except 54-1.

@@ -147,7 +147,8 @@ namespace ToolBelt.Logging
                 Exception? summaryError = null;
                 try { FlushSummary(now); }
                 catch (Exception ex) { summaryError = ex; }                         // still write the new event
-                _inner.Emit(logEvent);
+                // The window starts before the write: an inner sink that threw left it unstarted, so a flood of a message
+                // that failed to write was never suppressed.
                 _hasCurrent = true;
                 _currentLevel = logEvent.Level;
                 _currentCategory = logEvent.Category;
@@ -155,6 +156,8 @@ namespace ToolBelt.Logging
                 _windowStart = now;
                 _suppressed = 0;
                 _lastSuppressed = null;
+                try { _inner.Emit(logEvent); }
+                catch (Exception ex) when (summaryError != null) { throw new AggregateException(summaryError, ex); }   // both, not just one
                 if (summaryError != null) ExceptionDispatchInfo.Capture(summaryError).Throw();
             }
         }

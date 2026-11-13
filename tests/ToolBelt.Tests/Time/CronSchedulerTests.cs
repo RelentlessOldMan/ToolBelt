@@ -15,7 +15,7 @@ namespace ToolBelt.Tests.Time
         private static (CronScheduler Scheduler, Func<DateTimeOffset, DateTimeOffset> SetTime) Manual(List<(string, Exception)>? errors = null)
         {
             DateTimeOffset now = T0;
-            var s = new CronScheduler((j, e) => { lock (errors!) errors.Add((j.Name, e)); }, () => now, (t, ct) => Task.Delay(Timeout.Infinite, ct), TimeZoneInfo.Utc);
+            var s = new CronScheduler((j, e) => { lock (errors!) errors.Add((j?.Name ?? "(scheduler)", e)); }, () => now, (t, ct) => Task.Delay(Timeout.Infinite, ct), TimeZoneInfo.Utc);
             return (s, t => now = t);
         }
 

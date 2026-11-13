@@ -5,8 +5,8 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 
 ## Next
 
-1. **Cross-cutting rounds** (planned 2026-11-04), each across the whole library rather than one section:
-   - throwing callbacks and handlers (user code that throws inside ours);
+1. **Cross-cutting rounds** (planned 2026-11-04), each across the whole library rather than one section. Throwing
+   callbacks was round 54; still to do:
    - cancellation and dispose races;
    - non-finite and extreme numerics (NaN, ±∞, subnormals, 1e±300);
    - the whole suite on .NET Framework 4.8 and in the overflow-checked build.
@@ -17,11 +17,11 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 
 - **The library** (2026-09-25 to 2026-10-05): 29+ divisions in the core plus the Windows, WPF and WinForms
   satellites. The README's Layout is the inventory.
-- **The review** (2026-10-07 onward): 53 rounds, released as v0.1.0 to v0.53.0. Three full passes over all 17
-  sections, and two rounds on flaky tests and the incomplete beta/gamma harness. Section 1 (round 53) found 20
-  bugs, 1 severe (high-order IIR band-stops up to 3e13 times their output in error from section ordering).
-- **Checks every round passes:** the full verify (core 3026 tests, Windows 115, WPF 151, WinForms 91,
-  MathChecks 40 at v0.53.0), the overflow-checked build with no failures (since round 48), and the special
+- **The review** (2026-10-07 onward): 54 rounds, released as v0.1.0 to v0.54.0. Three full passes over all 17
+  sections, two rounds on flaky tests and the incomplete beta/gamma harness, and the first cross-cutting round
+  (round 54, throwing callbacks: 36 bugs, 2 severe, both a callback's exception ending the process).
+- **Checks every round passes:** the full verify (core 3059 tests, Windows 115, WPF 159, WinForms 91,
+  MathChecks 40 at v0.54.0), the overflow-checked build with no failures (since round 48), and the special
   functions against mpmath (graded in condition-number units).
 - **Unverified:** the whole core suite on .NET Framework 4.8 has never been run in one go; rounds only ran the
   section under review there. That is one of the cross-cutting rounds.
@@ -63,6 +63,12 @@ Written as rules a future session can apply.
   Biquad's (1 − cos)/2 was more accurate alone but broke the exact unity DC gain the rounded poles were matched to.
 - Grade a filter cascade against the same sections run in double-double, not against a second double design: that
   isolates the cascade's own rounding, which is what section ordering changes.
+- A fail-first test must reach the code it targets: a serializer can build its own instance of a test type first,
+  so make only the target instance misbehave (round 54's get-only collection test passed at HEAD until then).
+- A race that loses only sometimes (a timer against a delay) needs many instances in one test: 200 probes failed
+  every run on the old code where one probe passed.
+- `net48.sh` takes whole folders, and several folders hold net8-only tests. Until the net48 round, run a round's
+  files there through a scratch copy that includes single files.
 - Grade geometry against exact rational arithmetic (BigInteger on the doubles' binary expansions), not against a
   second floating-point formula. A double reference hid both the wrong-edge pick and the near-half rounding.
 

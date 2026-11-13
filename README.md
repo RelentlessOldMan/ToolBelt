@@ -288,7 +288,7 @@ src/
       ConfigLayers.cs       merge sources by priority into a flat key space (with provenance)
       ConfigBinder.cs       bind a flat key space to a typed object (nested/arrays/enums/durations)
       EnvironmentVariables.cs  typed env reads (int/bool/duration/enum/list), malformed = error naming the variable
-      SettingsStore.cs      per-user JSON settings: atomic save, corrupt file moved aside, defaults (net8)
+      SettingsStore.cs      per-user JSON settings: atomic save, corrupt file moved aside, defaults, Update restores on a throw (net8)
     Control/
       PidController.cs      PID with clamping, anti-windup, derivative-on-measurement
       PidTuning.cs          FOPDT model fit from a step test (two-point) + SIMC / lambda / Ziegler-Nichols / Cohen-Coon rules
@@ -304,7 +304,7 @@ src/
       ScopedTimer.cs        time a using-block to a callback / metrics (injectable clock)
       ExceptionUtils.cs     root-cause / flatten / describe / transient-vs-permanent classify
       EnvironmentReport.cs  one-call bug-report snapshot (versions/OS/culture/uptime/env, secret-safe)
-      HealthCheck.cs        named probes w/ enforced timeouts, run concurrently -> worst-status report
+      HealthCheck.cs        named probes w/ enforced timeouts (an abandoned probe's token is cancelled), run concurrently -> worst-status report
       FirstChanceMonitor.cs report thrown-then-swallowed exceptions; throttled per signature, recursion-safe
       DiskSpace.cs          free space on a path's volume, writability probe, pre-run fit check + size estimate
       AssertInvariant.cs    conditionally compiled internal-consistency checks (DEBUG / TOOLBELT_INVARIANTS)
@@ -505,11 +505,11 @@ src/
       PauseTokenSource.cs   cooperative pause/resume (PauseToken.WaitWhilePausedAsync at safe points)
       TaskRace.cs           FirstSuccessful / FirstMatching / FirstToComplete / Hedged — losers cancelled and awaited
       CancellationTokenExtensions.cs  await a token (WhenCanceled) + CreateLinkedTimeout source
-      TaskExtensions.cs     WithTimeout / WithCancellation / FireAndForget / WhenAllOrFirstException
+      TaskExtensions.cs     WithTimeout / WithCancellation / FireAndForget (a throwing onError is dropped) / WhenAllOrFirstException
     Time/
       BusinessDays.cs       business-day add/count (weekends + holidays)
       CronSchedule.cs       5-field cron parse + next-occurrence (fixed offset, or a time zone with Vixie DST rules)
-      CronScheduler.cs      run jobs on cron schedules: no self-overlap, no catch-up bursts, injectable clock and time zone
+      CronScheduler.cs      run jobs on cron schedules: no self-overlap, no catch-up bursts, injectable clock and time zone; onError(null, ex) for scheduler failures
       DateRange.cs          date/time interval (contains / overlaps / intersect)
       Iso8601Duration.cs    ISO 8601 duration parse/format (PT1H30M)
       IsoWeek.cs            ISO 8601 week-of-year and week-year
@@ -929,6 +929,7 @@ tests/
       ConcurrencyReview2Tests.cs (second-pass regressions: backoff, breaker generations, clock steps, hedging, dispose from onError)
       ConcurrencyReview3Tests.cs (third-pass regressions: child stdin, token-bucket rounding, worker delay cancellation, retry policy nulls)
       FlakeRootCauseTests.cs  (round 46: pipeline, async log sink and process readers run off the thread pool)
+      CallbackReview54Tests.cs (round 54, cross-cutting: throwing comparers, hashes, clocks, handlers, error sinks and token callbacks)
       KeyedLockTests.cs
       ParallelUtilsTests.cs
       PeriodicWorkerTests.cs
@@ -1057,6 +1058,7 @@ tests/
     WpfReviewTests.cs       (round 16 review regressions: command threading, numeric input, paging reset, regex timeouts, converters)
     WpfReview2Tests.cs      (round 33 review regressions: numeric clamping, hotkey threading, theme adoption, drag filtering, validation)
     WpfReview3Tests.cs      (round 49 review regressions: numeric deletions, shared-load cancellation, theme follow failures, hotkey gestures)
+    CallbackReview54Tests.cs  (round 54: throwing handlers in validation, commands and incremental loading)
     UiReviewRegressionTests.cs  (2026-10-05 review regressions: WPF satellite)
   ToolBelt.WinForms.Tests/  WinForms UI satellite tests (net8.0-windows)
     ControlExtensionsTests.cs

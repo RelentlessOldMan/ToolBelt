@@ -63,7 +63,7 @@ namespace ToolBelt.Threading
                             if (!(ex is OperationCanceledException && linked.IsCancellationRequested))
                             {
                                 exceptions.Add(ex);
-                                if (!collectAllExceptions) linked.Cancel();
+                                if (!collectAllExceptions) Cancel(linked, exceptions);
                             }
                         }
                         finally
@@ -76,8 +76,9 @@ namespace ToolBelt.Threading
             }
             catch
             {
-                // Enumerating the source threw: stop the started bodies and wait for them before rethrowing.
-                linked.Cancel();
+                // Enumerating the source threw: stop the started bodies and wait for them before rethrowing. A callback a body
+                // registered on its token that threw here replaced the source's exception and skipped the wait.
+                Cancel(linked, exceptions);
                 if (Interlocked.Decrement(ref inFlight) == 0) allDone.TrySetResult(true);
                 await allDone.Task.ConfigureAwait(false);
                 throw;
@@ -89,6 +90,14 @@ namespace ToolBelt.Threading
             if (!exceptions.IsEmpty)
                 throw new AggregateException(exceptions);
             cancellationToken.ThrowIfCancellationRequested();
+        }
+
+        // Cancels the bodies' token. A callback a body registered on it may throw: that is the body's failure, collected
+        // with the others (it escaped a body's task unobserved, or replaced the source's exception).
+        private static void Cancel(CancellationTokenSource linked, ConcurrentBag<Exception> exceptions)
+        {
+            try { linked.Cancel(); }
+            catch (AggregateException ex) { foreach (var inner in ex.InnerExceptions) exceptions.Add(inner); }
         }
     }
 }

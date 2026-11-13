@@ -41,8 +41,8 @@ namespace ToolBelt.Collections
             if (item is null) throw new ArgumentNullException(nameof(item));
             if (_map.TryGetValue(item, out var node))
             {
+                _map.Remove(item); // first: a hash that throws must leave the map and the order agreeing
                 _order.Remove(node);
-                _map.Remove(item);
                 return true;
             }
             return false;

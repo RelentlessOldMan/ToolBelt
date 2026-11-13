@@ -28,15 +28,28 @@ namespace ToolBelt.Collections
             _comparer = comparer ?? Comparer<T>.Default;
             _items = new List<T>(items);
             for (int i = _items.Count / 2 - 1; i >= 0; i--)
-                SiftDown(i);
+            {
+                T x = _items[i];
+                Settle(i, FindDown(x, i, _items.Count), x);
+            }
         }
 
         public int Count => _items.Count;
 
+        /// <remarks>Every comparison happens before the heap changes, so a comparer that throws leaves it as it was (here
+        /// and in <see cref="TryPop"/>); a throw mid-sift left the item out of order, or lost the popped one.</remarks>
         public void Push(T item)
         {
+            int at = FindUp(item, _items.Count);
             _items.Add(item);
-            SiftUp(_items.Count - 1);
+            int i = _items.Count - 1;
+            while (i > at)
+            {
+                int parent = (i - 1) / 2;
+                _items[i] = _items[parent];
+                i = parent;
+            }
+            _items[at] = item;
         }
 
         /// <summary>Returns the highest-priority element without removing it. Throws if empty.</summary>
@@ -70,54 +83,57 @@ namespace ToolBelt.Collections
                 return false;
             }
 
-            item = _items[0];
             int last = _items.Count - 1;
-            _items[0] = _items[last];
+            T moved = _items[last];
+            int at = last > 0 ? FindDown(moved, 0, last) : 0;
+            item = _items[0];
             _items.RemoveAt(last);
-            if (_items.Count > 0)
-                SiftDown(0);
+            if (last > 0) Settle(0, at, moved);
             return true;
         }
 
         public void Clear() => _items.Clear();
 
-        private void SiftUp(int i)
+        // Where an item placed in the empty slot i would rise to. Compares only.
+        private int FindUp(T item, int i)
         {
             while (i > 0)
             {
                 int parent = (i - 1) / 2;
-                if (_comparer.Compare(_items[i], _items[parent]) >= 0)
+                if (_comparer.Compare(item, _items[parent]) >= 0)
                     break;
-                Swap(i, parent);
                 i = parent;
             }
+            return i;
         }
 
-        private void SiftDown(int i)
+        // Where an item placed in the empty slot i would sink to among the first n slots. Compares only.
+        private int FindDown(T item, int i, int n)
         {
-            int n = _items.Count;
-            while (true)
+            while (i < n / 2) // past n / 2 is a leaf; 2 * i + 1 overflowed int past 2^30 elements
             {
-                if (i >= n / 2) break; // a leaf; 2 * i + 1 overflowed int past 2^30 elements
-                int left = 2 * i + 1;
-                int right = 2 * i + 2;
-                int best = i;
-
-                if (left < n && _comparer.Compare(_items[left], _items[best]) < 0)
-                    best = left;
-                if (right < n && _comparer.Compare(_items[right], _items[best]) < 0)
-                    best = right;
-                if (best == i)
+                int child = 2 * i + 1;
+                if (child + 1 < n && _comparer.Compare(_items[child + 1], _items[child]) < 0)
+                    child++;
+                if (_comparer.Compare(_items[child], item) >= 0)
                     break;
-
-                Swap(i, best);
-                i = best;
+                i = child;
             }
+            return i;
         }
 
-        private void Swap(int a, int b)
+        // Moves each item on the path from slot top down to slot at up one level and puts item at the bottom. The path
+        // is at's ancestors, so it is walked from the bottom, carrying each displaced item up. No comparisons.
+        private void Settle(int top, int at, T item)
         {
-            (_items[a], _items[b]) = (_items[b], _items[a]);
+            T carry = item;
+            int i = at;
+            while (i > top)
+            {
+                (_items[i], carry) = (carry, _items[i]);
+                i = (i - 1) / 2;
+            }
+            _items[top] = carry;
         }
     }
 }

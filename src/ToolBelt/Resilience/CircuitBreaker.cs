@@ -98,7 +98,12 @@ namespace ToolBelt.Resilience
             }
             catch (Exception)
             {
-                OnFailure(_clock(), trial, generation);
+                // A clock that threw here replaced the operation's exception, and the failure went uncounted. With no time,
+                // an opening is dated "the next time the clock is read" (a clock behind the opening restarts the timeout).
+                DateTimeOffset failedAt;
+                try { failedAt = _clock(); }
+                catch { failedAt = DateTimeOffset.MaxValue; }
+                OnFailure(failedAt, trial, generation);
                 throw;
             }
             finally

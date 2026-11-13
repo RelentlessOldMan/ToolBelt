@@ -53,18 +53,21 @@ namespace ToolBelt.Time
         private readonly object _gate = new object();
         private readonly Func<DateTimeOffset> _now;
         private readonly Func<TimeSpan, CancellationToken, Task> _delay;
-        private readonly Action<ScheduledJob, Exception>? _onError;
+        private readonly Action<ScheduledJob?, Exception>? _onError;
+        private static readonly TimeSpan RetryAfterFailure = TimeSpan.FromSeconds(1);
         private readonly TimeZoneInfo _zone;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private Task? _loop;
         private int _skipped;
         private int _loopThread;   // the managed thread id while the loop is inside RunDue, else 0
 
-        /// <param name="onError">Receives exceptions from jobs, and the failure when a job's schedule has no later occurrence.</param>
+        /// <param name="onError">Receives exceptions from jobs, and the failure when a job's schedule has no later occurrence.
+        /// The job is null for a failure of the scheduler's own: the clock or delay throwing (the loop tries again a second
+        /// later), or a callback a job registered on its token throwing when <see cref="Dispose"/> cancels it.</param>
         /// <param name="clock">The current time; default <see cref="DateTimeOffset.Now"/>.</param>
         /// <param name="delay">How the loop waits; default <see cref="Task.Delay(TimeSpan, CancellationToken)"/>.</param>
         /// <param name="timeZone">The zone whose wall clock the cron fields describe; default <see cref="TimeZoneInfo.Local"/>.</param>
-        public CronScheduler(Action<ScheduledJob, Exception>? onError = null, Func<DateTimeOffset>? clock = null,
+        public CronScheduler(Action<ScheduledJob?, Exception>? onError = null, Func<DateTimeOffset>? clock = null,
             Func<TimeSpan, CancellationToken, Task>? delay = null, TimeZoneInfo? timeZone = null)
         {
             _onError = onError;
@@ -203,7 +206,7 @@ namespace ToolBelt.Time
         }
 
         // An onError that throws must not stop the scheduler (or fault a job's task); its exception is dropped.
-        private void Report(ScheduledJob job, Exception ex)
+        private void Report(ScheduledJob? job, Exception ex)
         {
             try { _onError?.Invoke(job, ex); }
             catch { }
@@ -213,22 +216,40 @@ namespace ToolBelt.Time
         {
             while (!ct.IsCancellationRequested)
             {
+                TimeSpan wait;
                 // Marks the loop's own synchronous call, so a Dispose from onError inside it doesn't wait for the loop.
                 Volatile.Write(ref _loopThread, Environment.CurrentManagedThreadId);
-                try { RunDue(); }
-                finally { Volatile.Write(ref _loopThread, 0); }
-                TimeSpan wait;
-                lock (_gate)
+                try
                 {
-                    DateTimeOffset now = _now(), next = DateTimeOffset.MaxValue;
-                    foreach (var job in _jobs) if (job.NextRun is DateTimeOffset n && n < next) next = n;
-                    // Re-check at least once a minute so clock changes and newly added jobs are noticed.
-                    wait = next == DateTimeOffset.MaxValue ? TimeSpan.FromMinutes(1) : next - now;
-                    if (wait < TimeSpan.Zero) wait = TimeSpan.Zero;
-                    if (wait > TimeSpan.FromMinutes(1)) wait = TimeSpan.FromMinutes(1);
+                    RunDue();
+                    lock (_gate)
+                    {
+                        DateTimeOffset now = _now(), next = DateTimeOffset.MaxValue;
+                        foreach (var job in _jobs) if (job.NextRun is DateTimeOffset n && n < next) next = n;
+                        // Re-check at least once a minute so clock changes and newly added jobs are noticed.
+                        wait = next == DateTimeOffset.MaxValue ? TimeSpan.FromMinutes(1) : next - now;
+                        if (wait < TimeSpan.Zero) wait = TimeSpan.Zero;
+                        if (wait > TimeSpan.FromMinutes(1)) wait = TimeSpan.FromMinutes(1);
+                    }
                 }
+                catch (Exception ex)
+                {
+                    // A clock that threw once stopped the loop for good, unreported.
+                    Report(null, ex);
+                    wait = RetryAfterFailure;
+                }
+                finally { Volatile.Write(ref _loopThread, 0); }
                 try { await _delay(wait, ct).ConfigureAwait(false); }
-                catch (OperationCanceledException) { break; }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+                catch (Exception ex)
+                {
+                    // So did a delay that threw (or returned null, or was cancelled by something else).
+                    Volatile.Write(ref _loopThread, Environment.CurrentManagedThreadId);
+                    try { Report(null, ex); }
+                    finally { Volatile.Write(ref _loopThread, 0); }
+                    try { await Task.Delay(RetryAfterFailure, ct).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { break; }
+                }
             }
         }
 
@@ -241,7 +262,10 @@ namespace ToolBelt.Time
         /// </remarks>
         public async Task DisposeAsync()
         {
-            _cts.Cancel();
+            // A callback a running job registered on its token may throw here; it threw out of Dispose, skipping the wait.
+            AggregateException? cancelError = null;
+            try { _cts.Cancel(); }
+            catch (AggregateException ex) { cancelError = ex; }
             bool fromLoop = Volatile.Read(ref _loopThread) == Environment.CurrentManagedThreadId;
             if (_loop != null && !fromLoop) { try { await _loop.ConfigureAwait(false); } catch (OperationCanceledException) { } }
             Task[] pending;
@@ -257,6 +281,7 @@ namespace ToolBelt.Time
                 pending = list.ToArray();
             }
             try { await Task.WhenAll(pending).ConfigureAwait(false); } catch { /* reported via onError */ }
+            if (cancelError != null) Report(null, cancelError);
         }
 
         public void Dispose() => DisposeAsync().GetAwaiter().GetResult();

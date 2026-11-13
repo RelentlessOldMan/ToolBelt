@@ -161,9 +161,11 @@ namespace ToolBelt.Wpf
         private async Task<int> LoadCoreAsync(int generation, LoadState load)
         {
             CancellationTokenSource cts = load.Cts;
-            IsLoading = true;
+            Exception? failure = null;
             try
             {
+                // Inside the try: a PropertyChanged handler that threw here left IsLoading true for good.
+                IsLoading = true;
                 IReadOnlyList<T> page = await _loadPage(Count, PageSize, cts.Token).ConfigureAwait(true)
                     ?? throw new InvalidOperationException("The page loader returned null.");
                 if (generation != _generation) return 0; // reset while we were loading: drop the stale page
@@ -177,13 +179,15 @@ namespace ToolBelt.Wpf
                 if (page.Count < PageSize) HasMoreItems = false;
                 return page.Count;
             }
-            catch (OperationCanceledException) when (generation != _generation || cts.IsCancellationRequested)
+            catch (OperationCanceledException oce) when (generation != _generation || cts.IsCancellationRequested)
             {
                 if (generation != _generation) return 0; // superseded by a reset
+                failure = oce;
                 throw;
             }
             catch (Exception ex) when (generation == _generation)
             {
+                failure = ex;
                 LastError = ex;
                 throw;
             }
@@ -193,7 +197,13 @@ namespace ToolBelt.Wpf
             }
             finally
             {
-                if (generation == _generation) IsLoading = false;   // the token source is not disposed: late cancels must not throw
+                // The token source is not disposed: late cancels must not throw. A handler that threw here replaced the load's
+                // own exception.
+                if (generation == _generation)
+                {
+                    try { IsLoading = false; }
+                    catch (Exception handlerError) when (failure != null) { throw new AggregateException(failure, handlerError); }
+                }
             }
         }
 

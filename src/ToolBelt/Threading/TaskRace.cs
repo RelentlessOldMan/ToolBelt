@@ -90,7 +90,7 @@ namespace ToolBelt.Threading
             }
             finally
             {
-                cts.Cancel();
+                CancelLosers(cts);
                 await Quietly(running).ConfigureAwait(false);
             }
         }
@@ -127,9 +127,17 @@ namespace ToolBelt.Threading
             }
             finally
             {
-                cts.Cancel();
+                CancelLosers(cts);
                 await Quietly(all).ConfigureAwait(false);
             }
+        }
+
+        // A callback a loser registered on its token may throw; like the loser's outcome it is irrelevant. It replaced the
+        // winner's result and skipped waiting for the losers.
+        private static void CancelLosers(CancellationTokenSource cts)
+        {
+            try { cts.Cancel(); }
+            catch (AggregateException) { }
         }
 
         // Runs the factory so that a synchronous throw becomes a faulted task rather than escaping the race.

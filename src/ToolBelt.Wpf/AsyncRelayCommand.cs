@@ -1,5 +1,6 @@
 // ToolBelt.Wpf drop-in — Windows-only (net8.0-windows), self-contained (BCL only).
 using System;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
 
@@ -45,16 +46,18 @@ namespace ToolBelt.Wpf
             if (!CanExecute(null))
                 return;
             _isExecuting = true;
+            Exception? failure = null;
             try
             {
                 RaiseCanExecuteChanged();
-                await _execute();   // no ConfigureAwait(false): the finally below must raise CanExecuteChanged on the UI thread
+                await _execute();   // no ConfigureAwait(false): the end-of-run CanExecuteChanged must be raised on the UI thread
             }
-            finally
-            {
-                _isExecuting = false;
-                RaiseCanExecuteChanged();
-            }
+            catch (Exception ex) { failure = ex; }
+            _isExecuting = false;
+            // A CanExecuteChanged handler that threw here replaced the operation's own exception.
+            try { RaiseCanExecuteChanged(); }
+            catch (Exception handlerError) when (failure != null) { throw new AggregateException(failure, handlerError); }
+            if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
         public event EventHandler? CanExecuteChanged;

@@ -121,11 +121,19 @@ namespace ToolBelt.Configuration
             }
         }
 
-        /// <summary>Applies <paramref name="change"/> to the settings and saves.</summary>
+        /// <summary>Applies <paramref name="change"/> to the settings and saves. If <paramref name="change"/> throws, nothing
+        /// is saved and <see cref="Value"/> becomes a fresh copy of the settings as they were before it.</summary>
         public void Update(Action<T> change)
         {
             if (change is null) throw new ArgumentNullException(nameof(change));
-            change(Value);
+            // A change that threw partway left Value half-changed, and the next Save wrote that.
+            string before = JsonSerializer.Serialize(Value, Options);
+            try { change(Value); }
+            catch
+            {
+                Value = JsonSerializer.Deserialize<T>(before, Options) ?? new T();
+                throw;
+            }
             Save();
         }
 
@@ -190,8 +198,16 @@ namespace ToolBelt.Configuration
                 MethodInfo clear = i.GetMethod("Clear")!, add = i.GetMethod("Add")!;
                 return (target, value) =>
                 {
-                    clear.Invoke(target, null);
-                    foreach (object? item in (System.Collections.IEnumerable)value) add.Invoke(target, new[] { item });
+                    // The collection's own exception, not wrapped in a TargetInvocationException.
+                    try
+                    {
+                        clear.Invoke(target, null);
+                        foreach (object? item in (System.Collections.IEnumerable)value) add.Invoke(target, new[] { item });
+                    }
+                    catch (TargetInvocationException ex) when (ex.InnerException != null)
+                    {
+                        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                    }
                 };
             }
             return null;
