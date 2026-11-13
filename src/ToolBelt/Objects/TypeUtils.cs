@@ -42,6 +42,10 @@ namespace ToolBelt.Objects
             if (nullableUnderlying != null)
                 return FriendlyName(nullableUnderlying) + "?";
 
+            // Type.Name spelled these from the element's raw name: Int32*, List`1&.
+            if (type.IsPointer) return FriendlyName(type.GetElementType()!) + "*";
+            if (type.IsByRef) return FriendlyName(type.GetElementType()!) + "&";
+
             if (type.IsArray)
             {
                 // C# writes the outermost rank first: int[][,] is a one-dimensional array of int[,].
@@ -131,7 +135,10 @@ namespace ToolBelt.Objects
         /// Attempts to convert <paramref name="value"/> to <paramref name="targetType"/>, with no exception on failure. Text
         /// parses with the invariant culture, including to Guid, TimeSpan, DateTimeOffset, Version and Uri, and those types
         /// (like any formattable value) convert to text. A number converts to an enum only if it fits the enum's underlying
-        /// type, and text converts to a floating type only if it is in range (or is an infinity).
+        /// type, and text converts to a floating type only if it is in range (or is an infinity). Conversions do not lose
+        /// information silently: a fractional number does not convert to an integer type (2.5 is not rounded to 2), a finite
+        /// double beyond float's range does not become an infinity, and a double or float converts to its shortest
+        /// round-trip text.
         /// </summary>
         public static bool TryConvert(object? value, Type targetType, out object? result)
         {
@@ -169,9 +176,13 @@ namespace ToolBelt.Objects
                 if (underlying == typeof(string) && (value is IFormattable || value is Uri || value is Version))
                 {
                     // Guid, TimeSpan, Version and Uri are not IConvertible, so ChangeType failed for them.
-                    result = value is IFormattable f ? f.ToString(null, CultureInfo.InvariantCulture) : value.ToString();
+                    result = value is double d ? RoundTrip(d) : value is float fl ? RoundTrip(fl)
+                        : value is IFormattable f ? f.ToString(null, CultureInfo.InvariantCulture) : value.ToString();
                     return true;
                 }
+                if (IsIntegral(underlying) && !IsWhole(value)) return Fail(targetType, out result);
+                if (underlying == typeof(float) && value is double big && !double.IsInfinity(big) && !double.IsNaN(big)
+                    && float.IsInfinity((float)big)) return Fail(targetType, out result);
                 if (value is string str && ParseSpecial(str, underlying, out result)) return true;
                 // A floating target parses without thousands separators: the invariant "1,5" was 15, not a failure.
                 if (value is string text && (underlying == typeof(double) || underlying == typeof(float) || underlying == typeof(decimal)))
@@ -188,11 +199,41 @@ namespace ToolBelt.Objects
                 result = Convert.ChangeType(value, underlying, CultureInfo.InvariantCulture);
                 return true;
             }
-            catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentException)
+            // NotSupportedException: an IConvertible may refuse a conversion that way.
+            catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentException
+                                       || ex is NotSupportedException)
             {
                 return Fail(targetType, out result);
             }
         }
+
+        // .NET Framework's default and even "R" formats can drop a digit; fall back to all the digits when they do.
+        private static string RoundTrip(double d)
+        {
+            string r = d.ToString("R", CultureInfo.InvariantCulture);
+            return double.IsNaN(d) || double.Parse(r, NumberStyles.Float, CultureInfo.InvariantCulture).Equals(d)
+                ? r : d.ToString("G17", CultureInfo.InvariantCulture);
+        }
+
+        private static string RoundTrip(float f)
+        {
+            string r = f.ToString("R", CultureInfo.InvariantCulture);
+            return float.IsNaN(f) || float.Parse(r, NumberStyles.Float, CultureInfo.InvariantCulture).Equals(f)
+                ? r : f.ToString("G9", CultureInfo.InvariantCulture);
+        }
+
+        private static bool IsIntegral(Type t)
+            => t == typeof(sbyte) || t == typeof(byte) || t == typeof(short) || t == typeof(ushort) || t == typeof(int)
+               || t == typeof(uint) || t == typeof(long) || t == typeof(ulong) || t == typeof(char);
+
+        // False for a fractional (or non-finite) double, float or decimal; true for anything else.
+        private static bool IsWhole(object value) => value switch
+        {
+            double d => Math.Floor(d) == d && !double.IsInfinity(d),
+            float f => Math.Floor(f) == f && !float.IsInfinity(f),
+            decimal m => decimal.Truncate(m) == m,
+            _ => true,
+        };
 
         // The failure result: the type's default, or null for a type that has none (void, open generic, by-ref), which
         // made DefaultValue throw out of a method that promises not to.
@@ -209,6 +250,8 @@ namespace ToolBelt.Objects
         private static bool IsByRefLike(Type type)
         {
             if (!type.IsValueType) return false;
+            // .NET Framework does not mark its own by-ref-like types with the attribute.
+            if (type == typeof(TypedReference) || type.FullName == "System.ArgIterator" || type.FullName == "System.RuntimeArgumentHandle") return true;
             foreach (object a in type.GetCustomAttributes(false))
                 if (a.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute") return true;
             return false;
@@ -280,7 +323,8 @@ namespace ToolBelt.Objects
             if (assembly is null) throw new ArgumentNullException(nameof(assembly));
             var result = new List<Type>();
             foreach (Type t in SafeGetTypes(assembly))
-                if (t.GetCustomAttribute<TAttribute>() != null)
+                // IsDefined: GetCustomAttribute throws AmbiguousMatchException for an attribute applied twice (AllowMultiple).
+                if (t.IsDefined(typeof(TAttribute), inherit: true))
                     result.Add(t);
             return result;
         }

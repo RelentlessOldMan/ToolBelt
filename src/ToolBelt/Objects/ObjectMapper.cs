@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 
 namespace ToolBelt.Objects
 {
@@ -13,6 +14,8 @@ namespace ToolBelt.Objects
     /// properties without a public setter, indexers, and a null bound for a non-nullable value-type property. A property
     /// overridden with only one accessor keeps the other it inherits; an interface source includes the properties of the
     /// interfaces it extends. A
+    /// property of a by-ref-like type (Span), which reflection cannot read or write, is skipped; a getter, setter or
+    /// selector that throws propagates its own exception. A
     /// value-type <typeparamref name="TTarget"/> works with <see cref="Map(TSource)"/> only: the in-place overload would
     /// fill a copy, so it throws.
     /// </summary>
@@ -70,20 +73,22 @@ namespace ToolBelt.Objects
         {
             var sourceProps = new Dictionary<string, MethodInfo>(StringComparer.OrdinalIgnoreCase);
             foreach (PropertyInfo p in typeof(TSource).GetProperties(BindingFlags.Public | BindingFlags.Instance))
-                if (p.GetIndexParameters().Length == 0 && !Hidden(p, typeof(TSource)) && PublicAccessor(p, setter: false) is MethodInfo g)
+                if (p.GetIndexParameters().Length == 0 && !Hidden(p, typeof(TSource)) && !IsByRefLike(p.PropertyType)
+                    && PublicAccessor(p, setter: false) is MethodInfo g)
                     sourceProps[p.Name] = g;
             // An interface's GetProperties lists only its own: the ones it inherits are on the interfaces it extends.
             if (typeof(TSource).IsInterface)
                 foreach (Type i in typeof(TSource).GetInterfaces())
                     foreach (PropertyInfo p in i.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-                        if (p.GetIndexParameters().Length == 0 && !sourceProps.ContainsKey(p.Name) && PublicAccessor(p, setter: false) is MethodInfo g)
+                        if (p.GetIndexParameters().Length == 0 && !sourceProps.ContainsKey(p.Name) && !IsByRefLike(p.PropertyType)
+                            && PublicAccessor(p, setter: false) is MethodInfo g)
                             sourceProps[p.Name] = g;
 
             foreach (PropertyInfo targetProp in typeof(TTarget).GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
                 MethodInfo? setter = PublicAccessor(targetProp, setter: true);
                 if (setter is null || targetProp.GetIndexParameters().Length != 0
-                    || _ignored.Contains(targetProp.Name) || Hidden(targetProp, typeof(TTarget))) continue;
+                    || _ignored.Contains(targetProp.Name) || Hidden(targetProp, typeof(TTarget)) || IsByRefLike(targetProp.PropertyType)) continue;
 
                 object? value;
                 if (_custom.TryGetValue(targetProp.Name, out var selector))
@@ -92,7 +97,7 @@ namespace ToolBelt.Objects
                 }
                 else if (sourceProps.TryGetValue(targetProp.Name, out MethodInfo? getter))
                 {
-                    value = getter.Invoke(source, null);
+                    value = Call(getter, source, null);
                 }
                 else
                 {
@@ -109,8 +114,30 @@ namespace ToolBelt.Objects
                     if (!TypeUtils.TryConvert(value, targetProp.PropertyType, out value))
                         continue; // unconvertible; leave target default
                 }
-                setter.Invoke(target, new[] { value });
+                Call(setter, target, new[] { value });
             }
+        }
+
+        // Calls an accessor, rethrowing what it threw rather than the TargetInvocationException reflection wraps it in.
+        private static object? Call(MethodInfo accessor, object? target, object?[]? args)
+        {
+            try { return accessor.Invoke(target, args); }
+            catch (TargetInvocationException ex) when (ex.InnerException != null)
+            {
+                ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
+            }
+        }
+
+        private static bool IsByRefLike(Type type)
+        {
+            if (type.IsByRef || type.IsPointer) return true;
+            if (!type.IsValueType) return false;
+            // .NET Framework does not mark its own by-ref-like types with the attribute.
+            if (type == typeof(TypedReference) || type.FullName == "System.ArgIterator" || type.FullName == "System.RuntimeArgumentHandle") return true;
+            foreach (object a in type.GetCustomAttributes(false))
+                if (a.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute") return true;
+            return false;
         }
 
         // The public get (or set) accessor of p. An override that declares only the other accessor inherits this one from

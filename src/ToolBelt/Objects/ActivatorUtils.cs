@@ -79,6 +79,8 @@ namespace ToolBelt.Objects
         private static bool IsByRefLike(Type type)
         {
             if (!type.IsValueType) return false;
+            // .NET Framework does not mark its own by-ref-like types with the attribute.
+            if (type == typeof(TypedReference) || type.FullName == "System.ArgIterator" || type.FullName == "System.RuntimeArgumentHandle") return true;
             foreach (object a in type.GetCustomAttributes(false))
                 if (a.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute") return true;
             return false;
@@ -101,8 +103,9 @@ namespace ToolBelt.Objects
         }
 
         /// <summary>
-        /// Instantiates every concrete <typeparamref name="TBase"/> in the assembly that has a parameterless
-        /// constructor, reporting per-type failures to <paramref name="onError"/> and continuing.
+        /// Instantiates every concrete <typeparamref name="TBase"/> in the assembly that has a public parameterless
+        /// constructor (a struct implementing an interface always has one), reporting per-type failures to
+        /// <paramref name="onError"/>, with the constructor's own exception, and continuing.
         /// </summary>
         public static IReadOnlyList<TBase> ScanAndCreate<TBase>(Assembly assembly, Action<Type, Exception>? onError = null)
             where TBase : class
@@ -111,7 +114,7 @@ namespace ToolBelt.Objects
             var result = new List<TBase>();
             foreach (Type type in TypeUtils.GetDerivedTypes(typeof(TBase), assembly))
             {
-                if (type.GetConstructor(Type.EmptyTypes) is null) continue;
+                if (!type.IsValueType && type.GetConstructor(Type.EmptyTypes) is null) continue;
                 try
                 {
                     if (Activator.CreateInstance(type) is TBase created)
@@ -119,7 +122,7 @@ namespace ToolBelt.Objects
                 }
                 catch (Exception ex)
                 {
-                    onError?.Invoke(type, ex);
+                    onError?.Invoke(type, ex is TargetInvocationException tie && tie.InnerException != null ? tie.InnerException : ex);
                 }
             }
             return result;

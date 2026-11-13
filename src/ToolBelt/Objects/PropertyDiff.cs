@@ -34,9 +34,10 @@ namespace ToolBelt.Objects
     /// arrays of different shapes likewise; a struct's public fields are always compared (Quaternion, Matrix4x4 and value
     /// tuples keep their value there), and a struct with no readable members compares with its own Equals. A FileInfo or
     /// DirectoryInfo compares by type and full path. An object reached along several paths is reported on each path
-    /// where it differs, but a pair found equal is not walked again. A property that returns a new object of its owner's
-    /// type on every read (a struct's Perpendicular, a class's Reciprocal) is followed at most three levels along a path,
-    /// since such a chain never meets the same object twice. The walk uses an explicit stack, so a deep graph cannot
+    /// where it differs, but a pair found equal is not walked again. A chain of getters that make a new object on every read
+    /// (a struct's Perpendicular, a class's Reciprocal, a Ping whose Next is a new Pong whose Next is a new Ping) never
+    /// meets the same object twice, so it is followed only until its types have repeated three times along the path. A
+    /// getter whose value is not a leaf is called twice, to tell made objects from stored ones. The walk uses an explicit stack, so a deep graph cannot
     /// overflow the call stack. A property getter that throws propagates its own exception.
     /// </para>
     /// </summary>
@@ -84,7 +85,7 @@ namespace ToolBelt.Objects
             public object? A;
             public object? B;
             public int Reported; // for an Exit: the number of differences when the pair was entered
-            public int Computed; // for a Visit: the computed members (ObjectMembers.Read) the path followed
+            public ObjectMembers.Trail Trail; // for a Visit: what the path followed (ObjectMembers.Trail)
         }
 
         public static IReadOnlyList<Difference> Compare(object? a, object? b, ObjectComparisonOptions? options = null)
@@ -99,7 +100,7 @@ namespace ToolBelt.Objects
             // it took time exponential in the depth of a graph whose nodes share children (equal diamond chains).
             var equal = new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance);
             var work = new Stack<Frame>();
-            work.Push(new Frame { Kind = Kind.Visit, A = a, B = b });
+            work.Push(new Frame { Kind = Kind.Visit, A = a, B = b, Trail = ObjectMembers.Trail.Start });
             var children = new List<Frame>();
 
             while (work.Count > 0)
@@ -124,7 +125,7 @@ namespace ToolBelt.Objects
                         break;
                     default:
                         children.Clear();
-                        Visit(f.Path, f.A, f.B, f.Computed, opt, visiting, lows, equal, result.Count, children);
+                        Visit(f.Path, f.A, f.B, f.Trail, opt, visiting, lows, equal, result.Count, children);
                         // Push in reverse so the children are handled in order, as a recursive walk would.
                         for (int i = children.Count - 1; i >= 0; i--) work.Push(children[i]);
                         break;
@@ -134,14 +135,20 @@ namespace ToolBelt.Objects
         }
 
         // Emits, in order, the frames that handle this pair: reports, child visits, and an exit for a pair it enters.
-        private static void Visit(PathNode? path, object? a, object? b, int computed, ObjectComparisonOptions opt,
+        private static void Visit(PathNode? path, object? a, object? b, ObjectMembers.Trail trail, ObjectComparisonOptions opt,
             Dictionary<(object, object), int> visiting, List<int> lows, HashSet<(object, object)> equal, int reported,
             List<Frame> output)
         {
             if (ReferenceEquals(a, b)) return;
             if (a is null || b is null) { output.Add(Report(path, a, b)); return; }
-            if (computed > ObjectMembers.MaxComputedDepth) return;
-            object na = ObjectMembers.Normalize(a), nb = ObjectMembers.Normalize(b);
+            if (trail.TooDeep) return;
+            object? na0 = ObjectMembers.Normalize(a), nb0 = ObjectMembers.Normalize(b);
+            if (na0 is null || nb0 is null)
+            {
+                if (na0 != null || nb0 != null) output.Add(Report(path, a, b));
+                return;
+            }
+            object na = na0, nb = nb0;
 
             Type ta = na.GetType(), tb = nb.GetType();
             if (ObjectMembers.IsLeaf(ta) || ObjectMembers.IsLeaf(tb))
@@ -150,8 +157,7 @@ namespace ToolBelt.Objects
                 return;
             }
 
-            bool tracked = !ta.IsValueType && !tb.IsValueType;
-            if (tracked)
+            // Boxes too: a boxed struct can reach itself through an object-typed member.
             {
                 if (equal.Contains((na, nb))) return; // already walked, and equal
                 if (visiting.TryGetValue((na, nb), out int depth))
@@ -174,7 +180,7 @@ namespace ToolBelt.Objects
                 {
                     var p = new PathNode(path, Convert.ToString(key, CultureInfo.InvariantCulture) ?? "", indexed: true);
                     bool inA = da.Contains(key), inB = db.Contains(key);
-                    if (inA && inB) output.Add(new Frame { Kind = Kind.Visit, Path = p, A = da[key], B = db[key], Computed = computed });
+                    if (inA && inB) output.Add(new Frame { Kind = Kind.Visit, Path = p, A = da[key], B = db[key], Trail = ObjectMembers.Trail.Pair(trail, da[key], ObjectMembers.Origin.Stable, db[key], ObjectMembers.Origin.Stable) });
                     else output.Add(Report(p, inA ? da[key] : null, inB ? db[key] : null));
                 }
             }
@@ -196,7 +202,7 @@ namespace ToolBelt.Objects
                     var p = new PathNode(path, i.ToString(CultureInfo.InvariantCulture), indexed: true);
                     if (i >= la.Count) output.Add(Report(p, null, lb[i]));
                     else if (i >= lb.Count) output.Add(Report(p, la[i], null));
-                    else output.Add(new Frame { Kind = Kind.Visit, Path = p, A = la[i], B = lb[i], Computed = computed });
+                    else output.Add(new Frame { Kind = Kind.Visit, Path = p, A = la[i], B = lb[i], Trail = ObjectMembers.Trail.Pair(trail, la[i], ObjectMembers.Origin.Stable, lb[i], ObjectMembers.Origin.Stable) });
                 }
             }
             else if (ta != tb)
@@ -205,8 +211,8 @@ namespace ToolBelt.Objects
             }
             else
             {
-                var ma = new List<(string Name, object? Value, bool Computed)>(ObjectMembers.Read(na, opt.IncludeFields || ta.IsValueType));
-                var mb = new List<(string Name, object? Value, bool Computed)>(ObjectMembers.Read(nb, opt.IncludeFields || ta.IsValueType));
+                var ma = new List<(string Name, object? Value, ObjectMembers.Origin Origin)>(ObjectMembers.Read(na, opt.IncludeFields || ta.IsValueType));
+                var mb = new List<(string Name, object? Value, ObjectMembers.Origin Origin)>(ObjectMembers.Read(nb, opt.IncludeFields || ta.IsValueType));
                 if (ma.Count == 0 && ta.IsValueType)
                 {
                     if (!na.Equals(nb)) output.Add(Report(path, a, b));
@@ -217,12 +223,12 @@ namespace ToolBelt.Objects
                         output.Add(new Frame
                         {
                             Kind = Kind.Visit, Path = new PathNode(path, ma[i].Name, indexed: false), A = ma[i].Value, B = mb[i].Value,
-                            Computed = computed + (ma[i].Computed || mb[i].Computed ? 1 : 0),
+                            Trail = ObjectMembers.Trail.Pair(trail, ma[i].Value, ma[i].Origin, mb[i].Value, mb[i].Origin),
                         });
                 }
             }
 
-            if (tracked) output.Add(new Frame { Kind = Kind.Exit, A = na, B = nb, Reported = reported });
+            output.Add(new Frame { Kind = Kind.Exit, A = na, B = nb, Reported = reported });
         }
 
         private static Frame Report(PathNode? path, object? a, object? b) => new Frame { Kind = Kind.Report, Path = path, A = a, B = b };

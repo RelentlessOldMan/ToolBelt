@@ -43,12 +43,13 @@ namespace ToolBelt.Tests.Objects
             Check.False(AttributeCache.Has<LabelAttribute>(prop));
         }
 
-        public void CachesSameInstance()
+        public void ReturnsEqualCopiesOfTheCachedInstance()
         {
-            // Repeated lookups must return the identical cached attribute instance.
+            // Repeated lookups return equal attributes, but each its own copy, so a caller's change cannot leak.
             var a = AttributeCache.Get<LabelAttribute>(typeof(Widget));
             var b = AttributeCache.Get<LabelAttribute>(typeof(Widget));
-            Check.True(ReferenceEquals(a, b));
+            Check.False(ReferenceEquals(a, b));
+            Check.True(a!.Equals(b));
         }
 
         public void NullMember_Throws()

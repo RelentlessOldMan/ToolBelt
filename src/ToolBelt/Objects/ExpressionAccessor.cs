@@ -13,6 +13,10 @@ namespace ToolBelt.Objects
     /// access runs at roughly field-access speed — far faster than <see cref="PropertyInfo.GetValue(object)"/>.
     /// Works on public instance properties and fields, matched by exact (case-sensitive) name; a property whose
     /// setter is not public, or a read-only field, is not writable. Writing null to a value-type member stores its default.
+    /// A member that cannot be held as a value (a Span or other by-ref-like type, a ref-returning property, a pointer), and
+    /// any member of a by-ref-like type, which cannot be boxed or passed as a type argument, throws
+    /// <see cref="ArgumentException"/> naming it: the delegate built for one failed with InvalidProgramException on every
+    /// call, and stayed cached.
     ///
     /// <para>The <c>object</c>-based accessors box value-type members. The strongly-typed
     /// <see cref="Getter{TTarget, TValue}(string)"/> / <see cref="Setter{TTarget, TValue}(string)"/> avoid
@@ -147,6 +151,8 @@ namespace ToolBelt.Objects
         // The public instance property (most derived, not an indexer) or else field named exactly memberName.
         private static MemberExpression Member(Expression instance, Type type, string memberName, bool write)
         {
+            if (Unholdable(type))
+                throw new ArgumentException($"{type.Name} is a by-ref-like type; its members cannot be reached through a boxed instance.", nameof(type));
             // An interface has no BaseType: its inherited members are on the interfaces it extends.
             var search = new List<Type>();
             for (Type? t = type; t != null; t = t.BaseType) search.Add(t);
@@ -156,6 +162,8 @@ namespace ToolBelt.Objects
                 foreach (PropertyInfo p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
                 {
                     if (p.Name != memberName || p.GetIndexParameters().Length != 0) continue;
+                    if (Unholdable(p.PropertyType))
+                        throw new ArgumentException($"Member '{memberName}' is a {p.PropertyType.Name}, which cannot be held as a value.", nameof(memberName));
                     MethodInfo? accessor = PublicAccessor(p, setter: write);
                     if (accessor is null)
                         throw new InvalidOperationException($"Member '{memberName}' is not {(write ? "writable" : "readable")}.");
@@ -165,11 +173,25 @@ namespace ToolBelt.Objects
             FieldInfo? f = type.GetField(memberName, BindingFlags.Public | BindingFlags.Instance);
             if (f != null)
             {
+                if (Unholdable(f.FieldType))
+                    throw new ArgumentException($"Member '{memberName}' is a {f.FieldType.Name}, which cannot be held as a value.", nameof(memberName));
                 if (write && (f.IsInitOnly || f.IsLiteral))
                     throw new InvalidOperationException($"Member '{memberName}' is not writable.");
                 return Expression.Field(instance, f);
             }
             throw new ArgumentException($"{type.Name} has no public instance property or field named '{memberName}'.", nameof(memberName));
+        }
+
+        // A by-ref (ref-returning property), pointer, or by-ref-like (Span) type.
+        private static bool Unholdable(Type type)
+        {
+            if (type.IsByRef || type.IsPointer) return true;
+            if (!type.IsValueType) return false;
+            // .NET Framework does not mark its own by-ref-like types with the attribute.
+            if (type == typeof(TypedReference) || type.FullName == "System.ArgIterator" || type.FullName == "System.RuntimeArgumentHandle") return true;
+            foreach (object a in type.GetCustomAttributes(false))
+                if (a.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute") return true;
+            return false;
         }
 
         // The public get (or set) accessor of p. An override that declares only the other accessor inherits this one from

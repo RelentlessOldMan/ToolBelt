@@ -10,7 +10,8 @@ namespace ToolBelt.Intervals
     /// equal value. After any sequence of assignments the map is always a minimal, non-overlapping,
     /// coalesced cover — the invariant that hand-rolled "sorted list of bands" code usually gets wrong at
     /// the seams. Ideal for calibration bands, tier tables and piecewise-constant settings. Set and Remove find
-    /// the affected segments by binary search and touch only those and their neighbors.
+    /// the affected segments by binary search and touch only those and their neighbors. If the key comparison or
+    /// the value comparer throws, the map is left as it was.
     /// </summary>
     public sealed class RangeMap<TKey, TValue> where TKey : IComparable<TKey>
     {
@@ -49,10 +50,35 @@ namespace ToolBelt.Intervals
                 throw new ArgumentException($"Range start '{start}' must not be greater than end '{end}'.", nameof(start));
             if (Cmp(start, end) == 0) return; // empty
 
-            int at = Replace(start, end, new Entry { Start = start, End = end, Value = value });
-            // Only the new segment's neighbors can have become mergeable with it.
-            if (at + 1 < _entries.Count) MergeWithNext(at);
-            if (at > 0) MergeWithNext(at - 1);
+            var entry = new Entry { Start = start, End = end, Value = value };
+            int at = Replace(start, end, entry, out int first, out List<Entry> removed, out int added);
+            // Only the new segment's neighbors can have become mergeable with it. Both are decided before either merge, and
+            // a comparer that throws undoes the replace: the map was left changed but not coalesced.
+            bool mergeNext, mergePrev;
+            try
+            {
+                mergeNext = at + 1 < _entries.Count && Mergeable(entry, _entries[at + 1]);
+                mergePrev = at > 0 && Mergeable(_entries[at - 1], entry);
+            }
+            catch
+            {
+                _entries.RemoveRange(first, added);
+                _entries.InsertRange(first, removed);
+                throw;
+            }
+            if (mergeNext)
+            {
+                entry.End = _entries[at + 1].End;
+                _entries[at] = entry;
+                _entries.RemoveAt(at + 1);
+            }
+            if (mergePrev)
+            {
+                var prev = _entries[at - 1];
+                prev.End = entry.End;
+                _entries[at - 1] = prev;
+                _entries.RemoveAt(at);
+            }
         }
 
         /// <summary>Clears any assignment across [start, end), splitting partially covered ranges.</summary>
@@ -63,12 +89,13 @@ namespace ToolBelt.Intervals
                 throw new ArgumentException($"Range start '{start}' must not be greater than end '{end}'.", nameof(start));
             if (Cmp(start, end) == 0) return;
 
-            Replace(start, end, null);
+            Replace(start, end, null, out _, out _, out _);
         }
 
         // Replaces the segments overlapping [start, end) with the parts of them outside it, plus inserted (if any)
-        // between those parts. Returns the index of inserted.
-        private int Replace(TKey start, TKey end, Entry? inserted)
+        // between those parts. Returns the index of inserted; first, removed and added describe the change, to undo it.
+        // Every comparison is made before the list changes.
+        private int Replace(TKey start, TKey end, Entry? inserted, out int first, out List<Entry> removed, out int added)
         {
             // i: first segment ending after start; j: first segment starting at or after end. [i, j) overlap.
             int lo = 0, hi = _entries.Count;
@@ -94,8 +121,11 @@ namespace ToolBelt.Intervals
             if (i < j && Cmp(_entries[j - 1].End, end) > 0)
                 pieces.Add(new Entry { Start = end, End = _entries[j - 1].End, Value = _entries[j - 1].Value });
 
+            removed = _entries.GetRange(i, j - i);
             _entries.RemoveRange(i, j - i);
             _entries.InsertRange(i, pieces);
+            first = i;
+            added = pieces.Count;
             return at;
         }
 
@@ -121,18 +151,8 @@ namespace ToolBelt.Intervals
 
         public bool ContainsKey(TKey key) => TryGet(key, out _);
 
-        // Merges segment i with segment i + 1 when they touch and hold equal values.
-        private void MergeWithNext(int i)
-        {
-            var prev = _entries[i];
-            var cur = _entries[i + 1];
-            if (Cmp(prev.End, cur.Start) == 0 && _valueComparer.Equals(prev.Value, cur.Value))
-            {
-                prev.End = cur.End;
-                _entries[i] = prev;
-                _entries.RemoveAt(i + 1);
-            }
-        }
+        // True when segment a ends where b starts and they hold equal values.
+        private bool Mergeable(Entry a, Entry b) => Cmp(a.End, b.Start) == 0 && _valueComparer.Equals(a.Value, b.Value);
 
         private static int Cmp(TKey a, TKey b) => Comparer<TKey>.Default.Compare(a, b);
 

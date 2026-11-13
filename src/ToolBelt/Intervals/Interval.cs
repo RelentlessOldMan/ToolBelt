@@ -42,7 +42,22 @@ namespace ToolBelt.Intervals
 
         internal static int Compare(TKey a, TKey b) => Comparer<TKey>.Default.Compare(a, b);
 
-        internal static bool IsNaN(TKey key) => (key is double d && double.IsNaN(d)) || (key is float f && float.IsNaN(f));
+        // double and float, and any other type with a static IsNaN(TKey) such as Half and NFloat, whose NaN sorts below
+        // every number as double's does.
+        internal static bool IsNaN(TKey key) => (key is double d && double.IsNaN(d)) || (key is float f && float.IsNaN(f))
+            || (NaNTest != null && NaNTest(key));
+
+        private static readonly Func<TKey, bool>? NaNTest = FindNaNTest();
+
+        private static Func<TKey, bool>? FindNaNTest()
+        {
+            if (typeof(TKey) == typeof(double) || typeof(TKey) == typeof(float) || !typeof(TKey).IsValueType) return null;
+            System.Reflection.MethodInfo? m = typeof(TKey).GetMethod("IsNaN",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static, null, new[] { typeof(TKey) }, null);
+            return m != null && m.ReturnType == typeof(bool)
+                ? (Func<TKey, bool>)Delegate.CreateDelegate(typeof(Func<TKey, bool>), m)
+                : null;
+        }
 
         /// <summary>
         /// Equal when the endpoints are equal by <see cref="EqualityComparer{T}.Default"/>, which agrees with

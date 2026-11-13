@@ -10,11 +10,14 @@ namespace ToolBelt.Objects
     /// Flattens an object graph into a dictionary of dotted/indexed paths to leaf values, e.g.
     /// <c>{ "user.name": "Ada", "user.roles[0]": "admin" }</c>. This is what turns an arbitrary object into
     /// something dumpable to a table, a CSV row or a structured log line, and what a configuration binder
-    /// consumes. Reference cycles are broken (a repeated reference is not expanded again). A property that returns a new
-    /// object of its owner's type on every read (a struct's Perpendicular, a class's Reciprocal) is expanded at most three
-    /// levels along a path, and recorded as-is beyond. An empty collection or dictionary adds no key. The walk uses an
-    /// explicit stack, so a deep graph cannot overflow the call stack; a property getter that throws propagates its own
-    /// exception.
+    /// consumes. Reference cycles are broken (a repeated reference is not expanded again). A chain of getters that make a
+    /// new object on every read (a struct's Perpendicular, a class's Reciprocal, a Ping whose Next is a new Pong whose
+    /// Next is a new Ping) is expanded only until its types have repeated three times along the path, and recorded as-is
+    /// beyond; a getter whose value is not a leaf is called twice to tell. An empty collection or dictionary, and an
+    /// object with no readable members, is recorded as-is. Two values whose paths spell the same key (a member
+    /// <c>A_B</c> beside <c>A.B</c> with separator "_", or dictionary keys 1 and "1") throw rather than one silently
+    /// replacing the other. The walk uses an explicit stack, so a deep graph cannot overflow the call stack; a property
+    /// getter that throws propagates its own exception.
     /// </summary>
     public static class FlattenObject
     {
@@ -25,15 +28,15 @@ namespace ToolBelt.Objects
 
             var result = new Dictionary<string, object?>();
             var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
-            // Computed: how many computed members (ObjectMembers.Read) the path followed.
-            var work = new Stack<(string Path, object? Value, int Computed)>();
-            var children = new List<(string, object?, int)>();
-            work.Push(("", obj, 0));
+            // Trail: what the path followed (ObjectMembers.Trail), to end chains of made objects.
+            var work = new Stack<(string Path, object? Value, ObjectMembers.Trail Trail)>();
+            var children = new List<(string, object?, ObjectMembers.Trail)>();
+            work.Push(("", obj, ObjectMembers.Trail.Start));
             while (work.Count > 0)
             {
-                var (path, value, computed) = work.Pop();
+                var (path, value, trail) = work.Pop();
                 children.Clear();
-                Walk(path, value, computed, result, separator, includeFields, visited, children);
+                Walk(path, value, trail, result, separator, includeFields, visited, children);
                 // Push in reverse so the children are handled in order, as a recursive walk would.
                 for (int i = children.Count - 1; i >= 0; i--) work.Push(children[i]);
             }
@@ -41,52 +44,63 @@ namespace ToolBelt.Objects
         }
 
         // Records a leaf, or lists the children to walk next.
-        private static void Walk(string path, object? value, int computed, IDictionary<string, object?> result,
-            string sep, bool includeFields, HashSet<object> visited, List<(string, object?, int)> children)
+        private static void Walk(string path, object? value, ObjectMembers.Trail trail, Dictionary<string, object?> result,
+            string sep, bool includeFields, HashSet<object> visited, List<(string, object?, ObjectMembers.Trail)> children)
         {
-            if (value is null || computed > ObjectMembers.MaxComputedDepth)
+            if (value is null || trail.TooDeep)
             {
-                result[path] = value;
+                Record(result, path, value);
                 return;
             }
-            value = ObjectMembers.Normalize(value);
+            object? normalized = ObjectMembers.Normalize(value);
+            if (normalized is null)
+            {
+                Record(result, path, value); // a default ImmutableArray or ArraySegment, which cannot be enumerated
+                return;
+            }
+            value = normalized;
 
             Type type = value.GetType();
             if (ObjectMembers.IsLeaf(type))
             {
-                result[path] = value;
+                Record(result, path, value);
                 return;
             }
 
-            // Guard against cycles for reference types.
-            if (!type.IsValueType && !visited.Add(value))
+            // Guard against cycles, boxes included: a boxed struct can reach itself through an object-typed member.
+            if (!visited.Add(value))
             {
-                result[path] = value; // already expanded elsewhere; record the reference as-is
+                Record(result, path, value); // already expanded elsewhere; record the reference as-is
                 return;
             }
 
+            int before = children.Count;
             if (value is IDictionary dict)
             {
                 foreach (DictionaryEntry entry in dict)
-                    children.Add((Index(path, Convert.ToString(entry.Key, CultureInfo.InvariantCulture) ?? ""), entry.Value, computed));
-                return;
+                    children.Add((Index(path, Convert.ToString(entry.Key, CultureInfo.InvariantCulture) ?? ""), entry.Value,
+                        trail.Step(entry.Value, ObjectMembers.Origin.Stable)));
             }
-
-            if (value is IEnumerable enumerable)
+            else if (value is IEnumerable enumerable)
             {
                 int i = 0;
                 foreach (var item in enumerable)
-                    children.Add((Index(path, i++.ToString(CultureInfo.InvariantCulture)), item, computed));
-                return;
+                    children.Add((Index(path, i++.ToString(CultureInfo.InvariantCulture)), item, trail.Step(item, ObjectMembers.Origin.Stable)));
             }
-
-            bool any = false;
-            foreach (var (name, memberValue, isComputed) in ObjectMembers.Read(value, includeFields))
+            else
             {
-                any = true;
-                children.Add((path.Length == 0 ? name : path + sep + name, memberValue, computed + (isComputed ? 1 : 0)));
+                foreach (var (name, memberValue, origin) in ObjectMembers.Read(value, includeFields))
+                    children.Add((path.Length == 0 ? name : path + sep + name, memberValue, trail.Step(memberValue, origin)));
             }
-            if (!any) result[path] = value; // no members to descend into; record as-is
+            // An empty collection, or an object with no members to descend into, is recorded as-is, so Unflatten keeps it.
+            if (children.Count == before) Record(result, path, value);
+        }
+
+        private static void Record(Dictionary<string, object?> result, string path, object? value)
+        {
+            if (result.ContainsKey(path))
+                throw new InvalidOperationException($"Two values flatten to the same path '{path}' (a member name or key contains the separator or brackets, or two keys print alike).");
+            result.Add(path, value);
         }
 
         private static string Index(string path, string token) => $"{path}[{token}]";

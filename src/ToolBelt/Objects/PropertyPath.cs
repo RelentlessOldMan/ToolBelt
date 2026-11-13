@@ -4,6 +4,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 
 namespace ToolBelt.Objects
 {
@@ -21,12 +22,32 @@ namespace ToolBelt.Objects
     /// box, since a struct variable passed directly is boxed as a copy the caller never sees. A property overridden with
     /// only one accessor keeps the other it inherits; a non-public accessor does not count. An
     /// <c>IDictionary&lt;string, object&gt;</c> such as ExpandoObject is indexed like any dictionary, and a value that does
-    /// not fit an array's element type throws <see cref="ArgumentException"/>.
+    /// not fit an array's element type throws <see cref="ArgumentException"/>. A property of a by-ref-like type (Span),
+    /// which reflection cannot box, throws <see cref="ArgumentException"/> naming the segment. An index in quotes
+    /// (<c>["a]b"]</c>) runs to its closing quote, so a key may hold ']' or '.'; quotes are removed only in a matching pair.
     /// </para>
     /// </summary>
     public static class PropertyPath
     {
         public static object? Get(object root, string path)
+        {
+            try { return GetCore(root, path); }
+            catch (MemberThrew ex) { ExceptionDispatchInfo.Capture(ex.InnerException!).Throw(); throw; }
+        }
+
+        // An accessor's own exception, carried past TryGet's filter and rethrown as itself.
+        private sealed class MemberThrew : Exception
+        {
+            public MemberThrew(Exception inner) : base(inner.Message, inner) { }
+        }
+
+        private static object? Call(MethodInfo accessor, object target, object?[]? args)
+        {
+            try { return accessor.Invoke(target, args); }
+            catch (TargetInvocationException ex) when (ex.InnerException != null) { throw new MemberThrew(ex.InnerException); }
+        }
+
+        private static object? GetCore(object root, string path)
         {
             if (root is null) throw new ArgumentNullException(nameof(root));
             var steps = Parse(path);
@@ -42,7 +63,8 @@ namespace ToolBelt.Objects
 
         public static bool TryGet(object root, string path, out object? value)
         {
-            try { value = Get(root, path); return true; }
+            try { value = GetCore(root, path); return true; }
+            catch (MemberThrew ex) { ExceptionDispatchInfo.Capture(ex.InnerException!).Throw(); throw; }
             catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException || ex is KeyNotFoundException
                                        || ex is FormatException || ex is OverflowException)
             {
@@ -52,6 +74,12 @@ namespace ToolBelt.Objects
         }
 
         public static void Set(object root, string path, object? value)
+        {
+            try { SetCore(root, path, value); }
+            catch (MemberThrew ex) { ExceptionDispatchInfo.Capture(ex.InnerException!).Throw(); throw; }
+        }
+
+        private static void SetCore(object root, string path, object? value)
         {
             if (root is null) throw new ArgumentNullException(nameof(root));
             var steps = Parse(path);
@@ -97,7 +125,9 @@ namespace ToolBelt.Objects
                 MethodInfo? getter = PublicAccessor(p, setter: false);
                 if (getter is null)
                     throw new ArgumentException($"Segment '{_name}' is not a readable property of {target.GetType().Name} (path '{fullPath}').", "path");
-                return getter.Invoke(target, null);
+                if (IsByRefLike(p.PropertyType))
+                    throw new ArgumentException($"Segment '{_name}' is a {p.PropertyType.Name}, which reflection cannot read (path '{fullPath}').", "path");
+                return Call(getter, target, null);
             }
 
             public override void Write(object target, object? value, string fullPath)
@@ -106,7 +136,20 @@ namespace ToolBelt.Objects
                 MethodInfo? setter = p is null ? null : PublicAccessor(p, setter: true);
                 if (setter is null)
                     throw new ArgumentException($"Segment '{_name}' is not a writable property of {target.GetType().Name} (path '{fullPath}').", "path");
-                setter.Invoke(target, new[] { value });
+                if (IsByRefLike(p!.PropertyType))
+                    throw new ArgumentException($"Segment '{_name}' is a {p.PropertyType.Name}, which reflection cannot write (path '{fullPath}').", "path");
+                Call(setter, target, new[] { value });
+            }
+
+            private static bool IsByRefLike(Type type)
+            {
+                if (type.IsByRef || type.IsPointer) return true;
+                if (!type.IsValueType) return false;
+                // .NET Framework does not mark its own by-ref-like types with the attribute.
+                if (type == typeof(TypedReference) || type.FullName == "System.ArgIterator" || type.FullName == "System.RuntimeArgumentHandle") return true;
+                foreach (object a in type.GetCustomAttributes(false))
+                    if (a.GetType().FullName == "System.Runtime.CompilerServices.IsByRefLikeAttribute") return true;
+                return false;
             }
 
             // The public get (or set) accessor of p. An override that declares only the other accessor inherits this one from
@@ -239,9 +282,27 @@ namespace ToolBelt.Objects
                 }
                 if (path[i] == '[')
                 {
-                    int close = path.IndexOf(']', i);
-                    if (close < 0) throw new ArgumentException($"Unclosed '[' in path '{path}'.", nameof(path));
-                    string token = path.Substring(i + 1, close - i - 1).Trim().Trim('"', '\'');
+                    int open = i + 1;
+                    while (open < path.Length && path[open] == ' ') open++;
+                    string token;
+                    int close;
+                    if (open < path.Length && (path[open] == '"' || path[open] == '\''))
+                    {
+                        // A quoted key runs to its closing quote, so it may hold ']' or '.'.
+                        int end = path.IndexOf(path[open], open + 1);
+                        if (end < 0) throw new ArgumentException($"Unclosed quote in path '{path}'.", nameof(path));
+                        token = path.Substring(open + 1, end - open - 1);
+                        close = end + 1;
+                        while (close < path.Length && path[close] == ' ') close++;
+                        if (close >= path.Length || path[close] != ']')
+                            throw new ArgumentException($"Expected ']' after the quoted key in path '{path}'.", nameof(path));
+                    }
+                    else
+                    {
+                        close = path.IndexOf(']', i);
+                        if (close < 0) throw new ArgumentException($"Unclosed '[' in path '{path}'.", nameof(path));
+                        token = path.Substring(i + 1, close - i - 1).Trim();
+                    }
                     steps.Add(new IndexStep(token));
                     i = close + 1;
                 }

@@ -7,7 +7,8 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 
 1. **The fourth pass:** every section re-queued by its last pass goes round again until a pass finds ≤ 1 minor bug.
    As of round 53 all 17 sections are re-queued; the order is in REVIEW-PLAN.md. The cross-cutting rounds (54 to 57)
-   are done. Round 58 (IO) found 39 bugs, 7 severe, so IO stays re-queued; section 14 is next.
+   are done. Round 58 (IO) found 39 bugs, 7 severe, and round 59 (section 14) 27 bugs, 3 severe, so both stay re-queued;
+   section 17 is next.
 1. **BUGLIST 56-1** (`Thread.Sleep` in library code): the DirectoryUtils part is fixed (round 58); the Windows parts go
    with section 15.
 
@@ -56,6 +57,9 @@ Written as rules a future session can apply.
 - A stack-overflow fail-first test kills the test process (exit 127, "Stack overflow."). Count that as the failure.
 - To make a name ending in a dot or space in a test, prefix `\\?\` to a path that is already full: `Path.GetFullPath`
   itself drops the dot, so the test silently writes the plain name twice.
+- .NET Framework's reflection can return a type's members in a different order on its first `GetFields` or
+  `GetProperties` than later. Never pair two reads by index unless the list is sorted; a test of it needs a type no
+  other test touches.
 - A swap-race test (a folder replaced by a junction mid-operation) must swap after the check it targets, e.g. from a
   filter callback on a file inside that folder; swapping earlier is caught by the old once-per-folder check.
 - Some fail-first tests only fail where the bug lives: on .NET Framework, in the checked build, or under one-core

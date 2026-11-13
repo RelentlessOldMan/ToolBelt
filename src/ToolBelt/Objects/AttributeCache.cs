@@ -11,7 +11,9 @@ namespace ToolBelt.Objects
     /// same attribute retrievals repeatedly and attribute retrieval is not cheap, so the results are cached
     /// per (member, attribute type, inherit). Thread-safe. <see cref="Type"/> derives from
     /// <see cref="MemberInfo"/>, so the same methods serve types and members. <c>inherit</c> also applies to properties
-    /// and events (which <see cref="MemberInfo.GetCustomAttributes(Type, bool)"/> ignores for them).
+    /// and events (which <see cref="MemberInfo.GetCustomAttributes(Type, bool)"/> ignores for them). Each call returns
+    /// its own copies of the cached attributes, as reflection does, so setting a property on one cannot change what
+    /// later lookups see (the copies are shallow: an array an attribute holds is still shared).
     /// </summary>
     public static class AttributeCache
     {
@@ -29,17 +31,25 @@ namespace ToolBelt.Objects
         public static System.Collections.Generic.IReadOnlyList<TAttribute> GetAll<TAttribute>(MemberInfo member, bool inherit = true)
             where TAttribute : Attribute
         {
-            if (member is null) throw new ArgumentNullException(nameof(member));
-            Attribute[] cached = Cache.GetOrAdd((member, typeof(TAttribute), inherit),
-                key => Attribute.GetCustomAttributes(key.Member, key.Attribute, key.Inherit));
+            Attribute[] cached = Lookup<TAttribute>(member, inherit);
             // Cached as Attribute[]; project to the requested type.
             var typed = new TAttribute[cached.Length];
-            for (int i = 0; i < cached.Length; i++) typed[i] = (TAttribute)cached[i];
+            for (int i = 0; i < cached.Length; i++) typed[i] = (TAttribute)Copy(cached[i]);
             return typed;
         }
 
+        private static readonly Func<object, object> Copy = (Func<object, object>)Delegate.CreateDelegate(typeof(Func<object, object>),
+            typeof(object).GetMethod("MemberwiseClone", BindingFlags.NonPublic | BindingFlags.Instance)!);
+
         /// <summary>True if the member carries at least one <typeparamref name="TAttribute"/>.</summary>
         public static bool Has<TAttribute>(MemberInfo member, bool inherit = true) where TAttribute : Attribute
-            => GetAll<TAttribute>(member, inherit).Count > 0;
+            => Lookup<TAttribute>(member, inherit).Length > 0;
+
+        private static Attribute[] Lookup<TAttribute>(MemberInfo member, bool inherit) where TAttribute : Attribute
+        {
+            if (member is null) throw new ArgumentNullException(nameof(member));
+            return Cache.GetOrAdd((member, typeof(TAttribute), inherit),
+                key => Attribute.GetCustomAttributes(key.Member, key.Attribute, key.Inherit));
+        }
     }
 }

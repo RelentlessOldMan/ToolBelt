@@ -54,7 +54,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 3 | 17 / 55 | re-queue (17 bugs) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 3 | 18 / 67 | re-queue (18 bugs, 1 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 3 | 16 / 72 | re-queue (16 bugs, 2 severe) |
-| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 3 | 19 / 82 | re-queue (19 bugs, 3 severe) |
+| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 4 | 27 / 109 | re-queue (27 bugs, 3 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 3 | 12 / 74 | re-queue (12 bugs, 2 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 3 | 20 / 58 | re-queue (20 bugs) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 3 | 18 / 54 | re-queue (18 bugs, 3 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58); **next: 14, 17, 4, 5, 7, 13, 15, 3, 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59); **next: 17, 4, 5, 7, 13, 15, 3, 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -132,6 +132,7 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v0.56.0 | 56 | Non-finite and extreme numerics (cross-cutting) | 34 | (see tag) |
 | v2026.11.13.0 | 57 | The whole suite on .NET Framework 4.8 and in the checked build (cross-cutting) | 4 | (see tag) |
 | v2026.11.13.1 | 58 | IO, fourth pass | 39 | (see tag) |
+| v2026.11.13.2 | 59 | Objects, functional, grids, graphs, intervals, fourth pass | 27 | (see tag) |
 
 ## Round log
 
@@ -2699,3 +2700,50 @@ Regression tests are in `IO/IOReview58Tests` (39 tests; 36 fail on the old code 
   followed.
 - **Checked build:** the core suite in the checked build is green (3185).
 - **.NET Framework 4.8:** the IO tests (246) all pass.
+
+### Round 59: Objects, functional, grids, graphs, intervals, fourth pass (v2026.11.13.2)
+
+Two fresh reviewers (correctness, robustness), plus one bug found while testing on .NET Framework. **27 bugs, 3
+severe.** Regression tests are in `Objects/ObjectsGraphsReview59Tests` (32 tests; 26 fail on the old code on .NET 8 and
+3 more only on .NET Framework 4.8; the subclass chain and stored-tree tests are guards). `AttributeCacheTests` asserted
+the shared instance this round removes; it now asserts equal copies.
+
+- **Severe: chains of made objects hung the walkers.** DeepEquals, PropertyDiff and FlattenObject stopped a getter that
+  returns a new object of its owner's type, but not Ping.Next returning a new Pong whose Next returns a new Ping, two
+  structs returning each other, or a getter returning a new list of new objects. `ObjectMembers.Read` now reads a
+  non-leaf getter twice and classes the value (the same object, a struct copy, or made fresh); a walk's `Trail` counts
+  repeats of a made type along one path and stops descending after 3. Stored data never repeats, so deep stored trees
+  are walked in full. The second read is documented.
+- **Severe: a boxed struct that reaches itself** through an object-typed field hung all three walkers: the cycle check
+  skipped boxes. Boxes are tracked now.
+- **Severe (found while testing): .NET Framework member order.** Its reflection listed a type's fields in one order on
+  the first `GetFields` (after a `GetField` by name) and another once the cache filled, so the two sides of a compare
+  were paired V against X, a false difference. Members are now put in a fixed order (most derived type first, then
+  declaration order).
+- **Walkers:** a default `ImmutableArray` or `ArraySegment` (which throw when enumerated) counts as null; a property
+  hidden by `new` is read once, the most derived one (two differences at one path; Flatten wrote the base value).
+- **FlattenObject:** two values that flatten to one path (a name holding the separator, or Hashtable keys 1 and "1")
+  overwrote each other silently; they throw now. An empty collection or memberless object is recorded, so Unflatten
+  rebuilds it.
+- **PropertyPath:** a getter's or setter's own exception was wrapped or, in TryGet, swallowed; it propagates now. A
+  Span-typed segment is an ArgumentException (TryGet false). A quoted index key runs to its matching quote, so
+  `["a]b"]` works and inner quotes are kept.
+- **ObjectMapper:** a by-ref-like (Span) property is skipped (it threw NotSupportedException); accessor exceptions are
+  unwrapped.
+- **TypeUtils.TryConvert:** a double or float converts to text that round-trips (.NET Framework kept 15 digits); a
+  non-whole value to an integral type, and a finite double outside float's range, fail rather than round or become
+  infinity; an IConvertible throwing NotSupportedException is a failure. `GetTypesWithAttribute` found nothing for an
+  attribute applied twice. `FriendlyName` names pointers and by-refs (`int*`, `List<int>&`).
+- **ExpressionAccessor:** a Span, ref-returning or pointer member, or any member of a by-ref-like type, cached a
+  delegate that threw InvalidProgramException on every call; it is an ArgumentException naming it now.
+- **ActivatorUtils:** `ScanAndCreate` skipped struct implementations and passed onError the TargetInvocationException
+  wrapper; `TryCreate` threw for TypedReference, ArgIterator and RuntimeArgumentHandle on .NET Framework (which does
+  not mark them by-ref-like). The same check is in every by-ref-like test in Objects.
+- **AttributeCache:** returned the cached attribute itself, so a caller setting a property changed later lookups;
+  each call now gets its own (shallow) copy.
+- **Graphs:** `DepthFirst(null)` threw from inside the walk, not ArgumentNullException("start"); Kruskal summed a +∞
+  edge beside a −∞ one to NaN; a +∞ edge now counts as no edge.
+- **Intervals:** a Half or NFloat NaN endpoint was accepted; `RangeMap.Set` with a value comparer that throws left the
+  map half-merged (it is now undone).
+- **Checked build:** the core suite in the checked build is green (3217).
+- **.NET Framework 4.8:** the Objects, Graphs and Intervals tests (201) all pass.

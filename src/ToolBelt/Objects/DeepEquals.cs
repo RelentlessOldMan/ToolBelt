@@ -26,9 +26,11 @@ namespace ToolBelt.Objects
     /// (Quaternion, Matrix4x4, value tuples), and a struct with no readable members compares with its own Equals. A
     /// <see cref="System.IO.FileSystemInfo"/> compares by type and full path (its Root, Parent and Directory getters
     /// return a new object every call, which no cycle check can end).
-    /// Dictionaries are equal when each holds every key of the other, whichever argument comes first. A property that
-    /// returns a new object of its owner's type on every read (a struct's Perpendicular, a class's Reciprocal) is followed
-    /// at most three levels along a path and assumed equal beyond: such a chain never meets the same object twice.
+    /// Dictionaries are equal when each holds every key of the other, whichever argument comes first. A chain of getters
+    /// that make a new object on every read (a struct's Perpendicular, a class's Reciprocal, a Ping whose Next is a new
+    /// Pong whose Next is a new Ping) never meets the same object twice, so the walk follows such a chain only until its
+    /// types have repeated three times along the path, and assumes equal beyond. A getter whose value is not a leaf is
+    /// called twice, to tell made objects from stored ones.
     /// The walk uses an explicit stack, so a deep graph (a long linked list) cannot overflow the call stack. A property
     /// getter that throws propagates its own exception.
     /// </para>
@@ -41,32 +43,34 @@ namespace ToolBelt.Objects
             // Pairs already taken up are assumed equal: any difference reachable from them is found through their
             // first visit. That also ends cycles, through objects and collections alike.
             var seen = new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance);
-            // Computed: how many computed members (ObjectMembers.Read) the path to the pair followed.
-            var work = new Stack<(object? A, object? B, int Computed)>();
-            work.Push((a, b, 0));
+            // Trail: what the path to the pair followed (ObjectMembers.Trail), to end chains of made objects.
+            var work = new Stack<(object? A, object? B, ObjectMembers.Trail Trail)>();
+            work.Push((a, b, ObjectMembers.Trail.Start));
             while (work.Count > 0)
             {
-                var (x, y, computed) = work.Pop();
-                if (!Step(x, y, computed, opt, seen, work)) return false;
+                var (x, y, trail) = work.Pop();
+                if (!Step(x, y, trail, opt, seen, work)) return false;
             }
             return true;
         }
 
         // Compares what can be decided at this pair and pushes the child pairs; false on a difference.
-        private static bool Step(object? a, object? b, int computed, ObjectComparisonOptions opt,
-            HashSet<(object, object)> seen, Stack<(object?, object?, int)> work)
+        private static bool Step(object? a, object? b, ObjectMembers.Trail trail, ObjectComparisonOptions opt,
+            HashSet<(object, object)> seen, Stack<(object?, object?, ObjectMembers.Trail)> work)
         {
             if (ReferenceEquals(a, b)) return true;
             if (a is null || b is null) return false;
-            if (computed > ObjectMembers.MaxComputedDepth) return true;
+            if (trail.TooDeep) return true;
             a = ObjectMembers.Normalize(a);
             b = ObjectMembers.Normalize(b);
+            if (a is null || b is null) return a is null && b is null;
 
             Type ta = a.GetType(), tb = b.GetType();
             if (ObjectMembers.IsLeaf(ta) || ObjectMembers.IsLeaf(tb))
                 return LeafEquals(a, b, opt);
 
-            if (!ta.IsValueType && !tb.IsValueType && !seen.Add((a, b))) return true;
+            // Boxes too: a boxed struct can reach itself through an object-typed member.
+            if (!seen.Add((a, b))) return true;
 
             if (a is IDictionary da && b is IDictionary db)
             {
@@ -74,7 +78,7 @@ namespace ToolBelt.Objects
                 foreach (DictionaryEntry entry in da)
                 {
                     if (!db.Contains(entry.Key)) return false;
-                    work.Push((entry.Value, db[entry.Key], computed));
+                    { object? bv = db[entry.Key]; work.Push((entry.Value, bv, ObjectMembers.Trail.Pair(trail, entry.Value, ObjectMembers.Origin.Stable, bv, ObjectMembers.Origin.Stable))); }
                 }
                 // With different key comparers, a's keys can all be found in b while b holds a key a lacks.
                 foreach (DictionaryEntry entry in db)
@@ -91,7 +95,8 @@ namespace ToolBelt.Objects
                 var la = ObjectMembers.ToList(ea);
                 var lb = ObjectMembers.ToList(eb);
                 if (la.Count != lb.Count) return false;
-                for (int i = la.Count - 1; i >= 0; i--) work.Push((la[i], lb[i], computed));
+                for (int i = la.Count - 1; i >= 0; i--)
+                    work.Push((la[i], lb[i], ObjectMembers.Trail.Pair(trail, la[i], ObjectMembers.Origin.Stable, lb[i], ObjectMembers.Origin.Stable)));
                 return true;
             }
 
@@ -100,11 +105,11 @@ namespace ToolBelt.Objects
             // A struct's public fields are always read: Quaternion and Matrix4x4 keep their value there, and their
             // properties alone (IsIdentity) made every pair of quaternions equal.
 
-            var ma = new List<(string Name, object? Value, bool Computed)>(ObjectMembers.Read(a, opt.IncludeFields || ta.IsValueType));
-            var mb = new List<(string Name, object? Value, bool Computed)>(ObjectMembers.Read(b, opt.IncludeFields || ta.IsValueType));
+            var ma = new List<(string Name, object? Value, ObjectMembers.Origin Origin)>(ObjectMembers.Read(a, opt.IncludeFields || ta.IsValueType));
+            var mb = new List<(string Name, object? Value, ObjectMembers.Origin Origin)>(ObjectMembers.Read(b, opt.IncludeFields || ta.IsValueType));
             if (ma.Count == 0 && ta.IsValueType) return a.Equals(b);
             for (int i = ma.Count - 1; i >= 0; i--)
-                work.Push((ma[i].Value, mb[i].Value, computed + (ma[i].Computed || mb[i].Computed ? 1 : 0)));
+                work.Push((ma[i].Value, mb[i].Value, ObjectMembers.Trail.Pair(trail, ma[i].Value, ma[i].Origin, mb[i].Value, mb[i].Origin)));
             return true;
         }
 

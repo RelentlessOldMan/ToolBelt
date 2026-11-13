@@ -31,7 +31,8 @@ namespace ToolBelt.Graphs
     /// <summary>
     /// Minimum spanning tree (or forest, if the graph is disconnected) of an undirected graph by Kruskal's
     /// algorithm — a weight sort plus the shared <see cref="DisjointSet"/> union-find. Negative weights are
-    /// allowed. Directed graphs are rejected.
+    /// allowed. An edge of weight +∞ counts as no edge, as it does for <c>ShortestPath</c> (an infinite edge beside a
+    /// −∞ one made the total NaN). Directed graphs are rejected.
     /// </summary>
     public static class MinimumSpanningTree
     {
@@ -55,6 +56,7 @@ namespace ToolBelt.Graphs
 
             foreach (Edge<T> e in sorted)
             {
+                if (double.IsPositiveInfinity(e.Weight)) break; // sorted last: no edge
                 if (forest.Union(index[e.From], index[e.To]))
                 {
                     chosen.Add(e);

@@ -136,6 +136,7 @@ namespace ToolBelt.Graphs
         /// <summary>Depth-first vertex order from <paramref name="start"/> (start included, pre-order).</summary>
         public IEnumerable<T> DepthFirst(T start)
         {
+            if (start is null) throw new ArgumentNullException(nameof(start));
             if (!_adjacency.ContainsKey(start))
                 throw new KeyNotFoundException($"Vertex '{start}' is not in the graph.");
             return DepthFirstIterator(start);
