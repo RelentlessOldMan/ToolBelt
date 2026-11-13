@@ -66,13 +66,22 @@ namespace ToolBelt.Visualization
                 else if (double.IsInfinity(lo)) lo = hi - 1;
                 else hi = lo + 1;
             }
+            double keepLo = double.NegativeInfinity, keepHi = double.PositiveInfinity; // values counted, beyond [lo, hi]
             if (hi <= lo)
             {
                 // One explicit bound at or past all the data stays, and the other side opens beyond it: centring moved
                 // min = 5 to 4.5 and counted 4.7 and 4.8, both below it.
                 if (min.HasValue && !max.HasValue) hi = Math.Min(double.MaxValue, lo + Math.Max(1, Math.Abs(lo) * 0.1));
                 else if (max.HasValue && !min.HasValue) lo = Math.Max(-double.MaxValue, hi - Math.Max(1, Math.Abs(hi) * 0.1));
-                else { hi = lo + 0.5; lo -= 0.5; }                                    // degenerate range
+                else
+                {
+                    // Degenerate range. ±0.5 did nothing past 4.5e15 ({1e20, 1e20} gave five equal edges), and an explicit
+                    // min = max = 5 counted 4.6 and 5.4: the bins open around the value but count only the value itself.
+                    if (min.HasValue && max.HasValue) { keepLo = lo; keepHi = lo; }
+                    double pad = Math.Max(0.5, Math.Abs(lo) * 1e-9);
+                    hi = Math.Min(double.MaxValue, lo + pad);
+                    lo = Math.Max(-double.MaxValue, lo - pad);
+                }
             }
 
             // Scaled by bins first so ±1e308 ranges do not overflow.
@@ -90,14 +99,26 @@ namespace ToolBelt.Visualization
             var counts = new int[bins];
             foreach (double v in data)
             {
-                if (double.IsNaN(v) || v < lo || v > hi) continue;
+                if (double.IsNaN(v) || v < lo || v > hi || v < keepLo || v > keepHi) continue;
                 // A NaN quotient (width 0) cast to int.MinValue and indexed below the array; start at 0 and settle.
                 double q = Math.Floor(v / width - lo / width);
                 int idx = double.IsNaN(q) ? 0 : (int)Math.Min(bins - 1, Math.Max(0, q));
                 // Settle against the returned edges, so a value equal to edge[i] is always in bin i (the
                 // quotient alone disagreed with the edges for values on them).
-                while (idx > 0 && v < edges[idx]) idx--;
-                while (idx < bins - 1 && v >= edges[idx + 1]) idx++;
+                // A guess far off (a subnormal or underflowed width) walked up to `bins` steps per value, n × bins in all, so
+                // past a few steps the last bin whose lower edge is ≤ v is found by bisection.
+                for (int step = 0; step < 4 && idx > 0 && v < edges[idx]; step++) idx--;
+                for (int step = 0; step < 4 && idx < bins - 1 && v >= edges[idx + 1]; step++) idx++;
+                if ((idx > 0 && v < edges[idx]) || (idx < bins - 1 && v >= edges[idx + 1]))
+                {
+                    int a = 0, b = bins - 1; // edges[a] ≤ v always holds (edges[0] = lo ≤ v)
+                    while (a < b)
+                    {
+                        int mid = a + (b - a + 1) / 2;
+                        if (edges[mid] <= v) a = mid; else b = mid - 1;
+                    }
+                    idx = a;
+                }
                 counts[idx]++;
             }
             return (edges, counts);

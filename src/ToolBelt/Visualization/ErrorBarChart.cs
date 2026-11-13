@@ -72,8 +72,9 @@ namespace ToolBelt.Visualization
                 double e = IsFinite(error[i]) ? Math.Abs(error[i]) : 0;
                 if (options.MinX is null) minX = Math.Min(minX, x[i]);
                 if (options.MaxX is null) maxX = Math.Max(maxX, x[i]);
-                if (options.MinY is null) minY = Math.Min(minY, y[i] - e);
-                if (options.MaxY is null) maxY = Math.Max(maxY, y[i] + e);
+                // Held at ±MaxValue: y ± e overflowed to ∞ for finite input (1e308 ± 1e308) and collapsed the axis.
+                if (options.MinY is null) minY = Math.Min(minY, Math.Max(-double.MaxValue, y[i] - e));
+                if (options.MaxY is null) maxY = Math.Max(maxY, Math.Min(double.MaxValue, y[i] + e));
             }
             OpenPastLimit(ref minX, ref maxX, options.MinX.HasValue, options.MaxX.HasValue);
             OpenPastLimit(ref minY, ref maxY, options.MinY.HasValue, options.MaxY.HasValue);
@@ -92,7 +93,7 @@ namespace ToolBelt.Visualization
                 if (IsFinite(error[i]))
                 {
                     double e = Math.Abs(error[i]);
-                    double hiY = MapY(y[i] + e), loY = MapY(y[i] - e);
+                    double hiY = MapY(Math.Min(double.MaxValue, y[i] + e)), loY = MapY(Math.Max(-double.MaxValue, y[i] - e));
                     // Clipped as doubles: a huge error against an explicit range overflowed the int casts.
                     image.DrawLineClipped(px, hiY, px, loY, options.Color, left, top, right, bottom);              // whisker
                     image.DrawLineClipped(px - cap, hiY, px + cap, hiY, options.Color, left, top, right, bottom);  // upper cap

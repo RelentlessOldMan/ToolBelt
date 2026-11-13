@@ -168,7 +168,8 @@ namespace ToolBelt.Visualization
                 counts[Math.Max(0, Math.Min(bins - 1, b))]++;
             }
             int max = Math.Max(1, counts.Max());
-            double bw = size / bins, usable = size - 18;
+            // size − 18 went negative for a cell under 18 px and wrote negative heights (invalid SVG).
+            double bw = size / bins, usable = Math.Max(0.5 * size, size - 18);
             for (int b = 0; b < bins; b++)
             {
                 if (counts[b] == 0) continue;
@@ -188,26 +189,49 @@ namespace ToolBelt.Visualization
             int count = Math.Min(x.Count, y.Count), n = 0;
             for (int i = 0; i < count; i++) if (IsFinite(x[i]) && IsFinite(y[i])) n++;
             if (n < 3) return null;
+            // Each column is first scaled by a power of two (exactly) so its largest magnitude is in [1, 2): subnormal data
+            // ({1..4}·ε against {4..1}·ε) rounded away in x / n and x / 2, and r came out −0.667.
+            var xs = new double[n];
+            var ys = new double[n];
+            for (int i = 0, j = 0; i < count; i++) if (IsFinite(x[i]) && IsFinite(y[i])) { xs[j] = x[i]; ys[j] = y[i]; j++; }
+            ScaleToUnit(xs);
+            ScaleToUnit(ys);
             double mx = 0, my = 0;
-            for (int i = 0; i < count; i++) if (IsFinite(x[i]) && IsFinite(y[i])) { mx += x[i] / n; my += y[i] / n; }
+            for (int i = 0; i < n; i++) { mx += xs[i] / n; my += ys[i] / n; }
             double ax = 0, ay = 0;
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < n; i++)
             {
-                if (!IsFinite(x[i]) || !IsFinite(y[i])) continue;
-                ax = Math.Max(ax, Math.Abs(x[i] / 2 - mx / 2));
-                ay = Math.Max(ay, Math.Abs(y[i] / 2 - my / 2));
+                ax = Math.Max(ax, Math.Abs(xs[i] / 2 - mx / 2));
+                ay = Math.Max(ay, Math.Abs(ys[i] / 2 - my / 2));
             }
             if (!(ax > 0) || !(ay > 0)) return null;
             double sxx = 0, syy = 0, sxy = 0;
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < n; i++)
             {
-                if (!IsFinite(x[i]) || !IsFinite(y[i])) continue;
-                double dx = (x[i] / 2 - mx / 2) / ax, dy = (y[i] / 2 - my / 2) / ay;
+                double dx = (xs[i] / 2 - mx / 2) / ax, dy = (ys[i] / 2 - my / 2) / ay;
                 sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
             }
             return sxx > 0 && syy > 0 ? Math.Max(-1, Math.Min(1, sxy / Math.Sqrt(sxx * syy))) : (double?)null;
         }
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        // Multiplies every value by the power of two that brings the largest magnitude into [1, 2) (two steps for subnormals).
+        private static void ScaleToUnit(double[] v)
+        {
+            double max = 0;
+            foreach (double d in v) max = Math.Max(max, Math.Abs(d));
+            if (max == 0) return;
+            if (max < 1e-290)
+            {
+                for (int i = 0; i < v.Length; i++) v[i] *= Pow2(600);
+                max *= Pow2(600);
+            }
+            int e = (int)((BitConverter.DoubleToInt64Bits(max) >> 52) & 0x7FF) - 1023;
+            double f1 = Pow2(-e / 2), f2 = Pow2(-e - (-e / 2)); // in halves: 2⁻¹⁰²³ is not a normal double
+            for (int i = 0; i < v.Length; i++) v[i] = v[i] * f1 * f2;
+        }
+
+        private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
     }
 }

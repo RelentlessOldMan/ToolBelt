@@ -121,6 +121,13 @@ namespace ToolBelt.Visualization
             if (o.Colormap is null) throw new ArgumentException("Colormap must not be null.", nameof(options));
             // In pixels: ∞ and 1e-300 silently drew no hexes, and NaN failed naming "radius".
             if (!(o.Radius >= 0.01) || o.Radius > 1e6) throw new ArgumentOutOfRangeException(nameof(options), "Radius must be in [0.01, 1e6] pixels.");
+            // NaN limits and an infinite Width failed inside AxisTicks and PlotFrame, naming "min" and "width"; reversed explicit
+            // limits (XMin = 10, XMax = 0) drew a [0.5, 9.5] axis.
+            if (!Finite(o.XMin) || !Finite(o.XMax) || !Finite(o.YMin) || !Finite(o.YMax))
+                throw new ArgumentOutOfRangeException(nameof(options), "Axis limits must be finite.");
+            if (o.XMin > o.XMax || o.YMin > o.YMax) throw new ArgumentException("An axis minimum exceeds its maximum.", nameof(options));
+            if (double.IsNaN(o.Width) || double.IsInfinity(o.Width) || double.IsNaN(o.Height) || double.IsInfinity(o.Height))
+                throw new ArgumentOutOfRangeException(nameof(options), "Width and Height must be finite.");
             var finite = points.Where(p => !double.IsNaN(p.X) && !double.IsNaN(p.Y) && !double.IsInfinity(p.X) && !double.IsInfinity(p.Y)).ToArray();
             double xmin = o.XMin ?? (finite.Length > 0 ? finite.Min(p => p.X) : 0), xmax = o.XMax ?? (finite.Length > 0 ? finite.Max(p => p.X) : 1);
             double ymin = o.YMin ?? (finite.Length > 0 ? finite.Min(p => p.Y) : 0), ymax = o.YMax ?? (finite.Length > 0 ? finite.Max(p => p.Y) : 1);
@@ -246,9 +253,12 @@ namespace ToolBelt.Visualization
         private static void OpenPastLimit(ref double lo, ref double hi, bool explicitMin, bool explicitMax)
         {
             if (explicitMin == explicitMax || lo < hi) return;
-            if (explicitMin) hi = lo + Math.Max(1, Math.Abs(lo) * 0.1);
-            else lo = hi - Math.Max(1, Math.Abs(hi) * 0.1);
+            // Held at ±MaxValue: XMin = 1.7e308 opened to ∞ and failed in AxisTicks, naming "min".
+            if (explicitMin) hi = Math.Min(double.MaxValue, lo + Math.Max(1, Math.Abs(lo) * 0.1));
+            else lo = Math.Max(-double.MaxValue, hi - Math.Max(1, Math.Abs(hi) * 0.1));
         }
+
+        private static bool Finite(double? v) => v is not double d || !double.IsNaN(d) && !double.IsInfinity(d);
 
         private static string Line(double x1, double y1, double x2, double y2)
             => "<line x1=\"" + SvgUtils.Number(x1) + "\" y1=\"" + SvgUtils.Number(y1) + "\" x2=\"" + SvgUtils.Number(x2) + "\" y2=\"" + SvgUtils.Number(y2) + "\"/>\n";

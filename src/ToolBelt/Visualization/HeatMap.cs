@@ -36,6 +36,9 @@ namespace ToolBelt.Visualization
             int rows = data.GetLength(0), cols = data.GetLength(1);
             if (rows == 0 || cols == 0) throw new ArgumentException("Data must be non-empty.", nameof(data));
 
+            // A Min of −∞ or NaN painted every cell one colour.
+            if (options.Min is double mn && (double.IsNaN(mn) || double.IsInfinity(mn)) || options.Max is double mx && (double.IsNaN(mx) || double.IsInfinity(mx)))
+                throw new ArgumentOutOfRangeException(nameof(options), "Min and Max must be finite.");
             double min = options.Min ?? double.PositiveInfinity;
             double max = options.Max ?? double.NegativeInfinity;
             if (options.Min is null || options.Max is null)

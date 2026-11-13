@@ -141,9 +141,18 @@ namespace ToolBelt.Visualization
         {
             if (series is null) throw new ArgumentNullException(nameof(series));
             for (int i = 0; i < series.Count; i++)
+            {
                 if (series[i] is null) throw new ArgumentException($"Series {i} is null.", nameof(series));
-            if (!(o.Width > 0) || !(o.Height > 0)) throw new ArgumentOutOfRangeException("options", "Width and height must be positive.");
-            if (!(o.FontSize > 0)) throw new ArgumentOutOfRangeException("options", "FontSize must be positive.");
+                // The caller's lists can change length after the Series is made; that indexed past the end mid-render.
+                if (!series[i].CountsAgree) throw new ArgumentException($"Series {i}: x and y no longer have the same length.", nameof(series));
+            }
+            // ∞ passed these checks and failed in PlotFrame or EstimateTextWidth, naming "width" or "fontSize"; NaN axis limits
+            // failed in AxisTicks, naming "min".
+            if (!(o.Width > 0) || !(o.Height > 0) || double.IsInfinity(o.Width) || double.IsInfinity(o.Height))
+                throw new ArgumentOutOfRangeException("options", "Width and height must be positive and finite.");
+            if (!(o.FontSize > 0) || double.IsInfinity(o.FontSize)) throw new ArgumentOutOfRangeException("options", "FontSize must be positive and finite.");
+            if (!Finite(o.XMin) || !Finite(o.XMax) || !Finite(o.YMin) || !Finite(o.YMax))
+                throw new ArgumentOutOfRangeException("options", "Axis limits must be finite.");
             if (o.FontFamily is null) throw new ArgumentException("FontFamily must not be null.", "options");
             if (o.MaxXTicks < 2 || o.MaxYTicks < 2) // failed inside AxisTicks as "maxTicks"
                 throw new ArgumentOutOfRangeException("options", "MaxXTicks and MaxYTicks must be at least 2.");
@@ -215,8 +224,9 @@ namespace ToolBelt.Visualization
             {
                 // One explicit limit past all the data: open the axis beyond it. (Swapping made the range
                 // [limit, limit], which put every point on the centre line.)
-                if (explicitMin.HasValue) hi = kind == AxisKind.Log ? lo * 10 : lo + Math.Max(1, Math.Abs(lo) * 0.1);
-                else lo = kind == AxisKind.Log ? hi / 10 : hi - Math.Max(1, Math.Abs(hi) * 0.1);
+                // Held at ±MaxValue: XMin = 1.7e308 opened to ∞ and failed in AxisTicks, naming "min".
+                if (explicitMin.HasValue) hi = Math.Min(double.MaxValue, kind == AxisKind.Log ? lo * 10 : lo + Math.Max(1, Math.Abs(lo) * 0.1));
+                else lo = Math.Max(-double.MaxValue, kind == AxisKind.Log ? hi / 10 : hi - Math.Max(1, Math.Abs(hi) * 0.1));
             }
             if (lo > hi) (lo, hi) = (hi, lo);
             if (kind == AxisKind.Log && (!(lo > 0) || !(hi > 0)))
@@ -233,6 +243,8 @@ namespace ToolBelt.Visualization
             if (min > max) (min, max) = (max, min);
             return (ticks, min, max);
         }
+
+        private static bool Finite(double? v) => v is not double d || !double.IsNaN(d) && !double.IsInfinity(d);
 
         private static int CapTicks(int maxTicks, double pixels)
             => maxTicks < 2 ? maxTicks : (int)Math.Min(maxTicks, Math.Max(2, Math.Min(pixels, 10000)));

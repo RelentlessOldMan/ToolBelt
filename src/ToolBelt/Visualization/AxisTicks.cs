@@ -54,7 +54,10 @@ namespace ToolBelt.Visualization
             double raw = max / (maxTicks - 1) - min / (maxTicks - 1); // max − min overflowed for ±1e308
             // The step is digit × 10^exponent and each tick is parsed from its exact decimal (k·digit)E(exponent):
             // rounding k·step to at most 15 decimals collapsed every tick of [1.6e-19, 1.7e-19] onto 0.
-            int exponent0 = (int)Math.Floor(Math.Log10(raw));
+            // With two ticks the division doesn't halve the span, so ±1e308 still overflowed: Log10(∞) cast to int.MinValue,
+            // every candidate parsed to 0 and the search walked all 2³¹ steps (4 minutes) before indexing out of range.
+            double logRaw = double.IsInfinity(raw) ? Math.Log10(max / 2 - min / 2) + Math.Log10(2.0 / (maxTicks - 1)) : Math.Log10(raw);
+            int exponent0 = (int)Math.Floor(logRaw);
             double step = 0;
             int digit = 1, exponent = exponent0;
             // Walk 1, 2, 5, 10, 20, 50 … × magnitude until the ticks fit. Once the step reaches the largest magnitude

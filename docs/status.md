@@ -8,8 +8,8 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 1. **The fourth pass:** every section re-queued by its last pass goes round again until a pass finds ≤ 1 minor bug.
    As of round 53 all 17 sections are re-queued; the order is in REVIEW-PLAN.md. The cross-cutting rounds (54 to 57)
    are done. Round 58 (IO) found 39 bugs, 7 severe, round 59 (section 14) 27 bugs, 3 severe, and round 60 (section 17)
-   22 bugs, none severe, and round 61 (section 4) 24 bugs, none severe, so all four stay re-queued; section 5 is
-   next.
+   22 bugs, none severe, round 61 (section 4) 24 bugs, none severe, and round 62 (section 5) 24 bugs, 1 severe, so
+   all five stay re-queued; section 7 is next.
 1. **BUGLIST 56-1** (`Thread.Sleep` in library code): the DirectoryUtils part is fixed (round 58); the Windows parts go
    with section 15.
 
@@ -17,15 +17,15 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 
 - **The library** (2026-09-25 to 2026-10-05): 29+ divisions in the core plus the Windows, WPF and WinForms
   satellites. The README's Layout is the inventory.
-- **The review** (2026-10-07 onward): 61 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
+- **The review** (2026-10-07 onward): 62 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
   sections, two rounds on flaky tests and the incomplete beta/gamma harness, and four cross-cutting rounds (round 54,
   throwing callbacks: 36 bugs, 2 severe; round 55, cancellation and dispose races: 17 bugs, 2 severe, both a Ctrl+C
   handler letting a token callback's exception escape; round 56, non-finite and extreme numerics: 34 bugs, 2 severe,
   both hangs on data near MaxValue; round 57, the whole suite on .NET Framework 4.8: 4 bugs, none severe). The fourth
   pass began with IO (round 58: 39 bugs, 7 severe, mostly junction swaps mid-operation, the tar guard and names
   ending in a dot).
-- **Checks every round passes:** the full verify (core 3246 tests, Windows 115, WPF 162, WinForms 104,
-  MathChecks 40 at v2026.11.13.4), the overflow-checked build with no failures (since round 48), and the special
+- **Checks every round passes:** the full verify (core 3270 tests, Windows 115, WPF 162, WinForms 104,
+  MathChecks 40 at v2026.11.13.5), the overflow-checked build with no failures (since round 48), and the special
   functions against mpmath (graded in condition-number units).
 - **.NET Framework 4.8:** since round 57 the whole core suite compiles and passes there (3079 tests; net8-only
   types' tests are guarded out).

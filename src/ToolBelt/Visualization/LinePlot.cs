@@ -26,6 +26,10 @@ namespace ToolBelt.Visualization
         }
 
         public IReadOnlyList<double> Y { get; }
+
+        // The lists are the caller's, so a later change of length (a reused buffer) is caught at render time: it indexed
+        // past the end, failing as List's "index".
+        internal bool CountsAgree => X is null || X.Count == Y.Count;
         /// <summary>X coordinates; if null, the point index 0..n-1 is used.</summary>
         public IReadOnlyList<double>? X { get; }
         public Rgba Color { get; }
@@ -93,6 +97,11 @@ namespace ToolBelt.Visualization
                     {
                         case PlotStyle.Line:
                             if (havePrev) image.DrawLineClipped(prevX, prevY, px, py, s.Color, left, top, right, bottom);
+                            else if (!(i + 1 < s.Y.Count && IsFinite(s.X?[i + 1] ?? i + 1) && IsFinite(s.Y[i + 1])))
+                            {
+                                // No finite neighbour on either side (one point, or one between gaps): it drew nothing.
+                                if (px >= left && px <= right && py >= top && py <= bottom) image.SetPixel(Px(px), Px(py), s.Color);
+                            }
                             break;
                         case PlotStyle.Scatter:
                             if (px >= left && px <= right && py >= top && py <= bottom)
@@ -151,7 +160,10 @@ namespace ToolBelt.Visualization
         {
             if (series is null) throw new ArgumentNullException(nameof(series));
             for (int i = 0; i < series.Count; i++)
+            {
                 if (series[i] is null) throw new ArgumentException($"Series {i} is null.", nameof(series)); // was a NullReferenceException
+                if (!series[i].CountsAgree) throw new ArgumentException($"Series {i}: x and y no longer have the same length.", nameof(series));
+            }
         }
 
         private static double Clamp(double v, double lo, double hi) => v < lo ? lo : v > hi ? hi : v;

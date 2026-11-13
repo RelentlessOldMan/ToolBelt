@@ -533,11 +533,11 @@ src/
       Waterfall.cs          time x frequency waterfall: SVG (embedded PNG cells, freq/time axes, color scale) or raster
       HexBin.cs             exact hexagonal binning in pixel space + SVG (log colour, count scale, edge cells clipped)
       ScatterMatrix.cs      pairs plot: histograms on the diagonal, group colours + legend, Pearson r per panel
-      TimingDiagram.cs      logic-analyser view: digital lanes, labelled buses, unknown hatching, cursors, SI time axis
+      TimingDiagram.cs      logic-analyser view: digital lanes, labelled buses, unknown hatching, cursors, SI time axis (an explicit window needs Start < End)
       Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops)
       Colorbar.cs           render a colormap as a gradient legend strip (vertical/horizontal)
       HeatMap.cs            render a 2-D grid via a colormap (cell size, range, NaN color)
-      Histogram.cs          bin 1-D data (exposed) and render the counts as bars (at most one bin per pixel column)
+      Histogram.cs          bin 1-D data (exposed) and render the counts as bars (at most one bin per pixel column; explicit min = max counts only that value)
       BoxPlot.cs            five-number summary + Tukey whiskers/outliers; side-by-side boxes
       ErrorBarChart.cs      points with symmetric vertical error bars (auto-scales to caps)
       BandChart.cs          shaded band between lower/upper curves + optional center line
@@ -984,6 +984,7 @@ tests/
       ChartsReviewTests.cs  (review regressions: far out-of-range data clipped, non-finite values, overflow-safe ranges and ticks, option validation)
       ChartsReview2Tests.cs (second-pass regressions: subnormal and ±1e308 ranges, exact decimal ticks, one explicit limit past the data, bounded work)
       ChartsReview3Tests.cs (third-pass regressions: sub-millisecond time ticks, one bound past the data, overflowing spans, option validation)
+      ChartsReview4Tests.cs (fourth-pass regressions: two ticks over ±MaxValue, bounded hatch and binning, limits at MaxValue, subnormal Pearson)
       DocsVizReviewRegressionTests.cs  (2026-10-05 review regressions: Documents and Visualization)
     Resilience/
       RetryTests.cs

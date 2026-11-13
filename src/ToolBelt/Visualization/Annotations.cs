@@ -120,7 +120,8 @@ namespace ToolBelt.Visualization
         /// </summary>
         public string ToSvg(PlotFrame frame, double fontSize = 11, string fontFamily = "sans-serif", AnnotationLayer layer = AnnotationLayer.All)
         {
-            if (!(fontSize > 0)) throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be positive.");
+            // ∞ failed inside SvgUtils, naming "value".
+            if (!(fontSize > 0) || double.IsInfinity(fontSize)) throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be positive and finite.");
             if (fontFamily is null) throw new ArgumentNullException(nameof(fontFamily));
             var sb = new StringBuilder();
             sb.Append("<g class=\"annotations\" font-family=\"").Append(SvgUtils.EscapeAttribute(fontFamily))
@@ -445,7 +446,8 @@ namespace ToolBelt.Visualization
 
         private static double ClampY(double py, PlotFrame f) => double.IsNaN(py) ? py : Math.Max(f.Top, Math.Min(f.Bottom, py));
 
-        private static int Px(double v) => (int)Math.Round(v, MidpointRounding.AwayFromZero);
+        // Held to ±1e9 first: a frame far outside the image (Left = −1e12) wrapped the cast, or threw under checked arithmetic.
+        private static int Px(double v) => (int)Math.Round(Math.Max(-1e9, Math.Min(1e9, v)), MidpointRounding.AwayFromZero);
 
         // Capped before the cast: 1e10 wrapped to int.MinValue (a 1-px line), or threw under checked arithmetic.
         private static int Thickness(double width) => Math.Max(1, (int)Math.Round(Math.Min(width, 1e6), MidpointRounding.AwayFromZero));

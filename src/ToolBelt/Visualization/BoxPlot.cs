@@ -116,8 +116,17 @@ namespace ToolBelt.Visualization
             if (options.Min is double mn && (double.IsNaN(mn) || double.IsInfinity(mn)) || options.Max is double mx && (double.IsNaN(mx) || double.IsInfinity(mx)))
                 throw new ArgumentOutOfRangeException(nameof(options), "Min and Max must be finite.");
             if (options.Min >= options.Max) throw new ArgumentOutOfRangeException(nameof(options), "Min must be below Max.");
+            // Checked here so the errors name Render's own arguments (they named Compute's "whiskerReach" and "data").
+            if (!(options.WhiskerReach >= 0)) throw new ArgumentOutOfRangeException(nameof(options), options.WhiskerReach, "WhiskerReach must be non-negative.");
             var stats = new BoxStats[datasets.Count];
-            for (int i = 0; i < datasets.Count; i++) stats[i] = Compute(datasets[i], options.WhiskerReach);
+            for (int i = 0; i < datasets.Count; i++)
+            {
+                try { stats[i] = Compute(datasets[i], options.WhiskerReach); }
+                catch (ArgumentException e) when (e.ParamName == "data")
+                {
+                    throw new ArgumentException($"Dataset {i} is null, empty or all NaN.", nameof(datasets), e);
+                }
+            }
 
             var image = new ImageBuffer(width, height, options.Background);
             int m = options.Margin;
@@ -142,8 +151,11 @@ namespace ToolBelt.Visualization
             OpenPastLimit(ref minV, ref maxV, options.Min.HasValue, options.Max.HasValue);
             double range = maxV - minV;
             int plotHeight = bottom - top;
+            // Halved when the span overflows (data near ±double.MaxValue): ∞ put every box on the bottom row.
+            bool halve = double.IsInfinity(range);
             // Doubles, clipped when drawn: a value outside an explicit Min/Max overflowed the int cast.
-            double MapY(double v) => range > 0 ? bottom - (v - minV) / range * plotHeight : (top + bottom) / 2;
+            double MapY(double v) => halve ? bottom - (0.5 * v - 0.5 * minV) / (0.5 * maxV - 0.5 * minV) * plotHeight
+                : range > 0 ? bottom - (v - minV) / range * plotHeight : (top + bottom) / 2;
 
             int plotWidth = right - left;
             double slot = (double)plotWidth / datasets.Count;

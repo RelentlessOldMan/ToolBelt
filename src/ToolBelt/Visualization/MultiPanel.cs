@@ -152,7 +152,9 @@ namespace ToolBelt.Visualization
             if (panels is null) throw new ArgumentNullException(nameof(panels));
             if (panels.Count == 0) throw new ArgumentException("At least one panel is required.", nameof(panels));
             if (o.Columns < 1) throw new ArgumentOutOfRangeException("options", "Columns must be positive.");
-            if (!(o.PanelWidth > 0) || !(o.PanelHeight > 0)) throw new ArgumentOutOfRangeException("options", "Panel size must be positive.");
+            // ∞ failed inside PlotFrame, naming "width".
+            if (!(o.PanelWidth > 0) || !(o.PanelHeight > 0) || double.IsInfinity(o.PanelWidth) || double.IsInfinity(o.PanelHeight))
+                throw new ArgumentOutOfRangeException("options", "Panel size must be positive and finite.");
             if (!(o.Gap >= 0) || double.IsInfinity(o.Gap)) throw new ArgumentOutOfRangeException("options", "Gap must be non-negative and finite.");
             // As SvgChart: a null font failed inside SvgUtils as "text".
             if (o.FontFamily is null) throw new ArgumentException("FontFamily must not be null.", "options");
@@ -236,6 +238,8 @@ namespace ToolBelt.Visualization
             for (int c = 0; c < cols; c++) { colX[c] = x; x += colW[c] + o.Gap; }
             for (int r = 0; r < rows; r++) { rowY[r] = y; y += rowH[r] + o.Gap; }
 
+            // Finite panels can still sum past double.MaxValue (two columns of 1e308), which failed in SvgUtils, naming "value".
+            if (double.IsInfinity(x) || double.IsInfinity(y)) throw new ArgumentOutOfRangeException("options", "The figure size overflows.");
             var plan = new FigurePlan { Options = opts, X = new double[n], Y = new double[n], Width = x, Height = y };
             for (int i = 0; i < n; i++)
             {

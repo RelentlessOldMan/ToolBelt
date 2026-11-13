@@ -171,8 +171,9 @@ namespace ToolBelt.Visualization
             // ValueMin = 5 over data 0..3 into the maximum).
             if (options.ValueMin.HasValue != options.ValueMax.HasValue && !(min < max))
             {
-                if (options.ValueMin.HasValue) max = min + Math.Max(1, Math.Abs(min) * 0.1);
-                else min = max - Math.Max(1, Math.Abs(max) * 0.1);
+                // Held at ±MaxValue: ValueMin = MaxValue opened to ∞ and failed in AxisTicks, naming "min".
+                if (options.ValueMin.HasValue) max = Math.Min(double.MaxValue, min + Math.Max(1, Math.Abs(min) * 0.1));
+                else min = Math.Max(-double.MaxValue, max - Math.Max(1, Math.Abs(max) * 0.1));
             }
             if (min > max) (min, max) = (max, min);
             return (min, max);

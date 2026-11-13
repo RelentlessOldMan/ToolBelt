@@ -45,7 +45,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 3 | 13 / 60 | re-queue (13 bugs, 1 severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 3 | 25 / 86 | re-queue (25 bugs, 1 severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 4 | 24 / 119 | re-queue (24 bugs, none severe) |
-| 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 3 | 21 / 82 | re-queue (21 bugs, 2 severe) |
+| 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 4 | 24 / 106 | re-queue (24 bugs, 1 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 3 | 18 / 47 | re-queue (18 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 3 | 17 / 64 | re-queue (17 bugs, 2 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 4 | 39 / 125 | re-queue (39 bugs, 7 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61); **next: 5, 7, 13, 15, 3, 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62); **next: 7, 13, 15, 3, 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -135,11 +135,49 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.2 | 59 | Objects, functional, grids, graphs, intervals, fourth pass | 27 | (see tag) |
 | v2026.11.13.3 | 60 | WinForms, tooling and docs, fourth pass (plus 3 in section 14) | 25 | (see tag) |
 | v2026.11.13.4 | 61 | Numerics core, fourth pass | 24 | (see tag) |
+| v2026.11.13.5 | 62 | Charts, fourth pass | 24 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 62: Charts, fourth pass (v2026.11.13.5)
+
+Two fresh reviewers (correctness, robustness): 27 findings, three of them duplicates, so **24 bugs, 1 severe** (13
+normal). Section 5 stays re-queued. The regression tests are in `ChartsReview4Tests` (24 tests). Every one failed on
+the old code; the Annotations band failed only in the checked build. Almost all the bugs are spans and limits near
+±MaxValue, or validation that let NaN and ∞ through to an inner method.
+
+- **Severe: AxisTicks.Linear** with two ticks over ±MaxValue: the raw step overflowed to ∞, so the search walked all
+  2³¹ candidate exponents (about 4 minutes), then threw IndexOutOfRangeException. SvgChart and a narrow TimingDiagram
+  reached it too.
+- **TimingDiagram:**
+  - Widths it documents as valid failed as "maxTicks".
+  - The unknown-value hatch was O(segments × LaneHeight), so 30 narrow slivers wrote 220M characters.
+  - Change times one ulp apart made every x 0/0.
+  - An explicit End < Start was silently replaced, and NaN or ∞ bounds failed in AxisTicks.
+  - FormatSeconds printed 1e-16 as "0 ps" and 1e300 as 301 digits.
+  - Clock and FromSamples blamed "changes" for their own overflow, or for a NaN startTime.
+- **Histogram.Bin:**
+  - An underflowed bin width made the settle walk O(n × bins). It now bisects after four steps.
+  - Constant data past 4.5e15 gave zero-width bins.
+  - Explicit min = max = 5 counted 4.6 and 5.4.
+- **Opened limits at ±MaxValue** overflowed to ∞ in SvgChart, HexBin and Waterfall. **BoxPlot** and **ErrorBarChart**
+  collapsed onto a few rows when the data's span overflowed.
+- **ScatterMatrix:**
+  - Cells below 18 px drew negative heights.
+  - Pearson of subnormal columns gave r = −0.667 for exactly anti-correlated data. The columns are now scaled to unit
+    magnitude first.
+- **Validation:**
+  - HeatMap, HexBin (reversed or NaN limits, ∞ Width), SvgChart (NaN limits, ∞ Width, Height or FontSize),
+    MultiPanel (∞ panels, a figure summing past MaxValue) and Annotations.ToSvg (∞ fontSize) are now checked and
+    name "options" or "fontSize".
+  - BoxPlot.Render named Compute's "whiskerReach" and "data".
+  - A Series whose lists changed length after construction indexed past the end. It is now rejected at render
+    time.
+- **Annotations.Draw** cast pixel coordinates beyond the int range without a clamp.
+- **LinePlot:** a lone point in Line style (one point, or one between NaN gaps) drew nothing.
+
 ### Round 61: Numerics core, fourth pass (v2026.11.13.4)
 
 Two fresh reviewers (correctness, robustness): 24 findings, **24 bugs, none severe** (13 normal), so section 4 stays

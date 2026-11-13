@@ -47,8 +47,11 @@ namespace ToolBelt.Visualization
             {
                 double t = start + k * period;
                 if (t >= end) break;
+                double fall = t + period * duty;
+                // Past double.MaxValue the edge failed in the constructor, naming "changes" (not a parameter here).
+                if (double.IsInfinity(fall)) throw new ArgumentException("A clock edge lies beyond double.MaxValue.", nameof(period));
                 c.Add((t, true));
-                c.Add((t + period * duty, false));
+                c.Add((fall, false));
             }
             return Digital(name, c);
         }
@@ -63,6 +66,10 @@ namespace ToolBelt.Visualization
             if (samples is null) throw new ArgumentNullException(nameof(samples));
             if (!(sampleRate > 0)) throw new ArgumentOutOfRangeException(nameof(sampleRate));
             if (!(highThreshold >= lowThreshold)) throw new ArgumentException("High threshold must not be below the low threshold.", nameof(highThreshold));
+            // Both failed in the constructor, naming "changes" (not a parameter here).
+            if (double.IsNaN(startTime) || double.IsInfinity(startTime)) throw new ArgumentOutOfRangeException(nameof(startTime), startTime, "Start time must be finite.");
+            if (samples.Count > 1 && double.IsInfinity(startTime + (samples.Count - 1) / sampleRate))
+                throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "The sample times run beyond double.MaxValue.");
             var c = new List<(double, bool?)>();
             bool? level = null;
             c.Add((startTime, null));
@@ -143,10 +150,16 @@ namespace ToolBelt.Visualization
             for (int i = 0; i < signals.Count; i++)
                 if (signals[i] is null) throw new ArgumentException($"Signal {i} is null.", nameof(signals));
             var o = options ?? new TimingDiagramOptions();
+            // A non-finite window failed inside AxisTicks as "min", and End < Start was silently replaced by [Start, Start + 1].
+            if (o.Start is double s0 && (double.IsNaN(s0) || double.IsInfinity(s0)) || o.End is double e0 && (double.IsNaN(e0) || double.IsInfinity(e0)))
+                throw new ArgumentOutOfRangeException(nameof(options), "Start and End must be finite.");
+            if (o.Start is double sx && o.End is double ex && !(ex > sx))
+                throw new ArgumentException("End must be after Start.", nameof(options));
             var times = signals.SelectMany(s => s.Changes.Select(c => c.Time)).ToList();
             double t0 = o.Start ?? (times.Count > 0 ? times.Min() : 0), t1 = o.End ?? (times.Count > 0 ? times.Max() : 1);
             // One unit was below the spacing of doubles past 2^53 (epoch nanoseconds), so t1 == t0 and every x was 0/0.
             if (!(t1 > t0)) t1 = t0 + Math.Max(1, Math.Abs(t0) * 1e-9);
+            if (double.IsInfinity(t1)) { t1 = double.MaxValue; t0 = Math.Min(t0, t1 - Math.Max(1, Math.Abs(t1) * 1e-9)); }
             Func<double, string> fmt = o.FormatTime ?? FormatSeconds;
 
             // Checked here so a bad value names the option (it failed later inside SvgUtils, naming "value"), and capped:
@@ -165,8 +178,12 @@ namespace ToolBelt.Visualization
             if (plotW < 50) throw new ArgumentException("Width leaves no room for the diagram.", nameof(options));
             double lanesH = signals.Count * o.LaneHeight + (signals.Count - 1) * o.LaneGap;
             double axisY = top + lanesH + 8, height = axisY + 34;
-            // Halved: t1 − t0 overflowed to ∞ for finite times near ±double.MaxValue.
-            double X(double t) => left + (0.5 * Math.Max(t0, Math.Min(t1, t)) - 0.5 * t0) / (0.5 * t1 - 0.5 * t0) * plotW;
+            // Halved only when t1 − t0 overflows (finite times near ±double.MaxValue): halving always rounded a subnormal span
+            // ([0, ε]) to 0, and every x was 0/0.
+            bool halve = double.IsInfinity(t1 - t0);
+            double X(double t) => halve
+                ? left + (0.5 * Math.Max(t0, Math.Min(t1, t)) - 0.5 * t0) / (0.5 * t1 - 0.5 * t0) * plotW
+                : left + (Math.Max(t0, Math.Min(t1, t)) - t0) / (t1 - t0) * plotW;
 
             var sb = new StringBuilder();
             sb.Append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"").Append(SvgUtils.Number(o.Width)).Append("\" height=\"").Append(SvgUtils.Number(height))
@@ -176,7 +193,8 @@ namespace ToolBelt.Visualization
             if (o.Title != null)
                 sb.Append("<text x=\"").Append(SvgUtils.Number(left)).Append("\" y=\"22\" font-size=\"14\" font-weight=\"bold\">").Append(SvgUtils.EscapeText(o.Title)).Append("</text>\n");
 
-            TickSet ticks = AxisTicks.Linear(t0, t1, maxTicks: Math.Max(2, (int)(plotW / 90)), loose: false);
+            // Capped at AxisTicks' 10,000: a Width past about 900,000 failed naming "maxTicks".
+            TickSet ticks = AxisTicks.Linear(t0, t1, maxTicks: Math.Min(10000, Math.Max(2, (int)(plotW / 90))), loose: false);
             var tickLabels = ticks.Values.Select(v => fmt(v) ?? "").ToList(); // a null label failed as "text"
             if (o.FormatTime is null)
             {
@@ -292,7 +310,10 @@ namespace ToolBelt.Visualization
               .Append("\" height=\"").Append(SvgUtils.Number(yLo - yHi)).Append("\" fill=\"#f3f3f3\" stroke=\"#bbbbbb\" stroke-width=\"0.8\"/>\n");
             var hatch = new PathBuilder();
             double h = yLo - yHi;
-            for (double x = xa - h; x < xb; x += 6)
+            // Every segment drew (width + LaneHeight) / 6 lines, so a tall lane of many narrow unknown slivers wrote
+            // gigabytes: past the segment's own width / 6 plus 200, the lines spread out.
+            double step = Math.Max(6, (xb - xa + h) / ((xb - xa) / 6 + 200));
+            for (double x = xa - h; x < xb; x += step)
             {
                 double x1 = Math.Max(xa, x), y1 = yLo - (x1 - x);
                 double x2 = Math.Min(xb, x + h), y2 = yLo - (x2 - x);
@@ -301,13 +322,15 @@ namespace ToolBelt.Visualization
             sb.Append("<path d=\"").Append(hatch).Append("\" stroke=\"#c8c8c8\" stroke-width=\"0.8\" fill=\"none\"/>\n");
         }
 
-        /// <summary>Seconds with an SI prefix: 0.0015 → "1.5 ms", 2e-6 → "2 µs", 0 → "0".</summary>
+        /// <summary>Seconds with an SI prefix: 0.0015 → "1.5 ms", 2e-6 → "2 µs", 0 → "0"; below 5e-16 s or from 1e15 s in exponent form ("1e+300 s").</summary>
         public static string FormatSeconds(double seconds)
         {
             if (double.IsNaN(seconds) || double.IsInfinity(seconds)) // gave "NaN ps" and "Infinity s"
                 throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "Seconds must be finite.");
             if (seconds == 0) return "0";
             double a = Math.Abs(seconds);
+            // Below half a femtosecond the picoseconds rounded to "0 ps", and 1e300 s printed all 301 digits.
+            if (a < 5e-16 || a >= 1e15) return seconds.ToString("0.###e+0", CultureInfo.InvariantCulture) + " s";
             (double scale, string unit) = a >= 1 ? (1, "s") : a >= 1e-3 ? (1e3, "ms") : a >= 1e-6 ? (1e6, "µs") : a >= 1e-9 ? (1e9, "ns") : (1e12, "ps");
             // Choose the unit after rounding: 0.9999999 s came out as "1000 ms".
             if (Math.Round(a * scale, 3) >= 1000 && scale > 1)
