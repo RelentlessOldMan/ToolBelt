@@ -203,11 +203,19 @@ namespace ToolBelt.Quality
             // Work in units of the largest reading (a power of two, so normal-range data give the same bits): squared
             // outright, readings near 1e-160 underflowed to "no variation" and readings near 1e+160 overflowed to NaN.
             double s = Pow2Scale(maxAbs);
+            // As offsets from the first reading c, as Anova does: summed outright, readings on a large offset (a 25.4 mm
+            // part measured to 1e-5) lost their variation to cancellation between the means.
+            double c = measurements[0, 0, 0] / s, maxOffset = 0;
             for (int i = 0; i < p; i++)
                 for (int j = 0; j < o; j++)
                 {
                     double sum = 0;
-                    for (int k = 0; k < r; k++) sum += measurements[i, j, k] / s;
+                    for (int k = 0; k < r; k++)
+                    {
+                        double d = measurements[i, j, k] / s - c;
+                        sum += d;
+                        maxOffset = Math.Max(maxOffset, Math.Abs(d));
+                    }
                     cell[i, j] = sum / r;
                     partMean[i] += cell[i, j] / o;
                     opMean[j] += cell[i, j] / p;
@@ -223,12 +231,13 @@ namespace ToolBelt.Quality
                 for (int j = 0; j < o; j++)
                 {
                     ssInt += Sq(cell[i, j] - partMean[i] - opMean[j] + grand);
-                    for (int k = 0; k < r; k++) ssRep += Sq(measurements[i, j, k] / s - cell[i, j]);
+                    for (int k = 0; k < r; k++) ssRep += Sq(measurements[i, j, k] / s - c - cell[i, j]);
                 }
             ssInt *= r;
             // Sums of squares at rounding level are zero (identical readings of 0.1 leave ~1e-34 of round-off), so they
-            // cannot produce F ratios or variance shares out of noise.
-            double floor = p * o * r * Sq(1e-14 * (maxAbs / s));
+            // cannot produce F ratios or variance shares out of noise. The round-off scales with the offsets the sums are
+            // built from; scaled by the largest reading, the floor zeroed real repeatability of readings on an offset.
+            double floor = p * o * r * Sq(1e-14 * maxOffset);
             if (ssPart <= floor) ssPart = 0;
             if (ssOp <= floor) ssOp = 0;
             if (ssInt <= floor) ssInt = 0;
@@ -319,7 +328,8 @@ namespace ToolBelt.Quality
             }
             if (parts.Count == 0) throw new ArgumentException("No measurements.", nameof(measurements));
             int trials = cells.Values.First().Count;
-            if (cells.Count != parts.Count * ops.Count || cells.Values.Any(c => c.Count != trials))
+            // As long: 65,536 parts by 65,538 operators wrapped the int product, and an unbalanced design passed.
+            if (cells.Count != (long)parts.Count * ops.Count || cells.Values.Any(c => c.Count != trials))
                 throw new ArgumentException("The study must be balanced: every operator measures every part the same number of times.", nameof(measurements));
 
             var data = new double[parts.Count, ops.Count, trials];
@@ -375,7 +385,7 @@ namespace ToolBelt.Quality
             {
                 // Γ(x) = Γ(x + 1)/x for 0 < x < ½; the reflection formula's π/sin(πx) overflows for x below ~1e-308.
                 if (x > 0) return LnGamma(x + 1) - Math.Log(x);
-                return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * x))) - LnGamma(1 - x); // reflection
+                return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * (x - Math.Round(x))))) - LnGamma(1 - x); // reflection, sin(πx) reduced as SpecialFunctions.SinPi
             }
             // Near its zeros at 1 and 2 ln Γ is tiny, and the Lanczos sum, accurate only absolutely, kept ~1e-5 of it.
             if (x >= 0.8 && x <= 1.2) return LnGammaNearOne(x - 1);

@@ -433,10 +433,10 @@ src/
       EngineeringNotation.cs  SI-prefix format + parse (yocto..yotta, round-trip)
       ExponentialMovingAverage.cs  EMA smoothing (alpha)
       Histogram.cs          fixed-bin histogram (under/overflow and NaN tracking); throws if the range is too narrow for the bins
-      HypothesisTests.cs    t-test / chi-square / KS / Mann-Whitney U / F-test for variances; IsSignificant(alpha)
+      HypothesisTests.cs    t-test / chi-square / KS (one-sample p exact: Marsaglia-Tsang-Wang to n 140, Smirnov tail) / Mann-Whitney U / F-test for variances; IsSignificant(alpha)
       StreamingQuantile.cs  one-pass constant-memory quantiles (P² algorithm) + multi-quantile tracker
-      PermutationTest.cs    distribution-free two-sample / paired tests, exact when small, any statistic
-      MultipleRegression.cs OLS via Householder QR: SEs, t, p, R²/adj, prediction & mean intervals + Theil-Sen robust line
+      PermutationTest.cs    distribution-free two-sample / paired tests, exact when small, any statistic (permutations capped at the largest array)
+      MultipleRegression.cs OLS via Householder QR (columns centred when there is an intercept): SEs, t, p, R²/adj, prediction & mean intervals + Theil-Sen robust line
       DistributionFit.cs    MLE fits (normal/log-normal/exponential/gamma/Weibull), AIC/BIC, KS plausibility, FitAll
       Uncertainty.cs        round value to its uncertainty (PDG rule), "12.346 ± 0.012" / "12.346(12)" formatting
       AkimaSpline.cs        Akima / modified-Akima (makima) C1 spline: no ringing at steps, exact on lines
@@ -851,6 +851,7 @@ tests/
       StatisticsReviewTests.cs       (review regressions: extreme tails, huge df, round-off variance, non-finite inputs, SPC)
       StatisticsReview2Tests.cs      (second-pass regressions: scale invariance at 1e±170, far-tail quantiles, lnΓ near 1 and 2)
       StatisticsReview3Tests.cs      (third-pass regressions: sums near MaxValue, regression scaling, F density at large df, Γ accuracy)
+      StatisticsReview4Tests.cs      (fourth-pass regressions: data on an offset, tight gamma/log-normal fits, exact KS p, far tails, huge counts)
       HugeShapeTests.cs              (round 46: incomplete beta at shapes near MaxValue and subnormal; drop-in copies agree)
       DifferentialHarnessTests.cs    (round 47: tiny-shape tails and prefixes, huge-other-shape prefix, from the mpmath harness)
       NumericsCoreReviewTests.cs     (review regressions: QR fit, cancellation-free roots, extreme magnitudes, NaN rejection, fast primes)

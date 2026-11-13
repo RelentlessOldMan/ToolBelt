@@ -22,10 +22,10 @@ namespace ToolBelt.Numerics
             DegreesOfFreedom2 = degreesOfFreedom2;
         }
 
-        /// <summary>The test statistic (t, chi-square, D, or U depending on the test).</summary>
+        /// <summary>The test statistic (t, chi-square, F, D, or U depending on the test).</summary>
         public double Statistic { get; }
 
-        /// <summary>The p-value. Two-sided for the t and Mann-Whitney tests; upper-tail for chi-square; the KS tail probability for KS.</summary>
+        /// <summary>The p-value. Two-sided for the t, F (variance ratio) and Mann-Whitney tests; upper-tail for chi-square; the KS tail probability for KS.</summary>
         public double PValue { get; }
 
         /// <summary>Degrees of freedom where the test defines them (NaN for KS and Mann-Whitney); the numerator df for F.</summary>
@@ -75,7 +75,7 @@ namespace ToolBelt.Numerics
                 return mean == populationMean
                     ? new TestResult(0, 1, df)
                     : new TestResult(mean > populationMean ? double.PositiveInfinity : double.NegativeInfinity, 0, df);
-            double t = Ratio(mean, populationMean, sd / Math.Sqrt(n));
+            double t = Ratio(sample, null, populationMean, sd / Math.Sqrt(n));
             return new TestResult(t, TwoSidedTP(t, df), df);
         }
 
@@ -119,7 +119,7 @@ namespace ToolBelt.Numerics
                 double pooled = ((na - 1) * ra * ra + (nb - 1) * rb * rb) / (na + nb - 2);
                 double se = Math.Sqrt(pooled * (1.0 / na + 1.0 / nb)) * m;
                 df = na + nb - 2;
-                t = se == 0 ? SignedInfinity(ma - mb) : Ratio(ma, mb, se);
+                t = se == 0 ? SignedInfinity(ma - mb) : Ratio(a, b, 0, se);
             }
             else
             {
@@ -129,7 +129,7 @@ namespace ToolBelt.Numerics
                 double se = Math.Sqrt(sa + sb) * m;
                 // Welch-Satterthwaite degrees of freedom (NaN when both spreads are zero).
                 df = (sa + sb) * (sa + sb) / (sa * sa / (na - 1) + sb * sb / (nb - 1));
-                t = se == 0 ? SignedInfinity(ma - mb) : Ratio(ma, mb, se);
+                t = se == 0 ? SignedInfinity(ma - mb) : Ratio(a, b, 0, se);
             }
 
             if (double.IsInfinity(t)) return new TestResult(t, 0, df);
@@ -188,7 +188,7 @@ namespace ToolBelt.Numerics
                 if (!(e > 0) || double.IsInfinity(e))
                     throw new ArgumentException($"Expected count at index {i} must be finite and positive.", nameof(expected));
                 double d = o - e;
-                chi2 += d * d / e;
+                chi2 += d * (d / e);   // d·d overflowed to ∞ for differences near 1e308 (and underflowed near 1e-162)
                 totalObserved += o;
                 totalExpected += e;
             }
@@ -224,6 +224,20 @@ namespace ToolBelt.Numerics
                     rowSum[i] += v; colSum[j] += v; total += v;
                 }
             if (total <= 0) throw new ArgumentException("Contingency table must contain positive counts.", nameof(contingency));
+            // χ² scales with the table (χ²(sT) = s·χ²(T)): counts whose sums overflow are summed scaled down by a power of
+            // two (exact), and the statistic scaled back up.
+            double scale = 1;
+            if (double.IsInfinity(total))
+            {
+                scale = Math.Pow(2, -Math.Ceiling(Math.Log((double)r * c, 2)));
+                Array.Clear(rowSum, 0, r); Array.Clear(colSum, 0, c); total = 0;
+                for (int i = 0; i < r; i++)
+                    for (int j = 0; j < c; j++)
+                    {
+                        double v = contingency[i, j] * scale;
+                        rowSum[i] += v; colSum[j] += v; total += v;
+                    }
+            }
             for (int i = 0; i < r; i++)
                 if (rowSum[i] == 0) throw new ArgumentException($"Row {i} is all zero (zero marginal).", nameof(contingency));
             for (int j = 0; j < c; j++)
@@ -233,17 +247,25 @@ namespace ToolBelt.Numerics
             for (int i = 0; i < r; i++)
                 for (int j = 0; j < c; j++)
                 {
-                    double e = rowSum[i] * colSum[j] / total;
-                    double d = contingency[i, j] - e;
-                    chi2 += d * d / e;
+                    // A margin over the total first, and d·(d/e): rowSum·colSum overflowed for counts near 1e154 and d·d
+                    // underflowed near 1e-162, so a valid table gave NaN.
+                    double e = rowSum[i] * (colSum[j] / total);
+                    double d = contingency[i, j] * scale - e;
+                    chi2 += d * (d / e);
                 }
+            chi2 /= scale;
             double df = (r - 1) * (c - 1);
             return new TestResult(chi2, ChiSquareUpperP(chi2, df), df);
         }
 
         // ---------- Kolmogorov-Smirnov ----------
 
-        /// <summary>One-sample KS test comparing a sample to a reference CDF. Statistic is the KS distance D.</summary>
+        /// <summary>
+        /// One-sample KS test comparing a sample to a reference CDF. Statistic is the KS distance D. The p-value is exact
+        /// for up to 140 points (the Marsaglia–Tsang–Wang matrix form) and wherever it is below 1e-4 or D ≥ ½ (twice the
+        /// exact one-sided Smirnov tail, for up to 100,000 points); otherwise it is Stephens' approximation to the
+        /// asymptotic Kolmogorov distribution, good to about two digits.
+        /// </summary>
         public static TestResult KolmogorovSmirnovOneSample(IReadOnlyList<double> sample, Func<double, double> cdf)
         {
             RequireCount(sample, 1, nameof(sample));
@@ -265,11 +287,100 @@ namespace ToolBelt.Numerics
                 if (dPlus > d) d = dPlus;
                 if (dMinus > d) d = dMinus;
             }
-            double en = Math.Sqrt(n);
-            return new TestResult(d, KolmogorovQ((en + 0.12 + 0.11 / en) * d), double.NaN);
+            return new TestResult(d, KolmogorovSmirnovUpperP(n, d), double.NaN);
         }
 
-        /// <summary>Two-sample KS test comparing the empirical CDFs of two samples. Statistic is the KS distance D.</summary>
+        // P(D_n ≥ d) for the one-sample statistic. Stephens' asymptotic form alone was off by 10–20% at small n (0.0347
+        // for SciPy's exact 0.0402 at n = 5) and lost all relative precision in the far tail.
+        private static double KolmogorovSmirnovUpperP(int n, double d)
+        {
+            if (!(d > 0) || n * d <= 0.5) return 1;      // D ≥ 1/(2n) always
+            if (d >= 1) return 0;
+            if (n <= 100000)
+            {
+                // D⁺ ≥ d and D⁻ ≥ d together need D⁺ + D⁻ ≥ 2d, and D⁺ + D⁻ ≤ 1: for d > ½ the tails are disjoint and the
+                // doubled one-sided tail is exact; below, their overlap is of order p⁴ and negligible once p < 1e-4.
+                double s2 = 2 * SmirnovUpper(n, d);
+                if (d >= 0.5 || s2 < 1e-4) return Math.Min(1, s2);
+            }
+            if (n <= 140) return Math.Max(0, Math.Min(1, 1 - KolmogorovCdfExact(n, d)));
+            double en = Math.Sqrt(n);
+            return KolmogorovQ((en + 0.12 + 0.11 / en) * d);
+        }
+
+        // Exact one-sided tail P(D⁺_n ≥ d) = d Σ_{j ≤ n(1−d)} C(n, j)(1 − d − j/n)^(n−j)(d + j/n)^(j−1) (Birnbaum–Tingey),
+        // every term positive and summed in logs.
+        private static double SmirnovUpper(int n, double d)
+        {
+            double sum = 0, lnC = 0;
+            int jMax = (int)Math.Floor(n * (1 - d));
+            for (int j = 0; j <= jMax; j++)
+            {
+                if (j > 0) lnC += Math.Log((double)(n - j + 1) / j);
+                double a = 1 - d - (double)j / n, b = d + (double)j / n;
+                if (!(a > 0)) break;
+                sum += Math.Exp(lnC + (n - j) * Math.Log(a) + (j - 1) * Math.Log(b));
+            }
+            return Math.Min(1, d * sum);
+        }
+
+        // Marsaglia, Tsang and Wang (2003): P(D_n < d) = n!/nⁿ · (Hⁿ)_kk for an m × m matrix H, m = 2k − 1, k = ⌊nd⌋ + 1,
+        // with powers of ten carried aside so neither the power nor n!/nⁿ overflows.
+        private static double KolmogorovCdfExact(int n, double d)
+        {
+            int k = (int)(n * d) + 1, m = 2 * k - 1;
+            double h = k - n * d;
+            var hm = new double[m * m];
+            for (int i = 0; i < m; i++)
+                for (int j = 0; j < m; j++) hm[i * m + j] = i - j + 1 >= 0 ? 1 : 0;
+            for (int i = 0; i < m; i++)
+            {
+                hm[i * m] -= Math.Pow(h, i + 1);
+                hm[(m - 1) * m + i] -= Math.Pow(h, m - i);
+            }
+            if (2 * h - 1 > 0) hm[(m - 1) * m] += Math.Pow(2 * h - 1, m);
+            for (int i = 0; i < m; i++)
+                for (int j = 0; j < m; j++)
+                    for (int g = 1; g <= i - j + 1; g++) hm[i * m + j] /= g;
+            var q = MatrixPower(hm, m, n, out int e10);
+            double s = q[(k - 1) * m + k - 1];
+            for (int i = 1; i <= n; i++)
+            {
+                s = s * i / n;
+                if (s < 1e-140) { s *= 1e140; e10 -= 140; }
+            }
+            return s * Math.Pow(10, e10);
+        }
+
+        private static double[] MatrixPower(double[] a, int m, int power, out int e10)
+        {
+            if (power == 1) { e10 = 0; return (double[])a.Clone(); }
+            var half = MatrixPower(a, m, power / 2, out int eHalf);
+            var r = MatrixMultiply(half, half, m);
+            e10 = 2 * eHalf;
+            if (power % 2 == 1) r = MatrixMultiply(a, r, m);
+            if (r[(m / 2) * m + m / 2] > 1e140)
+            {
+                for (int i = 0; i < r.Length; i++) r[i] *= 1e-140;
+                e10 += 140;
+            }
+            return r;
+        }
+
+        private static double[] MatrixMultiply(double[] a, double[] b, int m)
+        {
+            var c = new double[m * m];
+            for (int i = 0; i < m; i++)
+                for (int l = 0; l < m; l++)
+                {
+                    double ail = a[i * m + l];
+                    if (ail == 0) continue;
+                    for (int j = 0; j < m; j++) c[i * m + j] += ail * b[l * m + j];
+                }
+            return c;
+        }
+
+        /// <summary>Two-sample KS test comparing the empirical CDFs of two samples. Statistic is the KS distance D; the p-value is Stephens' asymptotic approximation.</summary>
         public static TestResult KolmogorovSmirnovTwoSample(IReadOnlyList<double> a, IReadOnlyList<double> b)
         {
             RequireCount(a, 1, nameof(a));
@@ -369,8 +480,11 @@ namespace ToolBelt.Numerics
             double mean = x0 + shift / n;
             double max = 0;
             for (int i = 0; i < n; i++) max = Math.Max(max, Math.Abs(x[i] / p - mean));
-            double s = Pow2Scale(max), ss = 0;
-            for (int i = 0; i < n; i++) { double d = (x[i] / p - mean) / s; ss += d * d; }
+            // The corrected two-pass sum Σd² − (Σd)²/n: the mean is rounded to an ulp of the data's offset, and that error,
+            // squared, stayed in Σd² (sd 3e-11 relative off for data on 1e6 with a spread of 1e-5).
+            double s = Pow2Scale(max), ss = 0, sd = 0;
+            for (int i = 0; i < n; i++) { double d = (x[i] / p - mean) / s; ss += d * d; sd += d; }
+            ss = Math.Max(0, ss - sd * sd / n);
             return (mean * p, Math.Sqrt(ss / (n - 1)) * s * p, n);
         }
 
@@ -380,11 +494,25 @@ namespace ToolBelt.Numerics
                 if (double.IsInfinity(x[i])) throw new ArgumentException($"Value [{i}] is not finite.", name);
         }
 
-        // (a − b)/se; when a − b overflows (finite means of opposite sign near 1e308), from the halves.
-        private static double Ratio(double a, double b, double se)
+        // (mean(a) − mean(b))/se, or (mean(a) − mu)/se without b. The difference is summed about one shared pivot in units of
+        // the largest magnitude p: formed from two separately rounded means of offset data it kept only their rounding (t
+        // 1e-8 relative off for nearly equal means), and outright it overflowed for means of opposite sign near 1e308.
+        private static double Ratio(IReadOnlyList<double> a, IReadOnlyList<double>? b, double mu, double se)
         {
-            double d = a - b;
-            return double.IsInfinity(d) ? (a / 2 - b / 2) / (se / 2) : d / se;
+            double big = Math.Abs(mu);
+            for (int i = 0; i < a.Count; i++) big = Math.Max(big, Math.Abs(a[i]));
+            if (b != null) for (int i = 0; i < b.Count; i++) big = Math.Max(big, Math.Abs(b[i]));
+            double p = Pow2Scale(big), c = (b == null ? mu : a[0]) / p, sa = 0, sb = 0;
+            for (int i = 0; i < a.Count; i++) sa += a[i] / p - c;
+            double d = sa / a.Count;
+            if (b != null)
+            {
+                for (int i = 0; i < b.Count; i++) sb += b[i] / p - c;
+                d -= sb / b.Count;
+            }
+            double r = d * p;
+            if (double.IsInfinity(r)) return d / (se / p);
+            return Math.Abs(r) < 2.2250738585072014E-308 ? d * (p / se) : r / se;      // a subnormal difference keeps its digits
         }
 
         // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same

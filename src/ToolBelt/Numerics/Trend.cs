@@ -36,6 +36,24 @@ namespace ToolBelt.Numerics
         /// <summary>The largest series accepted: its n(n − 1)/2 pairwise slopes must fit in one array.</summary>
         public const int MaxPoints = 65536;
 
+        // .NET Framework caps one array at 2 GB (about 268 million doubles, 23,170 points) unless the app sets
+        // gcAllowVeryLargeObjects; past that it threw OutOfMemoryException where the documented point limit says
+        // ArgumentException.
+        private static double[] NewSlopeArray(long length, string paramName)
+        {
+#if NET8_0_OR_GREATER
+            return new double[length];
+#else
+            try { return new double[length]; }
+            catch (OutOfMemoryException) when (length > 268435448)
+            {
+                throw new ArgumentException(
+                    $"The {length} pairwise slopes need an array over 2 GB, which .NET Framework allows only with gcAllowVeryLargeObjects (or memory ran out).",
+                    paramName);
+            }
+#endif
+        }
+
         /// <summary>Mann-Kendall S, tau and Sen's slope of <paramref name="series"/> (at least 2 finite values).</summary>
         public static TrendResult MannKendall(IReadOnlyList<double> series)
         {
@@ -49,7 +67,7 @@ namespace ToolBelt.Numerics
                     throw new ArgumentException($"Value [{i}] is not finite.", nameof(series));
 
             long pairs = (long)n * (n - 1) / 2;   // <= 2,147,450,880 at MaxPoints, so |S| fits an int
-            var slopes = new double[pairs];
+            var slopes = NewSlopeArray(pairs, nameof(series));
             long s = 0, at = 0;
             for (int i = 0; i < n; i++)
                 for (int j = i + 1; j < n; j++)

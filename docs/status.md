@@ -9,22 +9,22 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
    As of round 53 all 17 sections are re-queued; the order is in REVIEW-PLAN.md. The cross-cutting rounds (54 to 57)
    are done. Round 58 (IO) found 39 bugs, 7 severe, round 59 (section 14) 27 bugs, 3 severe, and round 60 (section 17)
    22 bugs, none severe, round 61 (section 4) 24 bugs, none severe, round 62 (section 5) 24 bugs, 1 severe, and
-   round 63 (section 7) 29 bugs, 5 severe, round 64 (section 13) 16 bugs, none severe, and round 65 (section 15)
-   25 bugs, 1 severe, so all eight stay re-queued; section 3 is next.
+   round 63 (section 7) 29 bugs, 5 severe, round 64 (section 13) 16 bugs, none severe, round 65 (section 15)
+   25 bugs, 1 severe, and round 66 (section 3) 23 bugs, none severe, so all nine stay re-queued; section 1 is next.
 
 ## Built
 
 - **The library** (2026-09-25 to 2026-10-05): 29+ divisions in the core plus the Windows, WPF and WinForms
   satellites. The README's Layout is the inventory.
-- **The review** (2026-10-07 onward): 65 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
+- **The review** (2026-10-07 onward): 66 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
   sections, two rounds on flaky tests and the incomplete beta/gamma harness, and four cross-cutting rounds (round 54,
   throwing callbacks: 36 bugs, 2 severe; round 55, cancellation and dispose races: 17 bugs, 2 severe, both a Ctrl+C
   handler letting a token callback's exception escape; round 56, non-finite and extreme numerics: 34 bugs, 2 severe,
   both hangs on data near MaxValue; round 57, the whole suite on .NET Framework 4.8: 4 bugs, none severe). The fourth
   pass began with IO (round 58: 39 bugs, 7 severe, mostly junction swaps mid-operation, the tar guard and names
   ending in a dot).
-- **Checks every round passes:** the full verify (core 3322 tests, Windows 136, WPF 162, WinForms 104,
-  MathChecks 40 at v2026.11.13.8), the overflow-checked build with no failures (since round 48), and the special
+- **Checks every round passes:** the full verify (core 3343 tests, Windows 136, WPF 162, WinForms 104,
+  MathChecks 40 at v2026.11.13.9), the overflow-checked build with no failures (since round 48), and the special
   functions against mpmath (graded in condition-number units).
 - **.NET Framework 4.8:** since round 57 the whole core suite compiles and passes there (3079 tests; net8-only
   types' tests are guarded out).
@@ -114,6 +114,10 @@ Written as rules a future session can apply.
   arithmetic; wrap them in `unchecked`.
 - Finite-overflow fixes: compute plainly, and only when the result is non-finite with finite inputs redo it scaled,
   so ordinary results stay bit-identical. Check "not finite", not `IsInfinity` (∞·0 = NaN).
+- Data on an offset (timestamps, 1e9 + small spread): centre on a pivot (the first value, or the mean) before sums of
+  squares, regressions or differences of means, and base any round-off floor on the spread, not the magnitude. The
+  test data should be multiples of the offset's ulp, so the shifted data are an exact reference.
+- `Check.Close` is absolute: grade large or tiny references with a relative tolerance (`tol * |expected|`).
 - Significant-digit rounding: round the shortest round-trip ("R") digits and parse once. On .NET Framework "R" can
   drop a digit, so fall back to G17 when it doesn't round-trip.
 - A `params IReadOnlyList<T>[]` overload beats `IReadOnlyList<IReadOnlyList<T>>` for a single `List<List<T>>`.

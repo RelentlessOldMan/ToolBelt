@@ -95,9 +95,14 @@ namespace ToolBelt.Numerics
             // Means as offsets from the first value c: summed outright, data on a large offset (1e9 + small effects) lost
             // the effects to rounding in every sum, and the group-minus-grand difference cancelled what was left.
             double c = groups[0][0] / s;
-            double grandSum = 0;
+            double grandSum = 0, maxOffset = 0;
             for (int i = 0; i < k; i++)
-                for (int j = 0; j < groups[i].Length; j++) grandSum += groups[i][j] / s - c;
+                for (int j = 0; j < groups[i].Length; j++)
+                {
+                    double o = groups[i][j] / s - c;
+                    grandSum += o;
+                    maxOffset = Math.Max(maxOffset, Math.Abs(o));
+                }
             double grandOffset = grandSum / total;
             double ssBetween = 0, ssWithin = 0;
             for (int i = 0; i < k; i++)
@@ -122,9 +127,10 @@ namespace ToolBelt.Numerics
             double msW = ssWithin / dfW;
 
             // Sums of squares at rounding level are zero: data like {0.1, 0.1, 0.1} leave ~1e-34 of round-off in the
-            // group mean's residuals, and a ratio of two such crumbs is a meaningless F (and p).
-            double scaledMax = maxAbs / s;
-            double floor = total * (1e-14 * scaledMax) * (1e-14 * scaledMax);
+            // group mean's residuals, and a ratio of two such crumbs is a meaningless F (and p). The sums are built from
+            // the offsets, so their round-off scales with the largest offset: scaled by the largest reading, the floor
+            // zeroed real variation of data on an offset (groups at 1e9 a few ulps apart gave F = 0 or ∞).
+            double floor = total * (1e-14 * maxOffset) * (1e-14 * maxOffset);
             if (ssWithin <= floor) { ssWithin = 0; msW = 0; }
             if (ssBetween <= floor) { ssBetween = 0; msB = 0; }
 
@@ -166,10 +172,11 @@ namespace ToolBelt.Numerics
         /// </summary>
         public static double FUpperTailProbability(double f, double df1, double df2)
         {
-            if (!(df1 > 0) || double.IsInfinity(df1))
-                throw new ArgumentOutOfRangeException(nameof(df1), df1, "Degrees of freedom must be positive and finite.");
-            if (!(df2 > 0) || double.IsInfinity(df2))
-                throw new ArgumentOutOfRangeException(nameof(df2), df2, "Degrees of freedom must be positive and finite.");
+            // Subnormal df are refused as Distributions refuses them: halved they lose their digits, and the tail was NaN.
+            if (!(df1 >= 2.2250738585072014E-308) || double.IsInfinity(df1))
+                throw new ArgumentOutOfRangeException(nameof(df1), df1, "Degrees of freedom must be positive, finite and not subnormal.");
+            if (!(df2 >= 2.2250738585072014E-308) || double.IsInfinity(df2))
+                throw new ArgumentOutOfRangeException(nameof(df2), df2, "Degrees of freedom must be positive, finite and not subnormal.");
             if (double.IsNaN(f)) return double.NaN;
             if (f <= 0) return 1.0;
             if (double.IsPositiveInfinity(f)) return 0.0;
@@ -197,7 +204,7 @@ namespace ToolBelt.Numerics
             {
                 // Γ(x) = Γ(x + 1)/x for 0 < x < ½; the reflection formula's π/sin(πx) overflows for x below ~1e-308.
                 if (x > 0) return LnGamma(x + 1) - Math.Log(x);
-                return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * x))) - LnGamma(1 - x); // reflection
+                return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * (x - Math.Round(x))))) - LnGamma(1 - x); // reflection, sin(πx) reduced as SpecialFunctions.SinPi
             }
             // Near its zeros at 1 and 2 ln Γ is tiny, and the Lanczos sum, accurate only absolutely, kept ~1e-5 of it.
             if (x >= 0.8 && x <= 1.2) return LnGammaNearOne(x - 1);

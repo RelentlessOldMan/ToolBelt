@@ -102,13 +102,20 @@ namespace ToolBelt.Numerics
         {
             double[] x = Check(sample, positive: true, min: 2);
             int n = x.Length;
-            double[] lx = x.Select(v => Math.Log(v)).ToArray();
-            double mu = lx.Average();
+            // Logs relative to the first value, ln(xᵢ/x₀) = ln(1 + dᵢ): Math.Log(xᵢ) rounded each log to an ulp of ln x̄,
+            // which for tight data (CV 1e-7) was a 1e-10 share of sigma.
+            double x0 = x[0], l0 = Math.Log(x0);
+            double[] lx = x.Select(v =>
+            {
+                double d = (v - x0) / x0;
+                return Math.Abs(d) <= 0.5 ? d + Log1pmx(d) : Math.Log(v) - l0;
+            }).ToArray();
+            double offset = lx.Average(), mu = l0 + offset;
             double ss = 0;
-            foreach (double v in lx) ss += (v - mu) * (v - mu);
+            foreach (double v in lx) ss += (v - offset) * (v - offset);
             double sigma = Math.Sqrt(ss / n);
             if (sigma == 0) throw new ArgumentException("All values are equal; the spread cannot be estimated.", nameof(sample));
-            double ll = -n / 2.0 * (Math.Log(2 * Math.PI) + 2 * Math.Log(sigma) + 1) - lx.Sum();
+            double ll = -n / 2.0 * (Math.Log(2 * Math.PI) + 2 * Math.Log(sigma) + 1) - (n * l0 + lx.Sum());
             Func<double, double> cdf = v => Distributions.LogNormalCdf(v, mu, sigma);
             return Make(DistributionFamily.LogNormal, P("mu", mu, "sigma", sigma), ll, x, cdf);
         }
@@ -130,8 +137,10 @@ namespace ToolBelt.Numerics
             double[] x = Check(sample, positive: true, min: 2);
             int n = x.Length;
             double mean = MeanSd(x).Mean;
-            // s = ln x̄ − mean(ln x) = mean(dᵢ − ln(1 + dᵢ)) − mean(dᵢ) with dᵢ = xᵢ/x̄ − 1: no cancellation between two O(1)
-            // logs, so tight data (s ≈ CV²/2, below 1e-14 at CV 1.4e-7) keeps its shape.
+            // s = ln x̄ − mean(ln x) with dᵢ = xᵢ/m − 1 about the computed mean m: ln(1 + dᵢ) = dᵢ + Lᵢ (L = Log1pmx), and the
+            // true mean is m(1 + d̄), so s = L(d̄) − mean(Lᵢ): no cancellation between two O(1) logs, so tight data (s ≈ CV²/2,
+            // below 1e-14 at CV 1.4e-7) keeps its shape. (Subtracting d̄ instead, as before, kept m's rounding error in s to
+            // first order: the shape was 2.9% off at CV 1e-7.)
             double s = 0, meanD = 0;
             foreach (double v in x)
             {
@@ -141,7 +150,8 @@ namespace ToolBelt.Numerics
                 s -= Math.Abs(d) > 0.5 ? Math.Log(v) - Math.Log(mean) - d : Log1pmx(d);
                 meanD += d;
             }
-            s = (s - meanD) / n;                                  // >= 0 by Jensen; 0 only when all values are equal
+            double sumL = -s, sumD = meanD;
+            s = s / n + Log1pmx(meanD / n);                       // >= 0 by Jensen; 0 only when all values are equal
             if (!(s > 0)) throw new ArgumentException("All values are equal; the shape cannot be estimated.", nameof(sample));
             double k = (3 - s + Math.Sqrt((s - 3) * (s - 3) + 24 * s)) / (12 * s); // Minka's starting point
             for (int i = 0; i < 100; i++)
@@ -154,9 +164,19 @@ namespace ToolBelt.Numerics
                 if (done) break;
             }
             double theta = mean / k;
-            double ll = (k - 1) * x.Select(v => Math.Log(v)).Sum() - n * k - n * (k * Math.Log(theta) + LnGamma(k)); // Σx/θ = nk
+            // A scale past the double range (a subnormal mean over a large shape, or a huge mean over a tiny one) cannot be
+            // reported: it underflowed to 0, giving log-likelihood +∞ and an AIC that ranked the fit first.
+            if (!(theta >= 2.2250738585072014E-308) || double.IsInfinity(theta))
+                throw new ArgumentException("The fitted gamma scale is outside the double range.", nameof(sample));
+            // ll = Σ[(k − 1) ln(xᵢ/θ) − xᵢ/θ] − n ln θ − n ln Γ(k) with xᵢ/θ = k(1 + dᵢ), arranged so the k-sized terms cancel
+            // analytically: n·G(k) + (k − 1)ΣLᵢ − Σdᵢ − n ln θ, G(k) = (k − 1) ln k − k − ln Γ(k) = −½ ln(2πk) − (Stirling
+            // correction) for large k. Summed directly, terms of size n·k·ln x̄ cancelled to an O(n) result (AIC off by 62
+            // at CV 1e-7).
+            double g = k >= 10 ? -0.5 * Math.Log(2 * Math.PI * k) - StirlingCorrection(k) : (k - 1) * Math.Log(k) - k - LnGamma(k);
+            double ll = n * g + (k - 1) * sumL - sumD - n * Math.Log(theta);
             double shape = k;
-            Func<double, double> cdf = v => v <= 0 ? 0 : Distributions.ChiSquareCdf(2 * v / theta, 2 * shape); // Gamma(k, θ) ⇔ χ²(2k) of 2x/θ
+            // 2·(x/θ), not 2x/θ: 2x overflowed for data near the largest double (KS statistic 1 for a good fit).
+            Func<double, double> cdf = v => v <= 0 ? 0 : Distributions.ChiSquareCdf(2 * (v / theta), 2 * shape); // Gamma(k, θ) ⇔ χ²(2k) of 2x/θ
             return Make(DistributionFamily.Gamma, P("shape", k, "scale", theta), ll, x, cdf);
         }
 
@@ -303,6 +323,13 @@ namespace ToolBelt.Numerics
             return -(f / 2 + f / k * (1.0 / 6 - f * (1.0 / 30 - f * (1.0 / 42 - f * (1.0 / 30)))));
         }
 
+        // ln Γ(k) − ((k − ½) ln k − k + ln √(2π)) for k >= 10, by its asymptotic series (next term below 2e-14 there).
+        private static double StirlingCorrection(double k)
+        {
+            double f = 1 / (k * k);
+            return (1.0 / 12 - f * (1.0 / 360 - f * (1.0 / 1260 - f * (1.0 / 1680 - f * (1.0 / 1188))))) / k;
+        }
+
         // e^x − 1 without cancellation for small x (Goldberg).
         private static double Expm1(double x)
         {
@@ -345,7 +372,7 @@ namespace ToolBelt.Numerics
             {
                 // Γ(x) = Γ(x + 1)/x for 0 < x < ½; the reflection formula's π/sin(πx) overflows for x below ~1e-308.
                 if (x > 0) return LnGamma(x + 1) - Math.Log(x);
-                return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * x))) - LnGamma(1 - x); // reflection
+                return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * (x - Math.Round(x))))) - LnGamma(1 - x); // reflection, sin(πx) reduced as SpecialFunctions.SinPi
             }
             // Near its zeros at 1 and 2 ln Γ is tiny, and the Lanczos sum, accurate only absolutely, kept ~1e-5 of it.
             if (x >= 0.8 && x <= 1.2) return LnGammaNearOne(x - 1);

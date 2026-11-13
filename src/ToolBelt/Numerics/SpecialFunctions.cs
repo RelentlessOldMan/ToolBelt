@@ -46,7 +46,16 @@ namespace ToolBelt.Numerics
             }
             if (x == Math.Floor(x)) throw new ArgumentException("Gamma is undefined at non-positive integers.", nameof(x));
             // Reflection: Γ(x)·Γ(1-x) = π / sin(πx).
-            return Math.PI / (SinPi(x) * Gamma(1 - x));
+            double w = 1 - x, gw = Gamma(w);
+            if (double.IsInfinity(gw) && x > -190)
+            {
+                // Γ(1 − x) overflows below x ≈ −170.6 while Γ(x) is still representable (subnormal) to about −177.8, and the
+                // reflection returned 0: peel factors off, Γ(y) = Γ(y − m)·∏(y − m + j), and divide their product out first.
+                double r = Math.PI / SinPi(x), product = 1;
+                while (w > 171) { w -= 1; product *= w; }
+                return r / product / Gamma(w);
+            }
+            return Math.PI / (SinPi(x) * gw);
         }
 
         /// <summary>The beta function B(a, b) = Γ(a)Γ(b)/Γ(a+b), for a, b &gt; 0.</summary>

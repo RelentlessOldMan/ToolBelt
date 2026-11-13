@@ -11,15 +11,24 @@ namespace ToolBelt.Numerics
     /// </summary>
     public static class ChangePoint
     {
-        /// <summary>Cumulative sum of deviations from the overall mean; a sustained slope marks a level shift.</summary>
+        /// <summary>
+        /// Cumulative sum of deviations from the overall mean; a sustained slope marks a level shift. Values must be finite,
+        /// and so must every cumulative sum.
+        /// </summary>
         public static double[] Cusum(IReadOnlyList<double> series)
         {
             if (series is null) throw new ArgumentNullException(nameof(series));
             if (series.Count == 0) return Array.Empty<double>();
 
             // The mean in units of the largest magnitude (a power of two): summed outright it overflowed for data near 1e308.
+            // A NaN or infinity made every later sum NaN (the max ignored a NaN, so the mean did not show it): refused.
             double big = 0;
-            for (int i = 0; i < series.Count; i++) big = Math.Max(big, Math.Abs(series[i]));
+            for (int i = 0; i < series.Count; i++)
+            {
+                double v = series[i];
+                if (double.IsNaN(v) || double.IsInfinity(v)) throw new ArgumentException($"Value [{i}] is not finite.", nameof(series));
+                big = Math.Max(big, Math.Abs(v));
+            }
             double p = Pow2Scale(big), mean = 0;
             for (int i = 0; i < series.Count; i++) mean += series[i] / p;
             mean = mean / series.Count * p;
@@ -30,6 +39,18 @@ namespace ToolBelt.Numerics
             {
                 running += series[i] - mean;
                 cusum[i] = running;
+            }
+            if (!double.IsInfinity(running) && !double.IsNaN(running)) return cusum;
+            // A deviation or a partial sum overflowed (1e308 twice, then −1e308 twice: ∞ where the sum is back to 0), and
+            // ∞ − ∞ made the rest NaN: redone in units of p, so each sum overflows only if its own value does.
+            double ms = mean / p;
+            running = 0;
+            for (int i = 0; i < series.Count; i++)
+            {
+                running += series[i] / p - ms;
+                cusum[i] = running * p;
+                if (double.IsInfinity(cusum[i]))
+                    throw new ArgumentException($"The cumulative sum at [{i}] is outside the double range.", nameof(series));
             }
             return cusum;
         }

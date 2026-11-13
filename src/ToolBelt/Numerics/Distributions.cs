@@ -67,8 +67,11 @@ namespace ToolBelt.Numerics
         {
             RequirePositive(sigma, nameof(sigma));
             if (x <= 0) return 0;
-            double z = (Math.Log(x) - mu) / sigma;
-            return Math.Exp(-0.5 * z * z) / (x * sigma * Sqrt2Pi);
+            double z = (Math.Log(x) - mu) / sigma, den = x * sigma * Sqrt2Pi;
+            // A denominator below the normal range (a tiny x with a small sigma) lost its digits or became 0, and with
+            // the exponential underflowed too the density was 0/0 = NaN: then in logs.
+            if (den < MinNormal) return Math.Exp(-0.5 * z * z - Math.Log(x) - Math.Log(sigma) - LnSqrt2Pi);
+            return Math.Exp(-0.5 * z * z) / den;
         }
 
         public static double LogNormalCdf(double x, double mu = 0, double sigma = 1)
@@ -227,8 +230,10 @@ namespace ToolBelt.Numerics
             // (1.6e-6 relative at df = 1e10). p = d1x/(d1x + d2), q = 1 − p, each formed without the subtraction.
             double m = d1, n = d2, mx = m * x;
             double p = double.IsInfinity(mx) ? 1 : mx / (n + mx), q = double.IsInfinity(mx) ? 0 : n / (n + mx);
-            if (m >= 2) return m * q / 2 * BinomialDensity((m - 2) / 2, (m + n - 2) / 2, p, q);
-            return m / (2 * x) * (n / (m + n)) * BinomialDensity(m / 2, (m + n) / 2, p, q);
+            // The failure count n/2 is passed itself: recovered as (m + n − 2)/2 − (m − 2)/2 it was lost once m dwarfed n
+            // (density 1e10 too large at m = 1e17, n = 3, which sent FQuantile's Newton steps astray).
+            if (m >= 2) return m * q / 2 * BinomialDensity((m - 2) / 2, n / 2, p, q);
+            return m / (2 * x) * (n / (m + n)) * BinomialDensity(m / 2, n / 2, p, q);
         }
 
         public static double FCdf(double x, double numeratorDf, double denominatorDf)
@@ -312,6 +317,20 @@ namespace ToolBelt.Numerics
                      : x < 0 ? 0.5 * qq - p : (1 - p) - 0.5 * qq;
             double u = e * Sqrt2Pi * Math.Exp(x * x / 2);
             if (!double.IsNaN(u) && !double.IsInfinity(u)) x -= u / (1 + x * u / 2);
+            else if (x < -30)
+            {
+                // p below ~1e-310: e^(x²/2) overflows, and e = Φ(x) − p is itself quantised to subnormal steps, so the
+                // step was skipped (1.5e-9 relative). Newton on ln Φ(x) = ln p instead, with Φ(x) = φ(x)/|x|·S(x),
+                // S = Σ (−1)ᵏ(2k − 1)!!/x²ᵏ (terms fall by ~1/1400 at |x| > 30); d ln Φ/dx = |x|/S.
+                double lp = Math.Log(p);
+                for (int it = 0; it < 2; it++)
+                {
+                    double t = 1 / (x * x), sum = 1, term = 1;
+                    for (int k = 1; k <= 10; k++) { term *= -(2 * k - 1) * t; sum += term; }
+                    double lnPhi = -x * x / 2 - LnSqrt2Pi - Math.Log(-x) + Math.Log(sum);
+                    x -= (lnPhi - lp) * sum / -x;
+                }
+            }
             return x;
         }
 
@@ -480,7 +499,7 @@ namespace ToolBelt.Numerics
             {
                 // Γ(x) = Γ(x + 1)/x for 0 < x < ½; the reflection formula's π/sin(πx) overflows for x below ~1e-308.
                 if (x > 0) return LnGamma(x + 1) - Math.Log(x);
-                return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * x))) - LnGamma(1 - x); // reflection
+                return Math.Log(Math.PI / Math.Abs(Math.Sin(Math.PI * (x - Math.Round(x))))) - LnGamma(1 - x); // reflection, sin(πx) reduced as SpecialFunctions.SinPi
             }
             // Near its zeros at 1 and 2 ln Γ is tiny, and the Lanczos sum, accurate only absolutely, kept ~1e-5 of it.
             if (x >= 0.8 && x <= 1.2) return LnGammaNearOne(x - 1);
@@ -1026,16 +1045,18 @@ namespace ToolBelt.Numerics
             return double.IsInfinity(d) && !double.IsInfinity(x) ? (x / 2 - mean / 2) / (sd / 2) : d / sd;
         }
 
-        // Loader's binomial density b(x; n, p) for real x and n (R's dbinom_raw), q = 1 − p given separately.
-        private static double BinomialDensity(double x, double n, double p, double q)
+        // Loader's binomial density b(x; x + y, p) for real x successes and y failures (R's dbinom_raw), q = 1 − p given
+        // separately. The failures are an argument, not n − x, so they survive x far above them.
+        private static double BinomialDensity(double x, double y, double p, double q)
         {
             if (p == 0) return x == 0 ? 1 : 0;
-            if (q == 0) return x == n ? 1 : 0;
-            if (x == 0) return n == 0 ? 1 : Math.Exp(p < 0.1 ? -Deviance(n, n * q) - n * p : n * Math.Log(q));
-            if (x == n) return Math.Exp(q < 0.1 ? -Deviance(n, n * p) - n * q : n * Math.Log(p));
-            if (x < 0 || x > n) return 0;
-            double lc = StirlingError(n) - StirlingError(x) - StirlingError(n - x) - Deviance(x, n * p) - Deviance(n - x, n * q);
-            double lf = 2 * LnSqrt2Pi + Math.Log(x) + Log1p(-x / n);
+            if (q == 0) return y == 0 ? 1 : 0;
+            if (x == 0) return y == 0 ? 1 : Math.Exp(p < 0.1 ? -Deviance(y, y * q) - y * p : y * Math.Log(q));
+            if (y == 0) return Math.Exp(q < 0.1 ? -Deviance(x, x * p) - x * q : x * Math.Log(p));
+            if (x < 0 || y < 0) return 0;
+            double n = x + y;
+            double lc = StirlingError(n) - StirlingError(x) - StirlingError(y) - Deviance(x, n * p) - Deviance(y, n * q);
+            double lf = 2 * LnSqrt2Pi + Math.Log(x) + (x <= y ? Log1p(-x / n) : Math.Log(y / n));
             return Math.Exp(lc - 0.5 * lf);
         }
 

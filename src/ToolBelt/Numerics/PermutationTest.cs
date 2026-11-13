@@ -70,7 +70,8 @@ namespace ToolBelt.Numerics
             if (b is null) throw new ArgumentNullException(nameof(b));
             if (random is null) throw new ArgumentNullException(nameof(random));
             if (a.Count == 0 || b.Count == 0) throw new ArgumentException("Both samples must be non-empty.", a.Count == 0 ? nameof(a) : nameof(b));
-            if (permutations < 1) throw new ArgumentOutOfRangeException(nameof(permutations), permutations, "Must be positive.");
+            // Capped as Bootstrap caps resamples: the null distribution is one array.
+            if (permutations < 1 || permutations > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(permutations), permutations, "Must be 1 to Array.MaxLength (0x7FFFFFC7).");
             statistic ??= MeanDifference;
             RequireFinite(a, nameof(a));
             RequireFinite(b, nameof(b));
@@ -83,9 +84,11 @@ namespace ToolBelt.Numerics
 
             var ga = new double[na];
             var gb = new double[n - na];
-            var nulls = new List<double>();
             double total = Binomial(n, na);
             bool exact = total <= permutations;
+            // Sized up front (total is exact below 1e12): grown as a list and then copied, it was held twice.
+            var nulls = new double[exact ? (int)total : permutations];
+            int at = 0;
             if (exact)
             {
                 // Enumerate every split of the pooled sample into groups of the original sizes.
@@ -94,7 +97,7 @@ namespace ToolBelt.Numerics
                 while (true)
                 {
                     Split(pooled, idx, ga, gb);
-                    nulls.Add(statistic(ga, gb));
+                    nulls[at++] = statistic(ga, gb);
                     if (!NextCombination(idx, n)) break;
                 }
             }
@@ -111,7 +114,7 @@ namespace ToolBelt.Numerics
                     }
                     Array.Copy(work, 0, ga, 0, na);
                     Array.Copy(work, na, gb, 0, n - na);
-                    nulls.Add(statistic(ga, gb));
+                    nulls[at++] = statistic(ga, gb);
                 }
             }
             return Result(observed, nulls, exact, alternative);
@@ -130,7 +133,8 @@ namespace ToolBelt.Numerics
             if (random is null) throw new ArgumentNullException(nameof(random));
             if (first.Count != second.Count) throw new ArgumentException("Paired samples must have the same length.", nameof(second));
             if (first.Count == 0) throw new ArgumentException("Samples must be non-empty.", nameof(first));
-            if (permutations < 1) throw new ArgumentOutOfRangeException(nameof(permutations), permutations, "Must be positive.");
+            // Capped as Bootstrap caps resamples: the null distribution is one array.
+            if (permutations < 1 || permutations > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(permutations), permutations, "Must be 1 to Array.MaxLength (0x7FFFFFC7).");
             RequireFinite(first, nameof(first));
             RequireFinite(second, nameof(second));
 
@@ -143,15 +147,16 @@ namespace ToolBelt.Numerics
                 if (double.IsInfinity(d[i])) throw new ArgumentException($"The difference at [{i}] overflows.", nameof(second));
             }
             double observed = Mean(d);
-            var nulls = new List<double>();
             var signed = new double[n];
             bool exact = n < 31 && (1L << n) <= permutations;
+            var nulls = new double[exact ? 1 << n : permutations];
+            int at = 0;
             if (exact)
             {
                 for (long mask = 0; mask < (1L << n); mask++)
                 {
                     for (int i = 0; i < n; i++) signed[i] = ((mask >> i) & 1) == 0 ? d[i] : -d[i];
-                    nulls.Add(Mean(signed));    // the observed statistic's own mean: summed outright, two of 1e308 gave ±∞
+                    nulls[at++] = Mean(signed); // the observed statistic's own mean: summed outright, two of 1e308 gave ±∞
                 }
             }
             else
@@ -159,7 +164,7 @@ namespace ToolBelt.Numerics
                 for (int r = 0; r < permutations; r++)
                 {
                     for (int i = 0; i < n; i++) signed[i] = random.Next(2) == 0 ? d[i] : -d[i];
-                    nulls.Add(Mean(signed));
+                    nulls[at++] = Mean(signed);
                 }
             }
             return Result(observed, nulls, exact, alternative);
@@ -168,7 +173,7 @@ namespace ToolBelt.Numerics
         /// <summary>mean(a) − mean(b), the default two-sample statistic.</summary>
         public static double MeanDifference(IReadOnlyList<double> a, IReadOnlyList<double> b) => Mean(a) - Mean(b);
 
-        private static PermutationResult Result(double observed, List<double> nulls, bool exact, Alternative alternative)
+        private static PermutationResult Result(double observed, double[] nulls, bool exact, Alternative alternative)
         {
             // A tolerance relative to the statistic's own scale, so rearrangements equal to the observed value up to rounding
             // count as "as extreme" — whatever the units (an absolute 1e-12 would call everything a tie for data near 1e-13).
@@ -188,7 +193,7 @@ namespace ToolBelt.Numerics
                 if (s >= observed - tol) greater++;
                 if (s <= observed + tol) less++;
             }
-            double Tail(int count) => exact ? (double)count / nulls.Count : (count + 1.0) / (nulls.Count + 1.0);
+            double Tail(int count) => exact ? (double)count / nulls.Length : (count + 1.0) / (nulls.Length + 1.0);
             // Two-sided: twice the smaller tail. Equals the usual |S| ≥ |observed| rule for a null symmetric about zero (mean
             // difference) but stays correct for statistics centred elsewhere (a variance ratio is centred on 1).
             double p = alternative switch
@@ -197,7 +202,7 @@ namespace ToolBelt.Numerics
                 Alternative.Less => Tail(less),
                 _ => 2 * Math.Min(Tail(greater), Tail(less)),
             };
-            return new PermutationResult(observed, Math.Min(1, p), nulls.Count, exact, nulls.ToArray());
+            return new PermutationResult(observed, Math.Min(1, p), nulls.Length, exact, nulls);
         }
 
         private static void Split(double[] pooled, int[] idx, double[] ga, double[] gb)

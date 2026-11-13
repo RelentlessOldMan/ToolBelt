@@ -7,12 +7,14 @@ namespace ToolBelt.Numerics
     /// <summary>The result of an ordinary least-squares fit with inference.</summary>
     public sealed class RegressionResult
     {
-        private readonly double[,] _xtxInverse;     // of the scaled design: column j divided by _columnScale[j]
+        private readonly double[,] _xtxInverse;     // of the design centred on _centre[j] and divided by _columnScale[j]
         private readonly double[] _columnScale;
+        private readonly double[] _centre;
+        private readonly double _atCentre;           // the fitted value at the centre: the intercept of the centred fit
 
         internal RegressionResult(double[] coefficients, double[] standardErrors, double[] fitted, double[] residuals,
             double rSquared, double adjustedRSquared, double residualStandardError, int degreesOfFreedom, bool hasIntercept,
-            double[,] xtxInverse, double[] columnScale)
+            double[,] xtxInverse, double[] columnScale, double[] centre, double atCentre)
         {
             Coefficients = Array.AsReadOnly(coefficients);      // wrapped: a cast back to double[] could rewrite what Predict uses
             StandardErrors = Array.AsReadOnly(standardErrors);
@@ -35,6 +37,8 @@ namespace ToolBelt.Numerics
             HasIntercept = hasIntercept;
             _xtxInverse = xtxInverse;
             _columnScale = columnScale;
+            _centre = centre;
+            _atCentre = atCentre;
         }
 
         /// <summary>Coefficients; the intercept first when <see cref="HasIntercept"/>, then one per predictor.</summary>
@@ -61,8 +65,9 @@ namespace ToolBelt.Numerics
         public double Predict(IReadOnlyList<double> predictors)
         {
             double[] row = Row(predictors);
-            double y = 0;
-            for (int j = 0; j < row.Length; j++) y += row[j] * Coefficients[j];
+            // About the centre, as fitted: through the intercept, a prediction near offset data lost its digits.
+            double y = _atCentre;
+            for (int j = HasIntercept ? 1 : 0; j < row.Length; j++) y += (row[j] - _centre[j]) * Coefficients[j];
             return y;
         }
 
@@ -79,7 +84,7 @@ namespace ToolBelt.Numerics
             if (!(confidence > 0 && confidence < 1)) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
             if (DegreesOfFreedom < 1) throw new InvalidOperationException("No residual degrees of freedom: intervals are undefined.");
             double[] row = Row(predictors);
-            for (int i = 0; i < row.Length; i++) row[i] /= _columnScale[i];
+            for (int i = HasIntercept ? 1 : 0; i < row.Length; i++) row[i] = (row[i] - _centre[i]) / _columnScale[i];
             double leverage = 0;
             for (int i = 0; i < row.Length; i++)
                 for (int j = 0; j < row.Length; j++)
@@ -133,27 +138,38 @@ namespace ToolBelt.Numerics
             // bits). Unscaled, (XᵀX)⁻¹ under- or overflowed for predictors near 1e±160 (standard errors of 0 or ∞, p-values
             // NaN) and the sums of squares overflowed for responses near 1e160. Everything is solved in scaled units, then
             // the coefficients, errors and fits are scaled back.
+            // With an intercept each column and y are first centred on their means: a predictor on a large offset
+            // (timestamps, coordinates) beside the column of ones made the design as ill-conditioned as offset/spread, and
+            // QR lost that many digits (slope 7e-7 relative off at x = 1.7e9 + i/16). A column whose deviations overflow
+            // keeps centre 0.
             int o0 = intercept ? 1 : 0;
             var colScale = new double[p];
+            var centre = new double[p];
             if (intercept) colScale[0] = 1;
+            var xd = new double[n, k];
+            var column = new double[n];
             for (int j = 0; j < k; j++)
             {
+                for (int i = 0; i < n; i++) column[i] = x[i, j];
+                centre[o0 + j] = intercept ? Centre(column) : 0;
                 double big = 0;
-                for (int i = 0; i < n; i++) big = Math.Max(big, Math.Abs(x[i, j]));
+                for (int i = 0; i < n; i++) { xd[i, j] = x[i, j] - centre[o0 + j]; big = Math.Max(big, Math.Abs(xd[i, j])); }
                 colScale[o0 + j] = Pow2Scale(big);
             }
-            double yBig = 0;
-            for (int i = 0; i < n; i++) yBig = Math.Max(yBig, Math.Abs(y[i]));
+            var yv = new double[n];
+            for (int i = 0; i < n; i++) yv[i] = y[i];
+            double yc = intercept ? Centre(yv) : 0, yBig = 0;
+            for (int i = 0; i < n; i++) { yv[i] -= yc; yBig = Math.Max(yBig, Math.Abs(yv[i])); }
             double ys = Pow2Scale(yBig);
 
             var a = new double[n, p];
             for (int i = 0; i < n; i++)
             {
                 if (intercept) a[i, 0] = 1;
-                for (int j = 0; j < k; j++) a[i, o0 + j] = x[i, j] / colScale[o0 + j];
+                for (int j = 0; j < k; j++) a[i, o0 + j] = xd[i, j] / colScale[o0 + j];
             }
             var b = new double[n];
-            for (int i = 0; i < n; i++) b[i] = y[i] / ys;
+            for (int i = 0; i < n; i++) b[i] = yv[i] / ys;
 
             // Each column's own length: reflections are orthogonal, so |R_cc| compared with it measures how much of the column
             // is independent of the earlier ones, whatever its units (a global threshold flags 1e-7-scale predictors next to 1e6).
@@ -228,19 +244,19 @@ namespace ToolBelt.Numerics
             var residuals = new double[n];
             // The mean about y[0]: a constant response then has exactly that mean and zero total spread, instead of
             // round-off crumbs (0.1 + 0.1 + 0.1 ≠ 0.3) that turned a perfect fit into R² = 0. All in scaled units.
-            double y0 = y[0] / ys, sse = 0, ybar = 0;
-            for (int i = 0; i < n; i++) ybar += y[i] / ys - y0;
+            double y0 = yv[0] / ys, sse = 0, ybar = 0;
+            for (int i = 0; i < n; i++) ybar += yv[i] / ys - y0;
             ybar = y0 + ybar / n;
             double sst = 0;
             for (int i = 0; i < n; i++)
             {
                 double f = intercept ? beta[0] : 0;
-                for (int j = 0; j < k; j++) f += beta[o0 + j] * (x[i, j] / colScale[o0 + j]);
-                double residual = y[i] / ys - f;
-                fitted[i] = f * ys;
+                for (int j = 0; j < k; j++) f += beta[o0 + j] * (xd[i, j] / colScale[o0 + j]);
+                double residual = yv[i] / ys - f;
+                fitted[i] = f * ys + yc;
                 residuals[i] = residual * ys;
                 sse += residual * residual;
-                double centered = intercept ? y[i] / ys - ybar : y[i] / ys;
+                double centered = intercept ? yv[i] / ys - ybar : yv[i] / ys;
                 sst += centered * centered;
             }
             int df = n - p;
@@ -249,10 +265,25 @@ namespace ToolBelt.Numerics
             for (int i = 0; i < p; i++) se[i] = df > 0 ? Math.Sqrt(sigma2 * xtxInv[i, i]) * (ys / colScale[i]) : double.NaN;
             var coefficients = new double[p];
             for (int i = 0; i < p; i++) coefficients[i] = beta[i] * (ys / colScale[i]);
+            double atCentre = intercept ? beta[0] * ys + yc : 0;
+            if (intercept)
+            {
+                // Back from the centred fit: b0 = a0 − Σ βⱼcⱼ, with Var(b0) = σ² wᵀ(XᵀX)⁻¹w for w = (1, −c₁/s₁, …).
+                double b0 = atCentre, q = 0;
+                for (int j = 1; j < p; j++) b0 -= coefficients[j] * centre[j];
+                var w = new double[p];
+                w[0] = 1;
+                for (int j = 1; j < p; j++) w[j] = -centre[j] / colScale[j];
+                for (int i = 0; i < p; i++)
+                    for (int j = 0; j < p; j++) q += w[i] * xtxInv[i, j] * w[j];
+                coefficients[0] = b0;
+                se[0] = df > 0 ? Math.Sqrt(sigma2 * Math.Max(0, q)) * ys : double.NaN;
+            }
             double r2 = sst > 0 ? 1 - sse / sst : 1;
             int dfTotal = intercept ? n - 1 : n;
             double adj = df > 0 ? (sst > 0 ? 1 - (sse / df) / (sst / dfTotal) : 1) : double.NaN;
-            return new RegressionResult(coefficients, se, fitted, residuals, r2, adj, Math.Sqrt(sigma2) * ys, df, intercept, xtxInv, colScale);
+            return new RegressionResult(coefficients, se, fitted, residuals, r2, adj, Math.Sqrt(sigma2) * ys, df, intercept, xtxInv, colScale,
+                centre, atCentre);
         }
 
         /// <summary>Fits y on predictor rows given as lists (each inner list is one observation).</summary>
@@ -271,6 +302,18 @@ namespace ToolBelt.Numerics
         }
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        // The mean (summed in units of the largest magnitude, so it cannot overflow), or 0 when a deviation from it would.
+        private static double Centre(double[] v)
+        {
+            double big = 0, s = 0;
+            foreach (double e in v) big = Math.Max(big, Math.Abs(e));
+            double p = Pow2Scale(big);
+            foreach (double e in v) s += e / p;
+            double m = s / v.Length * p;
+            foreach (double e in v) if (double.IsInfinity(e - m)) return 0;
+            return m;
+        }
 
         // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same
         // bits, while data near 1e±308 neither over- nor underflow when summed or squared.
@@ -321,15 +364,34 @@ namespace ToolBelt.Numerics
             if (x.Count > MaxTheilSenPoints)
                 throw new ArgumentException($"Theil–Sen holds every pairwise slope; at most {MaxTheilSenPoints} points.", nameof(x));
             // Sized up front: grown by doubling, the list overflowed its capacity (and Count) past 65,536 points.
-            var slopes = new List<double>((int)((long)x.Count * (x.Count - 1) / 2));
+            var slopes = NewSlopeArray((long)x.Count * (x.Count - 1) / 2, nameof(x));
+            int count = 0;
             for (int i = 0; i < x.Count; i++)
                 for (int j = i + 1; j < x.Count; j++)
-                    if (x[j] != x[i]) slopes.Add(Slope(x[i], y[i], x[j], y[j]));
-            if (slopes.Count == 0) throw new ArgumentException("Need at least two distinct x values.", nameof(x));
-            double slope = Median(slopes);
-            var intercepts = new List<double>(x.Count);
-            for (int i = 0; i < x.Count; i++) intercepts.Add(y[i] - slope * x[i]);
-            return (slope, Median(intercepts));
+                    if (x[j] != x[i]) slopes[count++] = Slope(x[i], y[i], x[j], y[j]);
+            if (count == 0) throw new ArgumentException("Need at least two distinct x values.", nameof(x));
+            double slope = Median(slopes, count);
+            var intercepts = new double[x.Count];
+            for (int i = 0; i < x.Count; i++) intercepts[i] = y[i] - slope * x[i];
+            return (slope, Median(intercepts, intercepts.Length));
+        }
+
+        // .NET Framework caps one array at 2 GB (about 268 million doubles, 23,170 points) unless the app sets
+        // gcAllowVeryLargeObjects; past that it threw OutOfMemoryException where the documented point limit says
+        // ArgumentException.
+        private static double[] NewSlopeArray(long length, string paramName)
+        {
+#if NET8_0_OR_GREATER
+            return new double[length];
+#else
+            try { return new double[length]; }
+            catch (OutOfMemoryException) when (length > 268435448)
+            {
+                throw new ArgumentException(
+                    $"The {length} pairwise slopes need an array over 2 GB, which .NET Framework allows only with gcAllowVeryLargeObjects (or memory ran out).",
+                    paramName);
+            }
+#endif
         }
 
         // Δy/Δx; if either difference overflows (values of opposite sign near 1e308), from the halves, which are exact.
@@ -339,11 +401,12 @@ namespace ToolBelt.Numerics
             return double.IsInfinity(dy) || double.IsInfinity(dx) ? (y2 / 2 - y1 / 2) / (x2 / 2 - x1 / 2) : dy / dx;
         }
 
-        private static double Median(List<double> v)
+        // The median of v's first count values (sorted in place).
+        private static double Median(double[] v, int count)
         {
-            v.Sort();
-            int m = v.Count / 2;
-            return v.Count % 2 == 1 ? v[m] : Midpoint(v[m - 1], v[m]);
+            Array.Sort(v, 0, count);
+            int m = count / 2;
+            return count % 2 == 1 ? v[m] : Midpoint(v[m - 1], v[m]);
         }
 
         // The midpoint of two sorted values: halves first, so the sum can't overflow, except where both are tiny, where the
