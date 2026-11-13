@@ -51,6 +51,7 @@ namespace ToolBelt.Configuration
         /// <summary>Checks several at once and lists every missing one in a single error.</summary>
         public void RequireAll(params string[] names)
         {
+            if (names is null) throw new ArgumentNullException(nameof(names));   // was LINQ's "source"
             var missing = names.Where(n => Get(n) == null).ToList();
             if (missing.Count > 0) throw new InvalidOperationException("Required environment variables not set: " + string.Join(", ", missing) + ".");
         }
@@ -61,7 +62,9 @@ namespace ToolBelt.Configuration
         public long GetLong(string name, long defaultValue) => Parse(name, s => long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out long v) ? v : (long?)null, "an integer") ?? defaultValue;
 
         public double GetDouble(string name, double defaultValue) => GetDouble(name) ?? defaultValue;
-        public double? GetDouble(string name) => Parse(name, s => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) ? v : (double?)null, "a number");
+        // "1e400" overflowed to ∞ on .NET Core but failed on .NET Framework: an error on both ("Infinity" itself is allowed).
+        public double? GetDouble(string name) => Parse(name, s => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double v)
+            && !(double.IsInfinity(v) && s.IndexOf("Infinity", StringComparison.OrdinalIgnoreCase) < 0 && s.IndexOf('∞') < 0) ? v : (double?)null, "a number");
 
         public bool GetBool(string name, bool defaultValue = false) => GetBoolOrNull(name) ?? defaultValue;
         public bool? GetBoolOrNull(string name) => Parse(name, ParseBool, "a boolean (true/false, 1/0, yes/no, on/off)");

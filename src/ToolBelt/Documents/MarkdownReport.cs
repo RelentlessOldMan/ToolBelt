@@ -24,11 +24,15 @@ namespace ToolBelt.Documents
     /// yields the finished document. Cell and inline-helper text is escaped so stray <c>|</c>, <c>*</c> or raw HTML
     /// (<c>&lt;</c>, <c>&amp;</c>) don't corrupt the layout; headings and paragraphs are Markdown as given, so they can
     /// carry <see cref="Bold"/>, <see cref="Link"/> and friends. Code fences and spans grow longer than any backtick
-    /// run inside them.
+    /// run inside them. Two lists in a row stay separate (the second uses the other marker), and an inline span's line
+    /// breaks become spaces.
     /// </summary>
     public sealed class MarkdownReport
     {
         private readonly StringBuilder _sb = new StringBuilder();
+        // The marker of the list just written ('\0' when the last block was not a list): the same marker after the blank
+        // line continued that list, so two calls rendered as one (loose) list.
+        private char _lastMarker;
 
         /// <summary>Adds an ATX heading of the given level (1–6).</summary>
         public MarkdownReport Heading(int level, string text)
@@ -59,8 +63,9 @@ namespace ToolBelt.Documents
         {
             if (items is null) throw new ArgumentNullException(nameof(items));
             var sb = new StringBuilder();
-            foreach (var item in items) sb.Append("- ").Append(ItemText(item, 2)).Append('\n');
-            if (sb.Length > 0) Block(sb.ToString().TrimEnd('\n'));
+            char marker = _lastMarker == '-' ? '*' : '-';                       // a '*' or '+' list is already different
+            foreach (var item in items) sb.Append(marker).Append(' ').Append(ItemText(item, 2)).Append('\n');
+            if (sb.Length > 0) { Block(sb.ToString().TrimEnd('\n')); _lastMarker = marker; }
             return this;
         }
 
@@ -69,8 +74,9 @@ namespace ToolBelt.Documents
         {
             if (items is null) throw new ArgumentNullException(nameof(items));
             var sb = new StringBuilder();
-            foreach (var item in items) sb.Append("1. ").Append(ItemText(item, 3)).Append('\n');
-            if (sb.Length > 0) Block(sb.ToString().TrimEnd('\n'));
+            char marker = _lastMarker == '.' ? ')' : '.';
+            foreach (var item in items) sb.Append('1').Append(marker).Append(' ').Append(ItemText(item, 3)).Append('\n');
+            if (sb.Length > 0) { Block(sb.ToString().TrimEnd('\n')); _lastMarker = marker; }
             return this;
         }
 
@@ -149,8 +155,21 @@ namespace ToolBelt.Documents
         public MarkdownReport Raw(string markdown)
         {
             if (markdown is null) throw new ArgumentNullException(nameof(markdown));
-            Block(markdown.Trim());
+            string block = markdown.Trim();
+            Block(block);
+            // Raw Markdown that ends in a list (a hand-built table of contents) is a list too: the next list must not join it.
+            _lastMarker = ListMarker(block.Substring(block.LastIndexOfAny(new[] { '\n', '\r' }) + 1).TrimStart());
             return this;
+        }
+
+        // The marker of a list item line ("- x" → '-', "3. x" → '.'), else '\0'.
+        private static char ListMarker(string line)
+        {
+            if (line.Length >= 2 && (line[0] == '-' || line[0] == '*' || line[0] == '+') && (line[1] == ' ' || line[1] == '\t')) return line[0];
+            int i = 0;
+            while (i < line.Length && i < 9 && line[i] >= '0' && line[i] <= '9') i++;
+            if (i > 0 && i + 1 < line.Length && (line[i] == '.' || line[i] == ')') && (line[i + 1] == ' ' || line[i + 1] == '\t')) return line[i];
+            return '\0';
         }
 
         /// <summary>Bold inline span (edge whitespace stays outside the markers, which must touch the text; empty gives "").</summary>
@@ -160,7 +179,9 @@ namespace ToolBelt.Documents
 
         private static string Span(string text, string marker)
         {
-            text ??= "";
+            // A blank line inside ended the paragraph and left both halves with stray markers; a line starting "- " began a
+            // list. A span is inline, so its line breaks become spaces.
+            text = (text ?? "").Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ');
             string core = text.Trim();
             if (core.Length == 0) return text;   // "****" would be a thematic break
             int lead = text.IndexOf(core, StringComparison.Ordinal);
@@ -219,7 +240,8 @@ namespace ToolBelt.Documents
                 else if (ch == '(') depth++;
                 else if (ch == ')' && --depth < 0) plain = false;
             }
-            if (plain && depth == 0) return url;
+            // An entity in the URL ("&amp;", "&#38;") was decoded by the renderer, so the link pointed elsewhere.
+            if (plain && depth == 0) return EscapeEntities(url);
             var sb = new StringBuilder("<");
             foreach (char ch in url)
             {
@@ -228,7 +250,25 @@ namespace ToolBelt.Documents
                 else if (ch == '<' || ch == '>' || ch == '\\') sb.Append('\\').Append(ch);
                 else sb.Append(ch);
             }
-            return sb.Append('>').ToString();
+            return EscapeEntities(sb.Append('>').ToString());
+        }
+
+        // Backslash-escapes each '&' that starts something entity-shaped ("&name;" or "&#...;"); others stay as written.
+        private static string EscapeEntities(string url)
+        {
+            if (url.IndexOf('&') < 0) return url;
+            var sb = new StringBuilder(url.Length + 4);
+            for (int i = 0; i < url.Length; i++)
+            {
+                if (url[i] == '&')
+                {
+                    int j = i + 1;
+                    while (j < url.Length && (char.IsLetterOrDigit(url[j]) || url[j] == '#')) j++;
+                    if (j > i + 1 && j < url.Length && url[j] == ';') sb.Append('\\');
+                }
+                sb.Append(url[i]);
+            }
+            return sb.ToString();
         }
 
         private static int LongestRun(string text, char ch)
@@ -244,6 +284,7 @@ namespace ToolBelt.Documents
 
         private void Block(string content)
         {
+            _lastMarker = '\0';
             if (_sb.Length > 0) _sb.Append('\n');
             _sb.Append(content).Append('\n');
         }

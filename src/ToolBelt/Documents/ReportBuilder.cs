@@ -134,7 +134,8 @@ namespace ToolBelt.Documents
             if (caption is null) throw new ArgumentNullException(nameof(caption));
             if (string.IsNullOrWhiteSpace(svg) && (png is null || png.Length == 0))
                 throw new ArgumentException("A figure needs SVG markup or PNG bytes.", nameof(svg));
-            return Add(new Block(Kind.Figure) { Caption = caption, Svg = StripXmlDeclaration(svg), Png = png });
+            // A copy: the caller refilling its buffer (one PNG encoder buffer reused per chart) changed every figure.
+            return Add(new Block(Kind.Figure) { Caption = caption, Svg = StripXmlDeclaration(svg), Png = (byte[]?)png?.Clone() });
         }
 
         /// <summary>A preformatted code or log block.</summary>
@@ -321,8 +322,9 @@ namespace ToolBelt.Documents
         /// </summary>
         public byte[] ToPdf(PdfPageSize pageSize = PdfPageSize.Letter, double fontSize = 10)
         {
-            if (!(fontSize > 0) || double.IsInfinity(fontSize * 1.9))
-                throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be positive and finite.");
+            // The title is 1.9× the body, and PdfWriter takes at most 10,000 points: past 5,263 it failed as "size".
+            if (!(fontSize > 0) || fontSize * 1.9 > 10000)
+                throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be positive and at most 10,000 / 1.9 points.");
             var pdf = new PdfWriter(pageSize, 54, PdfFont.Helvetica, fontSize) { Title = Title, PageNumbers = true };
             var headings = CollectHeadings(new Anchors());
 

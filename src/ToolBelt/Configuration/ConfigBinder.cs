@@ -35,11 +35,18 @@ namespace ToolBelt.Configuration
     /// <item>A configured key is never dropped silently: a type the binder doesn't handle (a dictionary, a list of
     /// objects, <see cref="Uri"/>), a read-only property, a list given one value ("Hosts=a,b") or a non-numeric index, or a
     /// setter that throws is reported as an error.</item>
-    /// <item>A class may contain its own type (a fallback <c>Opts</c> inside <c>Opts</c>): each configured level is bound.</item>
+    /// <item>A class may contain its own type (a fallback <c>Opts</c> inside <c>Opts</c>): each configured level is bound,
+    /// down to <see cref="MaxDepth"/> sections; a key nested deeper is reported as an error.</item>
+    /// <item>A <see cref="DateTimeOffset"/> without an offset is read as UTC (not the machine's zone). Only a
+    /// <see cref="char"/> setting keeps its whitespace; other scalars are trimmed.</item>
     /// </list>
     /// </summary>
     public static class ConfigBinder
     {
+        /// <summary>The deepest section nesting bound (a self-containing type configured deeper is an error). A key nested
+        /// about 2,000 sections deep overflowed the stack, which kills the process.</summary>
+        public const int MaxDepth = 64;
+
         public static T Bind<T>(IReadOnlyDictionary<string, string?> values, string separator = ":") where T : new()
         {
             if (values is null) throw new ArgumentNullException(nameof(values));
@@ -52,13 +59,13 @@ namespace ToolBelt.Configuration
 
             var result = new T();
             object boxed = result!;
-            BindInto(boxed, typeof(T), lookup, "", separator, errors);
+            BindInto(boxed, typeof(T), lookup, "", separator, errors, 0);
             if (errors.Count > 0) throw new ConfigBindingException(errors);
             return (T)boxed;
         }
 
         private static void BindInto(object obj, Type type, Dictionary<string, string?> values, string prefix, string sep,
-            List<string> errors)
+            List<string> errors, int depth)
         {
             foreach (PropertyInfo prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
@@ -74,6 +81,9 @@ namespace ToolBelt.Configuration
                         else if (TryConvertScalar(raw, pt, out object? value)) TrySet(prop, obj, value, key, errors);
                         else errors.Add($"'{key}': cannot convert '{raw}' to {FriendlyName(pt)}.");
                     }
+                    // "Port:0=5" on an int was dropped without a word.
+                    if (HasSection(values, key + sep))
+                        errors.Add($"'{key}': {FriendlyName(pt)} is a single value, so nested keys ('{key}{sep}...') cannot be bound.");
                 }
                 else if (TryGetElementType(pt, out Type elementType))
                 {
@@ -111,7 +121,12 @@ namespace ToolBelt.Configuration
                 else if (HasSection(values, key + sep))
                 {
                     // A type may contain itself (Opts.Fallback is an Opts): recursion still ends, because each level needs
-                    // a configured key one section longer.
+                    // a configured key one section longer, and is capped well before the stack runs out.
+                    if (depth >= MaxDepth)
+                    {
+                        errors.Add($"'{key}': sections nest more than {MaxDepth} deep, so they cannot be bound.");
+                        continue;
+                    }
                     // Only a section that is actually configured is bound: an untouched property keeps its default
                     // (an initializer's object, or null), and a type the binder can't construct is never instantiated.
                     object? target = null;
@@ -131,7 +146,7 @@ namespace ToolBelt.Configuration
                         try { target = Activator.CreateInstance(pt)!; }
                         catch (TargetInvocationException ex) { errors.Add($"'{key}': {(ex.InnerException ?? ex).Message}"); continue; }
                     }
-                    BindInto(target, pt, values, key, sep, errors);
+                    BindInto(target, pt, values, key, sep, errors, depth + 1);
                     if (prop.CanWrite) TrySet(prop, obj, target, key, errors);
                 }
                 else if (values.TryGetValue(key, out string? whole) && !string.IsNullOrEmpty(whole))
@@ -174,13 +189,15 @@ namespace ToolBelt.Configuration
             Dictionary<string, string?> values, string key, string sep, List<string> errors)
         {
             var items = new List<object?>();
+            int contiguous = 0;
             for (int i = 0; ; i++)
             {
                 if (!values.TryGetValue(key + sep + i.ToString(CultureInfo.InvariantCulture), out string? raw)) break;
+                // Counted even when it fails to convert: "Ports:0=x, Ports:1=2" also reported a gap at the valid ':1'.
+                contiguous++;
                 if (TryConvertScalar(raw, elementType, out object? value)) items.Add(value);
                 else errors.Add($"'{key}{sep}{i}': cannot convert '{raw}' to {FriendlyName(elementType)}.");
             }
-            int contiguous = items.Count;
 
             // An index past a gap (":0", ":2") would otherwise be dropped silently, along with everything after it.
             string itemPrefix = key + sep;
@@ -194,7 +211,12 @@ namespace ToolBelt.Configuration
                 string first = nested < 0 ? index : index.Substring(0, nested);
                 bool firstDigits = first.Length > 0;
                 foreach (char ch in first) if (ch < '0' || ch > '9') { firstDigits = false; break; }
-                if (!digits && firstDigits) continue;   // "Items:0:Name" is a list of objects, reported where its type is
+                // The elements are scalars, so "Hosts:0:Name" has nothing to bind into (it was dropped without a word).
+                if (!digits && firstDigits)
+                {
+                    errors.Add($"'{k}': the items of '{key}' are single values, so they take no nested keys.");
+                    continue;
+                }
                 if (!digits)
                 {
                     errors.Add($"'{k}': list items are addressed by index ('{itemPrefix}0', '{itemPrefix}1', ...).");
@@ -237,6 +259,12 @@ namespace ToolBelt.Configuration
             value = null;
             if (raw is null) return !targetType.IsValueType || t != targetType;      // null only for reference/nullable
             if (t == typeof(string)) { value = raw; return true; }
+            // Before the trim: a tab or space character setting could not be bound at all.
+            if (t == typeof(char))
+            {
+                if (raw.Length == 1) { value = raw[0]; return true; }
+                return t != targetType && raw.Length == 0;                           // empty → null for char?
+            }
 
             string s = raw.Trim();
             if (t != targetType && s.Length == 0) return true;                       // empty → null for Nullable<T>
@@ -263,7 +291,8 @@ namespace ToolBelt.Configuration
             }
             if (t == typeof(DateTimeOffset))
             {
-                if (DateTimeOffset.TryParse(s, inv, DateTimeStyles.None, out DateTimeOffset dto)) { value = dto; return true; }
+                // UTC when no offset is given: None took the machine's zone, so one file bound differently on each machine.
+                if (DateTimeOffset.TryParse(s, inv, DateTimeStyles.AssumeUniversal, out DateTimeOffset dto)) { value = dto; return true; }
                 return false;
             }
             if (t == typeof(DateTime))
@@ -285,6 +314,19 @@ namespace ToolBelt.Configuration
             if (t == typeof(decimal))
             {
                 if (decimal.TryParse(s, NumberStyles.Float, inv, out decimal m)) { value = m; return true; }
+                return false;
+            }
+            // Convert.ChangeType can't make these, so every value failed.
+            if (t == typeof(IntPtr))
+            {
+                if (long.TryParse(s, NumberStyles.Integer, inv, out long l) && (IntPtr.Size == 8 || (l >= int.MinValue && l <= int.MaxValue)))
+                { value = new IntPtr(l); return true; }
+                return false;
+            }
+            if (t == typeof(UIntPtr))
+            {
+                if (ulong.TryParse(s, NumberStyles.None, inv, out ulong u) && (UIntPtr.Size == 8 || u <= uint.MaxValue))
+                { value = new UIntPtr(u); return true; }
                 return false;
             }
             try

@@ -16,21 +16,28 @@ namespace ToolBelt.Configuration
     /// It gets the boring-but-critical parts right: saves are atomic (temp file + rename); a missing file yields defaults;
     /// a corrupt file (or one holding a value the type rejects) is moved aside to <c>settings.json.corrupt-&lt;timestamp&gt;</c> and defaults are used (reported via
     /// <see cref="LoadWarning"/>) rather than crashing the app on every launch, and a file that can't be read at all
-    /// (locked, no permission) also yields defaults with a warning, left in place; unknown properties from newer
+    /// (locked, no permission) also yields defaults with a warning, left in place and not overwritten (<see cref="Save"/>
+    /// and <see cref="Update"/> throw until <see cref="Reset"/> deliberately replaces it); unknown properties from newer
     /// versions are ignored and missing ones keep their defaults; NaN and ±∞ in floating-point settings round-trip.
     /// Get-only properties load too: a collection (<c>List&lt;string&gt; Recent { get; } = new()</c>) is cleared and refilled
-    /// from the file, and an object is filled in place. Only public properties are stored, not fields.
+    /// from the file, and an object is filled in place (one that is null, an array or a read-only collection keeps its
+    /// default). Only public properties are stored, not fields. A settings path that is a symbolic link is written through
+    /// to its target, and a save waits about half a second for another reader of the file to let go.
     /// Not thread-safe — save from one place.
     /// </summary>
     public sealed class SettingsStore<T> where T : class, new()
     {
         private static readonly JsonSerializerOptions Options = CreateOptions();
 
-        private SettingsStore(string path, T value, string? warning)
+        // Set when the file exists but could not be read: saving would replace a file that may be fine with defaults.
+        private bool _unread;
+
+        private SettingsStore(string path, T value, string? warning, bool unread = false)
         {
             Path = path;
             Value = value;
             LoadWarning = warning;
+            _unread = unread;
         }
 
         /// <summary>The settings file.</summary>
@@ -71,8 +78,10 @@ namespace ToolBelt.Configuration
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
-                // Locked or unreadable: the file may well be fine, so leave it where it is.
-                return new SettingsStore<T>(full, new T(), $"Settings file could not be read ({ex.Message}); defaults were used.");
+                // Locked or unreadable: the file may well be fine, so leave it where it is, and don't let a save replace it
+                // (the first Update after a lock at startup overwrote the user's file with defaults).
+                return new SettingsStore<T>(full, new T(),
+                    $"Settings file could not be read ({ex.Message}); defaults were used, and saving is refused until Reset.", unread: true);
             }
             try
             {
@@ -100,12 +109,27 @@ namespace ToolBelt.Configuration
             }
         }
 
-        /// <summary>Writes the current settings atomically, creating the directory if needed.</summary>
+        /// <summary>Writes the current settings atomically, creating the directory if needed. Throws
+        /// <see cref="InvalidOperationException"/> when the file existed but could not be read at load time.</summary>
         public void Save()
         {
-            string dir = System.IO.Path.GetDirectoryName(Path)!;
+            if (_unread)
+                throw new InvalidOperationException($"The settings file '{Path}' could not be read when loaded; saving would replace it with defaults. Call Reset to overwrite it deliberately.");
+            Write();
+        }
+
+        private void Write()
+        {
+            // Written through a symbolic link to its target: the move replaced the link itself with a plain file, and the
+            // target kept the old settings.
+            string target = Path;
+            var file = new FileInfo(Path);
+            if (file.Directory is { Exists: true } && file.LinkTarget != null
+                && file.ResolveLinkTarget(returnFinalTarget: true) is FileSystemInfo resolved) target = resolved.FullName;
+            string dir = System.IO.Path.GetDirectoryName(target)!;
             Directory.CreateDirectory(dir);
-            string temp = System.IO.Path.Combine(dir, "." + System.IO.Path.GetFileName(Path) + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp");
+            // A fixed-length name: the file's own name plus 14 characters failed for names near the 255-character limit.
+            string temp = System.IO.Path.Combine(dir, ".tb-" + Guid.NewGuid().ToString("N") + ".tmp");
             try
             {
                 using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
@@ -113,7 +137,17 @@ namespace ToolBelt.Configuration
                     JsonSerializer.Serialize(fs, Value, Options);
                     fs.Flush(flushToDisk: true);
                 }
-                File.Move(temp, Path, overwrite: true);
+                // Another reader holding the file (an editor, a scanner, another instance loading it) made the move fail at
+                // once; it gets about half a second to let go.
+                using (var never = new System.Threading.ManualResetEventSlim(false))
+                    for (int attempt = 0; ; attempt++)
+                    {
+                        try { File.Move(temp, target, overwrite: true); break; }
+                        catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < 10 && File.Exists(target))
+                        {
+                            never.Wait(50);
+                        }
+                    }
             }
             finally
             {
@@ -137,11 +171,12 @@ namespace ToolBelt.Configuration
             Save();
         }
 
-        /// <summary>Back to defaults (and saves).</summary>
+        /// <summary>Back to defaults (and saves), also over a file that could not be read at load time.</summary>
         public void Reset()
         {
             Value = new T();
-            Save();
+            Write();
+            _unread = false;
         }
 
         private static JsonSerializerOptions CreateOptions()
@@ -161,6 +196,10 @@ namespace ToolBelt.Configuration
             return o;
         }
 
+        // Plain metadata (no modifiers), to ask how a property type is serialized without resolving it through Options.
+        private static readonly JsonSerializerOptions Plain = new JsonSerializerOptions { Converters = { new JsonStringEnumConverter() } };
+        private static readonly DefaultJsonTypeInfoResolver PlainResolver = new DefaultJsonTypeInfoResolver();
+
         private static void LoadGetOnlyProperties(JsonTypeInfo info)
         {
             if (info.Kind != JsonTypeInfoKind.Object) return;
@@ -170,18 +209,29 @@ namespace ToolBelt.Configuration
                 Func<object, object?> get = p.Get;
                 if (ClearAndAdd(p.PropertyType) is Action<object, object> refill)
                     p.Set = (owner, value) => { if (get(owner) is object target && value != null) refill(target, value); };
-                else if (!p.PropertyType.IsAbstract && !typeof(System.Collections.IEnumerable).IsAssignableFrom(p.PropertyType))
-                    p.ObjectCreationHandling = JsonObjectCreationHandling.Populate;   // a nested settings object
+                else if (!p.PropertyType.IsAbstract && !typeof(System.Collections.IEnumerable).IsAssignableFrom(p.PropertyType)
+                         && p.CustomConverter is null && PlainResolver.GetTypeInfo(p.PropertyType, Plain).Kind == JsonTypeInfoKind.Object)
+                {
+                    // A nested settings object. Only a real object: a get-only Uri or Version (a value converter) made every
+                    // Save and Load of the type throw ("doesn't support populating").
+                    p.ObjectCreationHandling = JsonObjectCreationHandling.Populate;
+                    // One that is null (saved as null) failed to load ("Unable to assign 'null'"), so the file was moved
+                    // aside as corrupt on every launch; with nothing to fill, it keeps its default.
+                    p.Set = (owner, value) => { };
+                }
             }
         }
 
         // Replace semantics for a get-only collection, like a settable property: clear it, then add the loaded items.
         private static Action<object, object>? ClearAndAdd(Type type)
         {
+            // An array or read-only collection can't be refilled and keeps its default: Clear threw ("Collection was of a
+            // fixed size"), and the valid file was moved aside as corrupt on every launch.
             if (typeof(System.Collections.IList).IsAssignableFrom(type))
                 return (target, value) =>
                 {
                     var list = (System.Collections.IList)target;
+                    if (list.IsReadOnly || list.IsFixedSize) return;
                     list.Clear();
                     foreach (object? item in (System.Collections.IEnumerable)value) list.Add(item);
                 };
@@ -189,15 +239,22 @@ namespace ToolBelt.Configuration
                 return (target, value) =>
                 {
                     var map = (System.Collections.IDictionary)target;
+                    if (map.IsReadOnly || map.IsFixedSize) return;
                     map.Clear();
                     foreach (System.Collections.DictionaryEntry e in (System.Collections.IDictionary)value) map[e.Key] = e.Value;
                 };
-            foreach (Type i in type.GetInterfaces())
+            // The type itself too: an interface's GetInterfaces leaves it out, so ICollection<string> was never refilled (and
+            // the next save erased it).
+            var candidates = new System.Collections.Generic.List<Type>(type.GetInterfaces());
+            if (type.IsInterface) candidates.Insert(0, type);
+            foreach (Type i in candidates)
             {
                 if (!i.IsGenericType || i.GetGenericTypeDefinition() != typeof(System.Collections.Generic.ICollection<>)) continue;
                 MethodInfo clear = i.GetMethod("Clear")!, add = i.GetMethod("Add")!;
+                PropertyInfo readOnly = i.GetProperty("IsReadOnly")!;
                 return (target, value) =>
                 {
+                    if ((bool)readOnly.GetValue(target)!) return;
                     // The collection's own exception, not wrapped in a TargetInvocationException.
                     try
                     {

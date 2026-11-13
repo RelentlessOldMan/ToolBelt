@@ -69,7 +69,19 @@ namespace ToolBelt.Documents
         {
             if (headers is null) throw new ArgumentNullException(nameof(headers));
             if (rows is null) throw new ArgumentNullException(nameof(rows));
+            // A rows enumerable that throws part-way left an unclosed <table> that swallowed everything added after it.
+            int mark = _body.Length;
+            try { AppendTable(headers, rows); }
+            catch
+            {
+                _body.Length = mark;
+                throw;
+            }
+            return this;
+        }
 
+        private void AppendTable(IReadOnlyList<string> headers, IEnumerable<IReadOnlyList<string>> rows)
+        {
             _body.Append("<table>\n<thead>\n<tr>");
             foreach (var h in headers) _body.Append("<th>").Append(Escape(h ?? "")).Append("</th>");
             _body.Append("</tr>\n</thead>\n<tbody>\n");
@@ -81,7 +93,6 @@ namespace ToolBelt.Documents
                 _body.Append("</tr>\n");
             }
             _body.Append("</tbody>\n</table>\n");
-            return this;
         }
 
         /// <summary>Adds a preformatted code block.</summary>
@@ -158,9 +169,18 @@ namespace ToolBelt.Documents
         private HtmlReport List(string tag, IEnumerable<string> items)
         {
             if (items is null) throw new ArgumentNullException(nameof(items));
-            _body.Append('<').Append(tag).Append(">\n");
-            foreach (var item in items) _body.Append("<li>").Append(Escape(item ?? "")).Append("</li>\n");
-            _body.Append("</").Append(tag).Append(">\n");
+            int mark = _body.Length;
+            try
+            {
+                _body.Append('<').Append(tag).Append(">\n");
+                foreach (var item in items) _body.Append("<li>").Append(Escape(item ?? "")).Append("</li>\n");
+                _body.Append("</").Append(tag).Append(">\n");
+            }
+            catch
+            {
+                _body.Length = mark;                                            // no unclosed list left behind
+                throw;
+            }
             return this;
         }
 

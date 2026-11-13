@@ -47,7 +47,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 4 | 24 / 119 | re-queue (24 bugs, none severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 4 | 24 / 106 | re-queue (24 bugs, 1 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 3 | 18 / 47 | re-queue (18 bugs, 1 severe) |
-| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 3 | 17 / 64 | re-queue (17 bugs, 2 severe) |
+| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 4 | 29 / 93 | re-queue (29 bugs, 5 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 4 | 39 / 125 | re-queue (39 bugs, 7 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 3 | 13 / 52 | re-queue (13 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 3 | 8 / 75 | re-queue (8 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62); **next: 7, 13, 15, 3, 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63); **next: 13, 15, 3, 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -136,11 +136,46 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.3 | 60 | WinForms, tooling and docs, fourth pass (plus 3 in section 14) | 25 | (see tag) |
 | v2026.11.13.4 | 61 | Numerics core, fourth pass | 24 | (see tag) |
 | v2026.11.13.5 | 62 | Charts, fourth pass | 24 | (see tag) |
+| v2026.11.13.6 | 63 | Documents and config, fourth pass | 29 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 63: Documents and config, fourth pass (v2026.11.13.6)
+
+Two fresh reviewers (correctness, robustness): 31 findings, two of them duplicates, so **29 bugs, 5 severe**. Section 7
+stays re-queued. The regression tests are in `DocumentsConfigReview4Tests` (33 tests; one more guards that wrapping is
+unchanged). Every fix's test failed on the old code; the deep-nesting one crashed the process.
+
+- **Severe, SettingsStore:**
+  - A file that was locked at load (defaults used) was overwritten with those defaults by the next Save or Update. Saving
+    is now refused until Reset.
+  - A get-only array or read-only collection made every load fail, so the valid file was moved aside as corrupt.
+  - A get-only `ICollection<T>` (an interface) was never refilled, and the next save erased it.
+  - A get-only Uri or Version made every Save and Load throw ("doesn't support populating"); a null get-only object
+    failed to load.
+- **Severe, ConfigBinder:** a key about 2,000 sections deep overflowed the stack. Nesting is capped at `MaxDepth` (64)
+  and reported.
+- **SettingsStore, also:** a symbolic link was replaced by a plain file (now written through to its target); a file name
+  near 255 characters could never be saved (the temp name was 14 characters longer); a brief reader made Save fail at
+  once (it now waits about half a second).
+- **ConfigBinder, also:** a failed list item was also reported as a gap; `Hosts:0:Name` on a list of strings and
+  `Port:0` under an int were dropped silently; a space or tab char could not be bound; a DateTimeOffset without an
+  offset took the machine's zone (now UTC); IntPtr and UIntPtr never converted.
+- **EnvironmentVariables:** GetDouble("1e400") was ∞ on .NET Core but an error on .NET Framework (now an error on both);
+  RequireAll(null) blamed "source".
+- **Markdown:** two lists in a row merged into one loose list (the second now uses the other marker), and the report's
+  table of contents swallowed a list after it; a line break inside Bold or Italic broke the span and could start a list;
+  entities in a link destination were decoded by the renderer.
+- **PdfWriter:** wrapping was quadratic in a line's words (24 s for a tiny-font paragraph); a font taller than the page
+  left blank pages; a size below 0.0005 pt was written as "0 Tf"; Image blamed "width" for a bad height; a bad list level
+  left the earlier items written.
+- **ReportBuilder and templates:** ToPdf took font sizes its 1.9× title could not use (failing as "size"); a figure's PNG
+  and a DocxWriter image followed later changes to the caller's buffer; PercentChange overflowed to ∞ for ±1e308.
+- **DocxWriter and HtmlReport:** a rows or items enumerable that threw part-way left a half-written table or list (an
+  unclosed element; Word refused the file). PdfWriter and DocxWriter now document their 2 GB in-memory limit.
+
 ### Round 62: Charts, fourth pass (v2026.11.13.5)
 
 Two fresh reviewers (correctness, robustness): 27 findings, three of them duplicates, so **24 bugs, 1 severe** (13

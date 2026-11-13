@@ -43,7 +43,8 @@ namespace ToolBelt.Documents
     /// italic / underline / monospace runs, real (Word-numbered) bullet and numbered lists with nesting, bordered tables,
     /// embedded PNG images, page breaks, a running header and a footer with "Page X of Y", and document title/author.
     /// Headings are bold sized runs rather than styles, so no styles part is needed. Output is verified by opening it in
-    /// Word in the tests where Word is installed.
+    /// Word in the tests where Word is installed. The whole document is held in memory and returned as one array, so it
+    /// is limited to under 2 GB (a .NET array); far larger output needs another tool.
     /// </summary>
     public sealed class DocxWriter
     {
@@ -125,6 +126,14 @@ namespace ToolBelt.Documents
         public DocxWriter List(IEnumerable<(int Level, string Text)> items, bool numbered)
         {
             if (items is null) throw new ArgumentNullException(nameof(items));
+            // Read and checked in full first: a bad level (or the enumerable throwing) part-way through left the earlier
+            // items in the document, and a caller that caught the error saved a half-written list.
+            var all = new List<(int Level, string Text)>();
+            foreach (var item in items)
+            {
+                if (item.Level < 0 || item.Level > 8) throw new ArgumentOutOfRangeException(nameof(items), item.Level, "List levels are 0–8.");
+                all.Add(item);
+            }
             int numId;
             if (numbered)
             {
@@ -136,9 +145,8 @@ namespace ToolBelt.Documents
                 numId = 1;
                 _usesBullets = true;
             }
-            foreach (var (level, text) in items)
+            foreach (var (level, text) in all)
             {
-                if (level < 0 || level > 8) throw new ArgumentOutOfRangeException(nameof(items), level, "List levels are 0–8.");
                 _body.Append("<w:p><w:pPr><w:numPr><w:ilvl w:val=\"").Append(level).Append("\"/><w:numId w:val=\"").Append(numId)
                      .Append("\"/></w:numPr></w:pPr><w:r>").Append(Text(text ?? "")).Append("</w:r></w:p>");
             }
@@ -151,7 +159,19 @@ namespace ToolBelt.Documents
             if (headers is null) throw new ArgumentNullException(nameof(headers));
             if (headers.Count == 0) throw new ArgumentException("A table needs at least one column.", nameof(headers));
             if (rows is null) throw new ArgumentNullException(nameof(rows));
+            // A rows enumerable that throws part-way left an unclosed <w:tbl> in the body, and the saved file was corrupt.
+            int mark = _body.Length;
+            try { AppendTable(headers, rows); }
+            catch
+            {
+                _body.Length = mark;
+                throw;
+            }
+            return this;
+        }
 
+        private void AppendTable(IReadOnlyList<string> headers, IEnumerable<IReadOnlyList<string>> rows)
+        {
             _body.Append("<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/><w:tblBorders>");
             foreach (var edge in new[] { "top", "left", "bottom", "right", "insideH", "insideV" })
                 _body.Append("<w:").Append(edge).Append(" w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>");
@@ -177,7 +197,6 @@ namespace ToolBelt.Documents
             _body.Append("</w:tbl>");
             // A paragraph after a table is required by the schema (a body can't end on a table alone).
             _body.Append("<w:p/>");
-            return this;
         }
 
         /// <summary>
@@ -195,7 +214,7 @@ namespace ToolBelt.Documents
             if (w * EmuPerInch > MaxExtentEmu || h * EmuPerInch > MaxExtentEmu)
                 throw new ArgumentOutOfRangeException(nameof(widthInches), widthInches, "The image would be larger than a Word drawing can be.");
             long cx = Math.Max(1L, (long)Math.Round(w * EmuPerInch)), cy = Math.Max(1L, (long)Math.Round(h * EmuPerInch));
-            _images.Add(png);
+            _images.Add((byte[])png.Clone());   // a copy: a reused caller buffer changed the image before Build
             int index = _images.Count;
             int id = ++_drawingId;
             string rel = "rIdImg" + index.ToString(CultureInfo.InvariantCulture);

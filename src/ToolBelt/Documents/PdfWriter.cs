@@ -36,7 +36,8 @@ namespace ToolBelt.Documents
     /// raw RGBA, with transparency), a bookmark outline built from headings, optional "Page X of Y" footers and document
     /// title/author. Text is measured with the real base-14 advance widths, so wrapping is exact in every font. Characters
     /// outside Windows-1252 are written as '?' (one per character, so an emoji is one '?'), as are control characters;
-    /// a tab is a space. Every byte is spec-conformant (validated by the tests' own parser).
+    /// a tab is a space. Every byte is spec-conformant (validated by the tests' own parser). The whole document is held
+    /// in memory and returned as one array, so it is limited to under 2 GB (a .NET array).
     /// </summary>
     public sealed class PdfWriter
     {
@@ -109,7 +110,7 @@ namespace ToolBelt.Documents
             if (text is null) throw new ArgumentNullException(nameof(text));
             if (level < 1) throw new ArgumentOutOfRangeException(nameof(level), level, "Level must be at least 1.");
             double s = RequireSize(size ?? _fontSize * 1.5, nameof(size));
-            if (_y - s - 3 * _leading < _margin) NewPage();
+            if (_y - s - 3 * _leading < _margin && !AtTop) NewPage();
             if (bookmark) _outline.Add((text, level, _pages.Count - 1, _y));
             WriteWrapped(text, s, bold: true, indent: 0);
             _y -= s * 0.5;
@@ -147,9 +148,15 @@ namespace ToolBelt.Documents
         {
             if (items is null) throw new ArgumentNullException(nameof(items));
             double bulletWidth = Measure("•  ", _fontSize, false), step = _fontSize * 1.6;
-            foreach (var (level, text) in items)
+            // Checked in full first: a bad level part-way through left the earlier items on the page.
+            var all = new List<(int Level, string Text)>();
+            foreach (var item in items)
             {
-                if (level < 0) throw new ArgumentOutOfRangeException(nameof(items), level, "List levels must not be negative.");
+                if (item.Level < 0) throw new ArgumentOutOfRangeException(nameof(items), item.Level, "List levels must not be negative.");
+                all.Add(item);
+            }
+            foreach (var (level, text) in all)
+            {
                 double offset = Math.Min(level * step, UsableWidth / 2);
                 EnsureRoom(_fontSize);
                 EmitText(level % 2 == 0 ? "•" : "–", _margin + offset, _y - _fontSize, _fontSize, false);
@@ -194,7 +201,7 @@ namespace ToolBelt.Documents
         {
             if (!(points >= 0) || double.IsInfinity(points)) throw new ArgumentOutOfRangeException(nameof(points), points, "Space must be finite and non-negative.");
             _y -= points;
-            if (_y - _fontSize < _margin) NewPage();
+            if (_y - _fontSize < _margin && !AtTop) NewPage();
             return this;
         }
 
@@ -284,7 +291,8 @@ namespace ToolBelt.Documents
         /// </summary>
         public PdfWriter Image(int width, int height, byte[] rgba, double? widthPoints = null)
         {
-            if (width < 1 || height < 1) throw new ArgumentOutOfRangeException(nameof(width), "Image size must be positive.");
+            if (width < 1) throw new ArgumentOutOfRangeException(nameof(width), width, "Image width must be positive.");
+            if (height < 1) throw new ArgumentOutOfRangeException(nameof(height), height, "Image height must be positive.");
             if (rgba is null) throw new ArgumentNullException(nameof(rgba));
             if (rgba.Length != (long)width * height * 4) throw new ArgumentException("RGBA buffer length must be width × height × 4.", nameof(rgba));
             double dw = widthPoints ?? Math.Min(width * 0.75, UsableWidth);
@@ -343,6 +351,17 @@ namespace ToolBelt.Documents
                 units += Units(table, text[i]);
             }
             return units / 1000 * size;
+        }
+
+        private static double MeasureUnits(int[]? table, string text)
+        {
+            double units = 0;
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (IsPairStart(text, i)) i++;
+                units += Units(table, text[i]);
+            }
+            return units;
         }
 
         private static int Units(int[]? table, char ch)
@@ -516,16 +535,21 @@ namespace ToolBelt.Documents
                 }
         }
 
+        // A line taller than the whole page still goes on a fresh page, not after a run of blank ones (each line of a
+        // 1,000-point heading on a Letter page started another empty page).
         private void EnsureRoom(double size)
         {
-            if (_y - size < _margin) NewPage();
+            if (_y - size < _margin && !AtTop) NewPage();
         }
+
+        private bool AtTop => _y >= _pageHeight - _margin - 1;
 
         private void EmitText(string text, double x, double baseline, double size, bool bold) => EmitText(text, x, baseline, size, bold ? "F2" : "F1");
 
         private void EmitText(string text, double x, double baseline, double size, string font)
         {
-            _current.Content.Append("BT /").Append(font).Append(' ').Append(Num(size)).Append(" Tf ")
+            // The size keeps its small digits: Num wrote a 0.0001-point size as "0 Tf".
+            _current.Content.Append("BT /").Append(font).Append(' ').Append(size.ToString("0.##########", CultureInfo.InvariantCulture)).Append(" Tf ")
                     .Append(Num(x)).Append(' ').Append(Num(baseline)).Append(" Td (").Append(Escape(text)).Append(") Tj ET\n");
         }
 
@@ -539,6 +563,9 @@ namespace ToolBelt.Documents
             var line = new StringBuilder(text, 0, indent, text.Length);
             bool started = false;   // the line holds a word (not just the indent)
             int[]? table = Widths(bold);
+            // The line's width is kept as a running sum of font units (integers, so exact): measuring the whole candidate
+            // line for every word made a long paragraph quadratic.
+            double space = Units(table, ' '), lineUnits = indent * space;
             foreach (var word in text.Substring(indent).Split(' '))
             {
                 string w = word;
@@ -548,6 +575,7 @@ namespace ToolBelt.Documents
                 {
                     if (started) lines.Add(line.ToString());
                     line.Clear();
+                    lineUnits = 0;
                     started = false;
                     int start = 0;
                     while (true)
@@ -567,9 +595,10 @@ namespace ToolBelt.Documents
                         start = end;
                     }
                 }
-                string candidate = started ? line + " " + w : line + w;
-                if (!started || Measure(candidate, size, bold) <= width) { line.Clear(); line.Append(candidate); }
-                else { lines.Add(line.ToString()); line.Clear(); line.Append(w); }
+                double wUnits = MeasureUnits(table, w);
+                if (!started) { line.Append(w); lineUnits += wUnits; }
+                else if ((lineUnits + space + wUnits) / 1000 * size <= width) { line.Append(' ').Append(w); lineUnits += space + wUnits; }
+                else { lines.Add(line.ToString()); line.Clear(); line.Append(w); lineUnits = wUnits; }
                 started = true;
             }
             if (line.Length > 0) lines.Add(line.ToString());

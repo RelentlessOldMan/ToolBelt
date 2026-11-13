@@ -42,7 +42,10 @@ namespace ToolBelt.Documents
         public double Delta => B - A;
 
         /// <summary>(B − A) / |A| × 100, or NaN when A is zero.</summary>
-        public double PercentChange => A == 0 ? double.NaN : (B - A) / Math.Abs(A) * 100;
+        // B − A overflowed to ∞ for values of opposite sign near ±MaxValue (a finite 200%); then each is scaled first.
+        public double PercentChange => A == 0 ? double.NaN
+            : !double.IsInfinity(B - A) || double.IsInfinity(A) || double.IsInfinity(B) ? (B - A) / Math.Abs(A) * 100
+            : (B / Math.Abs(A) - Math.Sign(A)) * 100;
     }
 
     /// <summary>
