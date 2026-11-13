@@ -30,9 +30,11 @@ namespace ToolBelt.Collections
             if (unchecked((uint)index >= (uint)Size))
                 throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be in [0, {Size}).");
             int size = Size;
+            // Sums wrap modulo 2^64, so a range whose true sum fits is exact even if a prefix overflows. In a checked build
+            // the addition threw partway up the path and left some nodes updated.
             for (int x = index + 1; ; )
             {
-                _tree[x] += delta;
+                _tree[x] = unchecked(_tree[x] + delta);
                 int step = x & -x;
                 if (x > size - step) break; // x + step would pass the end (or overflow int)
                 x += step;
@@ -46,7 +48,7 @@ namespace ToolBelt.Collections
                 throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be in [0, {Size}).");
             long sum = 0;
             for (int x = index + 1; x > 0; x -= x & -x)
-                sum += _tree[x];
+                sum = unchecked(sum + _tree[x]);
             return sum;
         }
 
@@ -61,7 +63,7 @@ namespace ToolBelt.Collections
                 throw new ArgumentException("from must not exceed to.", nameof(from));
             long upper = PrefixSum(to);
             long lower = from == 0 ? 0 : PrefixSum(from - 1);
-            return upper - lower;
+            return unchecked(upper - lower);
         }
 
         /// <summary>The current value at a single index.</summary>

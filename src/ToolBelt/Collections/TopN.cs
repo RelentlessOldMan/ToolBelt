@@ -36,7 +36,12 @@ namespace ToolBelt.Collections
             if (_count < _capacity)
             {
                 if (_count == _heap.Length)
-                    Array.Resize(ref _heap, (int)Math.Min((long)_heap.Length * 2, _capacity));
+                {
+                    // Doubling past 2^30 asked for int.MaxValue elements, past Array.MaxLength (OutOfMemoryException).
+                    const int MaxLength = 0x7FFFFFC7;
+                    if (_heap.Length >= MaxLength) throw new InvalidOperationException("TopN holds at most Array.MaxLength (0x7FFFFFC7) items.");
+                    Array.Resize(ref _heap, (int)Math.Min(Math.Min((long)_heap.Length * 2, _capacity), MaxLength));
+                }
                 // Every comparison happens before the heap changes, so a comparer that throws leaves it as it was. A throw
                 // mid-sift lost an item, or (at capacity) left a larger item at the root, so later Adds were measured
                 // against the wrong threshold for good.

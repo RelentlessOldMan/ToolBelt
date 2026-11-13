@@ -12,6 +12,7 @@ namespace ToolBelt.Collections
     public sealed class BitSet
     {
         private ulong[] _words;
+        private int _version; // bumped by every mutation so EnumerateSetBits can detect one
 
         public BitSet(int initialCapacityBits = 64)
         {
@@ -38,6 +39,7 @@ namespace ToolBelt.Collections
                 throw new ArgumentOutOfRangeException(nameof(index), index, "Index must not be negative.");
             EnsureWord(index >> 6);
             _words[index >> 6] |= 1UL << (index & 63);
+            unchecked { _version++; }
         }
 
         /// <summary>Clears bit <paramref name="index"/>.</summary>
@@ -48,6 +50,7 @@ namespace ToolBelt.Collections
             int word = index >> 6;
             if (word < _words.Length)
                 _words[word] &= ~(1UL << (index & 63));
+            unchecked { _version++; }
         }
 
         /// <summary>Sets or clears bit <paramref name="index"/> per <paramref name="value"/>.</summary>
@@ -57,12 +60,13 @@ namespace ToolBelt.Collections
             else Clear(index);
         }
 
-        /// <summary>The number of set bits (population count).</summary>
-        public int Count
+        /// <summary>The number of set bits (population count). A long: every index 0 … int.MaxValue set is 2^31 bits, which
+        /// wrapped an int to int.MinValue.</summary>
+        public long Count
         {
             get
             {
-                int count = 0;
+                long count = 0;
                 foreach (ulong word in _words)
                     count += PopCount(word);
                 return count;
@@ -76,6 +80,7 @@ namespace ToolBelt.Collections
             EnsureWord(other._words.Length - 1);
             for (int i = 0; i < other._words.Length; i++)
                 _words[i] |= other._words[i];
+            unchecked { _version++; }
         }
 
         /// <summary>In-place intersection: this ∩= other.</summary>
@@ -84,6 +89,7 @@ namespace ToolBelt.Collections
             if (other is null) throw new ArgumentNullException(nameof(other));
             for (int i = 0; i < _words.Length; i++)
                 _words[i] &= i < other._words.Length ? other._words[i] : 0UL;
+            unchecked { _version++; }
         }
 
         /// <summary>In-place difference: this ∖= other.</summary>
@@ -93,6 +99,7 @@ namespace ToolBelt.Collections
             int n = Math.Min(_words.Length, other._words.Length);
             for (int i = 0; i < n; i++)
                 _words[i] &= ~other._words[i];
+            unchecked { _version++; }
         }
 
         /// <summary>In-place symmetric difference: this ⊕= other.</summary>
@@ -102,11 +109,14 @@ namespace ToolBelt.Collections
             EnsureWord(other._words.Length - 1);
             for (int i = 0; i < other._words.Length; i++)
                 _words[i] ^= other._words[i];
+            unchecked { _version++; }
         }
 
-        /// <summary>Enumerates the indices of set bits in ascending order.</summary>
+        /// <summary>Enumerates the indices of set bits in ascending order. Modifying the set while enumerating throws
+        /// InvalidOperationException, as the BCL collections do (it silently mixed old and new bits).</summary>
         public IEnumerable<int> EnumerateSetBits()
         {
+            int version = _version;
             for (int w = 0; w < _words.Length; w++)
             {
                 ulong bits = _words[w];
@@ -114,6 +124,7 @@ namespace ToolBelt.Collections
                 {
                     int bit = TrailingZeroCount(bits);
                     yield return (w << 6) + bit;
+                    if (version != _version) throw new InvalidOperationException("The bit set was modified during enumeration.");
                     bits &= bits - 1; // clear lowest set bit
                 }
             }

@@ -10,7 +10,9 @@ namespace ToolBelt.Collections
     /// with a <c>Dictionary</c>/<c>HashSet</c> to key on a list or array by its contents rather than its
     /// reference, or to compare sequences without materializing them through LINQ. A null sequence equals only
     /// another null sequence (and never an empty one). Element equality uses the supplied comparer, or
-    /// <see cref="EqualityComparer{T}.Default"/>. Immutable and therefore thread-safe; the hash code is stable
+    /// <see cref="EqualityComparer{T}.Default"/>; a null element equals only a null element and is never passed to
+    /// it, as in <see cref="MultisetEqualityComparer{T}"/> (a comparer that equated null with "" made equal sequences
+    /// hash differently). Immutable and therefore thread-safe; the hash code is stable
     /// only while the sequence's contents do not change (do not mutate a sequence while it is in use as a key).
     /// </summary>
     public sealed class SequenceEqualityComparer<T> : IEqualityComparer<IEnumerable<T>>
@@ -41,7 +43,9 @@ namespace ToolBelt.Collections
                 bool hasY = ey.MoveNext();
                 if (hasX != hasY) return false;   // different lengths
                 if (!hasX) return true;           // both ended together
-                if (!_elementComparer.Equals(ex.Current, ey.Current)) return false;
+                T a = ex.Current, b = ey.Current;
+                if (a is null || b is null) { if ((a is null) != (b is null)) return false; }
+                else if (!_elementComparer.Equals(a, b)) return false;
             }
         }
 
@@ -71,7 +75,8 @@ namespace ToolBelt.Collections
     /// sequences are equal when they contain the same elements with the same multiplicities, regardless of
     /// order. <c>[1,2,2]</c> equals <c>[2,1,2]</c> but not <c>[1,2]</c>. A null sequence equals only another
     /// null sequence. Element identity/hashing uses the supplied comparer, or
-    /// <see cref="EqualityComparer{T}.Default"/>; null elements are counted correctly even for reference types.
+    /// <see cref="EqualityComparer{T}.Default"/>; null elements are counted separately (a null equals only a null and is
+    /// never passed to the comparer), even for reference types.
     /// Immutable and thread-safe.
     /// </summary>
     public sealed class MultisetEqualityComparer<T> : IEqualityComparer<IEnumerable<T>>

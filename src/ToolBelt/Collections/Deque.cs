@@ -15,14 +15,15 @@ namespace ToolBelt.Collections
         private T[] _array;
         private int _head;  // index of the front element
         private int _count;
-        private int _version; // bumped by every mutation so an enumerator can detect one
+        private int _version; // bumped by every mutation so an enumerator can detect one (wraps: a checked build threw at 2^31)
 
         public Deque() : this(4) { }
 
         public Deque(int initialCapacity)
         {
-            if (initialCapacity < 0)
-                throw new ArgumentOutOfRangeException(nameof(initialCapacity), initialCapacity, "Capacity must not be negative.");
+            // Past Array.MaxLength the allocation threw OutOfMemoryException.
+            if (initialCapacity < 0 || initialCapacity > 0x7FFFFFC7)
+                throw new ArgumentOutOfRangeException(nameof(initialCapacity), initialCapacity, "Capacity must be in [0, Array.MaxLength] (0x7FFFFFC7).");
             _array = new T[Math.Max(4, initialCapacity)];
         }
 
@@ -33,7 +34,7 @@ namespace ToolBelt.Collections
             EnsureCapacity();
             _array[Slot(_count)] = item;
             _count++;
-            _version++;
+            unchecked { _version++; }
         }
 
         public void PushFront(T item)
@@ -42,7 +43,7 @@ namespace ToolBelt.Collections
             _head = _head == 0 ? _array.Length - 1 : _head - 1; // _head - 1 + length overflowed int past 2^30
             _array[_head] = item;
             _count++;
-            _version++;
+            unchecked { _version++; }
         }
 
         public bool TryPopFront(out T item)
@@ -57,7 +58,7 @@ namespace ToolBelt.Collections
             _array[_head] = default!;
             _head = (_head + 1) % _array.Length;
             _count--;
-            _version++;
+            unchecked { _version++; }
             return true;
         }
 
@@ -73,7 +74,7 @@ namespace ToolBelt.Collections
             item = _array[tail];
             _array[tail] = default!;
             _count--;
-            _version++;
+            unchecked { _version++; }
             return true;
         }
 
@@ -98,7 +99,7 @@ namespace ToolBelt.Collections
             Array.Clear(_array, 0, _array.Length);
             _head = 0;
             _count = 0;
-            _version++;
+            unchecked { _version++; }
         }
 
         public T[] ToArray()

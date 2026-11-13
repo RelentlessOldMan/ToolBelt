@@ -26,7 +26,8 @@ namespace ToolBelt.Collections
         /// <param name="comparer">Equality/hash comparer for items; defaults to <see cref="EqualityComparer{T}.Default"/>.</param>
         public CountMinSketch(int width = 2048, int depth = 5, IEqualityComparer<T>? comparer = null)
         {
-            if (width < 1) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
+            // Past Array.MaxLength the row allocation threw OutOfMemoryException.
+            if (width < 1 || width > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be in [1, Array.MaxLength] (0x7FFFFFC7).");
             if (depth < 1) throw new ArgumentOutOfRangeException(nameof(depth), depth, "Depth must be positive.");
 
             _width = width;

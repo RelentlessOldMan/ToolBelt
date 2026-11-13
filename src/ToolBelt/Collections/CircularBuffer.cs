@@ -15,12 +15,13 @@ namespace ToolBelt.Collections
         private readonly T[] _buffer;
         private int _start; // index of the oldest element
         private int _count;
-        private int _version; // bumped by every mutation so an enumerator can detect one
+        private int _version; // bumped by every mutation so an enumerator can detect one (wraps: a checked build threw at 2^31)
 
         public CircularBuffer(int capacity)
         {
-            if (capacity <= 0)
-                throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity must be positive.");
+            // Past Array.MaxLength the allocation threw OutOfMemoryException.
+            if (capacity <= 0 || capacity > 0x7FFFFFC7)
+                throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity must be in [1, Array.MaxLength] (0x7FFFFFC7).");
             _buffer = new T[capacity];
         }
 
@@ -45,7 +46,7 @@ namespace ToolBelt.Collections
                 _buffer[Slot(_count)] = item;
                 _count++;
             }
-            _version++;
+            unchecked { _version++; }
         }
 
         /// <summary>The oldest retained element (index 0 in enumeration order).</summary>
@@ -77,7 +78,7 @@ namespace ToolBelt.Collections
             _buffer[_start] = default!; // release reference
             _start = Slot(1);
             _count--;
-            _version++;
+            unchecked { _version++; }
             return true;
         }
 
@@ -86,7 +87,7 @@ namespace ToolBelt.Collections
             Array.Clear(_buffer, 0, _buffer.Length);
             _start = 0;
             _count = 0;
-            _version++;
+            unchecked { _version++; }
         }
 
         public T[] ToArray()

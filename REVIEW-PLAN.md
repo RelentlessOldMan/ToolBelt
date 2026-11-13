@@ -49,7 +49,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 4 | 10 / 57 | re-queue (10 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 4 | 29 / 93 | re-queue (29 bugs, 5 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 4 | 39 / 125 | re-queue (39 bugs, 7 severe) |
-| 9  | Collections | `Collections/*` | 3,400 | ~1 | 3 | 13 / 52 | re-queue (13 bugs, 1 severe) |
+| 9  | Collections | `Collections/*` | 3,400 | ~1 | 4 | 19 / 71 | re-queue (19 bugs) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 3 | 8 / 75 | re-queue (8 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 3 | 17 / 55 | re-queue (17 bugs) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 4 | 30 / 97 | re-queue (30 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70); **next: 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71); **next: 10, 16, 11** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -144,11 +144,37 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.11 | 68 | Binary formats & images, fourth pass | 10 | (see tag) |
 | v2026.11.13.12 | 69 | Logging, diagnostics, CLI, fourth pass | 30 | (see tag) |
 | v2026.11.13.13 | 70 | Signal analysis, fourth pass | 23 | (see tag) |
+| v2026.11.13.14 | 71 | Collections, fourth pass | 19 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 71: Collections, fourth pass (v2026.11.13.14)
+
+Two fresh reviewers (correctness, robustness): 20 findings, 19 after merging the one both found, all confirmed, so
+**19 bugs, none severe**. Section 9 stays re-queued (≥ 3 bugs). The regression tests are in `CollectionsReview4Tests`
+(23 tests); all failed on the old code, the CircularBuffer, Deque and Fenwick ones against the overflow-checked build.
+TopN's growth cap needs a 2 GB heap, so it was confirmed by a probe. Nothing is left open.
+
+- **Bloom filters:** double hashing `(h1 + i·h2) mod m` cycled in small or even-sized filters (one item at a 1% target
+  gave 25% false positives); each probe now goes through the murmur3 finalizer. The string overloads turned every lone
+  surrogate into U+FFFD, so "key" + U+D800 and "key" + U+DBFF were one item (and removing one removed the other); lone
+  surrogates are now encoded as their own three bytes (WTF-8), well-formed strings as UTF-8.
+- **Aggregation.Summarize:** after rescaling an overflowed sum it kept the ∞ sum ([1e308, 1e308, −1e308]), and squared
+  deviations of tiny values underflowed (1e-200 and 2e-200 had a deviation of 0). Values below 2^-400 are now scaled too,
+  in two halves.
+- **Counters past int:** BitSet.Count wrapped at 2^31 set bits and MultiDictionary.Total past int.MaxValue values (both
+  are now long); CircularBuffer and Deque version counters and FenwickTree sums threw in an overflow-checked build.
+- **Sizes past Array.MaxLength** threw OutOfMemoryException in CircularBuffer, Deque, CountMinSketch,
+  CountingBloomFilter and TopN growth; they are now argument or operation errors.
+- **DataTableLite:** strings sorted by the culture cached in Comparer.Default (now ordinal); a caller's comparer was
+  handed null cells; AddRow read an infinite sequence forever; InnerJoin's column check was quadratic.
+- **Smaller:** NearestBy returned the last of a run of equal keys below the key, and checked the key before a null list;
+  weighted sampling without replacement tied weights that underflowed against a 1e308 neighbour (keys are now in log
+  space); SequenceEqualityComparer passed null elements to the element comparer, so equal sequences could hash
+  differently; BitSet enumeration missed a modification; Trie.Remove allocated the whole path for an absent key.
+
 ### Round 70: Signal analysis, fourth pass (v2026.11.13.13)
 
 Two fresh reviewers (correctness, robustness): 30 findings, 22 after merging the eight both found, all confirmed, plus a

@@ -73,25 +73,30 @@ namespace ToolBelt.Collections
                     variance /= group.Count - 1;
                 }
                 double stdDev = Math.Sqrt(variance);
-                // Finite values whose sum or squared deviations overflow (1e308 + 1e308): redo both on values scaled
-                // by a power of two near 1/max|v|, which is exact, so the mean is not ∞ above Max.
-                if ((double.IsInfinity(sum) || double.IsInfinity(variance))
+                // Finite values whose sum or squared deviations overflow (1e308 + 1e308), or whose squared deviations
+                // underflow (1e-200 and 2e-200 had a deviation of 0): redo them on values scaled by a power of two near
+                // 1/max|v|, which is exact. The scale is applied in two halves, since 2^±k alone can pass the range.
+                double peak = Math.Max(Math.Abs(min), Math.Abs(max));
+                if ((double.IsInfinity(sum) || double.IsInfinity(variance) || (peak > 0 && peak < 3.8725919148493183e-121))   // 2^-400
                     && !double.IsNaN(min) && !double.IsInfinity(min) && !double.IsInfinity(max))
                 {
                     // Log2 of a value near double.MaxValue rounds to 1024, and 2^1024 is ∞; 2^1023 still scales exactly.
-                    int k = Math.Min(1023, (int)Math.Floor(Math.Log(Math.Max(Math.Abs(min), Math.Abs(max)), 2)));
-                    double down = Math.Pow(2, -k), up = Math.Pow(2, k);
+                    int k = Math.Min(1023, (int)Math.Floor(Math.Log(peak, 2)));
+                    double downHalf = Math.Pow(2, -(k / 2)), downRest = Math.Pow(2, -(k - k / 2));
+                    double upHalf = Math.Pow(2, k / 2), upRest = Math.Pow(2, k - k / 2);
                     double scaledSum = 0;
-                    foreach (double v in group) scaledSum += v * down;
+                    foreach (double v in group) scaledSum += v * downHalf * downRest;
                     double scaledMean = scaledSum / group.Count;
-                    mean = scaledMean * up;
+                    // The sum too: it was left at the overflowed ∞ when the true sum ([1e308, 1e308, −1e308]) is finite.
+                    sum = scaledSum * upHalf * upRest;
+                    mean = scaledMean * upHalf * upRest;
                     double scaledVariance = 0;
                     if (group.Count > 1)
                     {
-                        foreach (double v in group) { double d = v * down - scaledMean; scaledVariance += d * d; }
+                        foreach (double v in group) { double d = v * downHalf * downRest - scaledMean; scaledVariance += d * d; }
                         scaledVariance /= group.Count - 1;
                     }
-                    stdDev = Math.Sqrt(scaledVariance) * up;
+                    stdDev = Math.Sqrt(scaledVariance) * upHalf * upRest;
                 }
                 result.Add(new GroupSummary<TKey>(key, group.Count, sum, mean, min, max, stdDev));
             }

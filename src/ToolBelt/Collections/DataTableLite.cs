@@ -76,7 +76,13 @@ namespace ToolBelt.Collections
         public DataTableLite AddRow(IEnumerable<object?> values)
         {
             if (values is null) throw new ArgumentNullException(nameof(values));
-            var list = new List<object?>(values);
+            // At most one cell past the column count is read: copying the whole sequence never ended for an infinite one.
+            var list = new List<object?>(ColumnCount + 1);
+            foreach (var value in values)
+            {
+                list.Add(value);
+                if (list.Count > ColumnCount) break;
+            }
             return AddRow(list.ToArray());
         }
 
@@ -146,11 +152,13 @@ namespace ToolBelt.Collections
             return result;
         }
 
-        /// <summary>Returns the rows sorted ascending by one column. Stable. Null cells sort first.</summary>
+        /// <summary>Returns the rows sorted ascending by one column. Stable. Null cells sort first, also with a
+        /// <paramref name="comparer"/>, which sees only non-null cells. Strings compare ordinally by default.</summary>
         public DataTableLite OrderBy(string column, IComparer<object?>? comparer = null)
             => Sort(column, comparer, descending: false);
 
-        /// <summary>Returns the rows sorted descending by one column. Stable. Null cells sort last.</summary>
+        /// <summary>Returns the rows sorted descending by one column. Stable. Null cells sort last, also with a
+        /// <paramref name="comparer"/>, which sees only non-null cells. Strings compare ordinally by default.</summary>
         public DataTableLite OrderByDescending(string column, IComparer<object?>? comparer = null)
             => Sort(column, comparer, descending: true);
 
@@ -158,7 +166,8 @@ namespace ToolBelt.Collections
         {
             int c = IndexOf(column);
             if (c < 0) throw new ArgumentException($"No column named '{column}'.", nameof(column));
-            comparer ??= CellComparer.Instance;
+            // A caller's comparer was handed null cells, so one that didn't expect them threw, despite "nulls sort first".
+            comparer = comparer is null ? CellComparer.Instance : new NullsFirst(comparer);
 
             var order = new int[_rows.Count];
             for (int i = 0; i < order.Length; i++) order[i] = i;
@@ -260,10 +269,12 @@ namespace ToolBelt.Collections
             if (rc < 0) throw new ArgumentException($"No column named '{rightColumn}'.", nameof(rightColumn));
 
             var resultColumns = new List<string>(_columns);
+            // A set, not List.Contains: the check was quadratic (3 s for 20k + 20k columns).
+            var taken = new HashSet<string>(StringComparer.Ordinal);
             foreach (string rcol in other._columns)
             {
                 string name = rightPrefix is null ? rcol : rightPrefix + rcol;
-                if (_index.ContainsKey(name) || resultColumns.Contains(name))
+                if (_index.ContainsKey(name) || !taken.Add(name))
                     throw new ArgumentException(
                         $"Joined column name '{name}' collides with a left column; pass a rightPrefix.", nameof(rightPrefix));
                 resultColumns.Add(name);
@@ -393,7 +404,8 @@ namespace ToolBelt.Collections
             public DataTableLite Rows { get; }
         }
 
-        // Orders cells with null first, then via Comparer<object>.Default (IComparable). Mixed incomparable
+        // Orders cells with null first, strings ordinally (Comparer<object>.Default compared them in the culture current
+        // when it was first used, and cached it), then via Comparer<object>.Default (IComparable). Mixed incomparable
         // types throw from the default comparer — pass an explicit comparer for those columns.
         private sealed class CellComparer : IComparer<object?>
         {
@@ -402,7 +414,21 @@ namespace ToolBelt.Collections
             {
                 if (x is null) return y is null ? 0 : -1;
                 if (y is null) return 1;
+                if (x is string sx && y is string sy) return string.CompareOrdinal(sx, sy);
                 return Comparer<object>.Default.Compare(x, y);
+            }
+        }
+
+        // A caller's comparer with null cells placed first, so it sees only non-null ones.
+        private sealed class NullsFirst : IComparer<object?>
+        {
+            private readonly IComparer<object?> _inner;
+            public NullsFirst(IComparer<object?> inner) => _inner = inner;
+            public int Compare(object? x, object? y)
+            {
+                if (x is null) return y is null ? 0 : -1;
+                if (y is null) return 1;
+                return _inner.Compare(x, y);
             }
         }
 

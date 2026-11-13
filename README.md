@@ -271,9 +271,9 @@ src/
       DisjointSet.cs        union-find (path compression + union by rank)
       FenwickTree.cs        binary indexed tree (prefix/range sums, point update)
       IndexedPriorityQueue.cs  keyed min-priority queue with decrease-key (O(log n))
-      BitSet.cs             growable bit set (union / intersect / except)
+      BitSet.cs             growable bit set (union / intersect / except); Count is a long
       LruCache.cs           fixed-capacity least-recently-used cache (O(1))
-      MultiDictionary.cs    key -> many-values multimap
+      MultiDictionary.cs    key -> many-values multimap; Total is a long
       ObjectPool.cs         bounded thread-safe pool of reusable objects (rent/return/reset)
       OrderedDictionary.cs  insertion-ordered generic dictionary
       OrderedSet.cs         insertion-ordered set
@@ -684,6 +684,7 @@ tests/
       CollectionsReviewTests.cs (review round 9 regressions: deep tries/permutations, sketch hashing, enumerator versions, huge capacities)
       CollectionsReview2Tests.cs (second-pass regressions: pool return race, throwing comparers, overflow-safe sums and counts)
       CollectionsReview3Tests.cs (third-pass regressions: Bloom hash mixing, sums at double.MaxValue, throwing hashes, enumerator checks, argument names)
+      CollectionsReview4Tests.cs (fourth-pass regressions: Bloom probe mixing and lone surrogates, tiny-value spread, long counts, size caps, ordinal table sorts)
       CounterTests.cs
       CountMinSketchTests.cs
       DataTableLiteTests.cs

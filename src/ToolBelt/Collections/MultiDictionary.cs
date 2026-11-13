@@ -14,13 +14,14 @@ namespace ToolBelt.Collections
         where TKey : notnull
     {
         private readonly Dictionary<TKey, List<TValue>> _map = new Dictionary<TKey, List<TValue>>();
-        private int _count;
+        private long _count;
 
         /// <summary>Number of distinct keys.</summary>
         public int Count => _map.Count;
 
-        /// <summary>Total number of values across all keys.</summary>
-        public int Total => _count;
+        /// <summary>Total number of values across all keys. A long: values under many keys can pass int.MaxValue, which
+        /// wrapped negative (and, in a checked build, threw after the value was stored).</summary>
+        public long Total => _count;
 
         public IReadOnlyCollection<TKey> Keys => _map.Keys;
 

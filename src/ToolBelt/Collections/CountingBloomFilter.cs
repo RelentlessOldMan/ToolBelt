@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 namespace ToolBelt.Collections
@@ -41,9 +42,10 @@ namespace ToolBelt.Collections
             // Size in double first; a huge capacity at a tiny rate can exceed int.MaxValue, and an unchecked
             // (int) cast would wrap. Reject rather than build a broken filter (matches BloomFilter).
             double optimalSlots = Math.Ceiling(-expectedItems * Math.Log(falsePositiveRate) / (ln2 * ln2));
-            if (optimalSlots > int.MaxValue)
+            // Past Array.MaxLength (not int.MaxValue) the counter array threw OutOfMemoryException.
+            if (optimalSlots > 0x7FFFFFC7)
                 throw new ArgumentOutOfRangeException(nameof(expectedItems),
-                    "The requested capacity and false-positive rate would require more than int.MaxValue slots.");
+                    "The requested capacity and false-positive rate would require more than Array.MaxLength (0x7FFFFFC7) slots.");
             _slotCount = Math.Max(1, (int)optimalSlots);
             _hashCount = Math.Max(1, (int)Math.Round((double)_slotCount / expectedItems * ln2));
             _counts = new byte[_slotCount];
@@ -63,16 +65,16 @@ namespace ToolBelt.Collections
             uint h2 = Fnv(data, 2166136261u ^ 0x9E3779B9u);
             for (int i = 0; i < _hashCount; i++)
             {
-                int slot = (int)(unchecked(h1 + (uint)i * h2) % (uint)_slotCount);
+                int slot = (int)(Probe(h1, h2, i) % (uint)_slotCount);
                 if (_counts[slot] < MaxCount) _counts[slot]++;
             }
         }
 
-        /// <summary>Adds the UTF-8 bytes of <paramref name="text"/>.</summary>
+        /// <summary>Adds the UTF-8 bytes of <paramref name="text"/> (lone surrogates kept distinct).</summary>
         public void Add(string text)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
-            Add(Encoding.UTF8.GetBytes(text));
+            Add(Bytes(text));
         }
 
         /// <summary>
@@ -88,17 +90,17 @@ namespace ToolBelt.Collections
             uint h2 = Fnv(data, 2166136261u ^ 0x9E3779B9u);
             for (int i = 0; i < _hashCount; i++)
             {
-                int slot = (int)(unchecked(h1 + (uint)i * h2) % (uint)_slotCount);
+                int slot = (int)(Probe(h1, h2, i) % (uint)_slotCount);
                 if (_counts[slot] > 0 && _counts[slot] < MaxCount) _counts[slot]--;
             }
             return true;
         }
 
-        /// <summary>Removes the UTF-8 bytes of <paramref name="text"/>.</summary>
+        /// <summary>Removes the UTF-8 bytes of <paramref name="text"/> (lone surrogates kept distinct).</summary>
         public bool Remove(string text)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
-            return Remove(Encoding.UTF8.GetBytes(text));
+            return Remove(Bytes(text));
         }
 
         /// <summary>Reports whether the item may be present. Never a false negative for a currently-added item.</summary>
@@ -109,18 +111,64 @@ namespace ToolBelt.Collections
             uint h2 = Fnv(data, 2166136261u ^ 0x9E3779B9u);
             for (int i = 0; i < _hashCount; i++)
             {
-                int slot = (int)(unchecked(h1 + (uint)i * h2) % (uint)_slotCount);
+                int slot = (int)(Probe(h1, h2, i) % (uint)_slotCount);
                 if (_counts[slot] == 0)
                     return false;
             }
             return true;
         }
 
-        /// <summary>Reports whether the UTF-8 bytes of <paramref name="text"/> may be present.</summary>
+        /// <summary>Reports whether the UTF-8 bytes of <paramref name="text"/> (lone surrogates kept distinct) may be present.</summary>
         public bool MightContain(string text)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
-            return MightContain(Encoding.UTF8.GetBytes(text));
+            return MightContain(Bytes(text));
+        }
+
+        // UTF-8, except that a lone surrogate is encoded as its own three bytes (WTF-8) rather than U+FFFD, which made
+        // every string differing only in lone surrogates the same item. Well-formed strings keep their UTF-8 bytes.
+        private static byte[] Bytes(string text)
+        {
+            bool lone = false;
+            for (int i = 0; i < text.Length && !lone; i++)
+            {
+                char c = text[i];
+                if (char.IsHighSurrogate(c)) { if (i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) i++; else lone = true; }
+                else if (char.IsLowSurrogate(c)) lone = true;
+            }
+            if (!lone) return Encoding.UTF8.GetBytes(text);
+            var bytes = new List<byte>(text.Length);
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    bytes.AddRange(Encoding.UTF8.GetBytes(text.Substring(i, 2)));
+                    i++;
+                }
+                else if (char.IsSurrogate(c))
+                {
+                    bytes.Add((byte)(0xE0 | (c >> 12)));
+                    bytes.Add((byte)(0x80 | ((c >> 6) & 0x3F)));
+                    bytes.Add((byte)(0x80 | (c & 0x3F)));
+                }
+                else bytes.AddRange(Encoding.UTF8.GetBytes(c.ToString()));
+            }
+            return bytes.ToArray();
+        }
+
+        // Probe i of an item. Plain double hashing (h1 + i·h2) mod m cycles after m / gcd(h2, m) probes, so in a small or
+        // even-sized filter an item touched only a few distinct slots (25% false positives at a 1% target for one item);
+        // the murmur3 finalizer on each probe makes them behave like independent hashes.
+        private static uint Probe(uint h1, uint h2, int i)
+        {
+            uint hash = unchecked(h1 + (uint)i * h2);
+            hash ^= hash >> 16;
+            hash = unchecked(hash * 0x85EBCA6Bu);
+            hash ^= hash >> 13;
+            hash = unchecked(hash * 0xC2B2AE35u);
+            hash ^= hash >> 16;
+            return hash;
         }
 
         // FNV-1a with a configurable offset basis and a murmur3 finalizer, giving two independent hashes for double hashing.

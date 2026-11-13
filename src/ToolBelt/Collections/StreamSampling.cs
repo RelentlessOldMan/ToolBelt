@@ -117,8 +117,10 @@ namespace ToolBelt.Collections
                 if (weights[i] == 0) continue;
                 double u;
                 do u = random.NextDouble(); while (u == 0);
-                // Relative weights: ln(u)/w for a subnormal w is -infinity for every such item, which ties them.
-                double key = Math.Log(u) / (weights[i] / max);
+                // ln(u)/w in log space: −(ln(−ln u) − ln w) orders the same and keeps every weight's own scale. ln(u)/w for a
+                // subnormal w was −∞, and relative weights w/max underflowed to 0 for a 1e308 neighbour, which tied them and
+                // left the draw to the index.
+                double key = Math.Log(weights[i]) - Math.Log(-Math.Log(u));
                 if (heap.Count < count) heap.Add((key, i));
                 else if (count > 0 && key > heap.Min.Key)
                 {

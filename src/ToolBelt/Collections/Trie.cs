@@ -101,6 +101,14 @@ namespace ToolBelt.Collections
             if (key is null)
                 throw new ArgumentNullException(nameof(key));
 
+            // Walk first without allocating: an absent 1e8-character key allocated an 800 MB path.
+            var probe = _root;
+            for (int i = 0; i < key.Length; i++)
+                if (!probe.Children.TryGetValue(key[i], out probe))
+                    return false;
+            if (!probe.IsWord)
+                return false;
+
             // Iterative (a recursive walk overflows the stack on a very long key): record the path, then
             // prune now-empty nodes from the bottom up.
             var path = new Node[key.Length + 1];

@@ -88,12 +88,16 @@ namespace ToolBelt.Collections
         /// </summary>
         public static int NearestBy<T>(this IReadOnlyList<T> list, double key, Func<T, double> keySelector)
         {
+            if (list is null) throw new ArgumentNullException(nameof(list));
+            if (keySelector is null) throw new ArgumentNullException(nameof(keySelector));
             if (double.IsNaN(key)) throw new ArgumentException("Key must not be NaN.", nameof(key));
             int i = list.LowerBoundBy(key, keySelector);
             if (list.Count == 0) return -1;
             if (i == 0) return 0;
-            if (i == list.Count) return list.Count - 1;
-            return key - keySelector(list[i - 1]) <= keySelector(list[i]) - key ? i - 1 : i;
+            int nearest = i == list.Count || key - keySelector(list[i - 1]) <= keySelector(list[i]) - key ? i - 1 : i;
+            // The earliest element with that key: below the key, the run of equal keys ending at i − 1 was answered by its
+            // last element ([1, 1, 1, 3] near 2 gave 2, not 0).
+            return nearest == i ? i : list.LowerBoundBy(keySelector(list[nearest]), keySelector);
         }
 
         /// <summary>Inserts keeping the list sorted (after any equal elements, so insertion order is stable); returns the index.</summary>
