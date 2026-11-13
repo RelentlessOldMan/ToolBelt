@@ -57,13 +57,13 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 3 | 19 / 82 | re-queue (19 bugs, 3 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 3 | 12 / 74 | re-queue (12 bugs, 2 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 3 | 20 / 58 | re-queue (20 bugs) |
-| 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 2 | 12 / 36 | re-queue (12 bugs) |
+| 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 3 | 18 / 54 | re-queue (18 bugs, 3 severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17, 6, 1. **next: 17** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6, 1. **next: 6** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -124,6 +124,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.48.0 | 48 | Security, net, time, third pass | 16 | (see tag) |
 | v0.49.0 | 49 | WPF satellite, third pass | 20 | (see tag) |
 | v0.50.0 | 50 | Text & small types, third pass | 17 | (see tag) |
+| v0.51.0 | 51 | WinForms, tooling and docs, third pass | 18 | (see tag) |
 
 ## Round log
 
@@ -2201,3 +2202,69 @@ probe instead (3 and 4 duplicates in 150k before, 0 in three runs after). The se
 - **Doc:** the TextDiff summary no longer claims an exact rebuild where its remarks say \r\n is normalised.
 - **Checked build:** the core suite in a checked build matches the empty baseline.
 - **Re-queued:** yes (17 bugs).
+
+### Round 51: WinForms, tooling and docs, third pass (v0.51.0)
+
+Reviewers: one for correctness and one for robustness, fresh to the section. The scope now includes `CLAUDE.md`,
+`docs/status.md` and the new `scripts/verify.sh`, `checked-build.sh` and `net48.sh`. **18 confirmed bugs, 3 severe**
+(five found by both reviewers). The library fixes have regression tests in `WinFormsReview3Tests` (9 tests); 7 fail
+on the old code. The escaping test uses a new parameter, so it can't build there, and the `AutoSizeColumns` test
+covers a doc-only fix. The script and generator fixes were proven by repro in a scratch worktree of HEAD.
+
+- **checked-build.sh (severe):** it ignored the suite's exit code and only looked for FAIL lines, so a stack overflow,
+  a crash or the timeout reported success. It now fails unless the run exits 0 with an ALL GREEN summary, and it
+  says so on a timeout. Proven with a recursing test: HEAD exits 0, the fix exits 1.
+- **checked-build.sh (severe):** given any existing checkout (`.`, or one of your own worktrees) it ran `checkout -f`
+  and `clean -fd`, throwing away uncommitted work. It now reuses only a folder holding the `.toolbelt-checked-wt`
+  marker it writes when it creates the worktree, and refuses any other.
+- **PlotPictureBox (severe):** `ZoomAbout` checked its input offset but not the one it computed, so a deep zoom (a
+  huge `MaxZoom`, or zooming far from the origin) stored an infinite `Offset`. After that every wheel event and drag
+  threw inside the window procedure. A zoom that would overflow `float` now leaves the view unchanged. `FitToView`
+  with a huge `MinZoom` also centred to ±∞; the offset is now held to the float range.
+- **checked-build.sh:**
+  - Changed files with spaces or non-ASCII names were split or quoted by git and silently left out. The list is
+    now read NUL-separated.
+  - After a temp cleanup removed the worktree folder, git still had it registered and `worktree add` refused. The
+    script now runs `git worktree prune` first.
+  - A relative worktree path was taken from the repo root, not from where you ran the script.
+- **verify.sh:**
+  - MathChecks had no timeout and no `< /dev/null`, so a hang stalled the run. It is now capped at 15 minutes like
+    the suites, and built with `UseSharedCompilation=false`.
+  - A relative log folder was created inside the repo.
+- **net48.sh and the test runner:** a misspelled folder compiled no tests and reported "ALL GREEN 0 passed". The
+  script now checks each folder, and the runner exits 3 whenever it selects no test, not only under a filter.
+- **MenuBuilder / ToolStripBuilder:** a command's `CanExecuteChanged` raised on a worker set `Enabled` on that worker,
+  so `EnabledChanged` handlers ran off the UI thread and a cross-thread exception landed in the view-model's raise.
+  It is now marshalled to the strip's UI thread, or to the binding thread's WinForms context before the strip has a
+  handle.
+- **DataGridViewExtensions:**
+  - `SaveCsv` truncated the target before reading any cell, so a throwing `CellFormatting` handler left a partial
+    file in place of the previous export. It now writes beside the target and moves it over at the end.
+  - CSV formula injection: a cell like `=HYPERLINK(...)` or `@SUM(...)` runs when the file is opened in Excel. The
+    new opt-in `escapeFormulas` on `ToCsv` and `SaveCsv` prefixes `'` to fields starting with `= + - @`, a tab or a
+    CR (numbers such as `-5` are left alone). The docs now warn about it.
+  - The `AutoSizeColumns` doc promised a cap at `maxWidth`, but WinForms never sets a width below the column's
+    `MinimumWidth`. The doc now says so.
+- **gen-incomplete-references.py:** in `kappa` mode one failing row aborted the whole pass, and nothing was written
+  until the end, so hours of computed condition numbers were lost. A failing row is now reported and skipped, each
+  result is saved as it is computed, and writes go through a temp file.
+- **Packaging:** the nupkgs had "Package Description" and no licence. Each project now has a description, and the
+  packages carry the MIT licence expression and the repository URL.
+- **Docs:**
+  - CLAUDE.md listed `scripts\test.ps1` under "Run from Git Bash", where it can't run. It now gives the
+    `powershell -File` form.
+  - The README claimed 1,400+ tests (now 3,300+). Its Layout was missing `gen-incomplete-references.py` and the
+    MathChecks cross-check files.
+  - docs/status.md said `Check.Close` fails when either side is NaN. It fails only when exactly one side is.
+- **Checked and found correct:**
+  - the generators reproduce the checked-in data byte for byte
+  - ConsumerSmoke
+  - the FormStatePersistence fuzz
+  - the MenuShortcut round-trip
+  - `test.ps1`, `build.ps1` and `coverage.ps1`
+  - ControlExtensions disposed and handle-less paths
+  - WaitCursorScope across threads
+  - weak command bindings under GC
+  - the package contents
+- **Checked build:** the core suite in a checked build is green.
+- **Re-queued:** yes (18 bugs, 3 severe).

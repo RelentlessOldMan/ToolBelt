@@ -16,6 +16,9 @@ folders=()
 while [ $# -gt 0 ] && [ "$1" != "--" ]; do folders+=("$1"); shift; done
 [ "$1" = "--" ] && shift
 [ ${#folders[@]} -gt 0 ] || { echo "usage: $0 <test folder>... [-- <runner args>]"; exit 2; }
+for f in "${folders[@]}"; do
+  [ -d "tests/ToolBelt.Tests/$f" ] || { echo "no test folder tests/ToolBelt.Tests/$f"; exit 2; }
+done
 
 {
   echo '<Project Sdk="Microsoft.NET.Sdk">'

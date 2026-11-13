@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -41,7 +42,8 @@ namespace ToolBelt.WinForms
 
         /// <summary>
         /// Sizes every column to its content (<paramref name="mode"/> must be content-based, not None or Fill), then caps
-        /// each at <paramref name="maxWidth"/> pixels if given. A capped column stops auto-sizing (its
+        /// each at <paramref name="maxWidth"/> pixels if given (or at the column's <see cref="DataGridViewColumn.MinimumWidth"/>
+        /// if that is larger: WinForms never sets a width below it). A capped column stops auto-sizing (its
         /// <see cref="DataGridViewColumn.AutoSizeMode"/> becomes None), so the grid's own continuous auto-size mode cannot
         /// undo the cap.
         /// </summary>
@@ -114,8 +116,12 @@ namespace ToolBelt.WinForms
         /// delimiter, a quote or a line break are quoted, with quotes doubled. Lines end in CRLF. Values are the cells'
         /// formatted text, which means each row is unshared (WinForms' memory optimisation for big unbound grids) as it is
         /// read; for 100k+ rows, export from the bound data source instead.
+        /// <para>A field starting with <c>=</c>, <c>+</c>, <c>-</c>, <c>@</c>, a tab or a carriage return is a formula to
+        /// Excel and other spreadsheets, quoted or not, so a cell holding <c>=HYPERLINK(...)</c> runs when the file is
+        /// opened. If the cells can hold untrusted text, pass <paramref name="escapeFormulas"/>: such fields get a leading
+        /// <c>'</c> (numbers like <c>-5</c> are left alone). It is off by default because it changes the data.</para>
         /// </summary>
-        public static void ToCsv(this DataGridView grid, TextWriter writer, bool includeHeaders = true, bool visibleColumnsOnly = true, char delimiter = ',')
+        public static void ToCsv(this DataGridView grid, TextWriter writer, bool includeHeaders = true, bool visibleColumnsOnly = true, char delimiter = ',', bool escapeFormulas = false)
         {
             if (grid is null) throw new ArgumentNullException(nameof(grid));
             if (writer is null) throw new ArgumentNullException(nameof(writer));
@@ -125,36 +131,56 @@ namespace ToolBelt.WinForms
                 .OrderBy(c => c.DisplayIndex).ToList();
             string sep = delimiter.ToString();
             if (includeHeaders)
-                writer.Write(string.Join(sep, columns.Select(c => CsvField(c.HeaderText, delimiter))) + "\r\n");
+                writer.Write(string.Join(sep, columns.Select(c => CsvField(c.HeaderText, delimiter, escapeFormulas))) + "\r\n");
             foreach (DataGridViewRow row in grid.Rows)
             {
                 if (row.IsNewRow) continue;
-                writer.Write(string.Join(sep, columns.Select(c => CsvField(Text(row.Cells[c.Index]), delimiter))) + "\r\n");
+                writer.Write(string.Join(sep, columns.Select(c => CsvField(Text(row.Cells[c.Index]), delimiter, escapeFormulas))) + "\r\n");
             }
         }
 
-        /// <summary>The grid as a CSV string. See <see cref="ToCsv(DataGridView, TextWriter, bool, bool, char)"/>.</summary>
-        public static string ToCsv(this DataGridView grid, bool includeHeaders = true, bool visibleColumnsOnly = true, char delimiter = ',')
+        /// <summary>The grid as a CSV string. See <see cref="ToCsv(DataGridView, TextWriter, bool, bool, char, bool)"/>.</summary>
+        public static string ToCsv(this DataGridView grid, bool includeHeaders = true, bool visibleColumnsOnly = true, char delimiter = ',', bool escapeFormulas = false)
         {
             using var sw = new StringWriter();
-            grid.ToCsv(sw, includeHeaders, visibleColumnsOnly, delimiter);
+            grid.ToCsv(sw, includeHeaders, visibleColumnsOnly, delimiter, escapeFormulas);
             return sw.ToString();
         }
 
-        /// <summary>Saves the grid as CSV; UTF-8 with a byte-order mark by default, so Excel detects the encoding.</summary>
-        public static void SaveCsv(this DataGridView grid, string path, Encoding? encoding = null, bool includeHeaders = true, char delimiter = ',')
+        /// <summary>
+        /// Saves the grid as CSV (see <see cref="ToCsv(DataGridView, TextWriter, bool, bool, char, bool)"/>); UTF-8 with a
+        /// byte-order mark by default, so Excel detects the encoding. The file is written beside the target and moved over
+        /// it at the end, so a failure partway (a throwing CellFormatting handler, a full disk) leaves any previous file
+        /// as it was.
+        /// </summary>
+        public static void SaveCsv(this DataGridView grid, string path, Encoding? encoding = null, bool includeHeaders = true, char delimiter = ',', bool escapeFormulas = false)
         {
-            if (grid is null) throw new ArgumentNullException(nameof(grid)); // before opening: the open truncates the file
+            if (grid is null) throw new ArgumentNullException(nameof(grid));
             if (path is null) throw new ArgumentNullException(nameof(path));
             if (delimiter == '"' || delimiter == '\r' || delimiter == '\n') throw new ArgumentException("Invalid delimiter.", nameof(delimiter));
-            using var writer = new StreamWriter(path, false, encoding ?? new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-            grid.ToCsv(writer, includeHeaders, true, delimiter);
+            string full = Path.GetFullPath(path);
+            string temp = full + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp";
+            try
+            {
+                using (var writer = new StreamWriter(temp, false, encoding ?? new UTF8Encoding(encoderShouldEmitUTF8Identifier: true)))
+                    grid.ToCsv(writer, includeHeaders, true, delimiter, escapeFormulas);
+                File.Move(temp, full, overwrite: true);
+            }
+            catch
+            {
+                try { File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                throw;
+            }
         }
 
         private static string Text(DataGridViewCell cell) => cell.FormattedValue?.ToString() ?? string.Empty;
 
-        private static string CsvField(string value, char delimiter)
+        private static string CsvField(string value, char delimiter, bool escapeFormulas)
         {
+            if (escapeFormulas && value.Length > 0 && "=+-@\t\r".IndexOf(value[0]) >= 0
+                && !double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
+                && !double.TryParse(value, NumberStyles.Float, CultureInfo.CurrentCulture, out _))
+                value = "'" + value;
             bool quote = value.IndexOf(delimiter) >= 0 || value.IndexOf('"') >= 0 || value.IndexOf('\r') >= 0 || value.IndexOf('\n') >= 0
                 || (value.Length > 0 && (char.IsWhiteSpace(value[0]) || char.IsWhiteSpace(value[value.Length - 1])));
             return quote ? "\"" + value.Replace("\"", "\"\"") + "\"" : value;

@@ -5,8 +5,6 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 
 ## Next
 
-1. **Round 51: section 17** (WinForms + tooling + docs), third pass. Its scope now includes `CLAUDE.md`, this file
-   and the new `scripts/verify.sh`, `scripts/checked-build.sh` and `scripts/net48.sh`.
 1. **Rounds 52-53: sections 6 and 1**, third pass. That finishes the third pass.
 1. **Cross-cutting rounds** (planned 2026-11-04), each across the whole library rather than one section:
    - throwing callbacks and handlers (user code that throws inside ours);
@@ -14,17 +12,17 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
    - non-finite and extreme numerics (NaN, ±∞, subnormals, 1e±300);
    - the whole suite on .NET Framework 4.8 and in the overflow-checked build.
 1. **Then:** every section re-queued by its last pass goes round again until a pass finds ≤ 1 minor bug. As of
-   round 50 all 17 sections are re-queued.
+   round 51 all 17 sections are re-queued.
 
 ## Built
 
 - **The library** (2026-09-25 to 2026-10-05): 29+ divisions in the core plus the Windows, WPF and WinForms
   satellites. The README's Layout is the inventory.
-- **The review** (2026-10-07 onward): 50 rounds, released as v0.1.0 to v0.50.0. Two full passes over all 17
-  sections, the third pass up to section 11, and two rounds on flaky tests and the incomplete beta/gamma harness.
-  Section 11 (round 50) found 17 bugs, none severe.
-- **Checks every round passes:** the full verify (core 2981 tests, Windows 115, WPF 151, WinForms 82,
-  MathChecks 40 at v0.50.0), the overflow-checked build with no failures (since round 48), and the special
+- **The review** (2026-10-07 onward): 51 rounds, released as v0.1.0 to v0.51.0. Two full passes over all 17
+  sections, the third pass on all but sections 6 and 1, and two rounds on flaky tests and the incomplete beta/gamma
+  harness. Section 17 (round 51) found 18 bugs, 3 severe; two of the severe ones were in the new verify scripts.
+- **Checks every round passes:** the full verify (core 2981 tests, Windows 115, WPF 151, WinForms 91,
+  MathChecks 40 at v0.51.0), the overflow-checked build with no failures (since round 48), and the special
   functions against mpmath (graded in condition-number units).
 - **Unverified:** the whole core suite on .NET Framework 4.8 has never been run in one go; rounds only ran the
   section under review there. That is one of the cross-cutting rounds.
@@ -55,7 +53,8 @@ Written as rules a future session can apply.
 - A stack-overflow fail-first test kills the test process (exit 127, "Stack overflow."). Count that as the failure.
 - Some fail-first tests only fail where the bug lives: on .NET Framework, in the checked build, or under one-core
   affinity. Say so in the test's comment.
-- `Check.Close` must fail when either side is NaN; write helpers that do.
+- `Check.Close` passes NaN against NaN but must fail when only one side is NaN (fixed in round 18); write any new
+  tolerance helper the same way.
 - Timing-sensitive tests (pause/race, job objects) flake under load. Widen margins or remove the race; don't retry.
 
 **.NET and C#**
@@ -79,6 +78,9 @@ Written as rules a future session can apply.
   `Process` namespace).
 
 **Tooling**
+- `scripts/checked-build.sh` only reuses a worktree holding its `.toolbelt-checked-wt` marker (added in round 51);
+  a scratch worktree made before then is refused until it is removed or the marker is added by hand.
+- A script's exit code must come from what it ran, not from grepping the output: a crashed run prints no FAIL line.
 - One build or test project at a time on Windows: overlapping builds deadlock on `obj` locks. The scripts disable
   the MSBuild server so a lingering one can't make a shell look hung.
 - PowerShell scripts that forward arguments parse `$args` by hand: a `[CmdletBinding()]` param block eats `--` and

@@ -11,6 +11,7 @@
     <RootNamespace>ToolBelt</RootNamespace>
     <AssemblyName>ToolBelt</AssemblyName>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Description>BCL-only utility library: collections, numerics and statistics, signal processing, text, IO, resilience, threading and more. netstandard2.0 and net8.0.</Description>
     <!-- CS1591: not every public member needs an XML doc comment (yet). -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>

@@ -169,9 +169,11 @@ def read(path):
     with open(path) as f: return [l.rstrip(NL).split(TAB) for l in f if l.strip() and not l.startswith('#')]
 
 def write(path, header, rows):
-    with open(path, 'w', newline='') as f:
+    # Through a temp file, so an interrupted write never leaves a half file.
+    with open(path + '.tmp', 'w', newline='') as f:
         f.write('# ' + TAB.join(header) + NL)
         for r in rows: f.write(TAB.join(r) + NL)
+    os.replace(path + '.tmp', path)
 
 BETA, GAMMA = os.path.join(DATA, 'incomplete-beta.tsv'), os.path.join(DATA, 'incomplete-gamma.tsv')
 BETA_HEADER = ['x', 'a', 'b', 'I_x(a,b)', 'kappa']
@@ -199,22 +201,26 @@ def grid():
     write(GAMMA, GAMMA_HEADER, rows)
 
 def fill_kappa():
-    """The test writes need files of the key columns (plus P or Q for gamma) of rows over 16 eps that have no kappa."""
+    """The test writes need files of the key columns (plus P or Q for gamma) of rows over 16 eps that have no kappa.
+    Each kappa is saved as soon as it is computed, and a row whose kappa fails is reported and skipped (as grid() does),
+    so a failure or an interrupt hours in keeps the work done so far."""
     need = set(tuple(r) for r in read(BETA[:-4] + '.need.tsv'))
     rows = read(BETA)
     for r in rows:
         if tuple(r[:3]) in need and not r[4]:
-            r[4] = mp.nstr(kappa(lambda x, a, b: beta_ref(x, a, b), [float(t) for t in r[:3]]), 6)
+            try: r[4] = mp.nstr(kappa(lambda x, a, b: beta_ref(x, a, b), [float(t) for t in r[:3]]), 6)
+            except Exception as e: print('beta', r[:3], type(e).__name__, e, flush=True); continue
+            write(BETA, BETA_HEADER, rows)
             print('beta', r, flush=True)
-    write(BETA, BETA_HEADER, rows)
     need = set(tuple(r) for r in read(GAMMA[:-4] + '.need.tsv'))
     rows = read(GAMMA)
     for r in rows:
         for which, col in ((0, 4), (1, 5)):
             if tuple(r[:2]) + ('PQ'[which],) in need and not r[col]:
-                r[col] = mp.nstr(kappa(lambda a, x: gamma_ref(a, x)[which], [float(t) for t in r[:2]]), 6)
+                try: r[col] = mp.nstr(kappa(lambda a, x: gamma_ref(a, x)[which], [float(t) for t in r[:2]]), 6)
+                except Exception as e: print('gamma', r[:2], 'PQ'[which], type(e).__name__, e, flush=True); continue
+                write(GAMMA, GAMMA_HEADER, rows)
                 print('gamma', r, flush=True)
-    write(GAMMA, GAMMA_HEADER, rows)
 
 if __name__ == '__main__':
     {'grid': grid, 'kappa': fill_kappa}[sys.argv[1] if len(sys.argv) > 1 else 'grid']()

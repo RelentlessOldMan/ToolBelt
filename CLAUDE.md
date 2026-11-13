@@ -85,7 +85,7 @@ Run from the repo root in Git Bash (Windows; the satellites need net8.0-windows)
     bash scripts/verify.sh [log dir]        # sln build + 4 suites + MathChecks; one summary line each
     bash scripts/checked-build.sh [wt dir]  # core suite against an overflow-checked library build
     bash scripts/net48.sh Text Identifiers  # chosen core test folders on .NET Framework 4.8
-    scripts\test.ps1 [--filter <substring>] [-Configuration Release]   # PowerShell build + run
+    powershell -NoProfile -File scripts/test.ps1 [--filter <substring>] [-Configuration Release]   # build + run
     tests/ToolBelt.Tests/bin/Release/net8.0/ToolBelt.Tests.exe <filter>  # one suite, already built
 
 The runner's filter is a case-insensitive substring, not a regex. A filter that matches nothing exits 3.

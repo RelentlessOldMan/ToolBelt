@@ -11,7 +11,7 @@ same design laws, so they can later be pulled into the UtilityBelt tree with min
 A defect in application code affects one application; a defect in a shared utility propagates into every
 project that consumes it. ToolBelt treats that blast radius seriously: each utility is small, focused,
 predictable, hard to misuse, and covered by behavioral, property-based, and differential tests
-(**1,400+** of them). Drop a single `.cs` file into a project, or reference the whole assembly — either
+(**3,300+** of them). Drop a single `.cs` file into a project, or reference the whole assembly — either
 works, with no dependencies to inherit.
 
 > **Merge note:** namespaces are currently rooted at `ToolBelt.*` with divisions/paths kept identical to
@@ -631,6 +631,7 @@ src/
     LayoutSuspender.cs      using-scope SuspendLayout/ResumeLayout batch
     FormStatePersistence.cs capture/apply/serialize window placement; Apply validates vs current monitors (never off-screen)
     DataGridViewExtensions.cs  BindList<T> (DisplayName headers), AutoSizeColumns cap, selection->TSV (Excel), CSV export
+                            (atomic SaveCsv; opt-in escapeFormulas against spreadsheet formula injection)
     MenuBuilder.cs          declarative MenuStrip/ToolStrip builders, ICommand items, MenuShortcut parse/format, FindItem(path)
     PlotPictureBox.cs       zoom/pan/fit image view (crisp pixels, flicker-free) + RGBA->Bitmap bridge
 tests/
@@ -1069,11 +1070,14 @@ tests/
     PlotPictureBoxTests.cs
     WinFormsReviewTests.cs  (round 17 review regressions: off-screen placement, disposed controls, view limits, cursor scopes, command leaks, shortcuts)
     WinFormsReview2Tests.cs (round 34 review regressions: CSV truncation, deep-zoom painting, handle-less marshalling, shortcuts, empty filters)
+    WinFormsReview3Tests.cs (round 51 review regressions: zoom overflow, worker-raised CanExecuteChanged, atomic SaveCsv, formula escaping)
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
                             fits, root-finding, statistics)
                             against Math.NET Numerics. The ONLY project with an external NuGet
                             dependency, so it is EXCLUDED from ToolBelt.sln — run it on its own.
+    *CrossCheckTests.cs     one file per area (Anova, Distributions, DistributionsTail, Fft, Fit, HypothesisTests,
+                            LinearAlgebra, Regression, RootFinding, SpecialFunctions, Statistics) vs Math.NET
     IncompleteFunctionsGradedTests.cs  incomplete beta/gamma graded against mpmath in condition-number units
     Data/incomplete-*.tsv   50-digit mpmath references with condition numbers (from scripts/gen-incomplete-references.py)
 scripts/
@@ -1087,6 +1091,7 @@ scripts/
   gen-png-fixtures.py     regenerates the PNG decoder fixtures (needs Pillow, used as a cross-check)
   gen-filter-references.py  regenerates the IIR/FIR filter references from SciPy (butter, cheby1/2, ellip, bessel, group delay, sosfiltfilt, firwin)
   gen-gauge-references.py   regenerates the gauge R&R references (least-squares ANOVA + scipy F tails)
+  gen-incomplete-references.py  regenerates the incomplete beta/gamma references for MathChecks (mpmath; hours)
 samples/
   ConsumerSmoke/            a fresh EXTERNAL consumer (public API only); doubles as a usage example
                             and a misuse smoke test. Build + run its exe; exit 0 == all good.

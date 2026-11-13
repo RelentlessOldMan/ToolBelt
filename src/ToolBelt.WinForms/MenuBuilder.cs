@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Globalization;
+using System.Threading;
 using System.Windows.Forms;
 using System.Windows.Input;
 
@@ -358,7 +359,8 @@ namespace ToolBelt.WinForms
     /// <summary>
     /// Wires a <see cref="ToolStripItem"/> to an <see cref="ICommand"/>. The command holds the item only weakly (a
     /// long-lived view-model command must not keep a closed but undisposed dialog's menu alive) and is unhooked when the
-    /// item is disposed or collected.
+    /// item is disposed or collected. A CanExecuteChanged raised on another thread (a view-model updating from a worker)
+    /// is marshalled to the item's UI thread, so Enabled and its EnabledChanged handlers never run off it.
     /// </summary>
     internal static class CommandBinding
     {
@@ -370,7 +372,7 @@ namespace ToolBelt.WinForms
             {
                 if (command.CanExecute(parameter)) command.Execute(parameter);
             };
-            var sync = new WeakSync(item, command, parameter);
+            var sync = new WeakSync(item, command, parameter, SynchronizationContext.Current as WindowsFormsSynchronizationContext);
             command.CanExecuteChanged += sync.Handler;
             item.Disposed += (_, __) => command.CanExecuteChanged -= sync.Handler;
         }
@@ -380,18 +382,38 @@ namespace ToolBelt.WinForms
             private readonly WeakReference<ToolStripItem> _item;
             private readonly ICommand _command;
             private readonly object? _parameter;
+            private readonly SynchronizationContext? _context; // the binding thread's, if it had a WinForms one
+            private readonly int _thread;
 
-            public WeakSync(ToolStripItem item, ICommand command, object? parameter)
+            public WeakSync(ToolStripItem item, ICommand command, object? parameter, SynchronizationContext? context)
             {
                 _item = new WeakReference<ToolStripItem>(item);
                 _command = command;
                 _parameter = parameter;
+                _context = context;
+                _thread = Environment.CurrentManagedThreadId;
             }
 
             public void Handler(object? sender, EventArgs e)
             {
-                if (_item.TryGetTarget(out ToolStripItem? item)) item.Enabled = _command.CanExecute(_parameter);
-                else _command.CanExecuteChanged -= Handler;
+                if (!_item.TryGetTarget(out ToolStripItem? item)) { _command.CanExecuteChanged -= Handler; return; }
+                // The owning strip knows its UI thread once it has a handle; before that, fall back to the binding
+                // thread's context. With neither there is no UI thread to protect, so update in place.
+                Control? owner = item.Owner;
+                if (owner is not null && owner.IsHandleCreated && !owner.IsDisposed && owner.InvokeRequired)
+                {
+                    try { owner.BeginInvoke(new Action(Update)); }
+                    catch (InvalidOperationException) { } // the handle went away meanwhile: nothing left to update
+                }
+                else if ((owner is null || !owner.IsHandleCreated) && _context is not null && Environment.CurrentManagedThreadId != _thread)
+                    _context.Post(_ => Update(), null);
+                else
+                    item.Enabled = _command.CanExecute(_parameter);
+            }
+
+            private void Update()
+            {
+                if (_item.TryGetTarget(out ToolStripItem? item) && !item.IsDisposed) item.Enabled = _command.CanExecute(_parameter);
             }
         }
     }

@@ -107,9 +107,14 @@ namespace ToolBelt.WinForms
             var (zoom, offset) = Fit(_image.Size, ClientSize);
             double clamped = Math.Max(MinZoom, Math.Min(MaxZoom, zoom));
             if (clamped != zoom)
-                offset = new PointF((float)((ClientSize.Width - _image.Width * clamped) / 2), (float)((ClientSize.Height - _image.Height * clamped) / 2));
+                offset = new PointF(Centre(ClientSize.Width, _image.Width, clamped), Centre(ClientSize.Height, _image.Height, clamped));
             SetView(clamped, offset);
         }
+
+        // The offset that centres `content` pixels at `zoom` in `view`, held to the float range: a huge MinZoom puts the
+        // centre past float.MaxValue, and an infinite offset would make every later zoom or pan throw.
+        private static float Centre(int view, int content, double zoom)
+            => (float)Math.Max(-float.MaxValue, Math.Min(float.MaxValue, (view - content * zoom) / 2));
 
         /// <summary>1:1 at the top-left corner (or the nearest zoom the limits allow).</summary>
         public void ResetView()
@@ -123,7 +128,8 @@ namespace ToolBelt.WinForms
         /// <summary>
         /// The (zoom, offset) after zooming by <paramref name="factor"/> about <paramref name="at"/>, clamped to [min, max].
         /// A zoom that would leave (0, ∞) — e.g. underflow with <paramref name="minZoom"/> 0 — leaves the view unchanged, and
-        /// so does a clamp that would reverse the direction (zooming in on a view already above <paramref name="maxZoom"/>).
+        /// so does a clamp that would reverse the direction (zooming in on a view already above <paramref name="maxZoom"/>),
+        /// or an offset that would overflow <see cref="float"/>.
         /// </summary>
         public static (double Zoom, PointF Offset) ZoomAbout(double zoom, PointF offset, PointF at, double factor, double minZoom = 0, double maxZoom = double.MaxValue)
         {
@@ -137,6 +143,7 @@ namespace ToolBelt.WinForms
             double f = target / zoom;
             // The content point under `at` must stay under it: at = c·z + o = c·z' + o'.
             var o = new PointF((float)(at.X - (at.X - offset.X) * f), (float)(at.Y - (at.Y - offset.Y) * f));
+            if (!float.IsFinite(o.X) || !float.IsFinite(o.Y)) return (zoom, offset);
             return (target, o);
         }
 

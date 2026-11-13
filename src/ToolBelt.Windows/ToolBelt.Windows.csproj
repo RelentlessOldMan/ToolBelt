@@ -12,6 +12,7 @@
     <RootNamespace>ToolBelt.Windows</RootNamespace>
     <AssemblyName>ToolBelt.Windows</AssemblyName>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Description>Windows-only helpers for ToolBelt: registry, elevation, job objects, single instance, power, monitors, screen capture, shortcuts and system info. net8.0-windows.</Description>
     <!-- CS1591: not every public member needs an XML doc comment (yet). -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>

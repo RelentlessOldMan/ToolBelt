@@ -13,6 +13,7 @@
     <RootNamespace>ToolBelt.WinForms</RootNamespace>
     <AssemblyName>ToolBelt.WinForms</AssemblyName>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Description>WinForms helpers for ToolBelt: menu and toolbar builders, DataGridView export, PlotPictureBox, form state. net8.0-windows.</Description>
     <!-- CS1591: not every public member needs an XML doc comment (yet). -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>

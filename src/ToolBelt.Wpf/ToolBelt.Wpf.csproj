@@ -13,6 +13,7 @@
     <RootNamespace>ToolBelt.Wpf</RootNamespace>
     <AssemblyName>ToolBelt.Wpf</AssemblyName>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Description>WPF helpers for ToolBelt: observable objects, relay and async commands, converters, behaviours, validation, dialogs, hotkeys and themes. net8.0-windows.</Description>
     <!-- CS1591: not every public member needs an XML doc comment (yet). -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
