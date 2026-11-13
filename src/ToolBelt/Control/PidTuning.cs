@@ -33,7 +33,26 @@ namespace ToolBelt.Control
 
         /// <summary>The model's output change at <paramref name="time"/> after an input step of <paramref name="inputStep"/>.</summary>
         public double StepResponse(double time, double inputStep = 1)
-            => time <= DeadTime ? 0 : Gain * inputStep * (1 - Math.Exp(-(time - DeadTime) / TimeConstant));
+        {
+            if (time <= DeadTime) return 0;
+            // 1 − e^(−x) lost every digit for a small x (0 at 1e-20 past the dead time), and K·step overflowed before the
+            // fraction scaled it down (∞ for K = 1e308, step 10, fraction 1e-10).
+            double fraction = -Expm1(-(time - DeadTime) / TimeConstant);
+            double r = Gain * fraction * inputStep;
+            if (double.IsInfinity(r) || (r == 0 && fraction != 0 && inputStep != 0)) r = Gain * (fraction * inputStep);
+            if (double.IsInfinity(r) || (r == 0 && fraction != 0 && inputStep != 0)) r = Gain * inputStep * fraction;
+            return r;
+        }
+
+        // e^x − 1 to full relative precision (Kahan's form; netstandard2.0 has no Math.Expm1).
+        private static double Expm1(double x)
+        {
+            double u = Math.Exp(x);
+            if (u == 1) return x;
+            double um1 = u - 1;
+            if (um1 == -1) return -1;
+            return double.IsInfinity(u) ? u : um1 * x / Math.Log(u);
+        }
 
         /// <summary>
         /// Fits a model to an open-loop step test with Smith's two-point method: the times the response reaches 28.3% and
@@ -63,13 +82,20 @@ namespace ToolBelt.Control
             // Finite values can still be more than double.MaxValue apart; the fit then works on halved values.
             double scale = double.IsInfinity(yf - y0) ? 0.5 : 1, change = yf * scale - y0 * scale;
 
-            // For y = 1 − e^(−(t−θ)/τ) these levels are reached at exactly θ + τ/3 and θ + τ.
+            // For y = 1 − e^(−(t−θ)/τ) these levels are reached at exactly θ + τ/3 and θ + τ (absolute times here).
             double t1 = Crossing(times, values, y0, change, scale, 1 - Math.Exp(-1.0 / 3));
             double t2 = Crossing(times, values, y0, change, scale, 1 - Math.Exp(-1.0));
             if (double.IsNaN(t1) || double.IsNaN(t2)) throw new ArgumentException("The response never reaches 63.2% of its final change; record for longer.", nameof(values));
+            // Times near ±MaxValue: t2 − t1 and t2 − t[0] overflowed, τ came out ∞ − ∞ = NaN and was reported as a rise
+            // "too abrupt" to fit. The differences are taken in halves, and a τ or θ past MaxValue is reported as such.
             double tau = 1.5 * (t2 - t1);
+            if (double.IsInfinity(tau)) tau = 3 * (t2 / 2 - t1 / 2);
+            if (double.IsInfinity(tau)) throw new ArgumentOutOfRangeException(nameof(times), "The record's time span is too large: the time constant is not representable.");
             if (!(tau > 0)) throw new ArgumentException("The response rises too abruptly to fit (63.2% is reached in the same sample as 28.3%); sample faster.", nameof(times));
-            double theta = Math.Max(0, t2 - tau);
+            double theta = t2 - times[0] - tau;
+            if (double.IsInfinity(theta) || double.IsNaN(theta)) theta = 2 * (t2 / 2 - times[0] / 2 - tau / 2);
+            if (double.IsInfinity(theta)) throw new ArgumentOutOfRangeException(nameof(times), "The record's time span is too large: the dead time is not representable.");
+            theta = Math.Max(0, theta);
             double gain = change / inputStep / scale;
             if (double.IsInfinity(gain))
                 throw new ArgumentOutOfRangeException(nameof(inputStep), inputStep, "The input step is too small for this output change: the gain overflows.");
@@ -91,7 +117,20 @@ namespace ToolBelt.Control
                 {
                     double a = U(i - 1), b = U(i);
                     double frac = b == a ? 0 : (level - a) / (b - a);
-                    return t[i - 1] + Math.Max(0, Math.Min(1, frac)) * (t[i] - t[i - 1]) - t[0];
+                    if (double.IsNaN(frac) || double.IsInfinity(frac))
+                    {
+                        // A normalised value overflowed (samples far larger than the change): ∞/∞. Use the samples, halved.
+                        double target = y0 * scale / 2 + level * (change / 2), va = y[i - 1] * scale / 2, vb = y[i] * scale / 2;
+                        frac = (target - va) / (vb - va);
+                        if (double.IsNaN(frac)) frac = 0;
+                    }
+                    frac = Math.Max(0, Math.Min(1, frac));
+                    // t[i−1] + f·(t[i] − t[i−1]) overflowed for times near ±MaxValue; this stays between the two.
+                    if (frac == 0) return t[i - 1];
+                    if (frac == 1) return t[i];
+                    double r = t[i - 1] + frac * (t[i] - t[i - 1]);
+                    if (double.IsInfinity(r)) r = t[i - 1] * (1 - frac) + t[i] * frac;
+                    return Math.Max(t[i - 1], Math.Min(t[i], r));
                 }
             return double.NaN;
         }
@@ -172,17 +211,28 @@ namespace ToolBelt.Control
         /// <summary>Ziegler–Nichols open-loop (reaction curve): PID Kp = 1.2τ/(Kθ), Ti = 2θ, Td = θ/2; PI Kp = 0.9τ/(Kθ), Ti = 3.33θ. Needs θ &gt; 0.</summary>
         public static PidGains ZieglerNichols(FopdtModel model, bool includeDerivative = true)
         {
-            double theta = RequireDeadTime(model), ratio = model.TimeConstant / (model.Gain * theta);
+            // τ/(Kθ) through Ratio: K·θ overflowed (Kp 0, refused as "too extreme", for K = 1e300, θ = 1e10; Kp is 1.2e-10).
+            double theta = RequireDeadTime(model), ratio = Ratio(model, 0);
             return includeDerivative ? Gains(1.2 * ratio, 2 * theta, 0.5 * theta) : Gains(0.9 * ratio, theta / 0.3, 0);
         }
 
         /// <summary>Cohen–Coon: like Ziegler–Nichols but corrected for larger dead-time ratios. Needs θ &gt; 0.</summary>
         public static PidGains CohenCoon(FopdtModel model, bool includeDerivative = true)
         {
-            double theta = RequireDeadTime(model), tau = model.TimeConstant, r = theta / tau, k = model.Gain;
+            // Written in r = θ/τ when θ ≤ τ and in q = τ/θ otherwise, so neither ratio passes 1: θ/τ overflowed (Ti = ∞/∞)
+            // for θ = 1e300, τ = 1e-10, and τ/(Kθ) overflowed in K·θ, both refused although the gains are ordinary.
+            double theta = RequireDeadTime(model), tau = model.TimeConstant, k = model.Gain;
+            if (theta <= tau)
+            {
+                double r = theta / tau, ratio = Ratio(model, 0);
+                if (includeDerivative)
+                    return Gains(ratio * (4.0 / 3 + r / 4), theta * ((32 + 6 * r) / (13 + 8 * r)), theta * (4 / (11 + 2 * r)));
+                return Gains(ratio * (0.9 + r / 12), theta * ((30 + 3 * r) / (9 + 20 * r)), 0);
+            }
+            double q = tau / theta;                         // τ/(Kθ)·(4/3 + r/4) = (4q/3 + 1/4)/K, and so on
             if (includeDerivative)
-                return Gains(tau / (k * theta) * (4.0 / 3 + r / 4), theta * (32 + 6 * r) / (13 + 8 * r), 4 * theta / (11 + 2 * r));
-            return Gains(tau / (k * theta) * (0.9 + r / 12), theta * (30 + 3 * r) / (9 + 20 * r), 0);
+                return Gains((4 * q / 3 + 0.25) / k, theta * ((32 * q + 6) / (13 * q + 8)), 4 * tau / (11 * q + 2));
+            return Gains((0.9 * q + 1.0 / 12) / k, theta * ((30 * q + 3) / (9 * q + 20)), 0);
         }
 
         /// <summary>

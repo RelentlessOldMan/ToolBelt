@@ -714,6 +714,7 @@ tests/
       ControlReviewTests.cs (review regressions: reverse-acting anti-windup, non-finite inputs)
       FiltersControlReview2Tests.cs (second-pass regressions: IIR steady state at tiny cutoffs, equal Schmitt thresholds, overflow in PID / lag / Kalman / step analysis, parameter names)
       FiltersControlReview3Tests.cs (third-pass regressions: IIR cascade accuracy against double-double, poles within rounding of the unit circle, tiny-ripple orders, symmetric FIR taps, PID and tuning overflow)
+      FiltersControlReview4Tests.cs (fourth-pass regressions: PID windup stall, elliptic passband spec at high order, deep-stop-band MagnitudeDb, subnormal state flush, huge and subnormal sample rates, FOPDT and tuning-rule overflow)
     Diagnostics/
       BenchmarkTests.cs
       MetricsRegistryTests.cs

@@ -62,8 +62,10 @@ namespace ToolBelt.Control
                     ? -_kd * (measurement - _lastMeasurement) / dt
                     : _kd * (error - _lastError) / dt;
 
-            // Conditional integration: skip the integral step when it would drive further into saturation. The direction
-            // is that of the integral's contribution, ki·error, so reverse-acting (negative) gains unwind too.
+            // Conditional integration: the integral step stops at the saturation limit. The direction is that of the
+            // integral's contribution, ki·error, so reverse-acting (negative) gains unwind too. Skipping the whole step
+            // instead stalled the loop short of the limit whenever one step would cross it (an I-only controller with
+            // error·ki·dt past the limit never moved).
             double integral = _integral + error * dt;
             double tentative = proportional + _ki * integral + derivative;
             double push = _ki * error;
@@ -71,7 +73,15 @@ namespace ToolBelt.Control
             bool windupLow = tentative < _min && push < 0;
             // Finite inputs can still overflow error·dt or the sum; an infinite integral (or one with ki = 0, where it is
             // unused, and 0·∞ made every later output NaN) was kept for good.
-            if (!windupHigh && !windupLow && _ki != 0 && !double.IsInfinity(integral))
+            if (windupHigh || windupLow)
+            {
+                // The integral that puts the output exactly at the limit, taken only if it moves with the step (when the
+                // output was already past the limit, it stays). This also covers an error·dt that overflowed.
+                double atLimit = ((windupHigh ? _max : _min) - proportional - derivative) / _ki;
+                if (!double.IsNaN(atLimit) && !double.IsInfinity(atLimit) && (atLimit - _integral) * error > 0)
+                    _integral = atLimit;
+            }
+            else if (_ki != 0 && !double.IsInfinity(integral))
                 _integral = integral;
 
             double output = proportional + _ki * _integral + derivative;

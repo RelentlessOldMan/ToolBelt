@@ -41,7 +41,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 
 | #  | Section | Scope (src) | ~Lines | Prior | Passes | Bugs (last / total) | Status |
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
-| 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 3 | 20 / 45 | re-queue (20 bugs, 1 severe) |
+| 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 4 | 14 / 59 | re-queue (14 bugs, 1 severe) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 3 | 13 / 60 | re-queue (13 bugs, 1 severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 4 | 23 / 109 | re-queue (23 bugs, none severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 4 | 24 / 119 | re-queue (24 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66); **next: 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67); **next: 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -140,11 +140,47 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.7 | 64 | Security, net, time, fourth pass | 16 | (see tag) |
 | v2026.11.13.8 | 65 | Windows satellite, fourth pass | 25 | (see tag) |
 | v2026.11.13.9 | 66 | Statistics, fourth pass | 23 | (see tag) |
+| v2026.11.13.10 | 67 | Filters & control, fourth pass | 14 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 67: Filters & control, fourth pass (v2026.11.13.10)
+
+Two fresh reviewers (correctness, robustness): 15 findings, 13 after merging the two that both found, all confirmed,
+plus round 30's unfixed empty FiltFilt, so **14 bugs, 1 severe**. Section 1 stays re-queued. The
+regression tests are in `FiltersControlReview4Tests` (24 tests); 23 failed on the old code, and the 24th is a
+differential guard (Cohen-Coon's rewritten form against the textbook one on 200 random models).
+
+- **Severe: PidController stalled short of saturation.** Conditional integration dropped the whole integral step
+  whenever it would cross a limit, so with a coarse step the loop never reached the limit (an I-only controller stayed
+  at 0 for good; a PI loop on a first-order plant stuck at y = 0.15 for a 0.9 setpoint). The integral now stops at the
+  value that puts the output exactly at the limit, which also covers an error·dt that overflows.
+- **Elliptic designs:** the degree equation summed the 8-term nome series at a nome near 1, so high orders or high
+  selectivity missed the passband spec (−3.087 dB for a 3 dB ripple at n = 20); 1 − m and 1 − k1² were formed by
+  subtraction and lost their digits when the attenuation is close to the ripple. The complementary nome is used below
+  ratio 1, complements are carried through Jacobi and the inverse sc, and sn near K is reflected. The prototype now
+  matches mpmath to about 1e-15 on 24 specs. A design whose poles land within rounding of the unit circle names the
+  spec (stopAttenuationDb), not the mid-band cutoff.
+- **MagnitudeDb** underflowed deep in the stop band (−∞ for −8000 dB) and the numerator cancelled next to its zeros
+  at Nyquist. It is summed per section in logs, the numerator from its roots with the point taken from the exact
+  offset to ±1.
+- **Subnormal state:** a decaying tail ran in subnormal arithmetic (about 20 times slower). Once the signal reaches
+  2^-969, state and outputs below the smallest normal are flushed to 0; a tiny signal keeps its exact arithmetic.
+- **Huge and subnormal sample rates:** Response, GroupDelay, the prewarps, the shelves and FIR edges multiplied π·f
+  or halved fs before taking the ratio (overflow past 5e307, rounding at a subnormal fs). Ratios come first.
+- **FIR:** tiny cutoffs quantised the taps (62% off at 2e-323); counts past Array.MaxLength were an
+  OutOfMemoryException in Design and KaiserParameters and are now refused by name (a .NET Framework 2 GB guard too).
+- **Arguments:** a NaN or infinite frequency gave NaN responses (now refused, naming frequency); FiltFilt's padded
+  length wrapped in int (now refused, naming padLength); FiltFilt of an empty signal with no pad threw
+  IndexOutOfRangeException (now empty).
+- **StepResponse:** interpolation across times near ±MaxValue overflowed (rise time −∞), and samples far larger than
+  the step made the crossing fraction ∞/∞ (settling NaN).
+- **FopdtModel and tuning:** StepResponse lost every digit just past the dead time (1 − e^(−x)) and overflowed K·step;
+  FitStep's τ and θ overflowed into a misleading "rises too abruptly"; Ziegler-Nichols overflowed K·θ, and Cohen-Coon
+  overflowed θ/τ and K·θ (it is now written in whichever ratio is at most 1).
+
 ### Round 66: Statistics, fourth pass (v2026.11.13.9)
 
 Two fresh reviewers (correctness, robustness): 22 findings, all confirmed, and one more found while testing (the

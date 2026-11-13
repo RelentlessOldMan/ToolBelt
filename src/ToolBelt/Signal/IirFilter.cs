@@ -100,8 +100,8 @@ namespace ToolBelt.Signal
         /// <summary>The complex frequency response at <paramref name="frequency"/> Hz.</summary>
         public Complex Response(double frequency, double sampleRate)
         {
-            if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
-            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * frequency / sampleRate);   // z⁻¹
+            CheckResponseArguments(frequency, sampleRate);
+            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * (frequency / sampleRate));   // z⁻¹
             Complex z2 = z1 * z1;
             return (B0 + B1 * z1 + B2 * z2) / (1 + A1 * z1 + A2 * z2);
         }
@@ -109,8 +109,8 @@ namespace ToolBelt.Signal
         /// <summary>Group delay in samples at <paramref name="frequency"/> Hz (see <see cref="IirFilter.GroupDelay"/>).</summary>
         public double GroupDelay(double frequency, double sampleRate)
         {
-            if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
-            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * frequency / sampleRate);
+            CheckResponseArguments(frequency, sampleRate);
+            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * (frequency / sampleRate));
             Complex z2 = z1 * z1;
             // For P(ω) = Σ c_k e^(−jωk): −d arg P / dω = Re(Σ k·c_k e^(−jωk) / P).
             double num = ((B1 * z1 + 2 * B2 * z2) / (B0 + B1 * z1 + B2 * z2)).Real;
@@ -120,11 +120,79 @@ namespace ToolBelt.Signal
 
         public override string ToString() => FormattableString.Invariant($"b=[{B0}, {B1}, {B2}] a=[1, {A1}, {A2}]");
 
+        /// <summary>
+        /// |numerator| at <paramref name="frequency"/>: B0 + B1·z⁻¹ + B2·z⁻² directly, or, when that sum cancels (next to a
+        /// zero on the unit circle, as at Nyquist for a low-pass), from its roots as |B0|·|z − r1|·|z − r2|.
+        /// </summary>
+        internal double NumeratorMagnitude(double frequency, double sampleRate)
+        {
+            CheckResponseArguments(frequency, sampleRate);
+            double w = -2 * Math.PI * (frequency / sampleRate);
+            Complex z1 = Complex.FromPolarCoordinates(1, w), z2 = z1 * z1;
+            double direct = (B0 + B1 * z1 + B2 * z2).Magnitude;
+            double size = Math.Abs(B0) + Math.Abs(B1) + Math.Abs(B2);
+            if (!(direct <= 1e-6 * size) || B0 == 0) return direct;
+            // Roots of B0·z² + B1·z + B2 (|z⁻²·N(z)| = |N| on the circle), the stable way: q = −(B1 + sign(B1)·√disc)/2.
+            Complex disc = Complex.Sqrt(new Complex(B1 * B1 - 4 * B0 * B2, 0));
+            if (disc.Real * B1 < 0) disc = -disc;
+            Complex q = -(B1 + disc) / 2;
+            if (!IsFinite(q.Real) || !IsFinite(q.Imaginary) || q == Complex.Zero) return direct;
+            Complex r1 = q / B0, r2 = B2 / q;
+            double factored = Math.Abs(B0) * DistanceOnCircle(frequency / sampleRate, r1) * DistanceOnCircle(frequency / sampleRate, r2);
+            return IsFinite(factored) ? factored : direct;
+        }
+
+        // |e^(j2πx) − r| for a root r of a real polynomial (so the sign of x does not matter). The point is taken relative
+        // to the nearer of z = 1 and z = −1, through sin of the exact offset: e^(jω) itself rounds ω by about 4e-16, which
+        // next to a zero at Nyquist was a relative error of 4e-16 / (2π·offset) per zero (0.03 dB at an offset of 1e-12
+        // for 40 zeros).
+        private static double DistanceOnCircle(double x, Complex r)
+        {
+            double a = Math.Abs(x - Math.Round(x));                 // in [0, 0.5], exact
+            double re, im;
+            if (a <= 0.25)
+            {
+                double s = Math.Sin(Math.PI * a);                   // cos ω = 1 − 2 sin²(ω/2)
+                re = (1 - r.Real) - 2 * s * s;
+                im = Math.Sin(2 * Math.PI * a) - r.Imaginary;
+            }
+            else
+            {
+                double b = 0.5 - a, s = Math.Sin(Math.PI * b);      // ω = π − 2πb: cos ω = −1 + 2 sin²(πb)
+                re = -(1 + r.Real) + 2 * s * s;
+                im = Math.Sin(2 * Math.PI * b) - r.Imaginary;
+            }
+            return Hypot(re, im);
+        }
+
+        private static double Hypot(double a, double b)
+        {
+            a = Math.Abs(a); b = Math.Abs(b);
+            if (a < b) { double t = a; a = b; b = t; }
+            if (a == 0) return 0;
+            double t2 = b / a;
+            return a * Math.Sqrt(1 + t2 * t2);
+        }
+
+        /// <summary>|denominator| 1 + A1·z⁻¹ + A2·z⁻² at <paramref name="frequency"/>.</summary>
+        internal double DenominatorMagnitude(double frequency, double sampleRate)
+        {
+            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * (frequency / sampleRate));
+            return (1 + A1 * z1 + A2 * z1 * z1).Magnitude;
+        }
+
+        // A NaN or infinite frequency made every response NaN instead of failing; any finite one is fine (it aliases).
+        private static void CheckResponseArguments(double frequency, double sampleRate)
+        {
+            if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
+            if (!IsFinite(frequency)) throw new ArgumentOutOfRangeException(nameof(frequency), frequency, "Frequency must be finite.");
+        }
+
         private static (double Cos, double Alpha) Prewarp(double sampleRate, double frequency, double q)
         {
             CheckFrequency(sampleRate, frequency);
             if (!(q > 0) || double.IsInfinity(q)) throw new ArgumentOutOfRangeException(nameof(q), q, "Q must be positive and finite.");
-            double w0 = 2 * Math.PI * frequency / sampleRate;
+            double w0 = 2 * Math.PI * (frequency / sampleRate);   // the ratio first: π·f overflowed past fs ≈ 5e307
             double alpha = Math.Sin(w0) / (2 * q);
             if (double.IsInfinity(alpha)) throw new ArgumentOutOfRangeException(nameof(q), q, "Q is too small to represent.");
             return (Math.Cos(w0), alpha);
@@ -135,7 +203,7 @@ namespace ToolBelt.Signal
             CheckFrequency(sampleRate, frequency);
             double a = GainAmplitude(gainDb);
             if (!(slope > 0) || double.IsInfinity(slope)) throw new ArgumentOutOfRangeException(nameof(slope), slope, "Slope must be positive and finite.");
-            double w0 = 2 * Math.PI * frequency / sampleRate;
+            double w0 = 2 * Math.PI * (frequency / sampleRate);   // the ratio first: π·f overflowed past fs ≈ 5e307
             double inner = (a + 1 / a) * (1 / slope - 1) + 2;
             if (double.IsInfinity(inner)) throw new ArgumentOutOfRangeException(nameof(slope), slope, "Slope is too small to represent.");
             if (inner < 0) throw new ArgumentOutOfRangeException(nameof(slope), slope, "Slope too steep for this gain (the shelf would not be monotonic).");
@@ -227,6 +295,12 @@ namespace ToolBelt.Signal
     {
         private readonly Biquad[] _sections;
         private readonly double[] _z1, _z2;
+        private double _peak;           // the largest |input| since the last reset, for the subnormal flush
+
+        // A subnormal state is flushed to 0 once the signal reaches this size, where the change (under 2.3e-308 per sample)
+        // is far below one rounding of the signal: a decaying tail in subnormal arithmetic ran 20 times slower. A signal
+        // that is itself tiny keeps its subnormal state, so it filters exactly as before.
+        private const double MinNormal = 2.2250738585072014E-308, FlushAbove = 2.0041683600089728E-292;     // 2^-1022, 2^-969
 
         public IirFilter(IEnumerable<Biquad> sections)
         {
@@ -247,12 +321,21 @@ namespace ToolBelt.Signal
         public double Process(double sample)
         {
             double x = sample;
+            if (Math.Abs(x) > _peak) _peak = Math.Abs(x);
+            bool flush = _peak >= FlushAbove;
             for (int s = 0; s < _sections.Length; s++)
             {
                 var q = _sections[s];
                 double y = q.B0 * x + _z1[s];
-                _z1[s] = q.B1 * x - q.A1 * y + _z2[s];
-                _z2[s] = q.B2 * x - q.A2 * y;
+                if (flush && Math.Abs(y) < MinNormal) y = 0;
+                double a = q.B1 * x - q.A1 * y + _z2[s], b = q.B2 * x - q.A2 * y;
+                if (flush)
+                {
+                    if (Math.Abs(a) < MinNormal) a = 0;
+                    if (Math.Abs(b) < MinNormal) b = 0;
+                }
+                _z1[s] = a;
+                _z2[s] = b;
                 x = y;
             }
             return x;
@@ -263,6 +346,7 @@ namespace ToolBelt.Signal
         {
             Array.Clear(_z1, 0, _z1.Length);
             Array.Clear(_z2, 0, _z2.Length);
+            _peak = 0;
         }
 
         /// <summary>
@@ -274,6 +358,7 @@ namespace ToolBelt.Signal
             if (!Biquad.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value), value, "Value must be finite.");
             var (z1, z2) = SteadyState();
             for (int s = 0; s < _sections.Length; s++) { _z1[s] = z1[s] * value; _z2[s] = z2[s] * value; }
+            _peak = Math.Abs(value);
         }
 
         /// <summary>A causal pass over <paramref name="samples"/> from a zero state (SciPy <c>sosfilt</c>); the streaming state is untouched.</summary>
@@ -299,8 +384,12 @@ namespace ToolBelt.Signal
             int n = samples.Count;
             int pad = padLength ?? DefaultPadLength();
             if (pad < 0) throw new ArgumentOutOfRangeException(nameof(padLength), pad, "Pad length must be non-negative.");
+            if (n == 0 && pad == 0) return new double[0];         // was IndexOutOfRangeException reading ext[0]
             if (n <= pad) throw new ArgumentException($"The signal must be longer than the pad length ({pad}); pass a smaller padLength for short signals.", nameof(samples));
 
+            // n + 2·pad wrapped in int (an OverflowException in the checked build) for a long signal with a long pad.
+            if ((long)n + 2L * pad > 0x7FFFFFC7)
+                throw new ArgumentOutOfRangeException(nameof(padLength), pad, "The padded signal (length + 2 × pad) is longer than the largest array.");
             var ext = new double[n + 2 * pad];
             // x0 + (x0 − x[k]), not 2·x0 − x[k]: 2·x0 overflowed for samples near double.MaxValue (a constant 1e308 gave NaN).
             for (int i = 0; i < pad; i++) ext[i] = samples[0] + (samples[0] - samples[pad - i]);
@@ -327,7 +416,16 @@ namespace ToolBelt.Signal
         }
 
         /// <summary>|H| in decibels at <paramref name="frequency"/> Hz (−∞ at an exact zero).</summary>
-        public double MagnitudeDb(double frequency, double sampleRate) => 20 * Math.Log10(Response(frequency, sampleRate).Magnitude);
+        /// <remarks>Summed per section, with each numerator taken from its roots where the direct sum cancels: deep in
+        /// the stop band of a high-order design |H| underflowed (−8000 dB came out as −∞) and the numerator next to its
+        /// zeros at Nyquist cancelled completely.</remarks>
+        public double MagnitudeDb(double frequency, double sampleRate)
+        {
+            double db = 0;
+            foreach (var s in _sections)
+                db += 20 * (Math.Log10(s.NumeratorMagnitude(frequency, sampleRate)) - Math.Log10(s.DenominatorMagnitude(frequency, sampleRate)));
+            return db;
+        }
 
         /// <summary>
         /// Group delay −dφ/dω at <paramref name="frequency"/> Hz, in samples (divide by the sample rate for seconds): how long
@@ -590,9 +688,10 @@ namespace ToolBelt.Signal
                 Finish(passRippleDb, stopAttenuationDb);
             }
 
-            public double ToHz(double w) => Math.Atan(w) * _fs / Math.PI;
+            // Ratios first: π·f and atan(w)·fs overflowed for a sample rate near MaxValue, and rounded a subnormal one.
+            public double ToHz(double w) => Math.Atan(w) / Math.PI * _fs;
 
-            private double Warp(double f) => Math.Tan(Math.PI * f / _fs);
+            private double Warp(double f) => Math.Tan(Math.PI * (f / _fs));
 
             private void Finish(double passRippleDb, double stopAttenuationDb)
             {
@@ -672,6 +771,9 @@ namespace ToolBelt.Signal
 
         private void Run(double[] data, double[] z1, double[] z2)
         {
+            double peak = 0;
+            foreach (double v in data) peak = Math.Max(peak, Math.Abs(v));
+            bool flush = peak >= FlushAbove;                // see FlushAbove; a NaN peak leaves it off
             for (int s = 0; s < _sections.Length; s++)
             {
                 var q = _sections[s];
@@ -680,8 +782,14 @@ namespace ToolBelt.Signal
                 {
                     double x = data[i];
                     double y = q.B0 * x + a;
+                    if (flush && Math.Abs(y) < MinNormal) y = 0;
                     a = q.B1 * x - q.A1 * y + b;
                     b = q.B2 * x - q.A2 * y;
+                    if (flush)
+                    {
+                        if (Math.Abs(a) < MinNormal) a = 0;
+                        if (Math.Abs(b) < MinNormal) b = 0;
+                    }
                     data[i] = y;
                 }
             }
@@ -784,16 +892,29 @@ namespace ToolBelt.Signal
                 return (new List<Complex>(), new List<Complex> { pole }, -pole);
             }
             double eps = Math.Sqrt(epsSq);
-            double ck1Sq = epsSq / Pow10m1(0.1 * stopAttenuationDb);
-            double m = EllipticDegree(order, ck1Sq);
-            double capK = EllipK(m);
+            double stopSq = Pow10m1(0.1 * stopAttenuationDb), ck1Sq = epsSq / stopSq;
+            // 1 − ck1², exactly as (10^(rs/10) − 10^(rp/10)) / (10^(rs/10) − 1) when the attenuation is close to the ripple.
+            double ck1c = ck1Sq < 0.5 ? 1 - ck1Sq : (1 + epsSq) * Pow10m1(0.1 * (stopAttenuationDb - passRippleDb)) / stopSq;
+            var (m, mc) = EllipticDegree(order, ck1Sq, ck1c);
+            double capK = EllipKm1(mc);
 
             var s = new List<double>();
             var c = new List<double>();
             var d = new List<double>();
             for (int j = 1 - order % 2; j < order; j += 2)
             {
-                var (sn, cn, dn) = Jacobi(j * capK / order, m);
+                // Past K/2 the functions come from v = K − u (sn(u) = cn(v)/dn(v), cn(u) = √mc·sn(v)/dn(v), dn(u) = √mc/dn(v)):
+                // sn(u) itself is near 1 there, and its distance from 1 (which places the zeros and poles next to the
+                // band edge) was 4% off for a parameter near 1, so order 13 with 3 dB ripple and 10 dB attenuation dipped to
+                // −3.08 dB in the passband.
+                double sn, cn, dn;
+                if (2 * j <= order) (sn, cn, dn) = Jacobi(j * capK / order, m, mc);
+                else
+                {
+                    var (sv0, cv0, dv0) = Jacobi((order - j) * capK / order, m, mc);
+                    double rootMc = Math.Sqrt(mc);
+                    (sn, cn, dn) = (cv0 / dv0, rootMc * sv0 / dv0, rootMc / dv0);
+                }
                 s.Add(sn); c.Add(cn); d.Add(dn);
             }
             var z = new List<Complex>();
@@ -801,9 +922,9 @@ namespace ToolBelt.Signal
                 if (Math.Abs(sn) > Epsilon) z.Add(new Complex(0, 1 / (Math.Sqrt(m) * sn)));
             z.AddRange(z.Select(Complex.Conjugate).ToList());
 
-            double r = ArcJacobiSc1(1 / eps, ck1Sq);
-            double v0 = capK * r / (order * EllipK(ck1Sq));
-            var (sv, cv, dv) = Jacobi(v0, 1 - m);
+            double r = ArcJacobiSc1(1 / eps, ck1Sq, ck1c);
+            double v0 = capK * r / (order * EllipKm1(ck1c));
+            var (sv, cv, dv) = Jacobi(v0, mc, m);
             var p = new List<Complex>();
             for (int i = 0; i < s.Count; i++)
                 p.Add(-new Complex(c[i] * d[i] * sv * cv, s[i] * dv) / (1 - Math.Pow(d[i] * sv, 2)));
@@ -995,28 +1116,44 @@ namespace ToolBelt.Signal
             return (a + b) / 2;
         }
 
-        // Solves the degree equation: the elliptic modulus an order-n filter achieves for selectivity factor m1.
-        private static double EllipticDegree(int n, double m1)
+        // Solves the degree equation: the elliptic parameter m an order-n filter achieves for the parameter m1 (complement
+        // m1c = 1 − m1), returned with its complement 1 − m. K'(m)/K(m) = K'(m1)/(n·K(m1)); m = (θ2/θ3)⁴ of the nome
+        // e^(−π K'/K). That series was summed to 8 terms at any nome, so at high order or high selectivity (nome near 1;
+        // 0.9 gave m = 0.99949 for 1) the design missed its passband spec, and 1 − m lost what was left. Below a ratio of
+        // 1 the complementary nome e^(−π K/K') gives 1 − m instead; either nome is then at most e^(−π) ≈ 0.043.
+        private static (double M, double Mc) EllipticDegree(int n, double m1, double m1c)
         {
-            double q1 = Math.Exp(-Math.PI * EllipKm1(m1) / EllipK(m1));
-            double q = Math.Pow(q1, 1.0 / n);
+            double ratio = EllipKm1(m1) / (n * EllipKm1(m1c));                  // K'(m)/K(m)
+            if (ratio >= 1)
+            {
+                double m = ThetaRatio(Math.Exp(-Math.PI * ratio));
+                return (m, 1 - m);
+            }
+            double mc = ThetaRatio(Math.Exp(-Math.PI / ratio));
+            return (1 - mc, mc);
+        }
+
+        // 16q·(Σ q^(i(i+1)) / (1 + 2Σ q^(i²)))⁴ = (θ2(q)/θ3(q))⁴, for a nome q ≤ e^(−π), where 8 terms are exact.
+        private static double ThetaRatio(double q)
+        {
             double num = 0, den = 0;
             for (int i = 0; i <= 7; i++) num += Math.Pow(q, i * (i + 1));
             for (int i = 1; i <= 8; i++) den += Math.Pow(q, i * i);
             return 16 * q * Math.Pow(num / (1 + 2 * den), 4);
         }
 
-        // Jacobi elliptic functions sn, cn, dn of u with parameter m (Cephes ellpj: descending Landen / AGM).
-        private static (double Sn, double Cn, double Dn) Jacobi(double u, double m)
+        // Jacobi elliptic functions sn, cn, dn of u with parameter m and its complement mc = 1 − m (Cephes ellpj:
+        // descending Landen / AGM). The complement is passed, not formed, so a parameter near 1 keeps its digits.
+        private static (double Sn, double Cn, double Dn) Jacobi(double u, double m, double mc)
         {
             if (m < 1e-9)
             {
                 double t = Math.Sin(u), b = Math.Cos(u), ai = 0.25 * m * (u - t * b);
                 return (t - ai * b, b + ai * t, 1 - 0.5 * m * t * t);
             }
-            if (m >= 0.9999999999)
+            if (mc <= 1e-10)
             {
-                double ai = 0.25 * (1 - m), b = Math.Cosh(u), t = Math.Tanh(u), phi0 = 1 / b, twon0 = b * Math.Sinh(u);
+                double ai = 0.25 * mc, b = Math.Cosh(u), t = Math.Tanh(u), phi0 = 1 / b, twon0 = b * Math.Sinh(u);
                 double sn = t + ai * (twon0 - u) / (b * b);
                 ai *= t * phi0;
                 return (sn, phi0 - ai * (twon0 - u), phi0 + ai * (twon0 + u));
@@ -1024,7 +1161,7 @@ namespace ToolBelt.Signal
             var a = new double[9];
             var c = new double[9];
             a[0] = 1;
-            double bb = Math.Sqrt(1 - m);
+            double bb = Math.Sqrt(mc);
             c[0] = Math.Sqrt(m);
             double twon = 1;
             int i = 0;
@@ -1048,14 +1185,17 @@ namespace ToolBelt.Signal
             return (Math.Sin(phi), Math.Cos(phi), Math.Cos(phi) / Math.Cos(phi - prev));
         }
 
-        // Imaginary part of the inverse Jacobi sn at the purely imaginary argument j·w (SciPy _arc_jac_sc1), by Landen descent.
-        private static double ArcJacobiSc1(double w, double m)
+        // Imaginary part of the inverse Jacobi sn at the purely imaginary argument j·w (SciPy _arc_jac_sc1), by Landen
+        // descent. The complementary modulus k' starts from mc and follows k'ₙ₊₁ = 2√k'ₙ / (1 + k'ₙ): forming √(1 − k²)
+        // lost it for k near 1 (attenuation close to the ripple).
+        private static double ArcJacobiSc1(double w, double m, double mc)
         {
             var ks = new List<double> { Math.Sqrt(m) };
+            double kp = Math.Sqrt(mc);
             while (ks[ks.Count - 1] != 0 && ks.Count < 20)
             {
-                double kn = ks[ks.Count - 1], kp = Math.Sqrt((1 - kn) * (1 + kn));
                 ks.Add((1 - kp) / (1 + kp));
+                kp = Math.Min(1, 2 * Math.Sqrt(kp) / (1 + kp));
             }
             double capK = Math.PI / 2;
             for (int i = 1; i < ks.Count; i++) capK *= 1 + ks[i];
@@ -1072,7 +1212,7 @@ namespace ToolBelt.Signal
         }
 
         private static IirFilter Design((List<Complex> Z, List<Complex> P, double K) prototype, Band band, double sampleRate,
-            double f1, double f2, string edgeName = "cutoff", string? poleSpec = null, string? zeroSpec = null)
+            double f1, double f2, string edgeName = "cutoff", string? poleSpec = null, string? zeroSpec = null, bool reference = false)
         {
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
             bool twoEdges = band == Band.BandPass || band == Band.BandStop;
@@ -1092,8 +1232,10 @@ namespace ToolBelt.Signal
             // parameter. When it fails, this names the specification instead.
             string? spec = ExtremeRoot(p) ? poleSpec : ExtremeRoot(z) ? zeroSpec : null;
             Complex logK = Complex.Log(k);                              // the gain is carried as a logarithm for the same reason
-            double w1 = 2 * fs * Math.Tan(Math.PI * f1 / sampleRate);  // pre-warp so the digital edges land exactly
-            double w2 = twoEdges ? 2 * fs * Math.Tan(Math.PI * f2 / sampleRate) : 0;
+            // Pre-warp so the digital edges land exactly. The ratio comes first: π·f overflowed for a sample rate near
+            // MaxValue, and π·f/fs rounded at a subnormal one (a1 = 4e-4 for −1e-16 at fs = 2024·ε).
+            double w1 = 2 * fs * Math.Tan(Math.PI * (f1 / sampleRate));
+            double w2 = twoEdges ? 2 * fs * Math.Tan(Math.PI * (f2 / sampleRate)) : 0;
             switch (band)
             {
                 case Band.LowPass: (z, p, logK) = ToLowPass(z, p, logK, w1); break;
@@ -1108,14 +1250,25 @@ namespace ToolBelt.Signal
             // parameter. A pole inside can still round onto it: ButterworthLowPass(2, 1, 1e9) had a section pole at exactly
             // z = 1 (DC gain ∞; a constant 3 came out as 3e-17).
             foreach (var x in p)
-                if (!(x.Magnitude < 1)) throw spec != null ? SpecTooExtreme(spec) : EdgeTooClose(x.Real < 0, twoEdges, edgeName, f1, f2);
+                if (!(x.Magnitude < 1)) throw spec != null ? SpecTooExtreme(spec) : SpecOrEdge(EdgeTooClose(x.Real < 0, twoEdges, edgeName, f1, f2));
             // A zero that is not finite reached the grouping, whose ArgumentException named no parameter.
             if (!AllFinite(z))
                 throw new ArgumentOutOfRangeException(spec ?? edgeName, "The design is numerically degenerate (a root is not finite); relax the specification.");
             var sections = ToSections(z, p, logK);
             foreach (var s in sections)
-                if (!s.IsWellConditioned()) throw spec != null ? SpecTooExtreme(spec) : EdgeTooClose(1 - s.A1 + s.A2 < 1 + s.A1 + s.A2, twoEdges, edgeName, f1, f2);
+                if (!s.IsWellConditioned()) throw spec != null ? SpecTooExtreme(spec) : SpecOrEdge(EdgeTooClose(1 - s.A1 + s.A2 < 1 + s.A1 + s.A2, twoEdges, edgeName, f1, f2));
             return new IirFilter(sections);
+
+            // A very selective elliptic or Chebyshev design (order 15 with 3 dB ripple and 10 dB attenuation) has prototype
+            // poles within 1e-11 of the jω axis, which no edge can hold: that was blamed on a mid-band cutoff "too close
+            // to 0". When the same prototype fails at the middle of the band too, the specification is named.
+            ArgumentOutOfRangeException SpecOrEdge(ArgumentOutOfRangeException edge)
+            {
+                if (reference || poleSpec == null) return edge;
+                try { Design(prototype, Band.LowPass, 2, 0.5, 0, poleSpec: poleSpec, zeroSpec: zeroSpec, reference: true); }
+                catch (ArgumentOutOfRangeException) { return SpecTooExtreme(zeroSpec ?? poleSpec); }
+                return edge;
+            }
         }
 
         private static bool ExtremeRoot(List<Complex> roots)

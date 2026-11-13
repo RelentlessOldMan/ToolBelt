@@ -111,7 +111,8 @@ namespace ToolBelt.Signal
         public Complex Response(double frequency, double sampleRate)
         {
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
-            double w = -2 * Math.PI * frequency / sampleRate;
+            if (double.IsNaN(frequency) || double.IsInfinity(frequency)) throw new ArgumentOutOfRangeException(nameof(frequency), frequency, "Frequency must be finite.");
+            double w = -2 * Math.PI * (frequency / sampleRate);       // the ratio first: π·f overflowed past fs ≈ 5e307
             double re = 0, im = 0;
             for (int k = 0; k < _taps.Length; k++) { re += _taps[k] * Math.Cos(w * k); im += _taps[k] * Math.Sin(w * k); }
             return new Complex(re, im);
@@ -149,24 +150,25 @@ namespace ToolBelt.Signal
             double beta = a > 50 ? 0.1102 * (a - 8.7) : a > 21 ? 0.5842 * Math.Pow(a - 21, 0.4) + 0.07886 * (a - 21) : 0;
             double width = transitionWidth / (sampleRate / 2);                      // fraction of Nyquist
             double taps = Math.Ceiling((a - 7.95) / 2.285 / (Math.PI * width) + 1);
-            if (!(taps <= int.MaxValue)) throw new ArgumentOutOfRangeException(nameof(transitionWidth), transitionWidth, "The transition band is too narrow: the filter would need more than int.MaxValue taps.");
+            if (!(taps <= MaxTaps)) throw new ArgumentOutOfRangeException(nameof(transitionWidth), transitionWidth, "The transition band is too narrow: the filter would need more taps than the largest array holds.");
             return ((int)taps, beta);
         }
 
         private static FirFilter Design(int taps, double sampleRate, FirWindow window, double kaiserBeta, bool passZero, params (double Hz, string Name)[] edges)
         {
             if (taps < 1) throw new ArgumentOutOfRangeException(nameof(taps), taps, "At least one tap is required.");
+            if (taps > MaxTaps) throw new ArgumentOutOfRangeException(nameof(taps), taps, "More taps than the largest array holds.");
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
             if (window == FirWindow.Kaiser && !(kaiserBeta >= 0 && kaiserBeta < 700)) throw new ArgumentOutOfRangeException(nameof(kaiserBeta), kaiserBeta, "Kaiser beta must be in [0, 700).");
             if (!Enum.IsDefined(typeof(FirWindow), window)) throw new ArgumentOutOfRangeException(nameof(window), window, "Unknown window.");
-            double nyquist = sampleRate / 2;
+            // Edges as fractions of Nyquist, 2·(f/fs): f/(fs/2) rounded fs/2 at a subnormal sample rate.
             var normalized = new double[edges.Length];
             for (int i = 0; i < edges.Length; i++)
             {
                 var (hz, name) = edges[i];
-                if (!(hz > 0 && hz < nyquist)) throw new ArgumentOutOfRangeException(name, hz, "Edge frequencies must be between 0 and Nyquist (sampleRate / 2), exclusive.");
+                if (!(hz > 0 && hz / sampleRate < 0.5)) throw new ArgumentOutOfRangeException(name, hz, "Edge frequencies must be between 0 and Nyquist (sampleRate / 2), exclusive.");
                 if (i > 0 && !(hz > edges[i - 1].Hz)) throw new ArgumentException("The low edge must be below the high edge.", name);
-                normalized[i] = hz / nyquist;
+                normalized[i] = 2 * (hz / sampleRate);
             }
 
             // Band edges in units of Nyquist, as (left, right) pairs: pass-zero designs start a band at 0, and a design
@@ -181,12 +183,15 @@ namespace ToolBelt.Signal
                 bands.Add(1);
             }
 
-            var h = new double[taps];
+            // The band terms are taken relative to the highest edge (the normalisation below removes the factor): for a
+            // subnormal cutoff, c·sinc(c·m) itself was subnormal and kept only a few digits (taps 60% off at 2e-323).
+            double top = bands[bands.Count - 1];
+            var h = NewTaps(taps);
             double alpha = (taps - 1) / 2.0;
             for (int n = 0; n < taps; n++)
             {
                 double m = n - alpha, sum = 0;
-                for (int b = 0; b < bands.Count; b += 2) sum += bands[b + 1] * Sinc(bands[b + 1] * m) - bands[b] * Sinc(bands[b] * m);
+                for (int b = 0; b < bands.Count; b += 2) sum += bands[b + 1] / top * Sinc(bands[b + 1] * m) - bands[b] / top * Sinc(bands[b] * m);
                 h[n] = sum * Window(window, kaiserBeta, n, taps);
             }
             // The window's cosines round differently at n and taps − 1 − n; mirroring makes the taps exactly symmetric, so
@@ -202,6 +207,22 @@ namespace ToolBelt.Signal
                 throw new ArgumentException("The window leaves no gain to normalise (all taps are zero): use more taps or another window.", nameof(taps));
             for (int n = 0; n < taps; n++) h[n] /= s;
             return new FirFilter(h);
+        }
+
+        private const int MaxTaps = 0x7FFFFFC7;     // the largest double[] (Array.MaxLength); past it the allocation was an OutOfMemoryException
+
+        private static double[] NewTaps(int taps)
+        {
+#if NET8_0_OR_GREATER
+            return new double[taps];
+#else
+            try { return new double[taps]; }
+            catch (OutOfMemoryException) when (taps > 268435448)
+            {
+                throw new ArgumentOutOfRangeException(nameof(taps), taps,
+                    "The taps need an array over 2 GB, which .NET Framework allows only with gcAllowVeryLargeObjects (or memory ran out).");
+            }
+#endif
         }
 
         private static double Sinc(double x)

@@ -103,7 +103,7 @@ namespace ToolBelt.Control
             if (!double.IsNaN(tLow))
             {
                 double tHigh = FirstCrossing(times, U, riseHigh, IndexAtOrAfter(times, tLow));
-                if (!double.IsNaN(tHigh)) rise = tHigh - tLow;
+                if (!double.IsNaN(tHigh)) rise = tHigh - tLow;      // ≥ 0; +∞ only when the true span passes MaxValue
             }
 
             int peakIndex = 0;
@@ -125,10 +125,9 @@ namespace ToolBelt.Control
             else if (last == n - 1) settling = double.NaN;
             else
             {
-                double e0 = U(last) - 1, e1 = U(last + 1) - 1;
+                double e0 = U(last) - 1;
                 double edge = Math.Sign(e0) * settlingBand;
-                double frac = (e0 - edge) / (e0 - e1);
-                settling = times[last] + frac * (times[last + 1] - times[last]) - t0;
+                settling = Between(times[last], times[last + 1], Fraction(1 + edge, last)) - t0;
             }
 
             return new StepResponseInfo(y0, yf, rise, settling, values[peakIndex], times[peakIndex] - t0, overshoot, undershoot);
@@ -138,13 +137,34 @@ namespace ToolBelt.Control
                 if (from >= n) return double.NaN;
                 if (u(from) >= level) return t[from];
                 for (int i = from + 1; i < n; i++)
-                    if (u(i) >= level)
-                    {
-                        double a = u(i - 1), b = u(i);
-                        return t[i - 1] + (level - a) / (b - a) * (t[i] - t[i - 1]);
-                    }
+                    if (u(i) >= level) return Between(t[i - 1], t[i], Fraction(level, i - 1));
                 return double.NaN;
             }
+
+            // Where between samples i and i + 1 the normalised response passes `level`, in [0, 1]. A normalised value
+            // overflows when the samples are far larger than the step (0, 1e300, 1e-300 for a step of 1e-300), and the
+            // fraction was ∞/∞ = NaN; it is then taken from the samples themselves, halved so their differences hold.
+            double Fraction(double level, int i)
+            {
+                double a = U(i), b = U(i + 1), f = (level - a) / (b - a);
+                if (double.IsNaN(f) || double.IsInfinity(f))
+                {
+                    double target = y0 / 2 + level * (step / 2), va = values[i] / 2, vb = values[i + 1] / 2;
+                    f = (target - va) / (vb - va);
+                }
+                return double.IsNaN(f) ? 0 : Math.Max(0, Math.Min(1, f));
+            }
+        }
+
+        // a + f·(b − a) overflowed when b − a does (times −1e308 and 1e308: the crossing came out +∞ and the rise time −∞).
+        // The weighted form stays between a and b.
+        private static double Between(double a, double b, double f)
+        {
+            if (f == 0) return a;
+            if (f == 1) return b;
+            double r = a + f * (b - a);
+            if (double.IsInfinity(r)) r = a * (1 - f) + b * f;
+            return Math.Max(a, Math.Min(b, r));
         }
 
         // (v − y0) / step; v − y0 overflowed for a representable step from −1e308 to 0 when v was 1e308.
