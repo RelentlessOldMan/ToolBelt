@@ -30,7 +30,7 @@ namespace ToolBelt.Objects
     /// that make a new object on every read (a struct's Perpendicular, a class's Reciprocal, a Ping whose Next is a new
     /// Pong whose Next is a new Ping) never meets the same object twice, so the walk follows such a chain only until its
     /// types have repeated three times along the path, and assumes equal beyond. A getter whose value is not a leaf is
-    /// called twice, to tell made objects from stored ones.
+    /// called twice, and a lazy sequence (one with no count) enumerated twice, to tell made objects from stored ones.
     /// The walk uses an explicit stack, so a deep graph (a long linked list) cannot overflow the call stack. A property
     /// getter that throws propagates its own exception.
     /// </para>
@@ -92,11 +92,11 @@ namespace ToolBelt.Objects
 
             if (a is IEnumerable ea && b is IEnumerable eb)
             {
-                var la = ObjectMembers.ToList(ea);
-                var lb = ObjectMembers.ToList(eb);
+                var la = ObjectMembers.Items(ea, out ObjectMembers.Origin oa);
+                var lb = ObjectMembers.Items(eb, out ObjectMembers.Origin ob);
                 if (la.Count != lb.Count) return false;
                 for (int i = la.Count - 1; i >= 0; i--)
-                    work.Push((la[i], lb[i], ObjectMembers.Trail.Pair(trail, la[i], ObjectMembers.Origin.Stable, lb[i], ObjectMembers.Origin.Stable)));
+                    work.Push((la[i], lb[i], ObjectMembers.Trail.Pair(trail, la[i], oa, lb[i], ob)));
                 return true;
             }
 

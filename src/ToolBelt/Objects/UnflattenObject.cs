@@ -35,7 +35,7 @@ namespace ToolBelt.Objects
             foreach (var kv in flat)
             {
                 if (kv.Key is null) throw new ArgumentException("A key is null.", nameof(flat));
-                if (kv.Key.Length == 0) throw new FormatException("Empty path.");
+                if (kv.Key.Length == 0) throw new FormatException("Empty path: a leaf or null root (FlattenObject.Flatten(5) gives the key \"\") has no member to rebuild a tree from.");
                 Node node = root;
                 foreach (var (segment, indexed) in Parse(kv.Key, separator))
                 {

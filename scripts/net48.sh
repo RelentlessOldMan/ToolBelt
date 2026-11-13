@@ -8,6 +8,8 @@
 set -o pipefail
 cd "$(dirname "$0")/.."
 REPO=$(cygpath -m "$(pwd)" 2>/dev/null || pwd)
+# The path goes into the csproj: escape MSBuild's special characters (% first), then XML's.
+REPO=$(printf '%s' "$REPO" | sed -e 's/%/%25/g' -e 's/;/%3B/g' -e 's/\$/%24/g' -e 's/@/%40/g' -e "s/'/%27/g"   -e 's/\*/%2A/g' -e 's/?/%3F/g' -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g')
 DIR=${TMPDIR:-/tmp}/toolbelt-net48
 mkdir -p "$DIR"
 export DOTNET_CLI_USE_MSBUILD_SERVER=0

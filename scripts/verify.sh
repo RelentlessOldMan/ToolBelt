@@ -17,9 +17,10 @@ grep -E "warning|error" "$LOG/verify-build.log" | sort -u | tail -8
 echo "build: $(tail -3 "$LOG/verify-build.log" | grep -E 'Warn|Error|Time' | tr '\n' ' ')"
 [ $rc -eq 0 ] || { echo "build failed; see $LOG/verify-build.log"; exit 1; }
 
-for p in ToolBelt.Tests ToolBelt.Windows.Tests ToolBelt.Wpf.Tests ToolBelt.WinForms.Tests; do
-  exe=$(ls tests/$p/bin/Release/*/$p.exe 2>/dev/null | head -1)
-  if [ -z "$exe" ]; then echo "$p: no test exe"; rc=1; continue; fi
+# Each suite's own framework: a leftover folder from another TFM would otherwise be picked up first.
+for s in ToolBelt.Tests:net8.0 ToolBelt.Windows.Tests:net8.0-windows ToolBelt.Wpf.Tests:net8.0-windows ToolBelt.WinForms.Tests:net8.0-windows; do
+  p=${s%%:*}; exe=tests/$p/bin/Release/${s#*:}/$p.exe
+  if [ ! -f "$exe" ]; then echo "$p: no test exe at $exe"; rc=1; continue; fi
   timeout 900 "$exe" < /dev/null > "$LOG/verify-$p.log" 2>&1 || rc=1
   echo "$p: $(tail -1 "$LOG/verify-$p.log")"
 done

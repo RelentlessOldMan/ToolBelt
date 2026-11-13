@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Windows.Forms;
 using System.Windows.Input;
@@ -14,12 +15,14 @@ namespace ToolBelt.WinForms
     /// Parses and formats menu shortcuts such as <c>"Ctrl+Shift+S"</c> or <c>"F5"</c>. Accepts what a menu item's
     /// <see cref="ToolStripMenuItem.ShortcutKeys"/> accepts (<see cref="ToolStripManager.IsValidShortcut"/>) — a key with
     /// Ctrl or Alt, or a function key, Insert or Delete on its own or with any modifiers — except mouse buttons
-    /// (LButton, RButton, MButton, XButton1/2), which WinForms takes but no keyboard can press.
+    /// (LButton, RButton, MButton, XButton1/2) and the members that are no key at all (the KeyCode mask, Packet, NoName,
+    /// ProcessKey), which WinForms takes but no keyboard can press.
     /// </summary>
     public static class MenuShortcut
     {
         /// <summary>
-        /// Parses modifiers (Ctrl/Control, Alt, Shift) and one key ("S", "F5", "Delete", "1", "Plus", "PageDown", "/").
+        /// Parses modifiers (Ctrl/Control, Alt, Shift) and one key ("S", "F5", "Delete", "1", "Plus", "PageDown", "/", "-").
+        /// "+" and "-" also name the Plus and Minus keys ("Ctrl++", "Ctrl+-"); <see cref="Format"/> writes "Plus" and "Minus".
         /// Throws <see cref="FormatException"/> for anything a menu item would reject.
         /// </summary>
         public static Keys Parse(string text)
@@ -52,6 +55,7 @@ namespace ToolBelt.WinForms
             if (k.Length == 1 && k[0] >= '0' && k[0] <= '9') key = Keys.D0 + (k[0] - '0');
             else if (k.Equals("Del", StringComparison.OrdinalIgnoreCase)) key = Keys.Delete;
             else if (k.Equals("Esc", StringComparison.OrdinalIgnoreCase)) key = Keys.Escape;
+            else if (k == "-") key = Keys.OemMinus;
             else
             {
                 foreach (var (fk, name) in Friendly)
@@ -60,7 +64,7 @@ namespace ToolBelt.WinForms
                 if (key == Keys.None && (!IsName(k) || !Enum.TryParse(k, ignoreCase: true, out key) || !Enum.IsDefined(key)))
                     key = Keys.None;
             }
-            if (key == Keys.None || (key & Keys.Modifiers) != 0 || IsMouseButton(key) || !ToolStripManager.IsValidShortcut(keys | key))
+            if (key == Keys.None || (key & Keys.Modifiers) != 0 || IsMouseButton(key) || NotAKey(key) || !ToolStripManager.IsValidShortcut(keys | key))
             {
                 keys = Keys.None;
                 return false;
@@ -88,6 +92,10 @@ namespace ToolBelt.WinForms
 
         private static bool IsMouseButton(Keys key)
             => key == Keys.LButton || key == Keys.RButton || key == Keys.MButton || key == Keys.XButton1 || key == Keys.XButton2;
+
+        // Defined Keys members no keystroke produces: the mask of every key code, and codes Windows uses internally.
+        private static bool NotAKey(Keys key)
+            => key == Keys.KeyCode || key == Keys.Packet || key == Keys.NoName || key == Keys.ProcessKey;
 
         /// <summary>"Ctrl+Shift+S" style text for display.</summary>
         public static string Format(Keys keys)
@@ -229,7 +237,8 @@ namespace ToolBelt.WinForms
         }
 
         /// <summary>
-        /// Finds an item by its path of texts, ignoring mnemonics and case, e.g. <c>"File/Recent/report.csv"</c>; null if absent.
+        /// Finds an item by its path of texts, ignoring mnemonics (in the item's text and in the path, so <c>"&amp;File/&amp;Open"</c>
+        /// works too), surrounding spaces and case, e.g. <c>"File/Recent/report.csv"</c>; null if absent.
         /// Separators are never matched, and an item whose text contains "/" cannot be named.
         /// </summary>
         public static ToolStripItem? FindItem(ToolStrip strip, string path)
@@ -242,7 +251,7 @@ namespace ToolBelt.WinForms
             {
                 found = null;
                 foreach (ToolStripItem candidate in items)
-                    if (candidate is not ToolStripSeparator && string.Equals(PlainText(candidate.Text ?? ""), segment.Trim(), StringComparison.OrdinalIgnoreCase)) { found = candidate; break; }
+                    if (candidate is not ToolStripSeparator && string.Equals(PlainText(candidate.Text ?? "").Trim(), PlainText(segment).Trim(), StringComparison.OrdinalIgnoreCase)) { found = candidate; break; }
                 if (found is null) return null;
                 items = found is ToolStripDropDownItem dd ? dd.DropDownItems : new ToolStripItemCollection(strip, Array.Empty<ToolStripItem>());
             }
@@ -269,18 +278,24 @@ namespace ToolBelt.WinForms
 
     /// <summary>
     /// Builds a <see cref="ToolStrip"/> (toolbar) declaratively: buttons for actions or <see cref="ICommand"/>s, toggle
-    /// buttons, labels, separators and drop-down buttons. Text doubles as the tooltip unless one is given.
+    /// buttons, labels, separators and drop-down buttons. Text doubles as the tooltip unless one is given. Like
+    /// <see cref="MenuBuilder"/>, each <see cref="Build"/> or <see cref="ApplyTo"/> creates fresh items (an item belongs to
+    /// one strip), so one builder can fill several toolbars.
     /// </summary>
     public sealed class ToolStripBuilder
     {
-        private readonly List<ToolStripItem> _items = new List<ToolStripItem>();
+        private readonly List<Func<ToolStripItem>> _items = new List<Func<ToolStripItem>>();
 
         public ToolStripBuilder Button(string text, Action onClick, Image? image = null, string? toolTip = null, string? name = null)
         {
+            if (text is null) throw new ArgumentNullException(nameof(text));
             if (onClick is null) throw new ArgumentNullException(nameof(onClick));
-            var b = CreateButton(text, image, toolTip, name);
-            b.Click += (_, __) => onClick();
-            _items.Add(b);
+            _items.Add(() =>
+            {
+                var b = CreateButton(text, image, toolTip, name);
+                b.Click += (_, __) => onClick();
+                return b;
+            });
             return this;
         }
 
@@ -290,33 +305,42 @@ namespace ToolBelt.WinForms
         /// </summary>
         public ToolStripBuilder Button(string text, ICommand command, Image? image = null, string? toolTip = null, string? name = null, object? parameter = null)
         {
-            var b = CreateButton(text, image, toolTip, name);
-            CommandBinding.Bind(b, command, parameter);
-            _items.Add(b);
+            if (text is null) throw new ArgumentNullException(nameof(text));
+            if (command is null) throw new ArgumentNullException(nameof(command));
+            _items.Add(() =>
+            {
+                var b = CreateButton(text, image, toolTip, name);
+                CommandBinding.Bind(b, command, parameter);
+                return b;
+            });
             return this;
         }
 
         public ToolStripBuilder Toggle(string text, bool isChecked, Action<bool> onChanged, Image? image = null, string? toolTip = null, string? name = null)
         {
+            if (text is null) throw new ArgumentNullException(nameof(text));
             if (onChanged is null) throw new ArgumentNullException(nameof(onChanged));
-            var b = CreateButton(text, image, toolTip, name);
-            b.CheckOnClick = true;
-            b.Checked = isChecked;
-            b.CheckedChanged += (_, __) => onChanged(b.Checked);
-            _items.Add(b);
+            _items.Add(() =>
+            {
+                var b = CreateButton(text, image, toolTip, name);
+                b.CheckOnClick = true;
+                b.Checked = isChecked;
+                b.CheckedChanged += (_, __) => onChanged(b.Checked);
+                return b;
+            });
             return this;
         }
 
         public ToolStripBuilder Label(string text, string? name = null)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
-            _items.Add(new ToolStripLabel(text) { Name = name ?? MenuBuilder.PlainText(text) });
+            _items.Add(() => new ToolStripLabel(text) { Name = name ?? MenuBuilder.PlainText(text) });
             return this;
         }
 
         public ToolStripBuilder Separator()
         {
-            _items.Add(new ToolStripSeparator());
+            _items.Add(() => new ToolStripSeparator());
             return this;
         }
 
@@ -324,9 +348,12 @@ namespace ToolBelt.WinForms
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
             if (items is null) throw new ArgumentNullException(nameof(items));
-            var dd = new ToolStripDropDownButton(text, image) { Name = name ?? MenuBuilder.PlainText(text) };
-            items(new MenuItemsBuilder(dd.DropDownItems));
-            _items.Add(dd);
+            _items.Add(() =>
+            {
+                var dd = new ToolStripDropDownButton(text, image) { Name = name ?? MenuBuilder.PlainText(text) };
+                items(new MenuItemsBuilder(dd.DropDownItems));
+                return dd;
+            });
             return this;
         }
 
@@ -337,11 +364,13 @@ namespace ToolBelt.WinForms
             return strip;
         }
 
+        /// <summary>Appends the described items, newly created, to an existing strip.</summary>
         public void ApplyTo(ToolStrip strip)
         {
             if (strip is null) throw new ArgumentNullException(nameof(strip));
-            strip.Items.AddRange(_items.ToArray());
-            _items.Clear(); // items now belong to that strip
+            var created = new ToolStripItem[_items.Count];
+            for (int i = 0; i < created.Length; i++) created[i] = _items[i]();
+            strip.Items.AddRange(created);
         }
 
         private static ToolStripButton CreateButton(string text, Image? image, string? toolTip, string? name)
@@ -360,43 +389,77 @@ namespace ToolBelt.WinForms
     /// Wires a <see cref="ToolStripItem"/> to an <see cref="ICommand"/>. The command holds the item only weakly (a
     /// long-lived view-model command must not keep a closed but undisposed dialog's menu alive) and is unhooked when the
     /// item is disposed or collected. A CanExecuteChanged raised on another thread (a view-model updating from a worker)
-    /// is marshalled to the item's UI thread, so Enabled and its EnabledChanged handlers never run off it.
+    /// is marshalled to the item's UI thread, so Enabled and its EnabledChanged handlers never run off it. The parameter
+    /// is held through the item too, so an item dropped without being disposed (a context menu rebuilt on each opening,
+    /// its old items cleared) does not keep its parameter alive from the command; the leftover subscriptions of such
+    /// items are removed the next time the command is bound or raises CanExecuteChanged.
     /// </summary>
     internal static class CommandBinding
     {
+        // Each command's subscriptions made here, so dead ones can be pruned even when the command never raises the event.
+        private static readonly ConditionalWeakTable<ICommand, List<WeakSync>> Subscriptions = new ConditionalWeakTable<ICommand, List<WeakSync>>();
+
         public static void Bind(ToolStripItem item, ICommand command, object? parameter)
         {
             if (command is null) throw new ArgumentNullException(nameof(command));
             item.Enabled = command.CanExecute(parameter); // before hooking: a throwing CanExecute leaves nothing subscribed
+            var target = new Target(parameter);
             item.Click += (_, __) =>
             {
-                if (command.CanExecute(parameter)) command.Execute(parameter);
+                if (command.CanExecute(target.Parameter)) command.Execute(target.Parameter);
             };
-            var sync = new WeakSync(item, command, parameter, SynchronizationContext.Current as WindowsFormsSynchronizationContext);
+            // Before the strip has a handle, the binding thread's context is the only way back to the UI thread. A UI
+            // (STA) thread that has not yet created a control has none installed, so make one for it.
+            var context = SynchronizationContext.Current as WindowsFormsSynchronizationContext;
+            if (context is null && Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
+                context = new WindowsFormsSynchronizationContext();
+            var sync = new WeakSync(item, target, command, context);
+            List<WeakSync> list = Subscriptions.GetValue(command, _ => new List<WeakSync>());
+            lock (list)
+            {
+                list.RemoveAll(s => { if (s.IsAlive) return false; command.CanExecuteChanged -= s.Handler; return true; });
+                list.Add(sync);
+            }
             command.CanExecuteChanged += sync.Handler;
-            item.Disposed += (_, __) => command.CanExecuteChanged -= sync.Handler;
+            item.Disposed += (_, __) => Unsubscribe(command, sync);
+        }
+
+        private static void Unsubscribe(ICommand command, WeakSync sync)
+        {
+            command.CanExecuteChanged -= sync.Handler;
+            if (Subscriptions.TryGetValue(command, out List<WeakSync>? list))
+                lock (list) list.Remove(sync);
+        }
+
+        // The parameter, reachable from the item (its Click handler) and only weakly from the command.
+        private sealed class Target
+        {
+            public readonly object? Parameter;
+            public Target(object? parameter) => Parameter = parameter;
         }
 
         private sealed class WeakSync
         {
             private readonly WeakReference<ToolStripItem> _item;
+            private readonly WeakReference<Target> _target;
             private readonly ICommand _command;
-            private readonly object? _parameter;
-            private readonly SynchronizationContext? _context; // the binding thread's, if it had a WinForms one
+            private readonly SynchronizationContext? _context; // the binding thread's WinForms context, if it had one
             private readonly int _thread;
 
-            public WeakSync(ToolStripItem item, ICommand command, object? parameter, SynchronizationContext? context)
+            public WeakSync(ToolStripItem item, Target target, ICommand command, SynchronizationContext? context)
             {
                 _item = new WeakReference<ToolStripItem>(item);
+                _target = new WeakReference<Target>(target);
                 _command = command;
-                _parameter = parameter;
                 _context = context;
                 _thread = Environment.CurrentManagedThreadId;
             }
 
+            public bool IsAlive => _item.TryGetTarget(out _) && _target.TryGetTarget(out _);
+
             public void Handler(object? sender, EventArgs e)
             {
-                if (!_item.TryGetTarget(out ToolStripItem? item)) { _command.CanExecuteChanged -= Handler; return; }
+                if (!_item.TryGetTarget(out ToolStripItem? item) || !_target.TryGetTarget(out Target? target)) { Unsubscribe(_command, this); return; }
                 // The owning strip knows its UI thread once it has a handle; before that, fall back to the binding
                 // thread's context. With neither there is no UI thread to protect, so update in place.
                 Control? owner = item.Owner;
@@ -408,12 +471,13 @@ namespace ToolBelt.WinForms
                 else if ((owner is null || !owner.IsHandleCreated) && _context is not null && Environment.CurrentManagedThreadId != _thread)
                     _context.Post(_ => Update(), null);
                 else
-                    item.Enabled = _command.CanExecute(_parameter);
+                    item.Enabled = _command.CanExecute(target.Parameter);
             }
 
             private void Update()
             {
-                if (_item.TryGetTarget(out ToolStripItem? item) && !item.IsDisposed) item.Enabled = _command.CanExecute(_parameter);
+                if (_item.TryGetTarget(out ToolStripItem? item) && !item.IsDisposed && _target.TryGetTarget(out Target? target))
+                    item.Enabled = _command.CanExecute(target.Parameter);
             }
         }
     }

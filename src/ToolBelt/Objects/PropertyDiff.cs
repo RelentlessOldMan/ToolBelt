@@ -37,7 +37,7 @@ namespace ToolBelt.Objects
     /// where it differs, but a pair found equal is not walked again. A chain of getters that make a new object on every read
     /// (a struct's Perpendicular, a class's Reciprocal, a Ping whose Next is a new Pong whose Next is a new Ping) never
     /// meets the same object twice, so it is followed only until its types have repeated three times along the path. A
-    /// getter whose value is not a leaf is called twice, to tell made objects from stored ones. The walk uses an explicit stack, so a deep graph cannot
+    /// getter whose value is not a leaf is called twice, and a lazy sequence enumerated twice, to tell made objects from stored ones. The walk uses an explicit stack, so a deep graph cannot
     /// overflow the call stack. A property getter that throws propagates its own exception.
     /// </para>
     /// </summary>
@@ -194,15 +194,15 @@ namespace ToolBelt.Objects
             }
             else if (na is IEnumerable ea && nb is IEnumerable eb)
             {
-                var la = ObjectMembers.ToList(ea);
-                var lb = ObjectMembers.ToList(eb);
+                var la = ObjectMembers.Items(ea, out ObjectMembers.Origin oa);
+                var lb = ObjectMembers.Items(eb, out ObjectMembers.Origin ob);
                 int max = Math.Max(la.Count, lb.Count);
                 for (int i = 0; i < max; i++)
                 {
                     var p = new PathNode(path, i.ToString(CultureInfo.InvariantCulture), indexed: true);
                     if (i >= la.Count) output.Add(Report(p, null, lb[i]));
                     else if (i >= lb.Count) output.Add(Report(p, la[i], null));
-                    else output.Add(new Frame { Kind = Kind.Visit, Path = p, A = la[i], B = lb[i], Trail = ObjectMembers.Trail.Pair(trail, la[i], ObjectMembers.Origin.Stable, lb[i], ObjectMembers.Origin.Stable) });
+                    else output.Add(new Frame { Kind = Kind.Visit, Path = p, A = la[i], B = lb[i], Trail = ObjectMembers.Trail.Pair(trail, la[i], oa, lb[i], ob) });
                 }
             }
             else if (ta != tb)

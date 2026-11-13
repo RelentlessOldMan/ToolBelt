@@ -9,7 +9,8 @@ $props = Join-Path (Split-Path -Parent $PSScriptRoot) "Directory.Build.props"
 
 function Get-NextVersion([string]$current) {
     $today = Get-Date
-    $todayKey = [int]$today.ToString('yyyyMMdd')
+    # Year, Month and Day are always Gregorian; ToString('yyyyMMdd') used the culture's calendar (th-TH gave 2569...).
+    $todayKey = $today.Year * 10000 + $today.Month * 100 + $today.Day
     if ($current -match '^(\d+)\.(\d+)\.(\d+)\.(\d+)$') {
         $y, $m, $d, $n = [int]$Matches[1], [int]$Matches[2], [int]$Matches[3], [int]$Matches[4]
         if ($y * 10000 + $m * 100 + $d -ge $todayKey) {      # same day (or a later date): bump N

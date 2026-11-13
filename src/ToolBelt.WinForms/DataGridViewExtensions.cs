@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -52,7 +53,7 @@ namespace ToolBelt.WinForms
         {
             if (grid is null) throw new ArgumentNullException(nameof(grid));
             if (maxWidth.HasValue && maxWidth.Value < 1) throw new ArgumentOutOfRangeException(nameof(maxWidth), maxWidth, "Must be positive.");
-            if (mode == DataGridViewAutoSizeColumnsMode.None || mode == DataGridViewAutoSizeColumnsMode.Fill)
+            if (!Enum.IsDefined(mode) || mode == DataGridViewAutoSizeColumnsMode.None || mode == DataGridViewAutoSizeColumnsMode.Fill)
                 throw new ArgumentOutOfRangeException(nameof(mode), mode, "Must be a content-based mode.");
             grid.AutoResizeColumns(mode);
             if (maxWidth is int cap)
@@ -67,7 +68,7 @@ namespace ToolBelt.WinForms
         /// <summary>
         /// The selected cells as tab-separated rows covering the selection's bounding rectangle (unselected cells inside
         /// it are blank), visible columns in display order, optionally preceded by their headers. Cells holding a tab,
-        /// newline or quote are quoted the way Excel expects. Empty when nothing is selected.
+        /// newline or quote are quoted the way Excel expects; image cells are blank. Empty when nothing is selected.
         /// </summary>
         public static string SelectionToTsv(this DataGridView grid, bool includeHeaders = false)
         {
@@ -115,7 +116,8 @@ namespace ToolBelt.WinForms
         /// visible columns only in display order unless <paramref name="visibleColumnsOnly"/> is false. Fields holding the
         /// delimiter, a quote or a line break are quoted, with quotes doubled. Lines end in CRLF. Values are the cells'
         /// formatted text, which means each row is unshared (WinForms' memory optimisation for big unbound grids) as it is
-        /// read; for 100k+ rows, export from the bound data source instead.
+        /// read; for 100k+ rows, export from the bound data source instead. Image cells (a picture column, or a byte[] column
+        /// WinForms shows as one) export as empty fields.
         /// <para>A field starting with <c>=</c>, <c>+</c>, <c>-</c>, <c>@</c>, a tab or a carriage return is a formula to
         /// Excel and other spreadsheets, quoted or not, so a cell holding <c>=HYPERLINK(...)</c> runs when the file is
         /// opened. If the cells can hold untrusted text, pass <paramref name="escapeFormulas"/>: such fields get a leading
@@ -173,7 +175,14 @@ namespace ToolBelt.WinForms
             }
         }
 
-        private static string Text(DataGridViewCell cell) => cell.FormattedValue?.ToString() ?? string.Empty;
+        // An image cell's formatted value is a Bitmap, decoded afresh (and never disposed) on every read, whose text is just
+        // "System.Drawing.Bitmap": such a cell exports as an empty field without being read.
+        private static string Text(DataGridViewCell cell)
+        {
+            if (cell is DataGridViewImageCell) return string.Empty;
+            object? value = cell.FormattedValue;
+            return value is Image ? string.Empty : value?.ToString() ?? string.Empty;
+        }
 
         private static string CsvField(string value, char delimiter, bool escapeFormulas)
         {

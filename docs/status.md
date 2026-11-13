@@ -7,8 +7,8 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 
 1. **The fourth pass:** every section re-queued by its last pass goes round again until a pass finds ≤ 1 minor bug.
    As of round 53 all 17 sections are re-queued; the order is in REVIEW-PLAN.md. The cross-cutting rounds (54 to 57)
-   are done. Round 58 (IO) found 39 bugs, 7 severe, and round 59 (section 14) 27 bugs, 3 severe, so both stay re-queued;
-   section 17 is next.
+   are done. Round 58 (IO) found 39 bugs, 7 severe, round 59 (section 14) 27 bugs, 3 severe, and round 60 (section 17)
+   22 bugs, none severe, so all three stay re-queued; section 4 is next.
 1. **BUGLIST 56-1** (`Thread.Sleep` in library code): the DirectoryUtils part is fixed (round 58); the Windows parts go
    with section 15.
 
@@ -16,15 +16,15 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 
 - **The library** (2026-09-25 to 2026-10-05): 29+ divisions in the core plus the Windows, WPF and WinForms
   satellites. The README's Layout is the inventory.
-- **The review** (2026-10-07 onward): 58 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
+- **The review** (2026-10-07 onward): 60 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
   sections, two rounds on flaky tests and the incomplete beta/gamma harness, and four cross-cutting rounds (round 54,
   throwing callbacks: 36 bugs, 2 severe; round 55, cancellation and dispose races: 17 bugs, 2 severe, both a Ctrl+C
   handler letting a token callback's exception escape; round 56, non-finite and extreme numerics: 34 bugs, 2 severe,
   both hangs on data near MaxValue; round 57, the whole suite on .NET Framework 4.8: 4 bugs, none severe). The fourth
   pass began with IO (round 58: 39 bugs, 7 severe, mostly junction swaps mid-operation, the tar guard and names
   ending in a dot).
-- **Checks every round passes:** the full verify (core 3185 tests, Windows 115, WPF 162, WinForms 91,
-  MathChecks 40 at v2026.11.13.1), the overflow-checked build with no failures (since round 48), and the special
+- **Checks every round passes:** the full verify (core 3221 tests, Windows 115, WPF 162, WinForms 104,
+  MathChecks 40 at v2026.11.13.3), the overflow-checked build with no failures (since round 48), and the special
   functions against mpmath (graded in condition-number units).
 - **.NET Framework 4.8:** since round 57 the whole core suite compiles and passes there (3079 tests; net8-only
   types' tests are guarded out).
@@ -64,6 +64,12 @@ Written as rules a future session can apply.
   filter callback on a file inside that folder; swapping earlier is caught by the old once-per-folder check.
 - Some fail-first tests only fail where the bug lives: on .NET Framework, in the checked build, or under one-core
   affinity. Say so in the test's comment.
+- .NET Framework's own `MakeGenericType` overflows the stack building a type about 8,000 generic levels deep, so a
+  deep-nesting test runs at 5,000 there.
+- Windows PowerShell 5.1 passes a native argument's embedded quotes raw and has no reliable escape: don't build a
+  quoted command line inside one argument (coverlet's `--targetargs`); run an exe that needs no arguments instead.
+- To check a build leaks no local paths, grep the DLL for the repo folder's name: the PDB path is the usual leak, and
+  `PathMap` in Directory.Build.props maps it to `/_/` for Release builds.
 - `Check.Close` passes NaN against NaN but must fail when only one side is NaN (fixed in round 18); write any new
   tolerance helper the same way.
 - Timing-sensitive tests (pause/race, job objects) flake under load. Widen margins or remove the race; don't retry.

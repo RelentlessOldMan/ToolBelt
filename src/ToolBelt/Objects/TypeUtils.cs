@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace ToolBelt.Objects
@@ -33,10 +34,15 @@ namespace ToolBelt.Objects
             typeof(float), typeof(double), typeof(decimal),
         };
 
-        /// <summary>A readable type name, e.g. <c>Dictionary&lt;string, List&lt;int&gt;&gt;</c> or <c>int?</c>.</summary>
+        /// <summary>
+        /// A readable type name, e.g. <c>Dictionary&lt;string, List&lt;int&gt;&gt;</c> or <c>int?</c>. A type nested
+        /// thousands of generic levels deep throws <see cref="InsufficientExecutionStackException"/> (each level is a
+        /// call; without the check, about 2,400 levels overflowed the stack and ended the process).
+        /// </summary>
         public static string FriendlyName(Type type)
         {
             if (type is null) throw new ArgumentNullException(nameof(type));
+            RuntimeHelpers.EnsureSufficientExecutionStack();
 
             Type? nullableUnderlying = Nullable.GetUnderlyingType(type);
             if (nullableUnderlying != null)

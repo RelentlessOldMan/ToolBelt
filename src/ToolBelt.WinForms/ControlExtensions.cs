@@ -12,8 +12,9 @@ namespace ToolBelt.WinForms
     /// <see cref="Control.Invoke(Delegate)"/> / <see cref="Control.BeginInvoke(Delegate)"/> otherwise — so
     /// callers can update controls from background threads without sprinkling <c>InvokeRequired</c> checks.
     /// A disposed control is never touched: the synchronous helpers throw <see cref="ObjectDisposedException"/>, and
-    /// <see cref="BeginInvokeIfRequired"/> drops the action (also when the handle is destroyed while it posts), so a
-    /// worker reporting progress to a form the user just closed does not crash.
+    /// <see cref="BeginInvokeIfRequired"/> drops the action (also when the handle is destroyed while it posts, or the control
+    /// is disposed before the posted action runs), so a worker reporting progress to a form the user just closed does not
+    /// crash.
     /// A control with no window handle called from a thread that cannot be a UI thread (not STA — e.g. a thread-pool
     /// worker) is treated the same way: the handle is gone (a dialog closed but not yet disposed) or not yet created, so
     /// there is no thread to marshal to, and running the action there would create windows on the worker. The synchronous
@@ -59,7 +60,9 @@ namespace ToolBelt.WinForms
                 return;
             if (control.InvokeRequired)
             {
-                try { control.BeginInvoke(action); }
+                // Checked again when it runs: a control with no handle of its own posts to its parent's queue, which
+                // still runs the action after the control itself is disposed (a tab page closed meanwhile).
+                try { control.BeginInvoke(new Action(() => { if (!control.IsDisposed && !control.Disposing) action(); })); }
                 catch (InvalidOperationException) when (control.IsDisposed || control.Disposing || !control.IsHandleCreated)
                 {
                     // The handle went away between the check and the post: the control is gone, so is the work.

@@ -5,7 +5,7 @@
 #
 # Works in a scratch git worktree (default: $TMPDIR/toolbelt-checked-wt, or pass a path, relative to where you run it).
 # Each run resets it to HEAD and copies in the uncommitted changes under src/ and tests/, so it checks the working tree
-# as it stands. The reset discards everything in that folder, so the script only reuses a folder holding the
+# as it stands (a staged rename is a delete plus an add, so the old name goes). The reset discards everything in that folder, so the script only reuses a folder holding the
 # .toolbelt-checked-wt marker it writes when it creates one; any other existing folder is refused. Building
 # in place doesn't work (duplicate assembly attributes), and --no-incremental is needed or MSBuild skips the
 # recompile. Prints the summary and every FAIL line; exits non-zero unless the suite ran to an ALL GREEN summary
@@ -27,7 +27,7 @@ else
 fi
 git -C "$WT" checkout -q -f --detach "$(git rev-parse HEAD)" || exit 1
 git -C "$WT" clean -fdq -- src tests
-{ git diff -z --name-only HEAD -- src tests; git ls-files -z --others --exclude-standard -- src tests; } |
+{ git diff -z --name-only --no-renames HEAD -- src tests; git ls-files -z --others --exclude-standard -- src tests; } |
 while IFS= read -r -d '' f; do
   if [ -f "$f" ]; then mkdir -p "$(dirname "$WT/$f")"; cp "$f" "$WT/$f"; else rm -f "$WT/$f"; fi
 done

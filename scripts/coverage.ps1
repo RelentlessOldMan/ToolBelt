@@ -21,6 +21,7 @@ $env:DOTNET_CLI_USE_MSBUILD_SERVER = "0"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $testProj = "$repoRoot\tests\ToolBelt.Tests\ToolBelt.Tests.csproj"
 $testDll  = "$repoRoot\tests\ToolBelt.Tests\bin\$Configuration\net8.0\ToolBelt.Tests.dll"
+$testExe  = "$repoRoot\tests\ToolBelt.Tests\bin\$Configuration\net8.0\ToolBelt.Tests.exe"
 $outDir   = "$repoRoot\coverage"
 $cobertura = "$outDir\coverage.cobertura.xml"
 
@@ -35,13 +36,16 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 New-Item -ItemType Directory -Force $outDir | Out-Null
 
 Write-Host "Collecting coverage (production code only)..." -ForegroundColor Cyan
-coverlet $testDll --target "dotnet" --targetargs "`"$testDll`"" `
+# The runner's own exe is the target, so no path has to be quoted inside --targetargs: Windows PowerShell passed the
+# quotes in "`"$testDll`"" through bare, and a repo path with a space split into two arguments.
+coverlet $testDll --target $testExe `
     --format cobertura --output $cobertura --include "[ToolBelt]*"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 if (-not $NoHtml) {
     if (Get-Command reportgenerator -ErrorAction SilentlyContinue) {
         reportgenerator -reports:$cobertura -targetdir:"$outDir\html" -reporttypes:"Html;MarkdownSummaryGithub" | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Error "reportgenerator failed (exit $LASTEXITCODE)" }
         Write-Host "HTML report: $outDir\html\index.html" -ForegroundColor Green
     } else {
         Write-Host "reportgenerator not found; skipping HTML (install: dotnet tool install --global dotnet-reportgenerator-globaltool)" -ForegroundColor Yellow

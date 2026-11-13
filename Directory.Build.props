@@ -3,12 +3,18 @@
   <!-- Shared by every project in the repo. The version is YYYY.M.D.N, set by scripts/bump-version.ps1 once per release
        (see CLAUDE.md, "Git and releases"); never edit it by hand. -->
   <PropertyGroup>
-    <Version>2026.11.13.2</Version>
+    <Version>2026.11.13.3</Version>
     <Authors>RelentlessOldMan</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/RelentlessOldMan/ToolBelt</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/RelentlessOldMan/ToolBelt</PackageProjectUrl>
+  </PropertyGroup>
+
+  <!-- A Release build records source and PDB paths relative to the repo (/_/src/...), not the folder it was built in,
+       which every packaged DLL otherwise carried. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)'))=/_/</PathMap>
   </PropertyGroup>
 
 </Project>

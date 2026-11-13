@@ -108,7 +108,7 @@ namespace ToolBelt.WinForms
         /// <summary>
         /// Returns <paramref name="bounds"/> unchanged if it fits within the bounding box of all the
         /// <paramref name="workingAreas"/> and its title-bar strip is reachable on one of them (at least
-        /// <paramref name="minimumVisible"/> pixels of it, or its whole width if narrower) — a window deliberately
+        /// <paramref name="minimumVisible"/> pixels of it, or its whole width if narrower, and half the caption's height) — a window deliberately
         /// straddling two monitors is left alone. (A larger window would be shrunk by Windows about its own origin,
         /// which can move the reachable part of the caption off-screen.) Otherwise the window
         /// is relocated onto the working area it overlaps most (or, if it overlaps none, the one nearest its
@@ -125,6 +125,7 @@ namespace ToolBelt.WinForms
             // The caption is what the user grabs to move a window, so that is the part that must be reachable.
             var caption = new Rectangle(bounds.X, bounds.Y, bounds.Width, Math.Min(bounds.Height, CaptionHeight));
             int needed = Math.Min(minimumVisible, bounds.Width);
+            int neededHeight = Math.Min(MinimumCaptionVisible, caption.Height); // a 1 px sliver of caption cannot be grabbed
             Rectangle union = workingAreas[0];
             foreach (Rectangle area in workingAreas)
                 union = Rectangle.Union(union, area);
@@ -132,7 +133,7 @@ namespace ToolBelt.WinForms
                 foreach (Rectangle area in workingAreas)
                 {
                     Rectangle seen = Rectangle.Intersect(caption, area);
-                    if (seen.Width >= needed && seen.Height > 0)
+                    if (seen.Width >= needed && seen.Height >= neededHeight)
                         return bounds;
                 }
 
@@ -146,6 +147,7 @@ namespace ToolBelt.WinForms
 
         // Approximate caption-bar height; exact value varies with DPI/theme but only gates "reachable".
         private const int CaptionHeight = 30;
+        private const int MinimumCaptionVisible = CaptionHeight / 2;
 
         private static Rectangle PickTarget(Rectangle bounds, IReadOnlyList<Rectangle> areas)
         {

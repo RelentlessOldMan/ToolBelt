@@ -13,10 +13,11 @@ namespace ToolBelt.Objects
     /// consumes. Reference cycles are broken (a repeated reference is not expanded again). A chain of getters that make a
     /// new object on every read (a struct's Perpendicular, a class's Reciprocal, a Ping whose Next is a new Pong whose
     /// Next is a new Ping) is expanded only until its types have repeated three times along the path, and recorded as-is
-    /// beyond; a getter whose value is not a leaf is called twice to tell. An empty collection or dictionary, and an
+    /// beyond; a getter whose value is not a leaf is called twice, and a lazy sequence enumerated twice, to tell. An empty collection or dictionary, and an
     /// object with no readable members, is recorded as-is. Two values whose paths spell the same key (a member
     /// <c>A_B</c> beside <c>A.B</c> with separator "_", or dictionary keys 1 and "1") throw rather than one silently
-    /// replacing the other. The walk uses an explicit stack, so a deep graph cannot overflow the call stack; a property
+    /// replacing the other. A leaf or null root flattens to the single key "", which <c>UnflattenObject</c> refuses: it
+    /// rebuilds a tree of named members, and a root value has none. The walk uses an explicit stack, so a deep graph cannot overflow the call stack; a property
     /// getter that throws propagates its own exception.
     /// </summary>
     public static class FlattenObject
@@ -83,9 +84,9 @@ namespace ToolBelt.Objects
             }
             else if (value is IEnumerable enumerable)
             {
-                int i = 0;
-                foreach (var item in enumerable)
-                    children.Add((Index(path, i++.ToString(CultureInfo.InvariantCulture)), item, trail.Step(item, ObjectMembers.Origin.Stable)));
+                List<object?> items = ObjectMembers.Items(enumerable, out ObjectMembers.Origin origin);
+                for (int i = 0; i < items.Count; i++)
+                    children.Add((Index(path, i.ToString(CultureInfo.InvariantCulture)), items[i], trail.Step(items[i], origin)));
             }
             else
             {

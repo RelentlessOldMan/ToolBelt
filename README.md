@@ -426,7 +426,7 @@ src/
       ConfidenceInterval.cs  mean CI (Student-t, or large-sample z) / variance & SD (chi-square) / Wilson proportion
       DeterministicRandom.cs  seeded fixed-algorithm PRNG (xoshiro256**, stable across runtimes)
       Differentiation.cs    numerical derivative (uniform/uneven samples, function, Richardson)
-      Distributions.cs      normal/log-normal/exponential/uniform/Student-t/chi-square/F PDF/CDF/quantile + direct upper tails (<1e-13 rel vs 40-digit refs)
+      Distributions.cs      normal/log-normal/exponential/uniform/Student-t/chi-square/F PDF/CDF/quantile + direct upper tails (<1e-13 rel vs mpmath refs: 20 digits, computed at 40)
       EmpiricalDistribution.cs  empirical CDF step function (value<->percentile lookups)
       EngineeringNotation.cs  SI-prefix format + parse (yocto..yotta, round-trip)
       ExponentialMovingAverage.cs  EMA smoothing (alpha)
@@ -800,6 +800,7 @@ tests/
       ObjectsGraphsReview2Tests.cs (second-pass regressions: shared subgraphs, FileSystemInfo leaves, struct fields, enum conversion, huge grids)
       ObjectsGraphsReview3Tests.cs (third-pass regressions: computed self-typed properties, overridden accessors, enum ranges, overflowing paths, argument validation)
       ObjectsGraphsReview59Tests.cs (fourth pass: chains of made objects, boxed cycles, member order, flatten collisions, lossy conversions, by-ref-like members)
+      ObjectsReview60Tests.cs (round 59 follow-ups: deep generic names, lazy sequences of new objects, leaf-root unflatten)
     Identifiers/
       NanoIdTests.cs
       ShortGuidTests.cs
@@ -842,7 +843,7 @@ tests/
       DifferentiationTests.cs
       DistributionsTests.cs
       DistributionsTailTests.cs      (closed forms, identities, deep-tail round trips)
-      DistributionReferenceTests.cs  (+ DistributionReferenceData.cs: 337 mpmath 40-digit reference values)
+      DistributionReferenceTests.cs  (+ DistributionReferenceData.cs: 337 mpmath reference values, 20 digits computed at 40-digit precision)
       InferenceAccuracyTests.cs      (worked examples + simulated coverage / false-positive rates)
       StatisticsReviewTests.cs       (review regressions: extreme tails, huge df, round-off variance, non-finite inputs, SPC)
       StatisticsReview2Tests.cs      (second-pass regressions: scale invariance at 1e±170, far-tail quantiles, lnΓ near 1 and 2)
@@ -1083,6 +1084,7 @@ tests/
     WinFormsReviewTests.cs  (round 17 review regressions: off-screen placement, disposed controls, view limits, cursor scopes, command leaks, shortcuts)
     WinFormsReview2Tests.cs (round 34 review regressions: CSV truncation, deep-zoom painting, handle-less marshalling, shortcuts, empty filters)
     WinFormsReview3Tests.cs (round 51 review regressions: zoom overflow, worker-raised CanExecuteChanged, atomic SaveCsv, formula escaping)
+    WinFormsReview4Tests.cs (round 60 review regressions: shortcut keys, reusable ToolStripBuilder, command leaks, image cells, deep-zoom pans, disposed posts)
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
                             fits, root-finding, statistics)
@@ -1097,9 +1099,9 @@ scripts/
   test.ps1                  build once + launch the test exe directly (-Configuration X; other args go to the runner)
   verify.sh                 full verify (Git Bash): sln build, the four suites, MathChecks; one line per suite
   checked-build.sh          core suite against an overflow-checked library build, in a scratch worktree
-  net48.sh                  chosen core test folders (or all of them) on .NET Framework 4.8 against the netstandard2.0 build
+  net48.sh                  chosen core test folders (at least one) on .NET Framework 4.8 against the netstandard2.0 build
   coverage.ps1              line/branch coverage of the core via the coverlet.console global tool (+ HTML report)
-  gen-distribution-references.py  regenerates the 40-digit distribution reference table (needs mpmath)
+  gen-distribution-references.py  regenerates the distribution reference table (20 digits, computed at 40) (needs mpmath)
   gen-png-fixtures.py     regenerates the PNG decoder fixtures (needs Pillow, used as a cross-check)
   gen-filter-references.py  regenerates the IIR/FIR filter references from SciPy (butter, cheby1/2, ellip, bessel, group delay, sosfiltfilt, firwin)
   gen-gauge-references.py   regenerates the gauge R&R references (least-squares ANOVA + scipy F tails)

@@ -342,6 +342,40 @@ namespace ToolBelt.Objects
             return list;
         }
 
+        /// <summary>
+        /// The items of a collection a walk descends into, and their <see cref="Origin"/>. A collection (anything with a
+        /// count) holds its items: they are stable. A lazy sequence is enumerated a second time, since one stored in a
+        /// property can make new objects on every pass (Kids => Select(i => new Node())), and a chain of those never
+        /// meets the same object twice: its items are fresh unless both passes gave the same ones.
+        /// </summary>
+        public static List<object?> Items(System.Collections.IEnumerable items, out Origin origin)
+        {
+            List<object?> first = ToList(items);
+            origin = Origin.Stable;
+            if (first.Count == 0 || IsCollection(items.GetType())) return first;
+            List<object?> second;
+            try { second = ToList(items); }
+            catch (InvalidOperationException) { origin = Origin.Fresh; return first; } // a sequence that runs only once
+            catch (NotSupportedException) { origin = Origin.Fresh; return first; }
+            if (second.Count != first.Count) origin = Origin.Fresh;
+            else
+                for (int i = 0; i < first.Count; i++)
+                    if (!Same(first[i], second[i], 0)) { origin = Origin.Fresh; break; }
+            return first;
+        }
+
+        private static bool IsCollection(Type type)
+        {
+            if (typeof(System.Collections.ICollection).IsAssignableFrom(type)) return true;
+            foreach (Type i in type.GetInterfaces())
+                if (i.IsGenericType)
+                {
+                    Type d = i.GetGenericTypeDefinition();
+                    if (d == typeof(ICollection<>) || d == typeof(IReadOnlyCollection<>)) return true;
+                }
+            return false;
+        }
+
         /// <summary>A set keyed by reference identity, for cycle detection over object pairs.</summary>
         public sealed class ReferencePairComparer : IEqualityComparer<(object, object)>
         {

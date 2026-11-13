@@ -53,7 +53,11 @@ namespace ToolBelt.WinForms
         }
 
         public double Zoom { get; private set; } = 1;
-        public PointF Offset { get; private set; }
+
+        /// <summary>The pan, in view pixels. Held as double inside, so small drags still move a view panned far off at deep zoom.</summary>
+        public PointF Offset => new PointF((float)_ox, (float)_oy);
+
+        private double _ox, _oy;
         /// <summary>
         /// The smallest zoom the wheel, <see cref="ZoomAt"/>, <see cref="FitToView"/> and <see cref="ResetView"/> reach;
         /// positive and finite. Above <see cref="MaxZoom"/> it wins. Changing a limit applies from the next zoom.
@@ -71,32 +75,31 @@ namespace ToolBelt.WinForms
         private static double PositiveFinite(double value)
             => value > 0 && !double.IsInfinity(value) ? value : throw new ArgumentOutOfRangeException(nameof(value), value, "Must be positive and finite.");
 
-        /// <summary>Raised whenever zoom or pan changes.</summary>
+        /// <summary>Raised whenever zoom or pan changes (not for a zoom or pan that leaves the view as it was).</summary>
         public event EventHandler? ViewChanged;
 
-        public PointF ContentToView(PointF p) => new PointF((float)(p.X * Zoom + Offset.X), (float)(p.Y * Zoom + Offset.Y));
+        public PointF ContentToView(PointF p) => new PointF((float)(p.X * Zoom + _ox), (float)(p.Y * Zoom + _oy));
 
-        public PointF ViewToContent(PointF p) => new PointF((float)((p.X - Offset.X) / Zoom), (float)((p.Y - Offset.Y) / Zoom));
+        public PointF ViewToContent(PointF p) => new PointF((float)((p.X - _ox) / Zoom), (float)((p.Y - _oy) / Zoom));
 
         /// <summary>Zooms by <paramref name="factor"/> keeping <paramref name="viewPoint"/> fixed.</summary>
         public void ZoomAt(PointF viewPoint, double factor)
         {
             if (!float.IsFinite(viewPoint.X) || !float.IsFinite(viewPoint.Y))
                 throw new ArgumentOutOfRangeException(nameof(viewPoint), viewPoint, "Must be finite.");
-            var (zoom, offset) = ZoomAbout(Zoom, Offset, viewPoint, factor, MinZoom, MaxZoom);
-            _userAdjusted = true;
-            SetView(zoom, offset);
+            if (!(factor > 0) || double.IsInfinity(factor)) throw new ArgumentOutOfRangeException(nameof(factor), factor, "Factor must be positive.");
+            var (zoom, ox, oy) = ZoomAboutCore(Zoom, _ox, _oy, viewPoint.X, viewPoint.Y, factor, MinZoom, MaxZoom);
+            if (SetView(zoom, ox, oy)) _userAdjusted = true; // a zoom clamped to no change keeps auto-fit on
         }
 
         public void PanBy(float dx, float dy)
         {
             if (!float.IsFinite(dx)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Must be finite.");
             if (!float.IsFinite(dy)) throw new ArgumentOutOfRangeException(nameof(dy), dy, "Must be finite.");
-            var offset = new PointF(Offset.X + dx, Offset.Y + dy);
-            if (!float.IsFinite(offset.X)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "The offset would overflow.");
-            if (!float.IsFinite(offset.Y)) throw new ArgumentOutOfRangeException(nameof(dy), dy, "The offset would overflow.");
-            _userAdjusted = true;
-            SetView(Zoom, offset);
+            double ox = _ox + dx, oy = _oy + dy;
+            if (!(Math.Abs(ox) <= float.MaxValue)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "The offset would overflow.");
+            if (!(Math.Abs(oy) <= float.MaxValue)) throw new ArgumentOutOfRangeException(nameof(dy), dy, "The offset would overflow.");
+            if (SetView(Zoom, ox, oy)) _userAdjusted = true;
         }
 
         /// <summary>Fits the image to the control, centred, preserving aspect ratio (and resumes auto-fit on resize).</summary>
@@ -108,7 +111,7 @@ namespace ToolBelt.WinForms
             double clamped = Math.Max(MinZoom, Math.Min(MaxZoom, zoom));
             if (clamped != zoom)
                 offset = new PointF(Centre(ClientSize.Width, _image.Width, clamped), Centre(ClientSize.Height, _image.Height, clamped));
-            SetView(clamped, offset);
+            SetView(clamped, offset.X, offset.Y);
         }
 
         // The offset that centres `content` pixels at `zoom` in `view`, held to the float range: a huge MinZoom puts the
@@ -120,7 +123,7 @@ namespace ToolBelt.WinForms
         public void ResetView()
         {
             _userAdjusted = true;
-            SetView(Math.Max(MinZoom, Math.Min(MaxZoom, 1)), PointF.Empty);
+            SetView(Math.Max(MinZoom, Math.Min(MaxZoom, 1)), 0, 0);
         }
 
         // ---------- pure view math ----------
@@ -137,14 +140,20 @@ namespace ToolBelt.WinForms
             if (!float.IsFinite(offset.X) || !float.IsFinite(offset.Y)) throw new ArgumentOutOfRangeException(nameof(offset), offset, "Must be finite.");
             if (!float.IsFinite(at.X) || !float.IsFinite(at.Y)) throw new ArgumentOutOfRangeException(nameof(at), at, "Must be finite.");
             if (!(factor > 0) || double.IsInfinity(factor)) throw new ArgumentOutOfRangeException(nameof(factor), factor, "Factor must be positive.");
+            var (z, ox, oy) = ZoomAboutCore(zoom, offset.X, offset.Y, at.X, at.Y, factor, minZoom, maxZoom);
+            return z == zoom && ox == offset.X && oy == offset.Y ? (zoom, offset) : (z, new PointF((float)ox, (float)oy));
+        }
+
+        private static (double Zoom, double X, double Y) ZoomAboutCore(double zoom, double ox, double oy, double atX, double atY, double factor, double minZoom, double maxZoom)
+        {
             double target = Math.Max(minZoom, Math.Min(maxZoom, zoom * factor));
-            if (!(target > 0) || double.IsInfinity(target)) return (zoom, offset);
-            if (factor > 1 ? target < zoom : target > zoom) return (zoom, offset);
+            if (!(target > 0) || double.IsInfinity(target)) return (zoom, ox, oy);
+            if (factor > 1 ? target < zoom : target > zoom) return (zoom, ox, oy);
             double f = target / zoom;
             // The content point under `at` must stay under it: at = c·z + o = c·z' + o'.
-            var o = new PointF((float)(at.X - (at.X - offset.X) * f), (float)(at.Y - (at.Y - offset.Y) * f));
-            if (!float.IsFinite(o.X) || !float.IsFinite(o.Y)) return (zoom, offset);
-            return (target, o);
+            double nx = atX - (atX - ox) * f, ny = atY - (atY - oy) * f;
+            if (!(Math.Abs(nx) <= float.MaxValue) || !(Math.Abs(ny) <= float.MaxValue)) return (zoom, ox, oy);
+            return (target, nx, ny);
         }
 
         /// <summary>The (zoom, offset) that fits <paramref name="content"/> inside <paramref name="viewport"/>, centred.</summary>
@@ -212,10 +221,11 @@ namespace ToolBelt.WinForms
             Graphics g = e.Graphics;
             g.InterpolationMode = _smooth ? InterpolationMode.HighQualityBicubic : InterpolationMode.NearestNeighbor;
             g.PixelOffsetMode = _smooth ? PixelOffsetMode.HighQuality : PixelOffsetMode.Half; // Half: no half-pixel shift
-            double x = Offset.X, y = Offset.Y, w = image.Width * Zoom, h = image.Height * Zoom;
+            double x = _ox, y = _oy, w = image.Width * Zoom, h = image.Height * Zoom;
             if (Math.Max(Math.Max(Math.Abs(x), Math.Abs(y)), Math.Max(Math.Abs(x + w), Math.Abs(y + h))) <= SafeCoordinate)
             {
-                g.DrawImage(image, new RectangleF((float)x, (float)y, (float)w, (float)h));
+                if (_smooth) DrawSmooth(g, image, new RectangleF((float)x, (float)y, (float)w, (float)h), new RectangleF(0, 0, image.Width, image.Height));
+                else g.DrawImage(image, new RectangleF((float)x, (float)y, (float)w, (float)h));
                 return;
             }
             // Far off the origin (deep zoom, long pan) GDI+ overflows on the full destination rectangle: draw only the
@@ -228,8 +238,10 @@ namespace ToolBelt.WinForms
             double dx = x + c0 * z, dy = y + r0 * z, dr = x + c1 * z, db = y + r1 * z;
             if (Math.Max(Math.Max(Math.Abs(dx), Math.Abs(dy)), Math.Max(Math.Abs(dr), Math.Abs(db))) <= SafeCoordinate)
             {
-                g.DrawImage(image, new RectangleF((float)dx, (float)dy, (float)(dr - dx), (float)(db - dy)),
-                    new RectangleF(c0, r0, c1 - c0, r1 - r0), GraphicsUnit.Pixel);
+                var dest = new RectangleF((float)dx, (float)dy, (float)(dr - dx), (float)(db - dy));
+                var src = new RectangleF(c0, r0, c1 - c0, r1 - r0);
+                if (_smooth) DrawSmooth(g, image, dest, src);
+                else g.DrawImage(image, dest, src, GraphicsUnit.Pixel);
                 return;
             }
             // Each source pixel spans millions of view pixels, so only a few are in view: fill their blocks.
@@ -248,6 +260,16 @@ namespace ToolBelt.WinForms
                     using var brush = new SolidBrush(pixels.GetPixel(i, j));
                     g.FillRectangle(brush, (float)l, (float)t, (float)(r - l), (float)(b - t));
                 }
+        }
+
+        // Bicubic sampling reaches past the image's edge; the default wrap mode reads transparent black there, which faded
+        // a magnified image's border. Mirroring the edge pixels keeps it solid.
+        private static void DrawSmooth(Graphics g, Image image, RectangleF dest, RectangleF src)
+        {
+            using var attributes = new ImageAttributes();
+            attributes.SetWrapMode(WrapMode.TileFlipXY);
+            var corners = new[] { dest.Location, new PointF(dest.Right, dest.Top), new PointF(dest.Left, dest.Bottom) };
+            g.DrawImage(image, corners, src, GraphicsUnit.Pixel, attributes);
         }
 
         private static int SourceIndex(double index, int size) => (int)Math.Max(0, Math.Min(size, index));
@@ -301,12 +323,16 @@ namespace ToolBelt.WinForms
             if (e.Button == MouseButtons.Left) FitToView();
         }
 
-        private void SetView(double zoom, PointF offset)
+        // True if the view changed; ViewChanged is raised only then.
+        private bool SetView(double zoom, double ox, double oy)
         {
+            bool changed = zoom != Zoom || ox != _ox || oy != _oy;
             Zoom = zoom;
-            Offset = offset;
+            _ox = ox;
+            _oy = oy;
             Invalidate();
-            ViewChanged?.Invoke(this, EventArgs.Empty);
+            if (changed) ViewChanged?.Invoke(this, EventArgs.Empty);
+            return changed;
         }
     }
 }
