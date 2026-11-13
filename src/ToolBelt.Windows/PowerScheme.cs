@@ -105,8 +105,8 @@ namespace ToolBelt.Windows
             public void Dispose()
             {
                 if (!_pending) return;
-                _pending = false;
                 SetActive(_previous);
+                _pending = false;   // only once restored: a restore that threw can be retried
             }
         }
 

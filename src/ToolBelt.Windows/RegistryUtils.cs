@@ -10,7 +10,8 @@ namespace ToolBelt.Windows
     /// Convenience read/write/delete helpers over the Windows registry, taking a <see cref="RegistryHive"/>
     /// plus a subkey path so callers don't juggle base keys and <c>IDisposable</c> handles. Reads return a
     /// default when the key or value is missing; writes create the subkey as needed. Uses the default
-    /// registry view (the process's native 32/64-bit view).
+    /// registry view (the process's native 32/64-bit view). A subkey path may start with a backslash (it is ignored).
+    /// Reads return a REG_EXPAND_SZ value with its environment variables expanded, as <c>RegistryKey</c> does.
     /// </summary>
     public static class RegistryUtils
     {
@@ -18,7 +19,8 @@ namespace ToolBelt.Windows
         /// Reads a value, converting it to <typeparamref name="T"/> (strings parse culture-invariantly; a DWORD or QWORD
         /// converts as the unsigned number it is, so DWORD 0x80000000 reads as 2147483648 into <c>uint</c>, <c>long</c> or
         /// <c>double</c>; <c>int</c> for a DWORD and <c>long</c> for a QWORD still read the stored bits as they are).
-        /// Nullable and enum targets work (an enum from its name or number). Returns
+        /// Nullable and enum targets work (an enum from its name or number); a <c>bool</c> reads a string "1" or "0" as well
+        /// as "True" or "False", and a number as nonzero or zero. Returns
         /// <paramref name="defaultValue"/> if absent, not convertible, or the key cannot be read.
         /// </summary>
         public static T? GetValue<T>(RegistryHive hive, string subKey, string name, T? defaultValue = default)
@@ -49,6 +51,13 @@ namespace ToolBelt.Windows
                         : Enum.ToObject(target, Convert.ChangeType(raw, Enum.GetUnderlyingType(target), CultureInfo.InvariantCulture)!);
                     return (T)value;
                 }
+                // ChangeType only parses "True"/"False", but flags stored as text are mostly "1"/"0".
+                if (target == typeof(bool) && raw is string flag)
+                {
+                    string t = flag.Trim();
+                    if (t == "1") return (T)(object)true;
+                    if (t == "0") return (T)(object)false;
+                }
                 // ChangeType rejects Nullable<T> targets, so convert to the underlying type (boxing it is a boxed T?).
                 return (T)Convert.ChangeType(raw, target, CultureInfo.InvariantCulture);
             }
@@ -62,6 +71,7 @@ namespace ToolBelt.Windows
         public static object? GetValue(RegistryHive hive, string subKey, string name, object? defaultValue = null)
         {
             if (subKey is null) throw new ArgumentNullException(nameof(subKey));
+            subKey = subKey.TrimStart('\\');   // a leading backslash read as absent but failed to write
             if (name is null) throw new ArgumentNullException(nameof(name));
             using RegistryKey baseKey = OpenBase(hive);
             using RegistryKey? key = OpenForRead(baseKey, subKey, out _);
@@ -109,6 +119,7 @@ namespace ToolBelt.Windows
             RegistryValueKind kind = RegistryValueKind.Unknown)
         {
             if (subKey is null) throw new ArgumentNullException(nameof(subKey));
+            subKey = subKey.TrimStart('\\');   // a leading backslash read as absent but failed to write
             if (name is null) throw new ArgumentNullException(nameof(name));
             if (value is null) throw new ArgumentNullException(nameof(value));
             // RegistryKey range-checks a DWORD against int and a QWORD against long, and stored an unknown-kind uint as text:
@@ -130,6 +141,7 @@ namespace ToolBelt.Windows
         public static bool DeleteValue(RegistryHive hive, string subKey, string name)
         {
             if (subKey is null) throw new ArgumentNullException(nameof(subKey));
+            subKey = subKey.TrimStart('\\');   // a leading backslash read as absent but failed to write
             if (name is null) throw new ArgumentNullException(nameof(name));
             using RegistryKey baseKey = OpenBase(hive);
             using RegistryKey? key = ForSubKey(subKey, () => baseKey.OpenSubKey(subKey, writable: true));
@@ -148,6 +160,7 @@ namespace ToolBelt.Windows
         public static bool DeleteKey(RegistryHive hive, string subKey)
         {
             if (subKey is null) throw new ArgumentNullException(nameof(subKey));
+            subKey = subKey.TrimStart('\\');   // a leading backslash read as absent but failed to write
             // RegistryKey refuses "" but not "\": its hive guard runs before it trims the backslashes, so DeleteKey(hive, @"\")
             // deleted everything in the hive.
             if (subKey.Trim('\\').Length == 0) throw new ArgumentException("The subkey must name a key below the hive.", nameof(subKey));
@@ -162,6 +175,7 @@ namespace ToolBelt.Windows
         public static bool KeyExists(RegistryHive hive, string subKey)
         {
             if (subKey is null) throw new ArgumentNullException(nameof(subKey));
+            subKey = subKey.TrimStart('\\');   // a leading backslash read as absent but failed to write
             using RegistryKey baseKey = OpenBase(hive);
             using RegistryKey? key = OpenForRead(baseKey, subKey, out bool denied);
             return key is not null || denied;
@@ -171,6 +185,7 @@ namespace ToolBelt.Windows
         public static IReadOnlyList<string> GetValueNames(RegistryHive hive, string subKey)
         {
             if (subKey is null) throw new ArgumentNullException(nameof(subKey));
+            subKey = subKey.TrimStart('\\');   // a leading backslash read as absent but failed to write
             using RegistryKey baseKey = OpenBase(hive);
             using RegistryKey? key = OpenForRead(baseKey, subKey, out _);
             return key is null ? Array.Empty<string>() : key.GetValueNames();
@@ -180,6 +195,7 @@ namespace ToolBelt.Windows
         public static IReadOnlyList<string> GetSubKeyNames(RegistryHive hive, string subKey)
         {
             if (subKey is null) throw new ArgumentNullException(nameof(subKey));
+            subKey = subKey.TrimStart('\\');   // a leading backslash read as absent but failed to write
             using RegistryKey baseKey = OpenBase(hive);
             using RegistryKey? key = OpenForRead(baseKey, subKey, out _);
             return key is null ? Array.Empty<string>() : key.GetSubKeyNames();

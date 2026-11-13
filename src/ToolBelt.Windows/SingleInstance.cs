@@ -33,17 +33,38 @@ namespace ToolBelt.Windows
             IsOwned = holder != null;
         }
 
+        private static string StripNamespace(string name)
+        {
+            foreach (string prefix in new[] { @"Local\", @"Global\" })
+                if (name.StartsWith(prefix, StringComparison.Ordinal)) return name.Substring(prefix.Length);
+            const string session = @"Session\";
+            if (name.StartsWith(session, StringComparison.Ordinal))
+            {
+                int i = session.Length;
+                while (i < name.Length && name[i] >= '0' && name[i] <= '9') i++;
+                if (i > session.Length && i < name.Length && name[i] == '\\') return name.Substring(i + 1);
+            }
+            return name;
+        }
+
         /// <summary>True if this instance currently owns the gate.</summary>
         public bool IsOwned { get; private set; }
 
         /// <summary>
         /// Attempts to acquire the gate named <paramref name="name"/> without blocking. Always returns an
-        /// instance; check <see cref="IsOwned"/> to see whether this caller won the gate.
+        /// instance; check <see cref="IsOwned"/> to see whether this caller won the gate. A backslash may appear only after a
+        /// namespace prefix (<c>Local\</c>, <c>Global\</c> or <c>Session\&lt;n&gt;\</c>); spelt exactly so (the kernel matches them case-sensitively); any other throws
+        /// <see cref="ArgumentException"/>.
         /// </summary>
         public static SingleInstance TryAcquire(string name)
         {
             if (name is null) throw new ArgumentNullException(nameof(name));
             if (name.Length == 0) throw new ArgumentException("Name must not be empty.", nameof(name));
+            // The kernel ends the name at a NUL, so names that differ only after one would share a gate.
+            if (name.IndexOf('\0') >= 0) throw new ArgumentException("Name must not contain a NUL character.", nameof(name));
+            // Any other backslash names a kernel directory that doesn't exist (DirectoryNotFoundException from the mutex).
+            if (StripNamespace(name).IndexOf('\\') >= 0)
+                throw new ArgumentException(@"A backslash may only follow a Local\, Global\ or Session\<n>\ prefix.", nameof(name));
 
             var release = new ManualResetEventSlim();
             using var ready = new ManualResetEventSlim();

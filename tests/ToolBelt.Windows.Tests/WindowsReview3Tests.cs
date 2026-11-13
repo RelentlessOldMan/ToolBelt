@@ -160,7 +160,7 @@ namespace ToolBelt.Windows.Tests
         {
             using var identity = WindowsIdentity.GetCurrent();
             using var self = Process.GetCurrentProcess();
-            return "ToolBelt.SingleInstance." + appId + "." + self.SessionId + "." + identity.User!.Value;
+            return "ToolBelt.SingleInstance.2." + appId + "." + self.SessionId + "." + identity.User!.Value;
         }
 
         private static string GateName(string appId)

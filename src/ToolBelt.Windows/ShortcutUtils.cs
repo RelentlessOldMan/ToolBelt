@@ -26,7 +26,7 @@ namespace ToolBelt.Windows
         public int IconIndex { get; }
 
         public override string ToString() =>
-            Arguments.Length == 0 ? TargetPath : $"{TargetPath} {Arguments}";
+            string.IsNullOrEmpty(Arguments) ? TargetPath ?? "" : $"{TargetPath} {Arguments}";
     }
 
     /// <summary>

@@ -12,7 +12,11 @@ namespace ToolBelt.Windows
     /// </summary>
     public static class IdleTime
     {
-        /// <summary>The time since the last user input across the session.</summary>
+        /// <summary>
+        /// The time since the last user input across the session. Windows records that input as a 32-bit millisecond tick,
+        /// so the result is only defined up to about 49.7 days: a longer idle time wraps to a small one, and one within a
+        /// minute of the wrap reads as zero (the same as an input tick a moment ahead of the clock).
+        /// </summary>
         public static TimeSpan Get()
         {
             var info = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };

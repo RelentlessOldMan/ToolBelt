@@ -9,4 +9,3 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 
 | ID | Pri | Section | Status | Summary | Found by |
 |----|-----|---------|--------|---------|----------|
-| 56-1 | P3 | 15 | confirmed | `Thread.Sleep` in library code, against the house rules: Windows `ResourceSampler.Measure`, `ClipboardUtils`' open retry and `SingleInstanceApp`'s wait for a starting primary (the last two found in round 57). DirectoryUtils' part was fixed in round 58 (a cancellable wait). All are synchronous APIs; decide between an injectable delay and documenting the exception. | round 56 review |

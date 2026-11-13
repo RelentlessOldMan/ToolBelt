@@ -59,7 +59,9 @@ table, round log). Unreleased bugs are tracked in [BUGLIST.md](BUGLIST.md).
 - Some files keep private copies of shared math (Statistics: Anova, GaugeRR and SpecialFunctions copy the
   Distributions special-function block). Change one, change all four; a test checks they agree.
 - No culture-sensitive parsing or casing (use invariant), no `new Random()` (seed or inject), no `DateTime.Now` or
-  `Thread.Sleep` in library code, no sync-over-async.
+  `Thread.Sleep` in library code, no sync-over-async. A wait the caller asked for waits on a cancellation token's
+  handle. The one allowed `Thread.Sleep` is a short bounded retry inside a synchronous Win32 wrapper that takes no
+  token (ClipboardUtils' open retry, SingleInstanceApp's connect retry), with a comment saying so.
 - Differential tests are house style: grade against a naive or independent reference over randomized trials, not
   hand-computed literals. Edge cases go in a `*HardeningTests` or `*Review<N>Tests` file next to the type's tests.
 - Update the README (Layout, and the discovery tables when a capability is new) whenever the public API changes.

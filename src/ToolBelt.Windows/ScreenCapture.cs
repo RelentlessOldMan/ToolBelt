@@ -32,7 +32,7 @@ namespace ToolBelt.Windows
         /// <summary>Bytes per row (<c>Width * 4</c>).</summary>
         public int Stride => Width * 4;
 
-        public override string ToString() => $"{Width}x{Height} ({Pixels.Length} bytes BGRA)";
+        public override string ToString() => $"{Width}x{Height} ({Pixels?.Length ?? 0} bytes BGRA)";
     }
 
     /// <summary>
@@ -89,7 +89,7 @@ namespace ToolBelt.Windows
         {
             if (width <= 0) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
             if (height <= 0) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
-            if ((long)width * height > int.MaxValue / 4) throw new ArgumentOutOfRangeException(nameof(width), width, "The region is too large for one image.");
+            if ((long)width * height > Array.MaxLength / 4) throw new ArgumentOutOfRangeException(nameof(width), width, "The region is too large for one image.");
             IntPtr previous = EnterPhysicalPixels();
             try { return Capture(x, y, width, height); }
             finally { LeavePhysicalPixels(previous); }
@@ -113,7 +113,7 @@ namespace ToolBelt.Windows
         {
             if (width <= 0 || height <= 0)
                 throw new InvalidOperationException("The screen reported a non-positive size (no usable desktop).");
-            if ((long)width * height > int.MaxValue / 4)
+            if ((long)width * height > Array.MaxLength / 4)
                 throw new InvalidOperationException("The screen is too large for one image.");
 
             IntPtr screenDc = GetDC(IntPtr.Zero);

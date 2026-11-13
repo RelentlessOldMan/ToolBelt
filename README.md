@@ -593,9 +593,9 @@ src/
     WindowUtils.cs          enumerate top-level windows / foreground / find by title
     FileAssociation.cs      per-extension opener / friendly name / command / ProgID
     ShortcutUtils.cs        create & read .lnk shortcuts via COM IShellLink (fields up to the shell's 260-char limit)
-    ClipboardUtils.cs       clipboard text, Explorer file lists (CF_HDROP) and images (CF_DIB) via raw Win32 on an STA thread
+    ClipboardUtils.cs       clipboard text, Explorer file lists (CF_HDROP) and images (CF_DIB) via raw Win32 on an STA thread; DecodeDropFiles/DecodeDib parse untrusted blocks within bounds
     ScreenCapture.cs        capture screen/region to a raw BGRA buffer via GDI BitBlt, physical pixels (no System.Drawing)
-    ResourceSampler.cs      per-process CPU% (core-normalised) + working-set / private memory
+    ResourceSampler.cs      per-process CPU% (core-normalised, at most 100) + working-set / private memory; IDisposable; Measure takes a CancellationToken
     RunElevated.cs          launch/relaunch a process elevated via ShellExecute "runas" (UAC); JoinArguments quotes args
     OsVersionInfo.cs        true OS version via RtlGetVersion (Win10/Win11 detection)
     MemoryStatus.cs         system physical / page-file memory + load % (GlobalMemoryStatusEx)
@@ -1035,6 +1035,7 @@ tests/
     WindowsReviewTests.cs   (round 15 review regressions: DPI, ProgID, registry, job lifetime, single instance, shortcuts, event log)
     WindowsReview2Tests.cs  (second-pass regressions: gate thread affinity, forward timeouts and takeover, registry conversion, impersonation)
     WindowsReview3Tests.cs  (third-pass regressions: hive-root delete guard, stalled-primary forward, real DPI for unaware callers, unsigned registry writes)
+    WindowsReview4Tests.cs  (fourth-pass regressions: bounded CF_HDROP parsing, lone surrogates forwarded, namespace prefixes, long and file paths for GetSpace, registry flags and leading backslashes, cancellable Measure)
     FlakeRootCauseTests.cs  (round 46: JobObject.Start keeps grandchildren in the job, refuses over the limit before running)
     DriveAndVolumeInfoTests.cs
     MonitorInfoTests.cs

@@ -42,8 +42,8 @@ namespace ToolBelt.Windows
         {
             var info = new RTL_OSVERSIONINFOW { dwOSVersionInfoSize = (uint)Marshal.SizeOf<RTL_OSVERSIONINFOW>() };
             int status = RtlGetVersion(ref info);
-            if (status != 0) // STATUS_SUCCESS == 0
-                throw new Win32Exception(status, "RtlGetVersion failed.");
+            if (status != 0) // STATUS_SUCCESS == 0; an NTSTATUS is not a Win32 error code, so translate it
+                throw new Win32Exception(unchecked((int)RtlNtStatusToDosError(status)), $"RtlGetVersion failed (NTSTATUS 0x{status:X8}).");
             return new OsVersion((int)info.dwMajorVersion, (int)info.dwMinorVersion, (int)info.dwBuildNumber);
         }
 
@@ -61,5 +61,8 @@ namespace ToolBelt.Windows
 
         [DllImport("ntdll.dll")]
         private static extern int RtlGetVersion(ref RTL_OSVERSIONINFOW lpVersionInformation);
+
+        [DllImport("ntdll.dll")]
+        private static extern uint RtlNtStatusToDosError(int status);
     }
 }

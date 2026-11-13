@@ -40,7 +40,7 @@ namespace ToolBelt.Windows.Tests
         private static string PipeName(string appId)
         {
             using var self = Process.GetCurrentProcess();
-            return "ToolBelt.SingleInstance." + appId + "." + self.SessionId + "." + Sid();
+            return "ToolBelt.SingleInstance.2." + appId + "." + self.SessionId + "." + Sid();
         }
 
         // ---------- SingleInstance: the gate is not tied to the acquiring thread ----------
@@ -135,7 +135,7 @@ namespace ToolBelt.Windows.Tests
             server.Write(BitConverter.GetBytes(Environment.ProcessId));
             server.Flush();
             int Int() { var b = new byte[4]; server.ReadExactly(b); return BitConverter.ToInt32(b, 0); }
-            string Str() { var b = new byte[Int()]; server.ReadExactly(b); return Encoding.UTF8.GetString(b); }
+            string Str() { var b = new byte[Int()]; server.ReadExactly(b); return Encoding.Unicode.GetString(b); }
             Int(); Str();
             int count = Int();
             for (int i = 0; i < count; i++) received.Add(Str());

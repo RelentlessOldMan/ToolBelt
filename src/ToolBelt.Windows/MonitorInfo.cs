@@ -48,8 +48,9 @@ namespace ToolBelt.Windows
 
     /// <summary>
     /// Enumerates attached display monitors via the Win32 <c>EnumDisplayMonitors</c> API. Bounds are physical pixels
-    /// (enumeration runs per-monitor-v2 aware), matching <see cref="DpiInfo"/> and <see cref="ScreenCapture"/> whatever
-    /// the calling process's DPI awareness.
+    /// (enumeration runs per-monitor-v2 aware, or per-monitor v1 where v2 is refused), matching <see cref="DpiInfo"/> and
+    /// <see cref="ScreenCapture"/> whatever the calling process's DPI awareness. Before Windows 10 1607, which cannot
+    /// change a thread's awareness, the bounds are in the process's own awareness.
     /// </summary>
     public static class MonitorInfo
     {
@@ -72,6 +73,9 @@ namespace ToolBelt.Windows
             };
 
             IntPtr previous = TrySetThreadDpiAwarenessContext(new IntPtr(-4));  // per-monitor v2: physical pixels
+            // Refused (a context v2 is unknown in): per-monitor v1 reports physical pixels too, where carrying on in the
+            // thread's own awareness returned scaled bounds without a word.
+            if (previous == IntPtr.Zero) previous = TrySetThreadDpiAwarenessContext(new IntPtr(-3));
             try
             {
                 if (!EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, callback, IntPtr.Zero))

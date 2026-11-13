@@ -105,6 +105,9 @@ namespace ToolBelt.Windows
         {
             if (string.IsNullOrWhiteSpace(appId) || appId.IndexOfAny(new[] { '\\', '/' }) >= 0)
                 throw new ArgumentException("App id is required and may not contain slashes.", nameof(appId));
+            // A NUL ends the kernel object names early (dropping the per-user part) and breaks the pipe name.
+            foreach (char c in appId)
+                if (char.IsControl(c)) throw new ArgumentException("App id may not contain control characters.", nameof(appId));
             // The pipe name (id + session + SID) must stay under Windows' 256-character limit.
             if (appId.Length > MaxAppIdLength)
                 throw new ArgumentException($"App id may be at most {MaxAppIdLength} characters.", nameof(appId));
@@ -119,7 +122,8 @@ namespace ToolBelt.Windows
             int session;
             using (var self = System.Diagnostics.Process.GetCurrentProcess())
                 session = self.SessionId;
-            string pipe = "ToolBelt.SingleInstance." + appId + "." + session + "." + user;
+            // ".2": the wire format (UTF-16 strings) changed, so a launch never talks to an older primary's listener.
+            string pipe = "ToolBelt.SingleInstance.2." + appId + "." + session + "." + user;
             string gateName = @"Local\ToolBelt.SingleInstance." + appId + "." + user;
             var gate = SingleInstance.TryAcquire(gateName);
             if (gate.IsOwned) return new SingleInstanceApp(gate, pipe, primary: true, forwarded: false);
@@ -131,6 +135,8 @@ namespace ToolBelt.Windows
                 gate.Dispose();
                 gate = SingleInstance.TryAcquire(gateName);
                 if (gate.IsOwned) return new SingleInstanceApp(gate, pipe, primary: true, forwarded: false);
+                // Another launch took over first: it is the primary now, so forward to it rather than lose this launch.
+                forwarded = Forward(pipe, args, timeout);
             }
             return new SingleInstanceApp(gate, pipe, primary: false, forwarded);
         }
@@ -188,12 +194,15 @@ namespace ToolBelt.Windows
                 {
                     // Once the message is out, the primary may have delivered it: resending could open the file twice.
                     if (sent || RemainingMs() == 0) return false;
-                    Thread.Sleep(50);                                                 // primary still starting its listener
+                    // The primary is still starting its listener. A bounded retry inside a synchronous call that takes no
+                    // token, the one kind of Thread.Sleep the house rules allow; never past the forward timeout.
+                    Thread.Sleep((int)Math.Min(50, RemainingMs()));
                 }
             }
         }
 
-        private const int MaxArgs = 1000, MaxStringBytes = 32 * 1024, MaxMessageBytes = 1024 * 1024, MaxAppIdLength = 100;
+        // UTF-16 on the wire: the byte limits are twice the UTF-8 ones, so the same text fits as before.
+        private const int MaxArgs = 1000, MaxStringBytes = 64 * 1024, MaxMessageBytes = 2 * 1024 * 1024, MaxAppIdLength = 100;
 
         private async Task ListenAsync(CancellationToken ct)
         {
@@ -206,10 +215,12 @@ namespace ToolBelt.Windows
                     server = new NamedPipeServerStream(_pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
                         PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly | PipeOptions.FirstPipeInstance);
                 }
-                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                catch (Exception) when (!ct.IsCancellationRequested)
                 {
+                    // Name busy or squatted, or any other failure: back off and retry rather than stop listening for good,
+                    // which lost every later launch without a trace.
                     try { await Task.Delay(500, ct).ConfigureAwait(false); } catch (OperationCanceledException) { return; }
-                    continue;                                                          // name busy or squatted: back off, don't spin
+                    continue;
                 }
 
                 using (server)
@@ -291,8 +302,8 @@ namespace ToolBelt.Windows
             }
         }
 
-        // Wire format: little-endian int32; strings as an int32 byte count + UTF-8, bounded per string and per message so a
-        // client can't make the primary allocate gigabytes.
+        // Wire format: little-endian int32; strings as an int32 byte count + raw UTF-16 code units, bounded per string
+        // and per message so a client can't make the primary allocate gigabytes.
         private sealed class Budget
         {
             public Budget(int bytes) => Remaining = bytes;
@@ -303,7 +314,8 @@ namespace ToolBelt.Windows
 
         private static bool TryWriteString(Stream s, string value, Budget budget)
         {
-            byte[] bytes = Encoding.UTF8.GetBytes(value);
+            // The raw UTF-16 code units: a file name may hold an unpaired surrogate, which any encoder turns into U+FFFD.
+            byte[] bytes = System.Runtime.InteropServices.MemoryMarshal.AsBytes(value.AsSpan()).ToArray();
             if (bytes.Length > MaxStringBytes || bytes.Length > budget.Remaining) return false;
             budget.Remaining -= bytes.Length;
             WriteInt32(s, bytes.Length);
@@ -322,10 +334,11 @@ namespace ToolBelt.Windows
         {
             int length = await ReadInt32Async(s, ct).ConfigureAwait(false);
             if (length < 0 || length > MaxStringBytes || length > budget.Remaining) throw new InvalidDataException("String too long.");
+            if (length % 2 != 0) throw new InvalidDataException("String is not UTF-16.");
             budget.Remaining -= length;
             var bytes = new byte[length];
             await s.ReadExactlyAsync(bytes, ct).ConfigureAwait(false);
-            return new UTF8Encoding(false, throwOnInvalidBytes: true).GetString(bytes);
+            return new string(System.Runtime.InteropServices.MemoryMarshal.Cast<byte, char>(bytes));
         }
 
         /// <summary>

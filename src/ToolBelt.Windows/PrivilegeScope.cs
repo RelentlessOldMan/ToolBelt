@@ -70,10 +70,12 @@ namespace ToolBelt.Windows
         public void Dispose()
         {
             if (_disposed) return;
-            _disposed = true;
-            if (_wasEnabled) return;
-            using var token = OpenToken(TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY);
-            Adjust(token.Handle, _luid, enable: false, Name);
+            if (!_wasEnabled)
+            {
+                using var token = OpenToken(TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY);
+                Adjust(token.Handle, _luid, enable: false, Name);
+            }
+            _disposed = true;   // only once restored: a restore that threw can be retried
         }
 
         private static bool? Query(string privilegeName)
@@ -125,10 +127,10 @@ namespace ToolBelt.Windows
             if (err == ERROR_NOT_ALL_ASSIGNED) throw new UnauthorizedAccessException($"The account does not hold {name}.");
         }
 
-        private static LUID Lookup(string name)
+        private static LUID Lookup(string privilegeName)
         {
-            if (!LookupPrivilegeValue(null, name, out LUID luid))
-                throw new ArgumentException($"Unknown privilege '{name}'.", nameof(name), new Win32Exception(Marshal.GetLastWin32Error()));
+            if (!LookupPrivilegeValue(null, privilegeName, out LUID luid))
+                throw new ArgumentException($"Unknown privilege '{privilegeName}'.", nameof(privilegeName), new Win32Exception(Marshal.GetLastWin32Error()));
             return luid;
         }
 

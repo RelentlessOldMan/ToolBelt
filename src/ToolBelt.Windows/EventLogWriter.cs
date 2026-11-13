@@ -49,6 +49,10 @@ namespace ToolBelt.Windows
         {
             if (message is null) throw new ArgumentNullException(nameof(message));
             if (eventId < 0 || eventId > 0xFFFF) throw new ArgumentOutOfRangeException(nameof(eventId), eventId, "Event ID must be 0–65535.");
+            if (kind != EventLogEntryKind.Error && kind != EventLogEntryKind.Warning && kind != EventLogEntryKind.Information)
+                throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown entry kind.");
+            // A negative category became 65535 and up (and overflowed in a checked build).
+            if (category < 0) throw new ArgumentOutOfRangeException(nameof(category), category, "Category must not be negative.");
             string text = message;
             if (message.Length > MaxMessageLength)
             {
@@ -74,7 +78,9 @@ namespace ToolBelt.Windows
         /// <summary>Whether <paramref name="source"/> is registered under <paramref name="log"/> (readable without admin rights).</summary>
         public static bool IsSourceRegistered(string source, string log = "Application")
         {
-            using RegistryKey? key = Registry.LocalMachine.OpenSubKey(SourceKey(source, log));
+            string path = SourceKey(source, log);
+            if (source.Length > MaxKeyNameLength || log.Length > MaxKeyNameLength) return false;   // no such key can exist
+            using RegistryKey? key = Registry.LocalMachine.OpenSubKey(path);
             return key != null;
         }
 
@@ -106,6 +112,8 @@ namespace ToolBelt.Windows
                 throw new ArgumentException("Log is required and may not contain a backslash.", nameof(log));
             return $@"SYSTEM\CurrentControlSet\Services\EventLog\{log}\{source}";
         }
+
+        private const int MaxKeyNameLength = 255;   // a registry key name's limit
 
         public void Dispose()
         {

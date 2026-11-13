@@ -124,25 +124,68 @@ namespace ToolBelt.Windows
         /// <summary>The copied file and folder paths, or null if the clipboard holds no file list.</summary>
         public static string[]? GetFileDropList() => RunSta(() =>
         {
-            if (!IsClipboardFormatAvailable(CF_HDROP)) return null;
+            byte[]? block = CopyBlock(CF_HDROP, "file list");
+            return block is null ? null : DecodeDropFiles(block);
+        });
+
+        /// <summary>
+        /// Decodes a CF_HDROP payload (a DROPFILES header, then NUL-separated paths ending in an empty one) to its paths.
+        /// Throws <see cref="InvalidOperationException"/> when the header points outside the block.
+        /// </summary>
+        public static string[] DecodeDropFiles(byte[] block)
+        {
+            // Untrusted data (any process can put a file list on the clipboard), so it is parsed here, within the block,
+            // instead of by DragQueryFile, which follows the header's offset wherever it points.
+            if (block is null) throw new ArgumentNullException(nameof(block));
+            if (block.Length < 20) throw new InvalidOperationException("Clipboard file list is truncated.");
+            uint start = BitConverter.ToUInt32(block, 0);
+            bool wide = BitConverter.ToInt32(block, 16) != 0;
+            if (start < 20 || start > block.Length) throw new InvalidOperationException("Clipboard file list has an invalid offset.");
+            var files = new System.Collections.Generic.List<string>();
+            int unit = wide ? 2 : 1, pos = (int)start;
+            while (pos + unit <= block.Length)
+            {
+                int end = pos;
+                while (end + unit <= block.Length && (wide ? block[end] | block[end + 1] : block[end]) != 0) end += unit;
+                if (end == pos) break;   // the empty name that ends the list
+                files.Add(wide ? Encoding.Unicode.GetString(block, pos, end - pos) : AnsiString(block, pos, end - pos));
+                pos = end + unit;
+            }
+            return files.ToArray();
+        }
+
+        // The system ANSI code page, as DragQueryFileA would read it.
+        private static string AnsiString(byte[] bytes, int index, int count)
+        {
+            var handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+            try { return Marshal.PtrToStringAnsi(handle.AddrOfPinnedObject() + index, count); }
+            finally { handle.Free(); }
+        }
+
+        // Copies a clipboard format's whole block (bounded by its size) and closes the clipboard before the caller parses
+        // it, so decoding a large or hostile block never keeps every other program from copying and pasting.
+        private static byte[]? CopyBlock(uint format, string what)
+        {
+            if (!IsClipboardFormatAvailable(format)) return null;
             OpenOrThrow();
             try
             {
-                IntPtr hDrop = GetClipboardData(CF_HDROP);
-                if (hDrop == IntPtr.Zero) return null;
-                uint count = DragQueryFile(hDrop, 0xFFFFFFFF, null, 0);
-                var files = new string[count];
-                for (uint i = 0; i < count; i++)
+                IntPtr h = GetClipboardData(format);
+                if (h == IntPtr.Zero) return null;
+                IntPtr p = GlobalLock(h);
+                if (p == IntPtr.Zero) return null;
+                try
                 {
-                    uint len = DragQueryFile(hDrop, i, null, 0);
-                    var sb = new StringBuilder((int)len + 1);
-                    DragQueryFile(hDrop, i, sb, len + 1);
-                    files[i] = sb.ToString();
+                    ulong blockSize = GlobalSize(h).ToUInt64();
+                    if (blockSize > (ulong)Array.MaxLength) throw new InvalidOperationException($"The clipboard {what} is too large.");
+                    var bytes = new byte[(int)blockSize];
+                    Marshal.Copy(p, bytes, 0, bytes.Length);
+                    return bytes;
                 }
-                return files;
+                finally { GlobalUnlock(h); }
             }
             finally { CloseClipboard(); }
-        });
+        }
 
         /// <summary>
         /// Puts a file list on the clipboard so Explorer's Paste copies those files (marked as a copy, not a cut). Paths
@@ -184,33 +227,23 @@ namespace ToolBelt.Windows
         /// </summary>
         public static ScreenImage? GetImage() => RunSta<ScreenImage?>(() =>
         {
-            if (!IsClipboardFormatAvailable(CF_DIB)) return null;
-            OpenOrThrow();
-            try
-            {
-                IntPtr h = GetClipboardData(CF_DIB);
-                if (h == IntPtr.Zero) return null;
-                IntPtr p = GlobalLock(h);
-                if (p == IntPtr.Zero) return null;
-                try
-                {
-                    ulong blockSize = GlobalSize(h).ToUInt64();
-                    if (blockSize > int.MaxValue) throw new InvalidOperationException("The clipboard image is too large.");
-                    int size = (int)blockSize;
-                    var dib = new byte[size];
-                    Marshal.Copy(p, dib, 0, size);
-                    return DecodeDib(dib);
-                }
-                finally { GlobalUnlock(h); }
-            }
-            finally { CloseClipboard(); }
+            byte[]? dib = CopyBlock(CF_DIB, "image");
+            return dib is null ? null : DecodeDib(dib);
         });
 
-        /// <summary>Puts an image (BGRA top-down) on the clipboard as a 32-bit DIB, pasteable into Paint, Word, Teams, etc.</summary>
+        /// <summary>
+        /// Puts an image (BGRA top-down) on the clipboard as a 32-bit DIB, pasteable into Paint, Word, Teams, etc. Each side
+        /// may be at most 65536 pixels, the limit <see cref="DecodeDib"/> (and so <see cref="GetImage"/>) reads back.
+        /// </summary>
         public static void SetImage(ScreenImage image)
         {
             if (image.Pixels is null) throw new ArgumentException("Image has no pixels.", nameof(image));
             int w = image.Width, h = image.Height;
+            // The same limits DecodeDib applies, so an image that goes on the clipboard also comes off it.
+            if (w > 1 << 16 || h > 1 << 16)
+                throw new ArgumentException("Each side of the image must be at most 65536 pixels.", nameof(image));
+            if (40 + (long)w * h * 4 > Array.MaxLength)
+                throw new ArgumentException("The image is too large for one clipboard bitmap.", nameof(image));
             var dib = new byte[40 + w * h * 4];
             BitConverter.GetBytes(40).CopyTo(dib, 0);                                // BITMAPINFOHEADER
             BitConverter.GetBytes(w).CopyTo(dib, 4);
@@ -317,9 +350,6 @@ namespace ToolBelt.Windows
 
         private const uint CF_DIB = 8, CF_HDROP = 15;
 
-        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-        private static extern uint DragQueryFile(IntPtr hDrop, uint index, StringBuilder? file, uint length);
-
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern uint RegisterClipboardFormat(string name);
 
@@ -353,7 +383,9 @@ namespace ToolBelt.Windows
             {
                 if (OpenClipboard(IntPtr.Zero))
                     return;
-                Thread.Sleep(OpenRetryDelayMs); // another process holds the clipboard; back off briefly
+                // Another process holds the clipboard: back off briefly. The one kind of Thread.Sleep the house rules allow: a
+                // bounded retry inside a synchronous Win32 wrapper that takes no token (about 1 s in all).
+                Thread.Sleep(OpenRetryDelayMs);
             }
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not open the clipboard (held by another process).");
         }

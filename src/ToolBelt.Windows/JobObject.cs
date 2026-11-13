@@ -60,6 +60,9 @@ namespace ToolBelt.Windows
                 throw new ArgumentException("The file name must be non-empty and contain no quotes or NUL characters.", nameof(fileName));
             if (arguments != null && arguments.IndexOf('\0') >= 0)
                 throw new ArgumentException("The arguments must not contain NUL characters.", nameof(arguments));
+            if (workingDirectory != null && workingDirectory.IndexOf('\0') >= 0)
+                throw new ArgumentException("The working directory must not contain NUL characters.", nameof(workingDirectory));
+            if (workingDirectory?.Length == 0) workingDirectory = null;   // as Process.Start: the current directory
             ThrowIfDisposed();
             string commandLine = "\"" + fileName + "\"" + (string.IsNullOrEmpty(arguments) ? "" : " " + arguments);
             var startup = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>() };
@@ -75,9 +78,11 @@ namespace ToolBelt.Windows
                     TerminateProcess(info.hProcess, 1);         // still suspended: it never ran
                     throw new Win32Exception(err, "AssignProcessToJobObject failed; the process was terminated before it ran.");
                 }
-                SystemProcess process = SystemProcess.GetProcessById(info.dwProcessId);
+                SystemProcess? process = null;
                 try
                 {
+                    // Inside the try: if this throws, the suspended child must still be terminated, not left in the job.
+                    process = SystemProcess.GetProcessById(info.dwProcessId);
                     // Opened now, while our handle keeps the id from being reused: ExitCode and WaitForExit then work even
                     // for a process that has exited by the time the caller asks.
                     _ = process.Handle;
@@ -87,7 +92,7 @@ namespace ToolBelt.Windows
                 catch
                 {
                     TerminateProcess(info.hProcess, 1);
-                    process.Dispose();
+                    process?.Dispose();
                     throw;
                 }
                 return process;

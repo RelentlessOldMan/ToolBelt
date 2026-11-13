@@ -2,6 +2,7 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using SystemProcess = System.Diagnostics.Process;
 
 namespace ToolBelt.Windows
@@ -37,13 +38,15 @@ namespace ToolBelt.Windows
     /// Samples a process's CPU and memory use. Construct one against a process to capture a baseline, then
     /// call <see cref="Sample"/> whenever you want a reading — the CPU figure covers the span since the
     /// previous call (or since construction), so the caller controls the timing and nothing blocks. The
-    /// static <see cref="Measure(System.Diagnostics.Process, TimeSpan)"/> helpers block for a fixed interval
+    /// static <see cref="Measure(System.Diagnostics.Process, TimeSpan, CancellationToken)"/> helpers block for a fixed interval
     /// when a one-shot reading is more convenient. CPU is normalised across logical processors: 100% means
-    /// every core was fully busy.
+    /// every core was fully busy. Disposing a sampler from <see cref="ForCurrentProcess"/> releases the process object it
+    /// opened; a sampler over a caller's process leaves that process to the caller.
     /// </summary>
-    public sealed class ResourceSampler
+    public sealed class ResourceSampler : IDisposable
     {
         private readonly SystemProcess _process;
+        private bool _ownsProcess;
         private readonly int _cores;
         private TimeSpan _lastCpu;
         private long _lastTicks;
@@ -60,7 +63,18 @@ namespace ToolBelt.Windows
         }
 
         /// <summary>Creates a sampler for the current process.</summary>
-        public static ResourceSampler ForCurrentProcess() => new ResourceSampler(SystemProcess.GetCurrentProcess());
+        public static ResourceSampler ForCurrentProcess()
+        {
+            var process = SystemProcess.GetCurrentProcess();
+            try { return new ResourceSampler(process) { _ownsProcess = true }; }
+            catch { process.Dispose(); throw; }
+        }
+
+        /// <summary>Releases the process object if this sampler opened it (<see cref="ForCurrentProcess"/>).</summary>
+        public void Dispose()
+        {
+            if (_ownsProcess) _process.Dispose();
+        }
 
         /// <summary>
         /// Returns a reading covering the span since the previous <see cref="Sample"/> (or construction) and
@@ -77,6 +91,8 @@ namespace ToolBelt.Windows
             double cpuSeconds = (nowCpu - _lastCpu).TotalSeconds;
             double percent = elapsedSeconds > 0 ? cpuSeconds / (elapsedSeconds * _cores) * 100.0 : 0.0;
             if (percent < 0) percent = 0; // guard against counter resets
+            // The processor-time counters tick coarsely (about 15.6 ms), so a short sample of a busy process overshot.
+            if (percent > 100) percent = 100;
 
             _lastCpu = nowCpu;
             _lastTicks = nowTicks;
@@ -85,19 +101,28 @@ namespace ToolBelt.Windows
                 TimeSpan.FromSeconds(elapsedSeconds));
         }
 
-        /// <summary>Blocks for <paramref name="interval"/> and returns a single CPU/memory reading for <paramref name="process"/>.</summary>
-        public static ResourceSample Measure(SystemProcess process, TimeSpan interval)
+        /// <summary>
+        /// Blocks for <paramref name="interval"/> and returns a single CPU/memory reading for <paramref name="process"/>.
+        /// Cancelling <paramref name="cancellationToken"/> ends the wait at once with <see cref="OperationCanceledException"/>.
+        /// </summary>
+        public static ResourceSample Measure(SystemProcess process, TimeSpan interval, CancellationToken cancellationToken = default)
         {
             if (process is null) throw new ArgumentNullException(nameof(process));
             if (interval <= TimeSpan.Zero || interval.TotalMilliseconds > int.MaxValue)
                 throw new ArgumentOutOfRangeException(nameof(interval), "Interval must be positive and at most about 24.8 days.");
+            cancellationToken.ThrowIfCancellationRequested();
             var sampler = new ResourceSampler(process);
-            System.Threading.Thread.Sleep(interval);
+            // On the token's handle, not Thread.Sleep, so a long interval can be cut short.
+            if (cancellationToken.WaitHandle.WaitOne(interval)) cancellationToken.ThrowIfCancellationRequested();
             return sampler.Sample();
         }
 
         /// <summary>Blocks for <paramref name="interval"/> and returns a single reading for the current process.</summary>
-        public static ResourceSample MeasureCurrent(TimeSpan interval) => Measure(SystemProcess.GetCurrentProcess(), interval);
+        public static ResourceSample MeasureCurrent(TimeSpan interval, CancellationToken cancellationToken = default)
+        {
+            using var process = SystemProcess.GetCurrentProcess();
+            return Measure(process, interval, cancellationToken);
+        }
 
         private const ushort ALL_PROCESSOR_GROUPS = 0xFFFF;
 

@@ -69,10 +69,15 @@ namespace ToolBelt.Tests.Time
         {
             var start = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
             var clock = new[] { start };
-            var scheduler = new CronScheduler(clock: () => clock[0], delay: (t, ct) => Task.Delay(Timeout.Infinite, ct), timeZone: TimeZoneInfo.Utc);
+            using var parked = new ManualResetEventSlim();
+            var scheduler = new CronScheduler(clock: () => clock[0],
+                delay: (t, ct) => { parked.Set(); return Task.Delay(Timeout.Infinite, ct); }, timeZone: TimeZoneInfo.Utc);
             int ran = 0;
             scheduler.Add("j", "* * * * *", () => Interlocked.Increment(ref ran));
             scheduler.Start();
+            // Only once the loop waits: had it first read the clock after the move, it ran the job itself and RunDue found
+            // nothing due (a race in this test, seen once in the checked build).
+            Check.True(parked.Wait(TimeSpan.FromSeconds(10)), "the loop never waited");
             clock[0] = start.AddMinutes(5);
             SynchronizationContext? previous = SynchronizationContext.Current;
             SynchronizationContext.SetSynchronizationContext(new NeverRuns());   // a UI thread that is about to block

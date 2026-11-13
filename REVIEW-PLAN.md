@@ -55,7 +55,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 3 | 18 / 67 | re-queue (18 bugs, 1 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 4 | 16 / 88 | re-queue (16 bugs, none severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 4 | 27 / 109 | re-queue (27 bugs, 3 severe) |
-| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 3 | 12 / 74 | re-queue (12 bugs, 2 severe) |
+| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 4 | 25 / 99 | re-queue (25 bugs, 1 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 3 | 20 / 58 | re-queue (20 bugs) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 4 | 22 / 76 | re-queue (22 bugs, none severe) |
 
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64); **next: 15, 3, 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65); **next: 3, 1, 6, 12, 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -138,11 +138,55 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.5 | 62 | Charts, fourth pass | 24 | (see tag) |
 | v2026.11.13.6 | 63 | Documents and config, fourth pass | 29 | (see tag) |
 | v2026.11.13.7 | 64 | Security, net, time, fourth pass | 16 | (see tag) |
+| v2026.11.13.8 | 65 | Windows satellite, fourth pass | 25 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 65: Windows satellite, fourth pass (v2026.11.13.8)
+
+Two fresh reviewers (correctness, robustness): 27 findings, two of them duplicates, so **25 bugs, 1 severe**. Section 15
+stays re-queued. BUGLIST 56-1 (`Thread.Sleep`) is closed with it. The regression tests are in `WindowsReview4Tests`
+(22 tests). Every fix's test failed on the old code, except the end-to-end clipboard test. That one self-skips where
+the clipboard cannot be opened (access denied in the session that ran the proof); the parser it calls is proven by
+four `DecodeDropFiles` tests.
+
+- **Severe, ClipboardUtils.GetFileDropList:** a CF_HDROP block from any program went to DragQueryFile, which follows
+  the header's offset without bounds. A crafted block killed the reading process with an uncatchable access violation.
+  The block is now copied (bounded by GlobalSize, the clipboard closed before parsing) and parsed by the new public
+  `DecodeDropFiles`, which stays within the block. GetImage copies the same way.
+- **SingleInstanceApp:**
+  - Arguments and the working directory went over the pipe as UTF-8, so an unpaired surrogate (legal in a file name)
+    arrived as U+FFFD, naming another file. Strings now travel as raw UTF-16. The byte limits are doubled, so the same
+    text fits, and the pipe name carries a protocol version.
+  - An app id with a control character made a broken gate.
+  - Any listener failure other than IO or access ended listening for good. It now backs off and retries.
+  - A launch that lost the takeover race was dropped instead of forwarded.
+- **SingleInstance:** a stray backslash, or a namespace prefix in the wrong case, threw DirectoryNotFoundException
+  from the mutex. It is now an ArgumentException; the kernel matches `Local\`, `Global\` and `Session\<n>\`
+  case-sensitively.
+- **EventLogWriter:** a negative category was written as 65535 and up, and an unknown kind went through. An over-long
+  name made IsSourceRegistered throw.
+- **JobObject.Start:** `""` as the working directory failed. A NUL in it was not rejected. If GetProcessById threw, the
+  suspended child was left in the job.
+- **PrivilegeScope and PowerScheme:** a restore that threw could not be retried. An unknown privilege reported
+  ParamName "name".
+- **ResourceSampler:** it was not IDisposable, so ForCurrentProcess leaked a Process. CPU could exceed 100%. Measure
+  slept in Thread.Sleep and now waits on a CancellationToken.
+- **DriveAndVolumeInfo.GetSpace:** a file path or a directory over MAX_PATH failed.
+- **RegistryUtils:** a bool read from REG_SZ "1" or "0" returned the default. A leading backslash in the subkey read
+  as absent but failed on write. The REG_EXPAND_SZ expansion is now documented.
+- **ScreenCapture:** the size caps used int.MaxValue / 4, so a buffer over Array.MaxLength got through.
+- **ClipboardUtils.SetImage:** it accepted sizes that GetImage refuses to read back.
+- **Small ones:**
+  - default ScreenImage, ShortcutInfo and FixedDrive threw from ToString.
+  - OsVersionInfo passed an NTSTATUS as a Win32 error.
+  - MonitorInfo fell back to scaled bounds without trying per-monitor v1.
+  - IdleTime's 49.7-day limit is now documented.
+- **Also fixed:** a race in round 64's Scheduler test (the loop could run the job before RunDue did). It failed once in
+  the checked build.
+
 ### Round 64: Security, net, time, fourth pass (v2026.11.13.7)
 
 Two fresh reviewers (correctness, robustness): 16 findings, no duplicates, **16 bugs, none severe** (one is a docs

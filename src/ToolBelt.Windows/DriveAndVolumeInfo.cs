@@ -50,7 +50,7 @@ namespace ToolBelt.Windows
         public DiskSpace Space { get; }
 
         public override string ToString() =>
-            $"{Name} [{(VolumeLabel.Length == 0 ? "no label" : VolumeLabel)}, {FileSystem}] {Space}";
+            $"{Name} [{(string.IsNullOrEmpty(VolumeLabel) ? "no label" : VolumeLabel)}, {FileSystem}] {Space}";
     }
 
     /// <summary>Enumerates fixed drives and reports free space for an arbitrary path.</summary>
@@ -58,12 +58,22 @@ namespace ToolBelt.Windows
     {
         /// <summary>
         /// Returns free-space figures for the volume that contains <paramref name="path"/> (which may be any
-        /// directory, not just a drive root). Throws <see cref="Win32Exception"/> if the path is invalid.
+        /// directory or file, not just a drive root, and longer than 260 characters). Throws <see cref="Win32Exception"/>
+        /// if the path is invalid.
         /// </summary>
         public static DiskSpace GetSpace(string path)
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
-            if (!GetDiskFreeSpaceEx(path, out ulong available, out ulong total, out ulong free))
+            string query = path;
+            if (File.Exists(query)) query = Path.GetDirectoryName(Path.GetFullPath(query)) ?? query;   // the API wants a directory
+            if (query.Length >= 248 && !query.StartsWith(@"\\?\", StringComparison.Ordinal))
+            {
+                // A long path needs the extended-length form, which takes a full path with a trailing backslash.
+                string full = Path.GetFullPath(query);
+                query = full.StartsWith(@"\\", StringComparison.Ordinal) ? @"\\?\UNC\" + full.Substring(2) : @"\\?\" + full;
+                if (!query.EndsWith(@"\", StringComparison.Ordinal)) query += @"\";
+            }
+            if (!GetDiskFreeSpaceEx(query, out ulong available, out ulong total, out ulong free))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), $"GetDiskFreeSpaceEx failed for '{path}'.");
             return new DiskSpace((long)total, (long)free, (long)available);
         }

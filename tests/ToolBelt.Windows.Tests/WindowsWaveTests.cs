@@ -267,7 +267,7 @@ namespace ToolBelt.Windows.Tests
         // ---------- review regressions ----------
 
         private static string PipeNameFor(string id)
-            => "ToolBelt.SingleInstance." + id + "." + Process.GetCurrentProcess().SessionId + "."
+            => "ToolBelt.SingleInstance.2." + id + "." + Process.GetCurrentProcess().SessionId + "."
                + (System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName);
 
         private static (bool IsPrimary, bool Forwarded) LaunchSecond(string id, string[] args, TimeSpan? timeout = null)

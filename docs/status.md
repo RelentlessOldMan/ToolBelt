@@ -9,24 +9,22 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
    As of round 53 all 17 sections are re-queued; the order is in REVIEW-PLAN.md. The cross-cutting rounds (54 to 57)
    are done. Round 58 (IO) found 39 bugs, 7 severe, round 59 (section 14) 27 bugs, 3 severe, and round 60 (section 17)
    22 bugs, none severe, round 61 (section 4) 24 bugs, none severe, round 62 (section 5) 24 bugs, 1 severe, and
-   round 63 (section 7) 29 bugs, 5 severe, and round 64 (section 13) 16 bugs, none severe, so all seven stay
-   re-queued; section 15 is next.
-1. **BUGLIST 56-1** (`Thread.Sleep` in library code): the DirectoryUtils part is fixed (round 58); the Windows parts go
-   with section 15.
+   round 63 (section 7) 29 bugs, 5 severe, round 64 (section 13) 16 bugs, none severe, and round 65 (section 15)
+   25 bugs, 1 severe, so all eight stay re-queued; section 3 is next.
 
 ## Built
 
 - **The library** (2026-09-25 to 2026-10-05): 29+ divisions in the core plus the Windows, WPF and WinForms
   satellites. The README's Layout is the inventory.
-- **The review** (2026-10-07 onward): 64 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
+- **The review** (2026-10-07 onward): 65 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
   sections, two rounds on flaky tests and the incomplete beta/gamma harness, and four cross-cutting rounds (round 54,
   throwing callbacks: 36 bugs, 2 severe; round 55, cancellation and dispose races: 17 bugs, 2 severe, both a Ctrl+C
   handler letting a token callback's exception escape; round 56, non-finite and extreme numerics: 34 bugs, 2 severe,
   both hangs on data near MaxValue; round 57, the whole suite on .NET Framework 4.8: 4 bugs, none severe). The fourth
   pass began with IO (round 58: 39 bugs, 7 severe, mostly junction swaps mid-operation, the tar guard and names
   ending in a dot).
-- **Checks every round passes:** the full verify (core 3322 tests, Windows 115, WPF 162, WinForms 104,
-  MathChecks 40 at v2026.11.13.7), the overflow-checked build with no failures (since round 48), and the special
+- **Checks every round passes:** the full verify (core 3322 tests, Windows 136, WPF 162, WinForms 104,
+  MathChecks 40 at v2026.11.13.8), the overflow-checked build with no failures (since round 48), and the special
   functions against mpmath (graded in condition-number units).
 - **.NET Framework 4.8:** since round 57 the whole core suite compiles and passes there (3079 tests; net8-only
   types' tests are guarded out).
@@ -127,6 +125,11 @@ Written as rules a future session can apply.
 - Windows clipboard calls need an STA thread and a retry on `OpenClipboard`. Shell links round-trip only up to 260
   characters. Junction tests use `cmd /c mklink /J` (fully qualify `System.Diagnostics.Process`; the tests have a
   `Process` namespace).
+- Clipboard tests self-skip when `OpenClipboard` is refused (access denied in some non-interactive sessions), so a
+  green run there proves nothing about the clipboard: test the parsing (`DecodeDropFiles`, `DecodeDib`) on byte
+  arrays as well.
+- Kernel object names match `Local\`, `Global\` and `Session\<n>\` case-sensitively; `local\x` names a missing
+  directory.
 
 **Tooling**
 - `scripts/checked-build.sh` only reuses a worktree holding its `.toolbelt-checked-wt` marker (added in round 51);
