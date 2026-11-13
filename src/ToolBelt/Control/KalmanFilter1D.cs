@@ -19,6 +19,9 @@ namespace ToolBelt.Control
         {
             if (!(processNoise >= 0) || double.IsInfinity(processNoise)) throw new ArgumentOutOfRangeException(nameof(processNoise), processNoise, "Process noise must be non-negative and finite.");
             if (!(measurementNoise > 0) || double.IsInfinity(measurementNoise)) throw new ArgumentOutOfRangeException(nameof(measurementNoise), measurementNoise, "Measurement noise must be positive and finite.");
+            // Checked here so the exception names this constructor's parameters, not Reset's.
+            if (double.IsNaN(initialEstimate) || double.IsInfinity(initialEstimate)) throw new ArgumentOutOfRangeException(nameof(initialEstimate), initialEstimate, "Initial estimate must be finite.");
+            if (!(initialErrorCovariance >= 0) || double.IsInfinity(initialErrorCovariance)) throw new ArgumentOutOfRangeException(nameof(initialErrorCovariance), initialErrorCovariance, "Initial error covariance must be non-negative and finite.");
             _processNoise = processNoise;
             _measurementNoise = measurementNoise;
             Reset(initialEstimate, initialErrorCovariance);

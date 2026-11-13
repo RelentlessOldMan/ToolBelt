@@ -165,7 +165,7 @@ namespace ToolBelt.Signal
             {
                 var (hz, name) = edges[i];
                 if (!(hz > 0 && hz < nyquist)) throw new ArgumentOutOfRangeException(name, hz, "Edge frequencies must be between 0 and Nyquist (sampleRate / 2), exclusive.");
-                if (i > 0 && !(hz > edges[i - 1].Hz)) throw new ArgumentException("The low edge must be below the high edge.");
+                if (i > 0 && !(hz > edges[i - 1].Hz)) throw new ArgumentException("The low edge must be below the high edge.", name);
                 normalized[i] = hz / nyquist;
             }
 
@@ -189,6 +189,9 @@ namespace ToolBelt.Signal
                 for (int b = 0; b < bands.Count; b += 2) sum += bands[b + 1] * Sinc(bands[b + 1] * m) - bands[b] * Sinc(bands[b] * m);
                 h[n] = sum * Window(window, kaiserBeta, n, taps);
             }
+            // The window's cosines round differently at n and taps − 1 − n; mirroring makes the taps exactly symmetric, so
+            // the phase is exactly linear as documented.
+            for (int n = 0; n < taps / 2; n++) h[taps - 1 - n] = h[n];
 
             // Unit gain at the centre of the first passband (DC for pass-zero, Nyquist for a high-pass).
             double left = bands[0], right = bands[1];

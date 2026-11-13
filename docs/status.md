@@ -5,24 +5,23 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 
 ## Next
 
-1. **Round 53: section 1**, third pass. That finishes the third pass.
 1. **Cross-cutting rounds** (planned 2026-11-04), each across the whole library rather than one section:
    - throwing callbacks and handlers (user code that throws inside ours);
    - cancellation and dispose races;
    - non-finite and extreme numerics (NaN, ±∞, subnormals, 1e±300);
    - the whole suite on .NET Framework 4.8 and in the overflow-checked build.
 1. **Then:** every section re-queued by its last pass goes round again until a pass finds ≤ 1 minor bug. As of
-   round 52 all 17 sections are re-queued.
+   round 53 all 17 sections are re-queued.
 
 ## Built
 
 - **The library** (2026-09-25 to 2026-10-05): 29+ divisions in the core plus the Windows, WPF and WinForms
   satellites. The README's Layout is the inventory.
-- **The review** (2026-10-07 onward): 52 rounds, released as v0.1.0 to v0.52.0. Two full passes over all 17
-  sections, the third pass on all but section 1, and two rounds on flaky tests and the incomplete beta/gamma
-  harness. Section 6 (round 52) found 18 bugs, 1 severe (half-written SVG elements after a NaN).
-- **Checks every round passes:** the full verify (core 3006 tests, Windows 115, WPF 151, WinForms 91,
-  MathChecks 40 at v0.52.0), the overflow-checked build with no failures (since round 48), and the special
+- **The review** (2026-10-07 onward): 53 rounds, released as v0.1.0 to v0.53.0. Three full passes over all 17
+  sections, and two rounds on flaky tests and the incomplete beta/gamma harness. Section 1 (round 53) found 20
+  bugs, 1 severe (high-order IIR band-stops up to 3e13 times their output in error from section ordering).
+- **Checks every round passes:** the full verify (core 3026 tests, Windows 115, WPF 151, WinForms 91,
+  MathChecks 40 at v0.53.0), the overflow-checked build with no failures (since round 48), and the special
   functions against mpmath (graded in condition-number units).
 - **Unverified:** the whole core suite on .NET Framework 4.8 has never been run in one go; rounds only ran the
   section under review there. That is one of the cross-cutting rounds.
@@ -60,6 +59,10 @@ Written as rules a future session can apply.
 - When a fix rewrites an algorithm (streaming instead of buffering, a new clipper), run the whole suite before
   writing up: old guard tests catch what the rewrite gave up. Streaming PNG decode into a pre-allocated image broke
   the "tiny file claiming a huge image" guard, and only the full verify showed it.
+- Check a reviewer's numerical "fix" against the whole computation before applying it: the suggested sin² form for
+  Biquad's (1 − cos)/2 was more accurate alone but broke the exact unity DC gain the rounded poles were matched to.
+- Grade a filter cascade against the same sections run in double-double, not against a second double design: that
+  isolates the cascade's own rounding, which is what section ordering changes.
 - Grade geometry against exact rational arithmetic (BigInteger on the doubles' binary expansions), not against a
   second floating-point formula. A double reference hid both the wrong-edge pick and the near-half rounding.
 

@@ -16,8 +16,9 @@ namespace ToolBelt.Signal
     {
         public Biquad(double b0, double b1, double b2, double a1, double a2)
         {
-            if (!(IsFinite(b0) && IsFinite(b1) && IsFinite(b2) && IsFinite(a1) && IsFinite(a2)))
-                throw new ArgumentException("Coefficients must be finite.");
+            string? bad = !IsFinite(b0) ? nameof(b0) : !IsFinite(b1) ? nameof(b1) : !IsFinite(b2) ? nameof(b2)
+                : !IsFinite(a1) ? nameof(a1) : !IsFinite(a2) ? nameof(a2) : null;
+            if (bad != null) throw new ArgumentException("Coefficients must be finite.", bad);
             B0 = b0; B1 = b1; B2 = b2; A1 = a1; A2 = a2;
         }
 
@@ -31,35 +32,37 @@ namespace ToolBelt.Signal
         public static Biquad LowPass(double sampleRate, double frequency, double q = 0.7071067811865476)
         {
             var (cos, alpha) = Prewarp(sampleRate, frequency, q);
-            return Normalize((1 - cos) / 2, 1 - cos, (1 - cos) / 2, 1 + alpha, -2 * cos, 1 - alpha);
+            // (1 − cos)/2 from the same rounded cos as the poles keeps the DC gain exactly 1; it cancelled to 0 only where
+            // the poles were already on the unit circle, which Normalize rejects.
+            return Normalize((1 - cos) / 2, 1 - cos, (1 - cos) / 2, 1 + alpha, -2 * cos, 1 - alpha, frequency);
         }
 
         /// <summary>Second-order high-pass; <paramref name="q"/> = 1/√2 is maximally flat.</summary>
         public static Biquad HighPass(double sampleRate, double frequency, double q = 0.7071067811865476)
         {
             var (cos, alpha) = Prewarp(sampleRate, frequency, q);
-            return Normalize((1 + cos) / 2, -(1 + cos), (1 + cos) / 2, 1 + alpha, -2 * cos, 1 - alpha);
+            return Normalize((1 + cos) / 2, -(1 + cos), (1 + cos) / 2, 1 + alpha, -2 * cos, 1 - alpha, frequency);
         }
 
         /// <summary>Band-pass with unity (0 dB) gain at the centre <paramref name="frequency"/>; bandwidth ≈ frequency / Q.</summary>
         public static Biquad BandPass(double sampleRate, double frequency, double q)
         {
             var (cos, alpha) = Prewarp(sampleRate, frequency, q);
-            return Normalize(alpha, 0, -alpha, 1 + alpha, -2 * cos, 1 - alpha);
+            return Normalize(alpha, 0, -alpha, 1 + alpha, -2 * cos, 1 - alpha, frequency);
         }
 
         /// <summary>Notch (band-reject): zero gain exactly at <paramref name="frequency"/>, e.g. 50/60 Hz mains hum.</summary>
         public static Biquad Notch(double sampleRate, double frequency, double q)
         {
             var (cos, alpha) = Prewarp(sampleRate, frequency, q);
-            return Normalize(1, -2 * cos, 1, 1 + alpha, -2 * cos, 1 - alpha);
+            return Normalize(1, -2 * cos, 1, 1 + alpha, -2 * cos, 1 - alpha, frequency);
         }
 
         /// <summary>All-pass: unity gain at every frequency, phase turning through −180° at <paramref name="frequency"/>.</summary>
         public static Biquad AllPass(double sampleRate, double frequency, double q)
         {
             var (cos, alpha) = Prewarp(sampleRate, frequency, q);
-            return Normalize(1 - alpha, -2 * cos, 1 + alpha, 1 + alpha, -2 * cos, 1 - alpha);
+            return Normalize(1 - alpha, -2 * cos, 1 + alpha, 1 + alpha, -2 * cos, 1 - alpha, frequency);
         }
 
         /// <summary>Peaking EQ: <paramref name="gainDb"/> of boost (or cut) centred on <paramref name="frequency"/>, unity far away.</summary>
@@ -70,25 +73,28 @@ namespace ToolBelt.Signal
             // A tiny Q with an extreme gain overflowed here and came out of the constructor as a plain ArgumentException.
             if (double.IsInfinity(alpha * a) || double.IsInfinity(alpha / a))
                 throw new ArgumentOutOfRangeException(nameof(q), q, "Q is too small for this gain.");
-            return Normalize(1 + alpha * a, -2 * cos, 1 - alpha * a, 1 + alpha / a, -2 * cos, 1 - alpha / a);
+            var s = Normalize(1 + alpha * a, -2 * cos, 1 - alpha * a, 1 + alpha / a, -2 * cos, 1 - alpha / a);
+            return CheckGain(s, frequency, gainDb, () => Peaking(sampleRate, frequency, q, 0));
         }
 
         /// <summary>Low shelf: <paramref name="gainDb"/> at DC, unity at Nyquist, mid-gain at <paramref name="frequency"/>. Slope 1 is the steepest monotonic shelf.</summary>
         public static Biquad LowShelf(double sampleRate, double frequency, double gainDb, double slope = 1)
         {
             var (a, cos, k) = Shelf(sampleRate, frequency, gainDb, slope);
-            return Normalize(
+            var s = Normalize(
                 a * ((a + 1) - (a - 1) * cos + k), 2 * a * ((a - 1) - (a + 1) * cos), a * ((a + 1) - (a - 1) * cos - k),
                 (a + 1) + (a - 1) * cos + k, -2 * ((a - 1) + (a + 1) * cos), (a + 1) + (a - 1) * cos - k);
+            return CheckGain(s, frequency, gainDb, () => LowShelf(sampleRate, frequency, 0, slope));
         }
 
         /// <summary>High shelf: <paramref name="gainDb"/> at Nyquist, unity at DC.</summary>
         public static Biquad HighShelf(double sampleRate, double frequency, double gainDb, double slope = 1)
         {
             var (a, cos, k) = Shelf(sampleRate, frequency, gainDb, slope);
-            return Normalize(
+            var s = Normalize(
                 a * ((a + 1) + (a - 1) * cos + k), -2 * a * ((a - 1) + (a + 1) * cos), a * ((a + 1) + (a - 1) * cos - k),
                 (a + 1) - (a - 1) * cos + k, 2 * ((a - 1) - (a + 1) * cos), (a + 1) - (a - 1) * cos - k);
+            return CheckGain(s, frequency, gainDb, () => HighShelf(sampleRate, frequency, 0, slope));
         }
 
         /// <summary>The complex frequency response at <paramref name="frequency"/> Hz.</summary>
@@ -149,8 +155,44 @@ namespace ToolBelt.Signal
             if (!(frequency > 0 && frequency < sampleRate / 2)) throw new ArgumentOutOfRangeException(nameof(frequency), frequency, "Frequency must be between 0 and Nyquist (sampleRate / 2), exclusive.");
         }
 
+        // A frequency near 0 or Nyquist (or an extreme gain) put a pole within rounding of the unit circle: the quantised
+        // section had a pole at z = 1 (LowPass(1e9, 1): DC gain ∞, output 0) or a DC gain 33% off (3 Hz at 1 GHz).
+        private static Biquad Normalize(double b0, double b1, double b2, double a0, double a1, double a2, double frequency)
+        {
+            var s = Normalize(b0, b1, b2, a0, a1, a2);
+            if (!s.IsWellConditioned()) throw FrequencyTooClose(frequency);
+            return s;
+        }
+
         private static Biquad Normalize(double b0, double b1, double b2, double a0, double a1, double a2)
             => new Biquad(b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0);
+
+        // An extreme gain (±600 dB at 1 kHz of 48 kHz) pushes the poles onto the circle on its own: |H| came out NaN or
+        // 0 at DC. The gain is named when the same filter at 0 dB holds.
+        private static Biquad CheckGain(Biquad s, double frequency, double gainDb, Func<Biquad> unity)
+        {
+            if (s.IsWellConditioned()) return s;
+            if (gainDb != 0)
+            {
+                unity();                                                          // throws on the frequency if that's the cause
+                throw new ArgumentOutOfRangeException(nameof(gainDb), gainDb, "The gain is too extreme for this frequency to hold in double precision: a pole lands on or within rounding of the unit circle.");
+            }
+            throw FrequencyTooClose(frequency);
+        }
+
+        private static ArgumentOutOfRangeException FrequencyTooClose(double frequency)
+            => new ArgumentOutOfRangeException(nameof(frequency), frequency, "The frequency is too close to 0 or Nyquist (for this Q and gain) to hold in double precision: a pole lands on or within rounding of the unit circle.");
+
+        // The poles are inside the unit circle, and rounding the coefficients moves the response at DC and Nyquist (and
+        // the pole radius) by at most about 1e-4 relative.
+        internal bool IsWellConditioned()
+        {
+            const double Eps = 2.220446049250313e-16, MaxRelativeError = 1e-4;
+            if (!(Math.Abs(A2) < 1 && Math.Abs(A1) < 1 + A2)) return false;
+            double size = 1 + Math.Abs(A1) + Math.Abs(A2);
+            return Eps * size <= MaxRelativeError * (1 + A1 + A2) && Eps * size <= MaxRelativeError * (1 - A1 + A2)
+                && Eps <= MaxRelativeError * (1 - Math.Abs(A2));
+        }
 
         internal static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
     }
@@ -260,9 +302,10 @@ namespace ToolBelt.Signal
             if (n <= pad) throw new ArgumentException($"The signal must be longer than the pad length ({pad}); pass a smaller padLength for short signals.", nameof(samples));
 
             var ext = new double[n + 2 * pad];
-            for (int i = 0; i < pad; i++) ext[i] = 2 * samples[0] - samples[pad - i];
+            // x0 + (x0 − x[k]), not 2·x0 − x[k]: 2·x0 overflowed for samples near double.MaxValue (a constant 1e308 gave NaN).
+            for (int i = 0; i < pad; i++) ext[i] = samples[0] + (samples[0] - samples[pad - i]);
             for (int i = 0; i < n; i++) ext[pad + i] = samples[i];
-            for (int i = 0; i < pad; i++) ext[pad + n + i] = 2 * samples[n - 1] - samples[n - 2 - i];
+            for (int i = 0; i < pad; i++) ext[pad + n + i] = samples[n - 1] + (samples[n - 1] - samples[n - 2 - i]);
 
             var (zi1, zi2) = SteadyState();
             Run(ext, Scaled(zi1, ext[0]), Scaled(zi2, ext[0]));
@@ -510,7 +553,7 @@ namespace ToolBelt.Signal
         private sealed class OrderSpec
         {
             public Band Band;
-            public double P0, P1, S0, S1, Selectivity, Discrimination, PassRippleDb, StopAttenuationDb;
+            public double P0, P1, S0, S1, Selectivity, Discrimination, LogDiscrimination, PassRippleDb, StopAttenuationDb;
             private readonly double _fs;
 
             public OrderSpec(double passEdge, double stopEdge, double passRippleDb, double stopAttenuationDb, double fs)
@@ -518,7 +561,7 @@ namespace ToolBelt.Signal
                 _fs = CheckSpec(passRippleDb, stopAttenuationDb, fs);
                 CheckEdge(passEdge, fs, nameof(passEdge));
                 CheckEdge(stopEdge, fs, nameof(stopEdge));
-                if (passEdge == stopEdge) throw new ArgumentException("The pass and stop edges must differ.");
+                if (passEdge == stopEdge) throw new ArgumentException("The pass and stop edges must differ.", nameof(stopEdge));
                 Band = passEdge < stopEdge ? Band.LowPass : Band.HighPass;
                 P0 = Warp(passEdge); S0 = Warp(stopEdge);
                 Selectivity = Band == Band.LowPass ? S0 / P0 : P0 / S0;
@@ -534,7 +577,7 @@ namespace ToolBelt.Signal
                 CheckEdge(stopHigh, fs, nameof(stopHigh));
                 if (stopLow < passLow && passLow < passHigh && passHigh < stopHigh) Band = Band.BandPass;
                 else if (passLow < stopLow && stopLow < stopHigh && stopHigh < passHigh) Band = Band.BandStop;
-                else throw new ArgumentException("Band edges must nest: stopLow < passLow < passHigh < stopHigh (band-pass) or passLow < stopLow < stopHigh < passHigh (band-stop).");
+                else throw new ArgumentException("Band edges must nest: stopLow < passLow < passHigh < stopHigh (band-pass) or passLow < stopLow < stopHigh < passHigh (band-stop).", nameof(stopLow));
                 P0 = Warp(passLow); P1 = Warp(passHigh); S0 = Warp(stopLow); S1 = Warp(stopHigh);
                 if (Band == Band.BandStop)
                 {
@@ -557,32 +600,41 @@ namespace ToolBelt.Signal
                 StopAttenuationDb = stopAttenuationDb;
                 // (10^(As/10) − 1) / (10^(Ap/10) − 1): the squared ratio of stop-band to passband deviation.
                 Discrimination = Pow10m1(stopAttenuationDb / 10) / Pow10m1(passRippleDb / 10);
+                // The ratio overflows for a tiny ripple (1e-300 dB), which was reported as "transition band too narrow".
+                LogDiscrimination = Math.Log(Pow10m1(stopAttenuationDb / 10)) - Math.Log(Pow10m1(passRippleDb / 10));
             }
+
+            // acosh(√D), from the logarithm when D overflows.
+            public double AcoshRootDiscrimination
+                => Discrimination <= 1e300 ? Acosh(Math.Sqrt(Discrimination)) : Math.Log(2) + LogDiscrimination / 2;
 
             private static double CheckSpec(double passRippleDb, double stopAttenuationDb, double fs)
             {
                 if (!(fs > 0) || double.IsInfinity(fs)) throw new ArgumentOutOfRangeException("sampleRate", fs, "Sample rate must be positive and finite.");
                 if (!(passRippleDb > 0) || double.IsInfinity(passRippleDb)) throw new ArgumentOutOfRangeException(nameof(passRippleDb), passRippleDb, "Passband ripple must be positive and finite.");
+                if (Pow10m1(passRippleDb / 10) == 0) throw new ArgumentOutOfRangeException(nameof(passRippleDb), passRippleDb, "Passband ripple is too small to represent.");
                 if (!(stopAttenuationDb > passRippleDb && stopAttenuationDb <= 1000))
                     throw new ArgumentOutOfRangeException(nameof(stopAttenuationDb), stopAttenuationDb, "Stop-band attenuation must be greater than the passband ripple and at most 1000 dB.");
                 return fs;
             }
         }
 
-        private static int ButterworthOrderFor(OrderSpec spec) => Ceiling(Math.Log10(spec.Discrimination) / (2 * Math.Log10(spec.Selectivity)));
+        private static int ButterworthOrderFor(OrderSpec spec) => Ceiling(spec.LogDiscrimination / (2 * Math.Log(spec.Selectivity)));
 
         // Prototype frequency at which an order-n Butterworth is exactly −passRipple dB.
         private static double ButterworthW0(OrderSpec spec, int n) => Math.Pow(Pow10m1(spec.PassRippleDb / 10), -1.0 / (2 * n));
 
-        private static int ChebyshevOrderFor(OrderSpec spec) => Ceiling(Acosh(Math.Sqrt(spec.Discrimination)) / Acosh(spec.Selectivity));
+        private static int ChebyshevOrderFor(OrderSpec spec) => Ceiling(spec.AcoshRootDiscrimination / Acosh(spec.Selectivity));
 
         // Chebyshev II prototype frequency (stop edge = 1) at which the gain is exactly −passRipple dB.
-        private static double Chebyshev2Scale(OrderSpec spec, int n) => 1 / Math.Cosh(Acosh(Math.Sqrt(spec.Discrimination)) / n);
+        private static double Chebyshev2Scale(OrderSpec spec, int n) => 1 / Math.Cosh(spec.AcoshRootDiscrimination / n);
 
         private static int EllipticOrderFor(OrderSpec spec)
         {
             double m0 = 1 / (spec.Selectivity * spec.Selectivity), m1 = 1 / spec.Discrimination;
-            return Ceiling(EllipK(m0) * EllipKm1(m1) / (EllipKm1(m0) * EllipK(m1)));
+            // K(1 − m1) = ln(4/√m1) + O(m1 ln m1) once m1 = 1/D underflows.
+            double km1 = spec.Discrimination <= 1e300 ? EllipKm1(m1) : Math.Log(4) + spec.LogDiscrimination / 2;
+            return Ceiling(EllipK(m0) * km1 / (EllipKm1(m0) * EllipK(m1)));
         }
 
         private static int Ceiling(double n)
@@ -599,7 +651,20 @@ namespace ToolBelt.Signal
             return double.IsInfinity(u) ? u : (u - 1) * y / Math.Log(u);
         }
 
-        private static double Acosh(double x) => Math.Log(x + Math.Sqrt((x - 1) * (x + 1)));
+        // acosh(x) for x ≥ 1 = log1p((x − 1) + √((x − 1)(x + 1))): log(x + √(x² − 1)) lost digits near 1 and overflowed
+        // past 1e154.
+        private static double Acosh(double x)
+        {
+            if (x > 1e150) return Math.Log(x) + Math.Log(2);
+            double d = x - 1;
+            return Log1p(d + Math.Sqrt(d * (x + 1)));
+        }
+
+        private static double Log1p(double x)
+        {
+            double u = 1 + x;
+            return u == 1 ? x : Math.Log(u) * x / (u - 1);
+        }
 
         // ---- Internals -----------------------------------------------------------------------------------------------
 
@@ -676,6 +741,7 @@ namespace ToolBelt.Signal
             CheckOrder(order);
             if (!(rippleDb > 0 && rippleDb < 100)) throw new ArgumentOutOfRangeException(nameof(rippleDb), rippleDb, "Ripple must be in (0, 100) dB.");
             double eps = Math.Sqrt(Pow10m1(0.1 * rippleDb));
+            if (eps == 0) throw new ArgumentOutOfRangeException(nameof(rippleDb), rippleDb, "Ripple is too small to represent.");
             double mu = Asinh(1 / eps) / order;
             var p = new List<Complex>();
             for (int m = -order + 1; m < order; m += 2)
@@ -711,6 +777,7 @@ namespace ToolBelt.Signal
             if (!(passRippleDb > 0 && passRippleDb < 100)) throw new ArgumentOutOfRangeException(nameof(passRippleDb), passRippleDb, "Passband ripple must be in (0, 100) dB.");
             if (!(stopAttenuationDb > passRippleDb && stopAttenuationDb <= 1000)) throw new ArgumentOutOfRangeException(nameof(stopAttenuationDb), stopAttenuationDb, "Stop-band attenuation must exceed the passband ripple (and be at most 1000 dB).");
             double epsSq = Pow10m1(0.1 * passRippleDb);
+            if (epsSq == 0) throw new ArgumentOutOfRangeException(nameof(passRippleDb), passRippleDb, "Passband ripple is too small to represent.");
             if (order == 1)
             {
                 double pole = -Math.Sqrt(1 / epsSq);
@@ -992,13 +1059,16 @@ namespace ToolBelt.Signal
             }
             double capK = Math.PI / 2;
             for (int i = 1; i < ks.Count; i++) capK *= 1 + ks[i];
-            Complex wn = new Complex(0, w);
+            // The argument stays purely imaginary, j·y, so the descent runs on y in real arithmetic and asin(j·y) = j·asinh(y).
+            // .NET Framework's Complex.Asin was 9e-8 off at j·1e5, which moved small-ripple elliptic designs by up to 7e-3.
+            double y = w;
             for (int i = 0; i + 1 < ks.Count; i++)
             {
-                Complex x = ks[i] * wn;
-                wn = 2 * wn / ((1 + ks[i + 1]) * (1 + Complex.Sqrt((1 - x) * (1 + x))));
+                double x = Math.Abs(ks[i] * y);                                  // (1 − jx)(1 + jx) = 1 + x²
+                double root = x > 1e150 ? x : Math.Sqrt(1 + x * x);
+                y = 2 * y / ((1 + ks[i + 1]) * (1 + root));
             }
-            return (capK * 2 / Math.PI * Complex.Asin(wn)).Imaginary;
+            return capK * 2 / Math.PI * Asinh(y);
         }
 
         private static IirFilter Design((List<Complex> Z, List<Complex> P, double K) prototype, Band band, double sampleRate,
@@ -1010,7 +1080,7 @@ namespace ToolBelt.Signal
             if (twoEdges)
             {
                 CheckEdge(f2, sampleRate, "high");
-                if (!(f1 < f2)) throw new ArgumentException("The low edge must be below the high edge.");
+                if (!(f1 < f2)) throw new ArgumentException("The low edge must be below the high edge.", "high");
             }
 
             // Work in normalised frequency (a sample rate of 2, as SciPy does): the z-plane result is identical, but the
@@ -1028,8 +1098,22 @@ namespace ToolBelt.Signal
                 default: (z, p, logK) = ToBandStop(z, p, logK, Math.Sqrt(w1 * w2), w2 - w1); break;
             }
             (z, p, logK) = Bilinear(z, p, logK, fs);
-            if (p.Any(x => !(x.Magnitude < 1))) throw new ArgumentException("The design is numerically unstable (a pole is not inside the unit circle); relax the specification.");
-            return new IirFilter(ToSections(z, p, logK));
+            // A pole on or outside the circle (an edge within rounding of 0 or Nyquist) was an ArgumentException naming no
+            // parameter. A pole inside can still round onto it: ButterworthLowPass(2, 1, 1e9) had a section pole at exactly
+            // z = 1 (DC gain ∞; a constant 3 came out as 3e-17).
+            foreach (var x in p)
+                if (!(x.Magnitude < 1)) throw EdgeTooClose(x.Real < 0, twoEdges, edgeName, f1, f2);
+            var sections = ToSections(z, p, logK);
+            foreach (var s in sections)
+                if (!s.IsWellConditioned()) throw EdgeTooClose(1 - s.A1 + s.A2 < 1 + s.A1 + s.A2, twoEdges, edgeName, f1, f2);
+            return new IirFilter(sections);
+        }
+
+        private static ArgumentOutOfRangeException EdgeTooClose(bool nearNyquist, bool twoEdges, string edgeName, double f1, double f2)
+        {
+            string name = twoEdges ? (nearNyquist ? "high" : "low") : edgeName;
+            return new ArgumentOutOfRangeException(name, nearNyquist && twoEdges ? f2 : f1,
+                $"The edge is too close to {(nearNyquist ? "Nyquist" : "0")} for this sample rate and order: in double precision a pole lands on or within rounding of the unit circle.");
         }
 
         private static void CheckEdge(double f, double fs, string name)
@@ -1098,8 +1182,9 @@ namespace ToolBelt.Signal
             return r;
         }
 
-        // Groups conjugate (or real) pole pairs into sections, the poles nearest the unit circle last (they have the
-        // highest gain, so placing them late keeps intermediate signals small), each matched with the nearest zero pair.
+        // Groups conjugate (or real) pole pairs into sections, each matched with the nearest zero pair (the poles nearest
+        // the unit circle choose first), then orders and scales the sections so every intermediate signal stays near the
+        // final output's level.
         private static List<Biquad> ToSections(List<Complex> zeros, List<Complex> poles, Complex logGain)
         {
             var poleGroups = Pairs(poles);
@@ -1125,6 +1210,94 @@ namespace ToolBelt.Signal
                 var (_, a1, a2) = Quadratic(pg);
                 sections[i] = new Biquad(b0, b1, b2, a1, a2);
             }
+            return OrderAndScale(sections, logGain) ?? PlaceGain(sections, logGain);
+        }
+
+        // Ordering by pole radius alone let intermediate signals swing by many orders of magnitude: a band-stop
+        // Butterworth of order 36 came out 3e4 times its own output in error, a Chebyshev I of order 30 3e13 times. Each
+        // step picks the section that keeps the partial response's shape closest to its share (i/n) of the final one
+        // over the passband (where the response is within 60 dB of its peak), and each partial product is scaled so its
+        // peak equals the final peak, the last section taking the rest of the gain. Null if the response can't be
+        // evaluated (no finite peak, or a scale that over- or underflows).
+        private static List<Biquad>? OrderAndScale(Biquad[] sections, Complex logGain)
+        {
+            int n = sections.Length;
+            if (n < 2) return null;
+            var grid = new double[513 + 257];
+            for (int i = 0; i < 513; i++) grid[i] = Math.PI * i / 512;
+            for (int i = 0; i < 257; i++) grid[513 + i] = Math.PI * Math.Pow(10, -12.0 * i / 256);     // down to 1e-12·π
+            int m = grid.Length;
+            var lm = new double[n][];
+            var total = new double[m];
+            for (int j = 0; j < n; j++)
+            {
+                lm[j] = new double[m];
+                for (int g = 0; g < m; g++) { lm[j][g] = LogMagnitude(sections[j], grid[g]); total[g] += lm[j][g]; }
+            }
+            double peak = double.NegativeInfinity;
+            for (int g = 0; g < m; g++) if (total[g] > peak) peak = total[g];
+            if (double.IsNaN(peak) || double.IsInfinity(peak)) return null;
+            var mask = new List<int>();
+            for (int g = 0; g < m; g++) if (total[g] >= peak - Math.Log(1000)) mask.Add(g);
+
+            var remaining = Enumerable.Range(0, n).ToList();
+            var order = new List<int>();
+            var partial = new double[m];
+            for (int i = 1; i <= n; i++)
+            {
+                int best = remaining[0];
+                double bestSpread = double.PositiveInfinity;
+                foreach (int j in remaining)
+                {
+                    double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
+                    foreach (int g in mask)
+                    {
+                        double d = partial[g] + lm[j][g] - (double)i / n * total[g];
+                        if (d < lo) lo = d;
+                        if (d > hi) hi = d;
+                    }
+                    if (hi - lo < bestSpread - 1e-12) { bestSpread = hi - lo; best = j; }
+                }
+                order.Add(best);
+                remaining.Remove(best);
+                for (int g = 0; g < m; g++) partial[g] += lm[best][g];
+            }
+
+            // Scale (as logarithms): the partial products' peaks all sit at the response's peak, peak + log|K|.
+            double sign = Math.Cos(logGain.Imaginary) < 0 ? -1 : 1;
+            var result = new List<Biquad>(n);
+            Array.Clear(partial, 0, m);
+            double applied = 0;
+            for (int idx = 0; idx < n; idx++)
+            {
+                int j = order[idx];
+                double partialPeak = double.NegativeInfinity;
+                for (int g = 0; g < m; g++) { partial[g] += lm[j][g]; if (partial[g] > partialPeak) partialPeak = partial[g]; }
+                double lg = idx < n - 1 ? peak - partialPeak : logGain.Real - applied;
+                if (idx < n - 1) for (int g = 0; g < m; g++) partial[g] += lg;
+                applied += lg;
+                double gain = Math.Exp(lg);
+                if (gain == 0 || double.IsInfinity(gain) || double.IsNaN(gain)) return null;
+                if (idx == n - 1) gain *= sign;
+                var s = sections[j];
+                double b0 = s.B0 * gain, b1 = s.B1 * gain, b2 = s.B2 * gain;
+                if (!(Biquad.IsFinite(b0) && Biquad.IsFinite(b1) && Biquad.IsFinite(b2))) return null;
+                result.Add(new Biquad(b0, b1, b2, s.A1, s.A2));
+            }
+            return result;
+        }
+
+        // ln|H(e^jw)| of one section, from its (unscaled) coefficients.
+        private static double LogMagnitude(Biquad s, double w)
+        {
+            var e1 = new Complex(Math.Cos(w), -Math.Sin(w));
+            var e2 = e1 * e1;
+            Complex num = s.B0 + s.B1 * e1 + s.B2 * e2, den = 1 + s.A1 * e1 + s.A2 * e2;
+            return Math.Log(num.Magnitude) - Math.Log(den.Magnitude);
+        }
+
+        private static List<Biquad> PlaceGain(Biquad[] sections, Complex logGain)
+        {
             // The gain is real (conjugate roots), so its log's imaginary part is 0 or ±π. It all goes on the first section,
             // as SciPy does, unless that would leave a comfortable range; then it is spread evenly over the sections.
             double sign = Math.Cos(logGain.Imaginary) < 0 ? -1 : 1;
@@ -1168,6 +1341,13 @@ namespace ToolBelt.Signal
             }
         }
 
-        private static double Asinh(double x) => Math.Log(x + Math.Sqrt(x * x + 1));
+        // asinh(x) = log1p(|x| + x²/(1 + √(1 + x²))), signed: log(x + √(x² + 1)) lost digits for small x and overflowed past
+        // 1e154 (Chebyshev I with a 1e-300 dB ripple took Asinh(2e150)).
+        private static double Asinh(double x)
+        {
+            double a = Math.Abs(x);
+            double r = a > 1e150 ? Math.Log(a) + Math.Log(2) : Log1p(a + a * a / (1 + Math.Sqrt(1 + a * a)));
+            return x < 0 ? -r : r;
+        }
     }
 }

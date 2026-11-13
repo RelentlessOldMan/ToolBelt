@@ -90,10 +90,11 @@ namespace ToolBelt.Control
             }
 
             double y0 = initialValue ?? values[0], yf = finalValue ?? values[n - 1];
-            if (!IsFinite(y0) || !IsFinite(yf)) throw new ArgumentException("Initial and final values must be finite.");
+            if (!IsFinite(y0)) throw new ArgumentOutOfRangeException(nameof(initialValue), y0, "The initial value must be finite.");
+            if (!IsFinite(yf)) throw new ArgumentOutOfRangeException(nameof(finalValue), yf, "The final value must be finite.");
             double step = yf - y0;
-            if (double.IsInfinity(step)) throw new ArgumentException("The step from the initial to the final value is too large to represent.");
-            if (step == 0) throw new ArgumentException("The initial and final values are equal: there is no step to analyse.");
+            if (double.IsInfinity(step)) throw new ArgumentException("The step from the initial to the final value is too large to represent.", nameof(values));
+            if (step == 0) throw new ArgumentException("The initial and final values are equal: there is no step to analyse.", nameof(values));
             double t0 = times[0];
             double U(int i) => Normalized(values[i], y0, step);         // 0 at the start, 1 at the end, in the step's direction
 

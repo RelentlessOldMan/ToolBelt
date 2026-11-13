@@ -63,11 +63,15 @@ namespace ToolBelt.Control
             HasValue = false;
         }
 
-        // e^x − 1 without cancellation for small |x| (Math has no expm1, on either target).
+        // e^x − 1 without cancellation (Math has no expm1, on either target). Kahan's form is good to a few ulps at every
+        // x; a series below 1e-5 and Exp(x) − 1 above lost about 2500 ulps just past the switch.
         private static double Expm1(double x)
         {
-            if (Math.Abs(x) < 1e-5) return x + x * x / 2 + x * x * x / 6;
-            return Math.Exp(x) - 1;
+            double u = Math.Exp(x);
+            if (u == 1) return x;
+            double um1 = u - 1;
+            if (um1 == -1) return -1;
+            return um1 * x / Math.Log(u);
         }
     }
 }

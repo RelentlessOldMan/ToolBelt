@@ -357,8 +357,8 @@ src/
     Signal/
       Convolution.cs        direct convolution + full cross-correlation
       Fft.cs                radix-2 + Bluestein FFT — O(n log n) for ANY length; forward/inverse
-      IirFilter.cs          Biquad (RBJ cookbook EQ shapes) + SOS cascade: Butterworth / Chebyshev I & II / elliptic / Bessel design, order estimation, group delay, streaming, filtfilt
-      FirFilter.cs          windowed-sinc FIR design (firwin-compatible), Kaiser sizing, streaming + delay-aligned filtering
+      IirFilter.cs          Biquad (RBJ cookbook EQ shapes) + SOS cascade: Butterworth / Chebyshev I & II / elliptic / Bessel design, order estimation, group delay, streaming, filtfilt; sections ordered and L∞-scaled, edges within rounding of 0 or Nyquist rejected
+      FirFilter.cs          windowed-sinc FIR design (firwin-compatible, exactly symmetric taps), Kaiser sizing, streaming + delay-aligned filtering
       FrequencyGrid.cs      FFT bin <-> frequency mapping; resolution bandwidth
       Goertzel.cs           single-frequency magnitude/phase (cheaper than a full transform)
       Hampel.cs             sliding-window outlier rejection (median ± k·MAD)
@@ -710,6 +710,7 @@ tests/
       KalmanFilter1DTests.cs
       ControlReviewTests.cs (review regressions: reverse-acting anti-windup, non-finite inputs)
       FiltersControlReview2Tests.cs (second-pass regressions: IIR steady state at tiny cutoffs, equal Schmitt thresholds, overflow in PID / lag / Kalman / step analysis, parameter names)
+      FiltersControlReview3Tests.cs (third-pass regressions: IIR cascade accuracy against double-double, poles within rounding of the unit circle, tiny-ripple orders, symmetric FIR taps, PID and tuning overflow)
     Diagnostics/
       BenchmarkTests.cs
       MetricsRegistryTests.cs

@@ -41,7 +41,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 
 | #  | Section | Scope (src) | ~Lines | Prior | Passes | Bugs (last / total) | Status |
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
-| 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 2 | 9 / 25 | re-queue (9 bugs) |
+| 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 3 | 20 / 45 | re-queue (20 bugs, 1 severe) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 3 | 13 / 60 | re-queue (13 bugs, 1 severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 3 | 25 / 86 | re-queue (25 bugs, 1 severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 3 | 24 / 95 | re-queue (24 bugs, 2 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1. **next: 1** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53). **next: the cross-cutting rounds** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -126,6 +126,7 @@ There is no version or tag yet. Round 1 adds `<Version>` (a shared `Directory.Bu
 | v0.50.0 | 50 | Text & small types, third pass | 17 | (see tag) |
 | v0.51.0 | 51 | WinForms, tooling and docs, third pass | 18 | (see tag) |
 | v0.52.0 | 52 | Binary formats & images, third pass | 18 | (see tag) |
+| v0.53.0 | 53 | Filters & control, third pass | 20 | (see tag) |
 
 ## Round log
 
@@ -2329,3 +2330,73 @@ ordinary segments against exact clipping, and maximally compressed PNG data stil
   folder still doesn't compile on net48 (spans, `ZipArchive`, LINQ overloads in older tests); that is on the bug list
   for the net48 cross-cutting round.
 - **Re-queued:** yes (18 bugs, 1 severe).
+
+### Round 53: Filters & control, third pass (v0.53.0)
+
+Reviewers: one for correctness and one for robustness, fresh to the section. **17 confirmed bugs, 1 severe**, plus
+three found while fixing them (below). Regression tests are in `FiltersControlReview3Tests` (20 tests); 18 fail on
+the old code, one more (elliptic, below) fails on the old code on .NET Framework 4.8, and one guards the new
+conditioning check (accepted designs keep their DC gain).
+
+- **IirFilter section order (severe):** sections were ordered by pole radius and the whole gain put on the first, so
+  intermediate signals could swing by many orders of magnitude. Ordinary high-order band-stops were wrong: a
+  Butterworth of order 36 (1.66-300 Hz at 1 kHz) came out 3e4 times its own output in error, a Chebyshev I of order 30
+  3e13 times, a Butterworth of order 17 1.75 times. Each step now picks the section that keeps the partial response's
+  shape closest to its share of the final one over the passband, and every partial product is scaled to the final
+  peak (L∞), the last section taking the rest of the gain. Graded against the same sections run in double-double, on
+  the five reported designs (now ≤ 2e-13) and 120 random designs across the families. The ordering was prototyped
+  first against an mpmath forward filter.
+- **IirFilter at an edge near 0 or Nyquist:** the poles were inside the unit circle but their rounded coefficients
+  were not: `ButterworthLowPass(2, 1, 1e9)` had a section pole at exactly z = 1 (DC gain ∞; a constant 3 came out as
+  3e-17), and 1e-5 Hz at 1 kHz had its DC gain 1.2% and its corner 0.6% off. Designs now reject a section whose
+  coefficients' rounding moves the DC or Nyquist response or the pole radius by more than about 1e-4, naming the
+  edge (`cutoff`, `low`, `high`). A 0.1 Hz DC blocker at 48 kHz still designs. The round 30 tiny-cutoff tests now
+  check the rejection and run at the smallest cutoffs that design.
+- **Biquad factories:** the same check, naming `frequency`. `LowPass(1e9, 1)` had its pole on the circle.
+- **Biquad Peaking / LowShelf / HighShelf:** an extreme gain on its own (±600 dB at 1 kHz of 48 kHz) put the poles on
+  the circle; |H| at DC came out NaN or 0. Rejected, naming `gainDb` when the same filter at 0 dB holds. ±300 dB
+  still designs, to the expected gain.
+- **Elliptic on .NET Framework:** `Complex.Asin` there is 9e-8 off at j·1e5, which moved small-ripple designs (1e-12 to
+  1e-8 dB) by up to 1e-3 relative in the transition band. The arc-sc descent stays on the imaginary axis, so it now
+  runs in real arithmetic with `asinh`. Graded against SciPy on both runtimes.
+- **Order estimation with a tiny ripple:** the discrimination overflowed (ripple 1e-305 dB), reported as "transition
+  band too narrow". Butterworth, Chebyshev and elliptic orders now work from its logarithm (446 and 250, checked
+  against mpmath). A ripple whose 10^(r/10) − 1 underflows to 0 is rejected naming `passRippleDb`, and Chebyshev I
+  and elliptic designs name `rippleDb` / `passRippleDb` instead of "numerically unstable".
+- **Asinh / Acosh (with the above):** `log(x + √(x² ± 1))` lost digits near 0 (asinh) and 1 (acosh) and overflowed
+  past 1e154. Both now use log1p forms and log(2x) for large x.
+- **FiltFilt:** the odd extension `2·x0 − x[k]` overflowed: a constant 1e308 came out NaN. Now `x0 + (x0 − x[k])`.
+- **FirFilter:** the window's cosines rounded differently at n and taps − 1 − n, so the taps were not exactly
+  symmetric and the phase not exactly linear as documented. The taps are mirrored.
+- **PidController:**
+  - a zero gain times an overflowed error or change (0 · ∞) made the output NaN;
+  - terms that overflowed in opposite directions (P = +∞, D = −∞) gave NaN where the true output is finite;
+  - (found while fixing) an error past double.MaxValue times a tiny gain gave ∞ instead of 3.4e8.
+  The output is now summed again in units of 2^-600 when it isn't finite. Both limits at +∞ (or both at −∞) pinned
+  every output to infinity; they are rejected.
+- **PidGains:** Ki = Kp/Ti and Kd = Kp·Td overflowed (which PidController then rejects) or underflowed to 0 (silently
+  no integral or derivative action). Rejected naming `integralTime` / `derivativeTime`.
+- **PidTuning.Simc / Lambda:** λ + θ overflowed, so Kp silently came out 0. The sum is halved when it overflows, and
+  the divisions taken one at a time when K(λ + θ) overflows or underflows.
+- **PidTuning.ZieglerNicholsUltimate:** Pu/2 underflowing was reported as `integralTime` (not a parameter of this
+  method), and Pu/8 underflowing silently dropped the derivative. Now `ultimatePeriod`, or `ultimateGain` when Kp
+  underflows.
+- **FopdtModel.FitStep:** an output change past double.MaxValue was "did not change"; an underflowed gain blamed
+  `gain`; non-finite initial or final values and the other failures named no parameter. The fit halves values whose
+  difference overflows, and every failure names `values`, `times`, `inputStep`, `initialValue` or `finalValue`.
+- **Deadband.Apply:** `center + offset − halfWidth` overflowed (1.5e308 about −1.5e308 gave ∞) and cancelled (3 about
+  1e17 gave 1, not 4). The value itself is shifted now; graded against decimal arithmetic.
+- **FirstOrderLag:** the expm1 used a series below 1e-5 and Exp(x) − 1 above, losing about 2500 ulps just past the
+  switch. Kahan's form is used at every x.
+- **Parameter names:** KalmanFilter1D's constructor named Reset's `estimate`; SchmittTrigger, PidController's
+  limits, StepResponse, the IIR and FIR band checks, the Biquad constructor, order-spec edge checks, and (found while
+  fixing) the IIR "pole not inside the unit circle" check named no parameter.
+- **Tests on .NET Framework (found while fixing):** `FilterReviewTests` used `double.IsFinite`, so the Signal tests
+  didn't compile on net48.
+- **Checked and found correct:** the reported cancellation in `Biquad.LowPass` / `HighPass`'s (1 ∓ cos)/2: it is
+  computed from the same rounded cos as the poles, so the DC (or Nyquist) gain is exactly 1; it reached 0 only where
+  the pole was already on the circle, which the new check rejects. The sin² rewrite was tried and reverted.
+- **Known gap:** in derivative-on-error mode a previous error that overflowed (±∞) still leaves the scaled retry ∞.
+- **Checked build:** the core suite in a checked build is green (3026).
+- **.NET Framework 4.8:** the Signal and Control tests (274, which include every new test) are green.
+- **Re-queued:** yes (20 bugs, 1 severe).

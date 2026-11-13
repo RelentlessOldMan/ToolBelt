@@ -30,7 +30,7 @@ namespace ToolBelt.Tests.Signal
             foreach (var (filter, fs, pass, stop) in cases)
             {
                 foreach (var s in filter.Sections)
-                    Check.True(double.IsFinite(s.B0) && double.IsFinite(s.B1) && double.IsFinite(s.B2), "finite coefficients");
+                    Check.True(!double.IsNaN(s.B0 + s.B1 + s.B2) && !double.IsInfinity(s.B0) && !double.IsInfinity(s.B1) && !double.IsInfinity(s.B2), "finite coefficients");
                 Check.Close(0, filter.MagnitudeDb(pass, fs), 1.5, $"passband gain at {pass} (fs {fs})");
                 Check.True(filter.MagnitudeDb(stop, fs) < -40, $"stop band at {stop} (fs {fs}): {filter.MagnitudeDb(stop, fs)} dB");
             }

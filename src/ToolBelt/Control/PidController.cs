@@ -23,7 +23,10 @@ namespace ToolBelt.Control
             CheckFinite(kp, nameof(kp)); CheckFinite(ki, nameof(ki)); CheckFinite(kd, nameof(kd));
             if (double.IsNaN(outputMin)) throw new ArgumentOutOfRangeException(nameof(outputMin), outputMin, "Output limit must not be NaN.");
             if (double.IsNaN(outputMax)) throw new ArgumentOutOfRangeException(nameof(outputMax), outputMax, "Output limit must not be NaN.");
-            if (outputMin > outputMax) throw new ArgumentException("outputMin must not exceed outputMax.");
+            if (outputMin > outputMax) throw new ArgumentException("outputMin must not exceed outputMax.", nameof(outputMin));
+            // Both limits at +∞ (or both at −∞) pinned every output to infinity.
+            if (double.IsPositiveInfinity(outputMin)) throw new ArgumentOutOfRangeException(nameof(outputMin), outputMin, "The lower output limit must be below +∞.");
+            if (double.IsNegativeInfinity(outputMax)) throw new ArgumentOutOfRangeException(nameof(outputMax), outputMax, "The upper output limit must be above −∞.");
             _kp = kp; _ki = ki; _kd = kd;
             _min = outputMin; _max = outputMax;
             _derivativeOnMeasurement = derivativeOnMeasurement;
@@ -49,10 +52,11 @@ namespace ToolBelt.Control
             CheckFinite(measurement, nameof(measurement));
 
             double error = Setpoint - measurement;
-            double proportional = _kp * error;
+            // A zero gain contributes nothing: 0 · ∞ (an overflowed error or change) made the output NaN.
+            double proportional = _kp == 0 ? 0 : _kp * error;
 
             double derivative = 0;
-            if (_hasLast)
+            if (_hasLast && _kd != 0)
                 derivative = _derivativeOnMeasurement
                     ? -_kd * (measurement - _lastMeasurement) / dt
                     : _kd * (error - _lastError) / dt;
@@ -70,6 +74,13 @@ namespace ToolBelt.Control
                 _integral = integral;
 
             double output = proportional + _ki * _integral + derivative;
+            // A term that overflowed (an error past double.MaxValue times a tiny gain, or ∞ − ∞ between terms) is summed
+            // again in units of 2^-600, where finite inputs and gains below about 1e180 can't overflow.
+            if (double.IsNaN(output) || double.IsInfinity(output))
+            {
+                double scaled = ScaledOutput(measurement, dt);
+                if (!double.IsNaN(scaled)) output = scaled;
+            }
 
             _lastError = error;
             _lastMeasurement = measurement;
@@ -85,6 +96,19 @@ namespace ToolBelt.Control
             _lastError = 0;
             _lastMeasurement = 0;
             _hasLast = false;
+        }
+
+        private double ScaledOutput(double measurement, double dt)
+        {
+            const double S = 2.4099198651028841e-181;                           // 2^-600
+            double p = _kp == 0 ? 0 : _kp * (Setpoint * S - measurement * S);
+            double d = 0;
+            if (_hasLast && _kd != 0)
+                d = _derivativeOnMeasurement
+                    ? -_kd * (measurement * S - _lastMeasurement * S) / dt
+                    : _kd * ((Setpoint * S - measurement * S) - _lastError * S) / dt;
+            double sum = p + _ki * S * _integral + d;
+            return sum / S;
         }
 
         private static void CheckFinite(double v, string name)

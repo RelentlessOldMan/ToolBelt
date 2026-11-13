@@ -56,27 +56,35 @@ namespace ToolBelt.Control
                     throw new ArgumentException($"Sample {i} is not finite.", nameof(values));
                 if (i > 0 && !(times[i] > times[i - 1])) throw new ArgumentException("Times must be strictly increasing.", nameof(times));
             }
-            double y0 = initialValue ?? values[0], yf = finalValue ?? values[n - 1], change = yf - y0;
-            if (change == 0 || double.IsNaN(change) || double.IsInfinity(change)) throw new ArgumentException("The output did not change: nothing to fit.");
+            if (initialValue is double iv && (double.IsNaN(iv) || double.IsInfinity(iv))) throw new ArgumentOutOfRangeException(nameof(initialValue), iv, "The initial value must be finite.");
+            if (finalValue is double fv && (double.IsNaN(fv) || double.IsInfinity(fv))) throw new ArgumentOutOfRangeException(nameof(finalValue), fv, "The final value must be finite.");
+            double y0 = initialValue ?? values[0], yf = finalValue ?? values[n - 1];
+            if (yf == y0) throw new ArgumentException("The output did not change: nothing to fit.", nameof(values));
+            // Finite values can still be more than double.MaxValue apart; the fit then works on halved values.
+            double scale = double.IsInfinity(yf - y0) ? 0.5 : 1, change = yf * scale - y0 * scale;
 
             // For y = 1 − e^(−(t−θ)/τ) these levels are reached at exactly θ + τ/3 and θ + τ.
-            double t1 = Crossing(times, values, y0, change, 1 - Math.Exp(-1.0 / 3));
-            double t2 = Crossing(times, values, y0, change, 1 - Math.Exp(-1.0));
-            if (double.IsNaN(t1) || double.IsNaN(t2)) throw new ArgumentException("The response never reaches 63.2% of its final change; record for longer.");
+            double t1 = Crossing(times, values, y0, change, scale, 1 - Math.Exp(-1.0 / 3));
+            double t2 = Crossing(times, values, y0, change, scale, 1 - Math.Exp(-1.0));
+            if (double.IsNaN(t1) || double.IsNaN(t2)) throw new ArgumentException("The response never reaches 63.2% of its final change; record for longer.", nameof(values));
             double tau = 1.5 * (t2 - t1);
-            if (!(tau > 0)) throw new ArgumentException("The response rises too abruptly to fit (63.2% is reached in the same sample as 28.3%); sample faster.");
+            if (!(tau > 0)) throw new ArgumentException("The response rises too abruptly to fit (63.2% is reached in the same sample as 28.3%); sample faster.", nameof(times));
             double theta = Math.Max(0, t2 - tau);
-            if (double.IsInfinity(change / inputStep))
+            double gain = change / inputStep / scale;
+            if (double.IsInfinity(gain))
                 throw new ArgumentOutOfRangeException(nameof(inputStep), inputStep, "The input step is too small for this output change: the gain overflows.");
-            return new FopdtModel(change / inputStep, tau, theta);
+            // An underflowed gain was reported as the model's "gain", a parameter the caller never passed.
+            if (gain == 0)
+                throw new ArgumentOutOfRangeException(nameof(inputStep), inputStep, "The input step is too large for this output change: the gain underflows to 0.");
+            return new FopdtModel(gain, tau, theta);
         }
 
-        private static double Crossing(IReadOnlyList<double> t, IReadOnlyList<double> y, double y0, double change, double level)
+        private static double Crossing(IReadOnlyList<double> t, IReadOnlyList<double> y, double y0, double change, double scale, double level)
         {
             double U(int i)
             {
-                double d = y[i] - y0;                                             // overflowed for a representable change
-                return double.IsInfinity(d) ? y[i] / change - y0 / change : d / change;
+                double d = y[i] * scale - y0 * scale;                             // overflowed for a representable change
+                return double.IsInfinity(d) ? y[i] * scale / change - y0 * scale / change : d / change;
             }
             for (int i = 1; i < y.Count; i++)
                 if (U(i) >= level)
@@ -102,6 +110,18 @@ namespace ToolBelt.Control
             if (double.IsNaN(kp) || double.IsInfinity(kp)) throw new ArgumentOutOfRangeException(nameof(kp), kp, "Kp must be finite.");
             if (!(integralTime > 0)) throw new ArgumentOutOfRangeException(nameof(integralTime), integralTime, "Integral time must be positive (+∞ for no integral action).");
             if (!(derivativeTime >= 0) || double.IsInfinity(derivativeTime)) throw new ArgumentOutOfRangeException(nameof(derivativeTime), derivativeTime, "Derivative time must be non-negative and finite.");
+            // Ki = Kp/Ti and Kd = Kp·Td overflowed to ∞ (which PidController rejects) or underflowed to 0 (silently no
+            // integral or derivative action).
+            if (!double.IsPositiveInfinity(integralTime) && kp != 0)
+            {
+                double ki = kp / integralTime;
+                if (double.IsInfinity(ki) || ki == 0) throw new ArgumentOutOfRangeException(nameof(integralTime), integralTime, "Ki = Kp / Ti is not representable for this Kp.");
+            }
+            if (derivativeTime != 0 && kp != 0)
+            {
+                double kd = kp * derivativeTime;
+                if (double.IsInfinity(kd) || kd == 0) throw new ArgumentOutOfRangeException(nameof(derivativeTime), derivativeTime, "Kd = Kp · Td is not representable for this Kp.");
+            }
             Kp = kp;
             IntegralTime = integralTime;
             DerivativeTime = derivativeTime;
@@ -138,15 +158,15 @@ namespace ToolBelt.Control
         public static PidGains Simc(FopdtModel model, double? closedLoopTimeConstant = null)
         {
             double tc = Knob(closedLoopTimeConstant ?? model.DeadTime, model, nameof(closedLoopTimeConstant));
-            double kp = model.TimeConstant / (model.Gain * (tc + model.DeadTime));
-            return Gains(kp, Math.Min(model.TimeConstant, 4 * (tc + model.DeadTime)), 0);
+            double sum = tc + model.DeadTime;
+            return Gains(Ratio(model, tc), Math.Min(model.TimeConstant, double.IsInfinity(sum) ? sum : 4 * sum), 0);
         }
 
         /// <summary>Lambda (IMC) PI tuning: Kp = τ / (K(λ + θ)), Ti = τ. λ is the desired closed-loop time constant (default τ: no faster than open loop).</summary>
         public static PidGains Lambda(FopdtModel model, double? lambda = null)
         {
             double l = Knob(lambda ?? model.TimeConstant, model, nameof(lambda));
-            return Gains(model.TimeConstant / (model.Gain * (l + model.DeadTime)), model.TimeConstant, 0);
+            return Gains(Ratio(model, l), model.TimeConstant, 0);
         }
 
         /// <summary>Ziegler–Nichols open-loop (reaction curve): PID Kp = 1.2τ/(Kθ), Ti = 2θ, Td = θ/2; PI Kp = 0.9τ/(Kθ), Ti = 3.33θ. Needs θ &gt; 0.</summary>
@@ -173,18 +193,45 @@ namespace ToolBelt.Control
         {
             if (ultimateGain == 0 || double.IsNaN(ultimateGain) || double.IsInfinity(ultimateGain)) throw new ArgumentOutOfRangeException(nameof(ultimateGain), ultimateGain, "Ultimate gain must be non-zero and finite.");
             if (!(ultimatePeriod > 0) || double.IsInfinity(ultimatePeriod)) throw new ArgumentOutOfRangeException(nameof(ultimatePeriod), ultimatePeriod, "Ultimate period must be positive and finite.");
-            return includeDerivative
-                ? new PidGains(0.6 * ultimateGain, ultimatePeriod / 2, ultimatePeriod / 8)
-                : new PidGains(0.45 * ultimateGain, ultimatePeriod / 1.2, 0);
+            double kp = includeDerivative ? 0.6 * ultimateGain : 0.45 * ultimateGain;
+            if (kp == 0) throw new ArgumentOutOfRangeException(nameof(ultimateGain), ultimateGain, "The ultimate gain is too small: Kp underflows to 0.");
+            double ti = includeDerivative ? ultimatePeriod / 2 : ultimatePeriod / 1.2, td = includeDerivative ? ultimatePeriod / 8 : 0;
+            // Pu/2 or Pu/8 underflowed (reported as "integralTime", which the caller never passed, or silently no
+            // derivative), or Ki or Kd overflowed.
+            if (!Representable(kp, ti, td) || ti == 0 || (includeDerivative && td == 0))
+                throw new ArgumentOutOfRangeException(nameof(ultimatePeriod), ultimatePeriod, "The ultimate period is too extreme for this gain: the tuned gains are not representable.");
+            return new PidGains(kp, ti, td);
+        }
+
+        // τ / (K(λ + θ)). λ + θ overflowed to ∞ (silently Kp = 0), so an infinite sum is halved; and when K(λ + θ)
+        // itself overflows or underflows, the divisions are taken one at a time.
+        private static double Ratio(FopdtModel model, double lambda)
+        {
+            double tau = model.TimeConstant, k = model.Gain, sum = lambda + model.DeadTime, h = 1;
+            if (double.IsInfinity(sum)) { sum = lambda / 2 + model.DeadTime / 2; h = 2; }
+            double r = tau / (k * sum);
+            if (!Usable(r)) r = tau / k / sum;
+            if (!Usable(r)) r = tau / sum / k;
+            return r / h;
+        }
+
+        private static bool Usable(double v) => v != 0 && !double.IsInfinity(v) && !double.IsNaN(v);
+
+        private static bool Representable(double kp, double integralTime, double derivativeTime)
+        {
+            double ki = kp / integralTime, kd = kp * derivativeTime;
+            return !double.IsInfinity(ki) && !double.IsInfinity(kd) && (ki != 0 || double.IsPositiveInfinity(integralTime))
+                && (kd != 0 || derivativeTime == 0);
         }
 
         // An extreme model overflowed a gain (reported as a "kp" the caller never passed) or the integral time (∞, which
         // silently meant "no integral action").
         private static PidGains Gains(double kp, double integralTime, double derivativeTime)
         {
-            if (double.IsNaN(kp) || double.IsInfinity(kp) || !(integralTime > 0) || double.IsInfinity(integralTime)
-                || double.IsNaN(derivativeTime) || double.IsInfinity(derivativeTime))
-                throw new ArgumentOutOfRangeException("model", "The model's values are too extreme: the tuned gains overflow.");
+            // Kp = 0 can only be an underflow (the model gain is non-zero); Ki and Kd overflowed or underflowed too.
+            if (double.IsNaN(kp) || double.IsInfinity(kp) || kp == 0 || !(integralTime > 0) || double.IsInfinity(integralTime)
+                || double.IsNaN(derivativeTime) || double.IsInfinity(derivativeTime) || !Representable(kp, integralTime, derivativeTime))
+                throw new ArgumentOutOfRangeException("model", "The model's values are too extreme: the tuned gains are not representable.");
             return new PidGains(kp, integralTime, derivativeTime);
         }
 

@@ -18,10 +18,13 @@ namespace ToolBelt.Tests.Control
         }
 
         // ---------- IirFilter steady state ----------
+        // Round 53: the original cutoffs (1e-8 of the sample rate) are now rejected, because their rounded coefficients
+        // put the DC gain 1.2% and the corner 0.6% off. These run at the smallest cutoffs that still design.
 
         public void Iir_HighPassAtATinyCutoffStartsSettled()
         {
-            var f = IirFilter.ButterworthHighPass(2, 0.01, 1e6);
+            Check.Equal("cutoff", ParamOf(() => IirFilter.ButterworthHighPass(2, 0.01, 1e6)));
+            var f = IirFilter.ButterworthHighPass(2, 1, 1e6);
             f.Reset(3);
             Check.True(Math.Abs(f.Process(3)) < 1e-6, "was 3");
             double[] y = f.FiltFilt(Enumerable.Repeat(3.0, 200).ToArray());
@@ -30,14 +33,16 @@ namespace ToolBelt.Tests.Control
 
         public void Iir_BandPassAtATinyCutoffStartsSettled()
         {
-            var f = IirFilter.ButterworthBandPass(2, 0.01, 1000, 1e6);
+            Check.Equal("low", ParamOf(() => IirFilter.ButterworthBandPass(2, 0.01, 1000, 1e6)));
+            var f = IirFilter.ButterworthBandPass(2, 1, 1000, 1e6);
             f.Reset(3);
             Check.True(Math.Abs(f.Process(3)) < 1e-6);
         }
 
         public void Iir_LowPassAtATinyCutoffStartsSettled()
         {
-            var f = IirFilter.ButterworthLowPass(2, 1e-5, 1000);
+            Check.Equal("cutoff", ParamOf(() => IirFilter.ButterworthLowPass(2, 1e-5, 1000)));
+            var f = IirFilter.ButterworthLowPass(2, 1e-3, 1000);
             f.Reset(1);
             Check.True(Math.Abs(f.Process(1) - 1) < 0.1, "was 4e-14");
             double[] y = f.FiltFilt(Enumerable.Repeat(1.0, 3000).ToArray());

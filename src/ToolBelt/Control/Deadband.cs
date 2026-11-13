@@ -21,7 +21,10 @@ namespace ToolBelt.Control
             double offset = value - center;
             if (double.IsNaN(offset)) return double.NaN;
             if (Math.Abs(offset) <= halfWidth) return center;
-            return continuous ? center + offset - Math.Sign(offset) * halfWidth : value;
+            if (!continuous) return value;
+            // Shift the value itself: center + offset overflowed when offset did (1.5e308 about −1.5e308) and cancelled
+            // when the centre dwarfed the value (3 about 1e17 gave 1, not 4). Rounding can't carry it past the centre.
+            return offset > 0 ? Math.Max(center, value - halfWidth) : Math.Min(center, value + halfWidth);
         }
     }
 
