@@ -21,21 +21,55 @@ namespace ToolBelt.Signal
             int n = signal.Count;
             var result = new double[n];
             int half = windowSize / 2;
-            var window = new List<double>(Math.Min(windowSize, n));        // a window never holds more than the record
+            // The window is kept sorted as it slides, one binary-searched removal and insertion per sample: re-sorting it for
+            // every sample was O(n·w·log w), 16 s for 20000 samples with a 20001-sample window. NaN is never stored (a sort
+            // put it first, so it acted as −∞).
+            var window = new double[Math.Min(windowSize, n)];               // a window never holds more than the record
+            int count = 0;
+            for (int j = 0; j < n && j <= half; j++) Insert(window, ref count, signal[j]);
 
             for (int i = 0; i < n; i++)
             {
-                window.Clear();
-                int lo = (int)Math.Max(0, (long)i - half);
-                int hi = (int)Math.Min(n - 1, (long)i + half);
-                for (int j = lo; j <= hi; j++)
-                    if (!double.IsNaN(signal[j])) window.Add(signal[j]);       // Sort put NaN first, so it acted as −∞
-                if (window.Count == 0) { result[i] = double.NaN; continue; }
-                window.Sort();
-                int mid = window.Count / 2;
-                result[i] = window.Count % 2 != 0 ? window[mid] : Midpoint(window[mid - 1], window[mid]);
+                if (i > 0)
+                {
+                    long leaving = (long)i - half - 1, entering = (long)i + half;
+                    if (leaving >= 0) Remove(window, ref count, signal[(int)leaving]);
+                    if (entering < n) Insert(window, ref count, signal[(int)entering]);
+                }
+                if (count == 0) { result[i] = double.NaN; continue; }
+                int mid = count / 2;
+                result[i] = count % 2 != 0 ? window[mid] : Midpoint(window[mid - 1], window[mid]);
             }
             return result;
+        }
+
+        private static void Insert(double[] window, ref int count, double x)
+        {
+            if (double.IsNaN(x)) return;
+            int at = LowerBound(window, count, x);
+            Array.Copy(window, at, window, at + 1, count - at);
+            window[at] = x;
+            count++;
+        }
+
+        private static void Remove(double[] window, ref int count, double x)
+        {
+            if (double.IsNaN(x)) return;
+            int at = LowerBound(window, count, x);                         // x is there: it went in when it entered
+            Array.Copy(window, at + 1, window, at, count - at - 1);
+            count--;
+        }
+
+        // The first index whose value is not below x.
+        private static int LowerBound(double[] window, int count, double x)
+        {
+            int lo = 0, hi = count;
+            while (lo < hi)
+            {
+                int mid = lo + (hi - lo) / 2;
+                if (window[mid] < x) lo = mid + 1; else hi = mid;
+            }
+            return lo;
         }
 
         // 0.5·(a + b) overflowed for two values near double.MaxValue; −∞ and +∞ give NaN either way.

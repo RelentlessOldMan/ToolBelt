@@ -40,18 +40,25 @@ namespace ToolBelt.Signal
             var window = new double[(int)Math.Min(n, 2L * halfWindow + 1)];   // a window never holds more than the record
             replaced = 0;
 
+            // The window is kept sorted as it slides (one binary-searched removal and insertion per sample), and the MAD is
+            // read from it in one merge: copying and sorting it twice for every sample took 30 s for 20000 samples with a
+            // half-window of 10000. NaN is never stored.
+            int count = 0;
+            double[]? scratch = null;
+            for (int j = 0; j < n && j <= halfWindow; j++) Insert(window, ref count, samples[j]);
             for (int i = 0; i < n; i++)
             {
-                int lo = (int)Math.Max(0, (long)i - halfWindow);
-                int hi = (int)Math.Min(n - 1, (long)i + halfWindow);
-                int count = 0;
-                for (int j = lo; j <= hi; j++) if (!double.IsNaN(samples[j])) window[count++] = samples[j];
+                if (i > 0)
+                {
+                    long leaving = (long)i - halfWindow - 1, entering = (long)i + halfWindow;
+                    if (leaving >= 0) Remove(window, ref count, samples[(int)leaving]);
+                    if (entering < n) Insert(window, ref count, samples[(int)entering]);
+                }
                 if (count == 0) continue;
 
-                double median = Median(window, count);
-                // MAD = median of |x - median| over the window.
-                for (int j = 0; j < count; j++) window[j] = Math.Abs(window[j] - median);
-                double mad = Median(window, count);
+                int mid = count / 2;
+                double median = count % 2 != 0 ? window[mid] : Midpoint(window[mid - 1], window[mid]);
+                double mad = Mad(window, count, median, ref scratch);
                 double sigma = MadToSigma * mad;
 
                 // When the window is essentially constant, sigma collapses to 0 and the threshold with
@@ -65,14 +72,56 @@ namespace ToolBelt.Signal
             return result;
         }
 
-        private static double Median(double[] buffer, int count)
+        // MAD = median of |x − median| over the sorted window. The deviations of the values below the median grow leftward
+        // from the middle and those above it rightward, so merging the two runs outward reaches the middle rank in O(w).
+        // An infinite median makes the deviations NaN, which don't order; they are sorted as before.
+        private static double Mad(double[] sorted, int count, double median, ref double[]? scratch)
         {
-            var copy = new double[count];
-            Array.Copy(buffer, copy, count);
-            Array.Sort(copy);
-            int mid = count / 2;
-            if (count % 2 != 0) return copy[mid];
-            return Midpoint(copy[mid - 1], copy[mid]);                  // 0.5·(a + b) overflowed near double.MaxValue
+            if (double.IsInfinity(median))
+            {
+                scratch ??= new double[sorted.Length];
+                for (int j = 0; j < count; j++) scratch[j] = Math.Abs(sorted[j] - median);
+                Array.Sort(scratch, 0, count);
+                return count % 2 != 0 ? scratch[count / 2] : Midpoint(scratch[count / 2 - 1], scratch[count / 2]);
+            }
+            int left = count / 2 - 1, right = count / 2;
+            double previous = 0, current = 0;
+            for (int rank = 0; rank <= count / 2; rank++)
+            {
+                previous = current;
+                bool takeLeft = left >= 0 && (right >= count || Math.Abs(sorted[left] - median) <= Math.Abs(sorted[right] - median));
+                current = takeLeft ? Math.Abs(sorted[left--] - median) : Math.Abs(sorted[right++] - median);
+            }
+            return count % 2 != 0 ? current : Midpoint(previous, current);   // 0.5·(a + b) overflowed near double.MaxValue
+        }
+
+        private static void Insert(double[] window, ref int count, double x)
+        {
+            if (double.IsNaN(x)) return;
+            int at = LowerBound(window, count, x);
+            Array.Copy(window, at, window, at + 1, count - at);
+            window[at] = x;
+            count++;
+        }
+
+        private static void Remove(double[] window, ref int count, double x)
+        {
+            if (double.IsNaN(x)) return;
+            int at = LowerBound(window, count, x);                         // x is there: it went in when it entered
+            Array.Copy(window, at + 1, window, at, count - at - 1);
+            count--;
+        }
+
+        // The first index whose value is not below x.
+        private static int LowerBound(double[] window, int count, double x)
+        {
+            int lo = 0, hi = count;
+            while (lo < hi)
+            {
+                int mid = lo + (hi - lo) / 2;
+                if (window[mid] < x) lo = mid + 1; else hi = mid;
+            }
+            return lo;
         }
 
         // The midpoint of two sorted values: halves first, so the sum can't overflow, except where both are tiny, where the

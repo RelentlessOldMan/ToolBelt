@@ -12,6 +12,8 @@ namespace ToolBelt.Signal
     /// </summary>
     public sealed class EnvelopeFollower
     {
+        // The weights of the new level (1 − a for the pole a), kept rather than a: once τ·fs passed about 2^53, a rounded to 1
+        // and the envelope froze (τ·fs = 1e17 left it at 0 after a million samples).
         private readonly double _attack, _release;
 
         /// <param name="sampleRate">Samples per second.</param>
@@ -34,8 +36,13 @@ namespace ToolBelt.Signal
         {
             if (double.IsNaN(sample) || double.IsInfinity(sample)) throw new ArgumentOutOfRangeException(nameof(sample), sample, "Samples must be finite.");
             double level = Math.Abs(sample);
-            double a = level > Value ? _attack : _release;
-            Value = a * Value + (1 - a) * level;
+            double g = level > Value ? _attack : _release;
+            if (g == 1) Value = level;
+            else
+            {
+                double step = level - Value;                             // can overflow only after Reset to a huge negative
+                Value = double.IsInfinity(step) ? Value + (g * level - g * Value) : Value + g * step;
+            }
             return Value;
         }
 
@@ -56,7 +63,13 @@ namespace ToolBelt.Signal
             return result;
         }
 
-        // One-pole smoothing coefficient whose step response reaches 1 − 1/e after τ seconds.
-        private static double Coefficient(double tau, double fs) => tau == 0 ? 0 : Math.Exp(-1 / (tau * fs));
+        // 1 − a for the one-pole smoothing coefficient a = e^(−1/(τ·fs)), whose step response reaches 1 − 1/e after τ seconds;
+        // −expm1(−x) by its series where 1 − e^(−x) would cancel.
+        private static double Coefficient(double tau, double fs)
+        {
+            if (tau == 0) return 1;
+            double x = 1 / (tau * fs);
+            return x < 1e-5 ? x * (1 - x / 2 * (1 - x / 3)) : 1 - Math.Exp(-x);
+        }
     }
 }

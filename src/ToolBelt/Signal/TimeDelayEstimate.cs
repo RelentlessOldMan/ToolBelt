@@ -47,7 +47,10 @@ namespace ToolBelt.Signal
             var corr = Fft.Inverse(prod);
 
             var (lag, value) = FindPeak(corr, reference.Length - 1, delayed.Length - 1);
-            return (lag, value * sa * sb);
+            // The scales' product first: value·sa overflowed for a 1e308 reference against a 1e-300 copy (∞ for 1e9). Where the
+            // product itself overflows or goes subnormal, both scales are large or both small and the order doesn't matter.
+            double scale = sa * sb;
+            return (lag, !double.IsInfinity(scale) && scale >= 2.2250738585072014e-308 ? value * scale : value * sa * sb);
         }
 
         /// <summary>

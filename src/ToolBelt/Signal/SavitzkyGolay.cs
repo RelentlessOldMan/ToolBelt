@@ -40,6 +40,7 @@ namespace ToolBelt.Signal
                 double[] c = e == half ? centre : fit.Row(e, edge);
                 double sum = 0;
                 for (int k = 0; k < windowSize; k++) sum += c[k] * data[start + k];
+                if (double.IsInfinity(sum) || double.IsNaN(sum)) sum = Rescaled(c, data, start, sum);
                 result[i] = sum;
             }
             return result;
@@ -95,6 +96,20 @@ namespace ToolBelt.Signal
                 }
                 return c;
             }
+        }
+
+        // Edge rows' partial sums pass 1, so large data overflowed (five samples of 1.7e308 gave ∞ at the ends, although a
+        // constant passes through unchanged): the window is summed again scaled to a peak of at most 1 by a power of two
+        // (exact), then scaled back. A window holding ∞ or NaN keeps the plain sum.
+        private static double Rescaled(double[] c, IReadOnlyList<double> data, int start, double sum)
+        {
+            double peak = 0;
+            for (int k = 0; k < c.Length; k++) peak = Math.Max(peak, Math.Abs(data[start + k]));
+            if (double.IsInfinity(peak) || double.IsNaN(peak) || !(peak > 1)) return sum;
+            int e = (int)Math.Ceiling(Math.Log(peak, 2));
+            double down = Math.Pow(2, -e), s = 0;
+            for (int k = 0; k < c.Length; k++) s += c[k] * (data[start + k] * down);
+            return s * Math.Pow(2, e / 2) * Math.Pow(2, e - e / 2);
         }
 
         private static double Hypot(double x, double y)

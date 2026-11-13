@@ -29,7 +29,9 @@ namespace ToolBelt.Signal
             if (double.IsNaN(max) || double.IsInfinity(max)) throw new ArgumentOutOfRangeException(nameof(max), max, "The range must be finite.");
             if (!(max > min)) throw new ArgumentException("max must exceed min.", nameof(max));
             double step = (max - min) / (1 << bits);
-            // ±1e308 made the step ∞ (every value code 0); a denormal range made it 0.
+            // ±1e308 overflowed max − min and the range was refused, although its step is representable: the halves are
+            // divided separately then. A step that is still ∞, or 0 for a denormal range, can't be used.
+            if (double.IsInfinity(step)) step = max / (1 << bits) - min / (1 << bits);
             if (double.IsInfinity(step) || !(step > 0)) throw new ArgumentOutOfRangeException(nameof(max), max, "The range is too wide or too narrow for this many bits.");
             Bits = bits;
             _min = min;
@@ -43,14 +45,21 @@ namespace ToolBelt.Signal
         {
             if (double.IsNaN(value)) throw new ArgumentOutOfRangeException(nameof(value), value, "NaN has no quantizer code.");
             // Clamp before the cast: an out-of-range double → int conversion is undefined (int.MinValue on x64 before .NET 9).
-            double code = Math.Floor((value - _min) / _step);
+            double offset = value - _min;
+            // value − min overflows for a range near ±double.MaxValue; halved, it can't (an infinite value stays infinite).
+            double code = Math.Floor(double.IsInfinity(offset) && !double.IsInfinity(value) ? (value / 2 - _min / 2) / (_step / 2) : offset / _step);
             if (!(code > 0)) return 0;
             if (code >= _levels - 1) return _levels - 1;
             return (int)code;
         }
 
         /// <summary>The reconstructed (quantized) value for <paramref name="value"/>: the center of its code bin.</summary>
-        public double Quantize(double value) => _min + (Code(value) + 0.5) * _step;
+        public double Quantize(double value)
+        {
+            double center = _min + (Code(value) + 0.5) * _step;
+            // (code + ½)·step passes double.MaxValue for a range near ±double.MaxValue; halved, it can't.
+            return double.IsInfinity(center) ? 2 * (_min / 2 + (Code(value) + 0.5) * (_step / 2)) : center;
+        }
 
         /// <summary>Quantizes an entire signal.</summary>
         public double[] Quantize(double[] samples)

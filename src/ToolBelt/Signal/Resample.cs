@@ -33,7 +33,9 @@ namespace ToolBelt.Signal
             {
                 double pos = i * scale;
                 int lo = (int)Math.Floor(pos);
-                if (lo >= samples.Length - 1) { result[i] = samples[samples.Length - 1]; continue; }
+                // The last point is the last input: i·scale can round just below it ([0, 1] to 50 points ended at
+                // 0.9999999999999999, and [NaN, 1] at NaN).
+                if (lo >= samples.Length - 1 || i == newLength - 1) { result[i] = samples[samples.Length - 1]; continue; }
                 double frac = pos - lo;
                 // On an input point, take it as is: 0 × a NaN or ∞ neighbour is NaN.
                 result[i] = frac == 0 ? samples[lo] : samples[lo] * (1 - frac) + samples[lo + 1] * frac;
@@ -53,7 +55,8 @@ namespace ToolBelt.Signal
             if (!(targetRate > 0) || double.IsInfinity(targetRate)) throw new ArgumentOutOfRangeException(nameof(targetRate), targetRate, "Target rate must be positive and finite.");
             if (samples.Length == 0) throw new ArgumentException("Input must be non-empty.", nameof(samples));
             double length = Math.Round(samples.Length * (targetRate / sourceRate));
-            if (!(length <= int.MaxValue)) throw new ArgumentOutOfRangeException(nameof(targetRate), targetRate, "The resampled signal would be too long for an array.");
+            // Past Array.MaxLength (not int.MaxValue) the result threw OutOfMemoryException.
+            if (!(length <= 0x7FFFFFC7)) throw new ArgumentOutOfRangeException(nameof(targetRate), targetRate, "The resampled signal would be too long for an array.");
             int newLength = Math.Max(1, (int)length);
 
             // Not Linear(samples, newLength): that pins both endpoints, which stretches the spacing away from the target rate.
@@ -87,7 +90,8 @@ namespace ToolBelt.Signal
             {
                 double sum = 0;
                 for (int j = 0; j < factor; j++) sum += samples[i * factor + j];
-                if (double.IsInfinity(sum))                             // the sum overflowed for representable samples
+                // The sum overflowed for representable samples; ∞ then plus a −∞ sample is NaN, so NaN is retried too.
+                if (double.IsInfinity(sum) || double.IsNaN(sum))
                 {
                     sum = 0;
                     for (int j = 0; j < factor; j++) sum += samples[i * factor + j] / factor;

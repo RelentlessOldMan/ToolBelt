@@ -17,6 +17,7 @@ namespace ToolBelt.Signal
         {
             if (input is null) throw new ArgumentNullException(nameof(input));
             if (input.Length == 0) return Array.Empty<Complex>();
+            CheckLength(input.Length, nameof(input));
             var data = (Complex[])input.Clone();
             Transform(data, inverse: false, nameof(input));
             return data;
@@ -27,6 +28,7 @@ namespace ToolBelt.Signal
         {
             if (real is null) throw new ArgumentNullException(nameof(real));
             if (real.Length == 0) return Array.Empty<Complex>();
+            CheckLength(real.Length, nameof(real));
             var data = new Complex[real.Length];
             for (int i = 0; i < real.Length; i++) data[i] = new Complex(real[i], 0);
             Transform(data, inverse: false, nameof(real));
@@ -41,6 +43,7 @@ namespace ToolBelt.Signal
         {
             if (spectrum is null) throw new ArgumentNullException(nameof(spectrum));
             if (spectrum.Length == 0) return Array.Empty<Complex>();
+            CheckLength(spectrum.Length, nameof(spectrum));
             var data = (Complex[])spectrum.Clone();
             Transform(data, inverse: true, nameof(spectrum));
             double scale = 1.0 / data.Length;
@@ -72,12 +75,31 @@ namespace ToolBelt.Signal
             return true;
         }
 
+        // The convolution length is a power of two ≥ 2n − 1; past 2³⁰ it no longer fits an int. Checked before anything is
+        // allocated: the copy and Bluestein's chirp (about 17 GB at 2^29 + 1) came first, so the caller got
+        // OutOfMemoryException instead.
+        private static void CheckLength(int n, string paramName)
+        {
+            if (!IsPowerOfTwo(n) && 2L * n - 1 > 1 << 30)
+                throw new ArgumentException($"A length-{n} transform that is not a power of two is too long (Bluestein needs 2n − 1 ≤ 2^30); pad it to a power of two.", paramName);
+        }
+
         // Unnormalized transform in place; dispatches by length.
         private static void Transform(Complex[] data, bool inverse, string paramName)
         {
             int n = data.Length;
             if (n <= 1) return;
-            if ((n & (n - 1)) == 0) Radix2(data, inverse);
+            if ((n & (n - 1)) == 0)
+            {
+                // Subnormal inputs lost bits in the twiddle products ([7ε, 3ε, 5ε, 0, 0, 0, 0, 0] was 8% off in bins 1 and 7),
+                // so a tiny input is scaled up by 2^600 (exact) and back, as Bluestein does.
+                double max = 0;
+                for (int k = 0; k < n; k++) max = Math.Max(max, Math.Max(Math.Abs(data[k].Real), Math.Abs(data[k].Imaginary)));
+                bool tiny = max > 0 && max < 3.054936363499605e-151;                                    // 2^-500
+                if (tiny) for (int k = 0; k < n; k++) data[k] *= Math.Pow(2, 600);
+                Radix2(data, inverse);
+                if (tiny) for (int k = 0; k < n; k++) data[k] *= Math.Pow(2, -600);
+            }
             else Bluestein(data, inverse, paramName);
         }
 
@@ -132,9 +154,8 @@ namespace ToolBelt.Signal
                 chirp[k] = new Complex(Math.Cos(ang), Math.Sin(ang));
             }
 
-            // The convolution length is a power of two ≥ 2n − 1; past 2³⁰ it no longer fits an int (the doubling loop would
-            // wrap to 0 and spin forever).
-            if (2L * n - 1 > 1 << 30) throw new ArgumentException($"A length-{n} transform that is not a power of two is too long (Bluestein needs 2n − 1 ≤ 2^30); pad it to a power of two.", paramName);
+            // CheckLength keeps 2n − 1 ≤ 2³⁰, so the doubling loop can't wrap to 0 and spin forever.
+            CheckLength(n, paramName);
             int m = 1;
             while (m < 2 * n - 1) m <<= 1;
 

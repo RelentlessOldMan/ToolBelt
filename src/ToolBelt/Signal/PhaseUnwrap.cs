@@ -11,10 +11,10 @@ namespace ToolBelt.Signal
     public static class PhaseUnwrap
     {
         /// <summary>
-        /// Unwraps <paramref name="phase"/> (radians): wherever a successive difference exceeds <paramref name="tolerance"/>
-        /// in magnitude, whole turns of 2π are added or removed (the fewest that bring it within max(tolerance, π)). A
-        /// tolerance below π therefore acts like π, as in NumPy's <c>unwrap</c>: whole turns can't shrink a jump that is
-        /// already within π, only flip its sign and widen it. Phases must be finite.
+        /// Unwraps <paramref name="phase"/> (radians): wherever a successive difference is at least <paramref name="tolerance"/>
+        /// in magnitude, whole turns of 2π are added or removed to bring it into (−π, π], as NumPy's <c>unwrap</c> (with
+        /// <c>discont</c>) and MATLAB's <c>unwrap</c> (with <c>tol</c>) do. A tolerance below π therefore acts like π (a
+        /// jump already within π is left alone); one above π leaves jumps below it alone. Phases must be finite.
         /// </summary>
         public static double[] Unwrap(double[] phase, double tolerance = Math.PI)
         {
@@ -32,10 +32,15 @@ namespace ToolBelt.Signal
                     throw new ArgumentException($"Phase[{i}] is {phase[i]}; phases must be finite.", nameof(phase));
                 if (i == 0) continue;
                 double delta = phase[i] - phase[i - 1];
-                // Count the turns directly: a loop of `delta -= 2π` never ends when delta is huge.
-                double reach = Math.Max(tolerance, Math.PI);
-                if (delta > tolerance) correction -= Math.Ceiling((delta - reach) / Turn) * Turn;
-                else if (delta < -tolerance) correction += Math.Ceiling((-delta - reach) / Turn) * Turn;
+                // Count the turns directly: a loop of `delta -= 2π` never ends when delta is huge. A jump at the tolerance is
+                // corrected, and into (−π, π]: correcting only past it, and only to within it, left [0, 10] at tolerance 4
+                // as [0, 3.72] where NumPy gives [0, −2.57].
+                if (Math.Abs(delta) >= tolerance)
+                {
+                    double turns = Math.Floor((delta + Math.PI) / Turn);
+                    if (delta > 0 && delta - turns * Turn == -Math.PI) turns--;   // +π stays +π, as in NumPy
+                    correction -= turns * Turn;
+                }
                 result[i] = phase[i] + correction;
                 // One jump of ±3.4e308 made the correction infinite and every later sample −∞.
                 if (double.IsInfinity(result[i]) || double.IsNaN(result[i]))
@@ -62,7 +67,16 @@ namespace ToolBelt.Signal
             for (int i = 0; i < n; i++)
             {
                 int lo = Math.Max(0, i - 1), hi = Math.Min(n - 1, i + 1);
-                tau[i] = -(unwrappedPhase[hi] - unwrappedPhase[lo]) / (2 * Math.PI * (frequencies[hi] - frequencies[lo]));
+                double dp = unwrappedPhase[hi] - unwrappedPhase[lo], df = frequencies[hi] - frequencies[lo];
+                // Frequencies spanning ±1e308 overflowed Δf or 2π·Δf and gave a delay of 0: the differences are halved
+                // where one overflowed, and 2π divided out last where 2π·Δf would.
+                if (double.IsInfinity(dp) || double.IsInfinity(df))
+                {
+                    dp = unwrappedPhase[hi] / 2 - unwrappedPhase[lo] / 2;
+                    df = frequencies[hi] / 2 - frequencies[lo] / 2;
+                }
+                double omega = 2 * Math.PI * df;
+                tau[i] = double.IsInfinity(omega) ? -(dp / df) / (2 * Math.PI) : -dp / omega;
             }
             return tau;
         }

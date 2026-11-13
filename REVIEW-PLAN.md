@@ -42,7 +42,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | #  | Section | Scope (src) | ~Lines | Prior | Passes | Bugs (last / total) | Status |
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 4 | 14 / 59 | re-queue (14 bugs, 1 severe) |
-| 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 3 | 13 / 60 | re-queue (13 bugs, 1 severe) |
+| 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 4 | 23 / 83 | re-queue (23 bugs) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 4 | 23 / 109 | re-queue (23 bugs, none severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 4 | 24 / 119 | re-queue (24 bugs, none severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 4 | 24 / 106 | re-queue (24 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69); **next: 2, 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70); **next: 9, 10, 16, 11** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -143,11 +143,40 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.10 | 67 | Filters & control, fourth pass | 14 | (see tag) |
 | v2026.11.13.11 | 68 | Binary formats & images, fourth pass | 10 | (see tag) |
 | v2026.11.13.12 | 69 | Logging, diagnostics, CLI, fourth pass | 30 | (see tag) |
+| v2026.11.13.13 | 70 | Signal analysis, fourth pass | 23 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 70: Signal analysis, fourth pass (v2026.11.13.13)
+
+Two fresh reviewers (correctness, robustness): 30 findings, 22 after merging the eight both found, all confirmed, plus a
+Quantizer reconstruction overflow found while fixing, so **23 bugs, none severe**. Section 2 stays re-queued (≥ 3 bugs).
+The regression tests are in `SignalReview4Tests` (26 tests). All 24 regression tests failed on the old code on .NET 8;
+the other two check the new sliding Median and Hampel windows against naive references. Nothing is left open.
+
+- **Overflow and underflow for representable answers:** Goertzel (1000 samples of 1e303 at DC gave NaN), WelchPsd and
+  Multitaper (amplitude 1e155 at 1e10 Hz gave ∞, 1e-170 at 1e-100 Hz gave 0), Savitzky-Golay edge rows (a 1.7e308
+  constant gave ∞), Convolve ([1e200, 1e200] ∗ [1e200, −1e200] gave NaN in the middle), cycle statistics at extreme
+  rates (a standard deviation of 0 at 1e200 Hz), GroupDelay over ±1e308 Hz (0), CrossCorrelationPeak's value for
+  opposite scales, and Hilbert's real part for double.MaxValue (∞). Inputs are scaled by powers of two, which is exact,
+  and scaled back last.
+- **Subnormal inputs lost bits:** radix-2 FFT (8% off), cycle measurement (a ±ε square wave had no cycles: 0/0
+  crossings) and pulse measurements (a rise time of 1 for 1.4667). They are measured scaled up by 2^600.
+- **Quantizer** refused ±1e308, although its step is representable; with the range accepted, a 1-bit ±MaxValue
+  quantizer reconstructed ∞. Both are halved where they would overflow.
+- **Unwrap** with a tolerance above π corrected only jumps past it, and only to within it ([0, 10] at 4 stayed
+  [0, 3.72]); it now follows NumPy's `discont` and MATLAB's `tol` (corrected at the tolerance, into (−π, π]).
+- **RiseTime and FallTime** threw for a record starting partway up an edge although a full edge followed; they now take
+  the first edge that crosses both references.
+- **MedianFilter and Hampel** sorted the window again for every sample (16 s and 30 s for 20000 samples with a window as
+  long); the window is now kept sorted as it slides, and Hampel's MAD is read by one merge.
+- **Length checks:** Convolve and CrossCorrelate overflowed int for long virtual lists; ToRate checked int.MaxValue, not
+  Array.MaxLength; a too-long non-power-of-two FFT allocated gigabytes before refusing.
+- **Smaller:** Decimate gave NaN for [MaxValue, MaxValue, −∞] (−∞); Linear's last point could round below the last
+  input; EnvelopeFollower froze once τ·fs passed about 2^53; SpectralPeak accepted an undefined PeakMethod.
+
 ### Round 69: Logging, diagnostics, CLI, fourth pass (v2026.11.13.12)
 
 Two fresh reviewers (correctness, robustness): 30 findings, 26 after merging the four both found, all confirmed, plus a

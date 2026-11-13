@@ -367,7 +367,7 @@ src/
       Hilbert.cs            analytic signal, amplitude envelope, instantaneous phase/frequency
       LevelConversions.cs   dB/amplitude/power conversions, RMS, dBFS
       MedianFilter.cs       sliding-window median (removes spikes, preserves edges)
-      PhaseUnwrap.cs        removes 2π jumps from wrapped phase; group delay −dφ/dω
+      PhaseUnwrap.cs        removes 2π jumps from wrapped phase (NumPy/MATLAB tolerance semantics); group delay −dφ/dω
       PulseMeasurements.cs  rise/fall time, pulse width, duty cycle (histogram state levels, sub-sample crossings)
       Quantizer.cs          uniform ADC model + ideal 6.02N+1.76 dB SNR
       Resample.cs           linear resample / rate conversion / anti-aliased decimation
@@ -789,6 +789,7 @@ tests/
       SignalReviewTests.cs  (review regressions: high-order Savitzky-Golay, overflow clamps, NaN handling, GCC-PHAT scale)
       SignalReview2Tests.cs (second-pass regressions: pulse state levels and edges, zero runs, NaN medians, overflow and scale)
       SignalReview3Tests.cs (third-pass regressions: high-order Savitzky-Golay, Bluestein and Hilbert overflow, huge-rate scaling, band edges)
+      SignalReview4Tests.cs (fourth-pass regressions: spectral overflow, subnormal FFT/cycle/pulse, NumPy unwrap tolerance, sliding median/Hampel, length checks)
       WindowTests.cs
       ZeroCrossingTests.cs
     Objects/

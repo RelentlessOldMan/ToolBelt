@@ -173,7 +173,7 @@ namespace ToolBelt.Tests.Signal
         {
             Check.Equal("min", ParamOf(() => new Quantizer(8, double.NegativeInfinity, 1)));
             Check.Equal("max", ParamOf(() => new Quantizer(8, 0, double.PositiveInfinity)));
-            Check.Equal("max", ParamOf(() => new Quantizer(8, -1e308, 1e308)));                          // step ∞
+            new Quantizer(8, -1e308, 1e308);                    // max − min overflows but the step doesn't (round 70)
             Check.Equal("max", ParamOf(() => new Quantizer(8, 0, 5e-324)));                               // step 0
             Check.Equal(255, new Quantizer(8, -1e307, 1e307).Code(1e307));
         }

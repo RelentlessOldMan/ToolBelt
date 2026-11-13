@@ -27,9 +27,15 @@ namespace ToolBelt.Signal
             var psd = new double[bins];
             var tapered = new double[n];
             double amplitude = Math.Sqrt(2.0 / (n + 1));
+            // Scaled to a peak near 1 by a power of two (exact), as in WelchPsd: |X|² overflowed or underflowed for
+            // representable densities. The square of the scale is applied last, with the sample rate's exponent.
+            double peak = 0;
+            foreach (double v in samples) peak = Math.Max(peak, Math.Abs(v));
+            int exponent = Exponent(peak);
+            double downHalf = Math.Pow(2, -(exponent / 2)), downRest = Math.Pow(2, -(exponent - exponent / 2));
             for (int k = 1; k <= tapers; k++)
             {
-                for (int i = 0; i < n; i++) tapered[i] = samples[i] * amplitude * Math.Sin(Math.PI * k * (i + 1) / (n + 1));
+                for (int i = 0; i < n; i++) tapered[i] = samples[i] * downHalf * downRest * amplitude * Math.Sin(Math.PI * k * (i + 1) / (n + 1));
                 var fft = Fft.Forward(tapered);
                 for (int b = 0; b < bins; b++)
                 {
@@ -40,8 +46,24 @@ namespace ToolBelt.Signal
             }
             // Each taper has unit energy (Σv² = 1), so the density normalisation is 1/fs per taper, averaged over K.
             // Divided in turn: fs·K overflowed to ∞ at a huge rate, making every density 0.
-            for (int b = 0; b < bins; b++) psd[b] = psd[b] / tapers / sampleRate;
+            int rateExponent = (int)Math.Floor(Math.Log(sampleRate, 2));
+            double rateMantissa = ScaleB(sampleRate, -rateExponent);
+            for (int b = 0; b < bins; b++) psd[b] = ScaleB(psd[b] / tapers / rateMantissa, 2 * exponent - rateExponent);
             return (FrequencyGrid.BinFrequencies(n, sampleRate), psd);
         }
+
+        // x·2^e in exact power-of-two steps: 2^e alone overflows or underflows past ±1023.
+        private static double ScaleB(double x, int e)
+        {
+            for (; e > 1000; e -= 1000) x *= Math.Pow(2, 1000);
+            for (; e < -1000; e += 1000) x *= Math.Pow(2, -1000);
+            return x * Math.Pow(2, e);
+        }
+
+        // The power of two that brings a peak to at most 1 (or, below 2^-500, up near 1, where subnormals lose bits); 0 for a
+        // peak that is 0, in range, or not finite. Math.Log is used, not bit tricks, so it works on netstandard2.0 too.
+        private static int Exponent(double peak)
+            => !double.IsInfinity(peak) && !double.IsNaN(peak) && (peak > 1 || (peak > 0 && peak < 3.054936363499605e-151))
+                ? (int)Math.Ceiling(Math.Log(peak, 2)) : 0;
     }
 }

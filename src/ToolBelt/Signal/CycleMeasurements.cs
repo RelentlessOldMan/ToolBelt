@@ -7,10 +7,11 @@ namespace ToolBelt.Signal
     /// <summary>One cycle of a periodic capture, from one rising crossing to the next.</summary>
     public sealed class Cycle
     {
-        internal Cycle(double start, double period, double highTime, double maximum, double minimum)
+        internal Cycle(double start, double period, double highTime, double maximum, double minimum, double periodSamples)
         {
             Start = start;
             Period = period;
+            PeriodSamples = periodSamples;
             HighTime = highTime;
             Maximum = maximum;
             Minimum = minimum;
@@ -21,6 +22,9 @@ namespace ToolBelt.Signal
 
         /// <summary>Seconds to the next rising crossing.</summary>
         public double Period { get; }
+
+        // The period in samples, which the statistics work in.
+        internal double PeriodSamples { get; }
 
         public double Frequency => 1 / Period;
 
@@ -36,7 +40,7 @@ namespace ToolBelt.Signal
     /// <summary>Cycle-by-cycle results and their summary statistics.</summary>
     public sealed class CycleStatistics
     {
-        internal CycleStatistics(IReadOnlyList<Cycle> cycles, double level)
+        internal CycleStatistics(IReadOnlyList<Cycle> cycles, double level, double sampleRate)
         {
             Cycles = cycles;
             Level = level;
@@ -46,17 +50,20 @@ namespace ToolBelt.Signal
                 MeanPeriod = PeriodStandardDeviation = PeakToPeakJitter = CycleToCycleJitter = MeanDutyCycle = double.NaN;
                 return;
             }
+            // In samples, divided by the rate last: squared periods in seconds underflowed or overflowed at extreme rates
+            // (periods of 4 and 6 samples at 1e200 Hz had a standard deviation of 0, at 1e-306 Hz one of ∞).
             double sum = 0, duty = 0, min = double.PositiveInfinity, max = double.NegativeInfinity;
-            foreach (var c in cycles) { sum += c.Period; duty += c.DutyCycle; min = Math.Min(min, c.Period); max = Math.Max(max, c.Period); }
-            MeanPeriod = sum / n;
+            foreach (var c in cycles) { sum += c.PeriodSamples; duty += c.DutyCycle; min = Math.Min(min, c.PeriodSamples); max = Math.Max(max, c.PeriodSamples); }
+            double mean = sum / n;
+            MeanPeriod = mean / sampleRate;
             MeanDutyCycle = duty / n;
-            PeakToPeakJitter = max - min;
+            PeakToPeakJitter = (max - min) / sampleRate;
             double ss = 0;
-            foreach (var c in cycles) ss += (c.Period - MeanPeriod) * (c.Period - MeanPeriod);
-            PeriodStandardDeviation = n > 1 ? Math.Sqrt(ss / (n - 1)) : 0;
+            foreach (var c in cycles) ss += (c.PeriodSamples - mean) * (c.PeriodSamples - mean);
+            PeriodStandardDeviation = n > 1 ? Math.Sqrt(ss / (n - 1)) / sampleRate : 0;
             double c2c = 0;
-            for (int i = 1; i < n; i++) { double d = cycles[i].Period - cycles[i - 1].Period; c2c += d * d; }
-            CycleToCycleJitter = n > 1 ? Math.Sqrt(c2c / (n - 1)) : 0;
+            for (int i = 1; i < n; i++) { double d = cycles[i].PeriodSamples - cycles[i - 1].PeriodSamples; c2c += d * d; }
+            CycleToCycleJitter = n > 1 ? Math.Sqrt(c2c / (n - 1)) / sampleRate : 0;
         }
 
         /// <summary>The individual cycles — a series to feed control charts or capability analysis.</summary>
@@ -100,7 +107,7 @@ namespace ToolBelt.Signal
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
             if (level is double given && (double.IsNaN(given) || double.IsInfinity(given))) throw new ArgumentOutOfRangeException(nameof(level), given, "Level must be finite.");
             if (!(hysteresis >= 0 && hysteresis < 0.5)) throw new ArgumentOutOfRangeException(nameof(hysteresis), hysteresis, "Hysteresis must be in [0, 0.5).");
-            if (samples.Count < 3) return new CycleStatistics(Array.Empty<Cycle>(), level ?? double.NaN);
+            if (samples.Count < 3) return new CycleStatistics(Array.Empty<Cycle>(), level ?? double.NaN, sampleRate);
 
             double min = double.PositiveInfinity, max = double.NegativeInfinity;
             for (int i = 0; i < samples.Count; i++)
@@ -109,6 +116,20 @@ namespace ToolBelt.Signal
                 if (double.IsNaN(x) || double.IsInfinity(x)) throw new ArgumentException($"samples[{i}] is {x}; samples must be finite.", nameof(samples));
                 min = Math.Min(min, x);
                 max = Math.Max(max, x);
+            }
+            // A subnormal capture lost bits in every halved level and difference (the default level 2ε for 3ε, and a ±ε
+            // square wave gave 0/0 for its crossings, so no cycles): it is measured scaled up by 2^600, which is exact.
+            // Crossing times don't depend on scale; the level and the extremes are scaled back.
+            double unscale = 1;
+            if (Math.Max(-min, max) < Tiny && !(level is double l && !(Math.Abs(l) < Tiny)))
+            {
+                var up = new double[samples.Count];
+                for (int i = 0; i < up.Length; i++) up[i] = samples[i] * Up;
+                samples = up;
+                min *= Up;
+                max *= Up;
+                if (level is double l2) level = l2 * Up;
+                unscale = Down;
             }
             double lvl = level ?? min / 2 + max / 2;                         // (min + max) / 2 and max − min overflowed
             double band = 2 * hysteresis * (max / 2 - min / 2);
@@ -160,16 +181,20 @@ namespace ToolBelt.Signal
                     cmax = Math.Max(cmax, samples[i]);
                     cmin = Math.Min(cmin, samples[i]);
                 }
-                cycles.Add(new Cycle(start / sampleRate, (end - start) / sampleRate, high / sampleRate, cmax, cmin));
+                cycles.Add(new Cycle(start / sampleRate, (end - start) / sampleRate, high / sampleRate, cmax * unscale, cmin * unscale, end - start));
             }
-            return new CycleStatistics(cycles, lvl);
+            return new CycleStatistics(cycles, lvl * unscale, sampleRate);
         }
 
-        // Fractional index where the segment (i−1, i) crosses `level`.
+        private const double Tiny = 9.332636185032189e-302;                                     // 2^-1000
+        private static readonly double Up = Math.Pow(2, 600), Down = Math.Pow(2, -600);
+
+        // Fractional index where the segment (i−1, i) crosses `level`, halved so b − a can't overflow. Halves that round to
+        // equal (only possible below the subnormal scaling above) count as a crossing at i, not 0/0 = NaN, which dropped it.
         private static double Cross(IReadOnlyList<double> s, int i, double level)
         {
-            double a = s[i - 1], b = s[i];
-            return b == a ? i : i - 1 + (level / 2 - a / 2) / (b / 2 - a / 2);
+            double a = s[i - 1], b = s[i], denom = b / 2 - a / 2;
+            return denom == 0 ? i : i - 1 + Math.Min(1, Math.Max(0, (level / 2 - a / 2) / denom));
         }
     }
 }

@@ -50,8 +50,9 @@ namespace ToolBelt.Signal
                 spectrum[k] *= factor;
             }
             var analytic = Fft.Inverse(spectrum);
-            if (exponent != 0)
-                for (int i = 0; i < n; i++) analytic[i] = analytic[i] * upHalf * upRest;
+            // The real part is the input itself: taken from the transform, its rounding scaled back by 2^1024 overflowed
+            // ([double.MaxValue, 0, 0] had a real part of ∞, and so an envelope of ∞).
+            for (int i = 0; i < n; i++) analytic[i] = new Complex(samples[i], analytic[i].Imaginary * upHalf * upRest);
             return analytic;
         }
 

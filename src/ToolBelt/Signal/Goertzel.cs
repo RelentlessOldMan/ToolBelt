@@ -32,10 +32,18 @@ namespace ToolBelt.Signal
             double cosine = Math.Cos(omega);
             double coeff = 2.0 * cosine;
 
+            // The state grows to about N²·A near DC and Nyquist, so large samples overflowed (1000 of 1e303 at 0 Hz gave NaN
+            // for 1e306): they are scaled to a peak of at most 1 by a power of two, which is exact, and the magnitude is
+            // scaled back. A non-finite peak is left unscaled.
+            double peak = 0;
+            for (int n = 0; n < samples.Count; n++) peak = Math.Max(peak, Math.Abs(samples[n]));
+            int exponent = Exponent(peak);
+            double downHalf = Math.Pow(2, -(exponent / 2)), downRest = Math.Pow(2, -(exponent - exponent / 2));
+
             double s0, s1 = 0, s2 = 0;
             for (int n = 0; n < samples.Count; n++)
             {
-                s0 = samples[n] + coeff * s1 - s2;
+                s0 = samples[n] * downHalf * downRest + coeff * s1 - s2;
                 s2 = s1;
                 s1 = s0;
             }
@@ -44,8 +52,15 @@ namespace ToolBelt.Signal
             double imag = s2 * Math.Sin(omega);
             double magnitude = Math.Sqrt(real * real + imag * imag);
             if (double.IsInfinity(magnitude) || (magnitude < 1e-150 && (real != 0 || imag != 0))) magnitude = Hypot(real, imag);
+            magnitude = magnitude * Math.Pow(2, exponent / 2) * Math.Pow(2, exponent - exponent / 2);
             return (magnitude, Math.Atan2(imag, real));
         }
+
+        // The power of two that brings a peak to at most 1 (or, below 2^-500, up near 1, where subnormals lose bits); 0 for a
+        // peak that is 0, in range, or not finite.
+        private static int Exponent(double peak)
+            => !double.IsInfinity(peak) && !double.IsNaN(peak) && (peak > 1 || (peak > 0 && peak < 3.054936363499605e-151))
+                ? (int)Math.Ceiling(Math.Log(peak, 2)) : 0;
 
         // √(a² + b²) without squaring the larger: four samples of 1e200 gave a magnitude of ∞, four of 1e-170 one of 0.
         private static double Hypot(double a, double b)

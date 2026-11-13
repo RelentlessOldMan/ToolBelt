@@ -19,6 +19,30 @@ namespace ToolBelt.Signal
         /// </summary>
         public static (double Low, double High) StateLevels(double[] samples)
         {
+            var scaled = Scaled(samples);
+            var (low, high) = Levels(scaled);
+            return ReferenceEquals(scaled, samples) ? (low, high) : (low * Down, high * Down);
+        }
+
+        private const double Tiny = 9.332636185032189e-302;                                     // 2^-1000
+        private static readonly double Up = Math.Pow(2, 600), Down = Math.Pow(2, -600);
+
+        // A subnormal record lost bits in every halved difference and level (a rise time of 1 for 1.4667, a pulse width of
+        // 3.5 for 3.25), so one whose peak is below 2^-1000 is measured scaled up by 2^600, which is exact. Times and
+        // fractions don't depend on scale.
+        private static double[] Scaled(double[] samples)
+        {
+            if (samples is null) throw new ArgumentNullException(nameof(samples));
+            double peak = 0;
+            foreach (double v in samples) peak = Math.Max(peak, Math.Abs(v));
+            if (!(peak < Tiny) || peak == 0) return samples;                // NaN and ∞ are refused by Levels
+            var up = new double[samples.Length];
+            for (int i = 0; i < up.Length; i++) up[i] = samples[i] * Up;
+            return up;
+        }
+
+        private static (double Low, double High) Levels(double[] samples)
+        {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
             if (samples.Length == 0) throw new ArgumentException("Signal must be non-empty.", nameof(samples));
             double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
@@ -51,37 +75,46 @@ namespace ToolBelt.Signal
 
         /// <summary>
         /// Rise time from <paramref name="lowPct"/> to <paramref name="highPct"/> of the amplitude (10%–90% by default), in
-        /// seconds: from the last low-reference crossing before the first high-reference crossing (both on the same edge).
+        /// seconds, on the first rising edge that crosses both references: from the last low-reference crossing before its
+        /// high-reference crossing. A record that starts partway up an edge is measured on the next full one.
         /// </summary>
         public static double RiseTime(double[] samples, double sampleRate, double lowPct = 0.1, double highPct = 0.9)
         {
             ValidateRate(sampleRate);
             ValidateReferences(lowPct, highPct);
-            var (lo, hi) = StateLevels(samples);
-            double lowRef = Lerp(lo, hi, lowPct), highRef = Lerp(lo, hi, highPct);
-            double t2 = FindCrossing(samples, highRef, rising: true, reach: true);
-            if (t2 < 0) throw new InvalidOperationException("No rising edge crosses the high reference.");
-            // The first low-reference crossing in the record paired a glitch long before the edge with the edge's top.
-            double t1 = FindLastCrossing(samples, lowRef, (int)Math.Floor(t2), rising: true);
-            if (t1 < 0) throw new InvalidOperationException("No rising edge crosses the low reference.");
-            return (t2 - t1) / sampleRate;
+            return EdgeTime(Scaled(samples), sampleRate, lowPct, highPct, rising: true);
         }
 
         /// <summary>
-        /// Fall time from <paramref name="highPct"/> down to <paramref name="lowPct"/>, in seconds: from the last high-reference
-        /// crossing before the first low-reference crossing.
+        /// Fall time from <paramref name="highPct"/> down to <paramref name="lowPct"/>, in seconds, on the first falling edge
+        /// that crosses both: from the last high-reference crossing before its low-reference crossing.
         /// </summary>
         public static double FallTime(double[] samples, double sampleRate, double lowPct = 0.1, double highPct = 0.9)
         {
             ValidateRate(sampleRate);
             ValidateReferences(lowPct, highPct);
-            var (lo, hi) = StateLevels(samples);
+            return EdgeTime(Scaled(samples), sampleRate, lowPct, highPct, rising: false);
+        }
+
+        // The first high (rising) or low (falling) reference crossing whose edge also crossed the other reference before it.
+        // Only the first one was tried, so a record starting partway up an edge threw although a full edge followed. A later
+        // candidate can't pair with a crossing before an earlier one: that earlier candidate would have taken it.
+        private static double EdgeTime(double[] samples, double sampleRate, double lowPct, double highPct, bool rising)
+        {
+            var (lo, hi) = Levels(samples);
             double lowRef = Lerp(lo, hi, lowPct), highRef = Lerp(lo, hi, highPct);
-            double t2 = FindCrossing(samples, lowRef, rising: false, reach: true);
-            if (t2 < 0) throw new InvalidOperationException("No falling edge crosses the low reference.");
-            double t1 = FindLastCrossing(samples, highRef, (int)Math.Floor(t2), rising: false);
-            if (t1 < 0) throw new InvalidOperationException("No falling edge crosses the high reference.");
-            return (t2 - t1) / sampleRate;
+            double endRef = rising ? highRef : lowRef, startRef = rising ? lowRef : highRef;
+            string edge = rising ? "rising" : "falling";
+            double t2 = FindCrossing(samples, endRef, rising, reach: true);
+            if (t2 < 0) throw new InvalidOperationException($"No {edge} edge crosses the {(rising ? "high" : "low")} reference.");
+            while (t2 >= 0)
+            {
+                // The first start-reference crossing in the record paired a glitch long before the edge with the edge's end.
+                double t1 = FindLastCrossing(samples, startRef, (int)Math.Floor(t2), rising);
+                if (t1 >= 0) return (t2 - t1) / sampleRate;
+                t2 = FindCrossing(samples, endRef, rising, reach: true, (int)Math.Floor(t2) + 1);
+            }
+            throw new InvalidOperationException($"No {edge} edge crosses the {(rising ? "low" : "high")} reference.");
         }
 
         /// <summary>
@@ -91,7 +124,8 @@ namespace ToolBelt.Signal
         public static double PulseWidth(double[] samples, double sampleRate)
         {
             ValidateRate(sampleRate);
-            var (lo, hi) = StateLevels(samples);
+            samples = Scaled(samples);
+            var (lo, hi) = Levels(samples);
             double mid = lo / 2 + hi / 2;                                       // (lo + hi) / 2 overflowed
             double t1 = FindCrossing(samples, mid, rising: true, reach: false);
             if (t1 < 0) throw new InvalidOperationException("No rising mid-level crossing.");
@@ -103,7 +137,8 @@ namespace ToolBelt.Signal
         /// <summary>The fraction of the record spent above the mid state level, in [0, 1].</summary>
         public static double DutyCycle(double[] samples)
         {
-            var (lo, hi) = StateLevels(samples);
+            samples = Scaled(samples);
+            var (lo, hi) = Levels(samples);
             double mid = lo / 2 + hi / 2;
             int above = 0;
             foreach (var v in samples) if (v > mid) above++;
