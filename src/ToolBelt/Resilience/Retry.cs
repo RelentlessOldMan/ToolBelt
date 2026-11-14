@@ -76,24 +76,26 @@ namespace ToolBelt.Resilience
             Validate();
             // A zero base stays zero: 0 · 2^1024 is NaN, which mapped to the cap (or to forever with no cap).
             if (BaseDelay == TimeSpan.Zero) return TimeSpan.Zero;
-            double baseMs = BaseDelay.TotalMilliseconds;
-            double ms = Backoff switch
+            double factor = Backoff switch
             {
-                BackoffStrategy.Constant => baseMs,
-                BackoffStrategy.Linear => baseMs * attempt,
-                BackoffStrategy.Exponential => baseMs * Math.Pow(2, attempt - 1),
-                _ => baseMs,
+                BackoffStrategy.Constant => 1,
+                BackoffStrategy.Linear => attempt,
+                BackoffStrategy.Exponential => Math.Pow(2, attempt - 1),
+                _ => 1,
             };
 
             // Return MaxDelay directly when the computed delay meets/exceeds the cap or is non-finite
             // (exponential growth overflows double to Infinity). Reconstructing via FromMilliseconds at
             // the extreme could itself overflow the TimeSpan range.
             TimeSpan cap = MaxDelay == Timeout.InfiniteTimeSpan ? TimeSpan.MaxValue : MaxDelay;
-            if (double.IsNaN(ms) || ms >= cap.TotalMilliseconds)
+            if (double.IsNaN(factor) || BaseDelay.Ticks * factor >= cap.Ticks)
                 return cap;
-            // From ticks: FromMilliseconds rounds to whole milliseconds on .NET Framework (0.4 ms became 0).
-            double ticks = ms * TimeSpan.TicksPerMillisecond;
-            return ticks >= cap.Ticks ? cap : TimeSpan.FromTicks((long)ticks);
+            // In whole ticks: through milliseconds and back, a delay lost a tick (Constant 3 ticks gave 2). The factor is a
+            // whole number below 2^63 here, and the product is checked for the last bit of rounding in the comparison above.
+            long ticks;
+            try { ticks = checked(BaseDelay.Ticks * (long)factor); }
+            catch (OverflowException) { return cap; }
+            return ticks >= cap.Ticks ? cap : TimeSpan.FromTicks(ticks);
         }
     }
 

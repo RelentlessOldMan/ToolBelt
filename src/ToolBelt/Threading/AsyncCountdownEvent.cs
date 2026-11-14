@@ -75,6 +75,8 @@ namespace ToolBelt.Threading
         /// <summary>Completes when the count reaches zero. Honors cancellation.</summary>
         public Task WaitAsync(CancellationToken cancellationToken = default)
         {
+            // A cancelled token wins, as for ManualResetEventSlim and SemaphoreSlim: it succeeded when already signaled.
+            if (cancellationToken.IsCancellationRequested) return Task.FromCanceled(cancellationToken);
             var task = _tcs.Task;
             if (task.IsCompleted || !cancellationToken.CanBeCanceled)
                 return task;

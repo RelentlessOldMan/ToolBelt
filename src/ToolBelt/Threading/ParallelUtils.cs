@@ -13,7 +13,9 @@ namespace ToolBelt.Threading
     /// genuine framework gap. At most <c>maxConcurrency</c> bodies run at once, and no body outlives the
     /// call: on cancellation, a failure, or an exception from enumerating the source, the bodies already
     /// started are awaited first. Cancellation by the caller surfaces as <see cref="OperationCanceledException"/>
-    /// (unless a body failed for real, which surfaces as <see cref="AggregateException"/>).
+    /// (unless a body failed for real, which surfaces as <see cref="AggregateException"/>). An exception from the
+    /// source is rethrown as it is, or, when bodies had failed too, as an <see cref="AggregateException"/> holding it
+    /// first and then the bodies' failures.
     /// </summary>
     public static class ParallelUtils
     {
@@ -74,13 +76,20 @@ namespace ToolBelt.Threading
                     });
                 }
             }
-            catch
+            catch (Exception sourceFailure)
             {
                 // Enumerating the source threw: stop the started bodies and wait for them before rethrowing. A callback a body
                 // registered on its token that threw here replaced the source's exception and skipped the wait.
                 Cancel(linked, exceptions);
                 if (Interlocked.Decrement(ref inFlight) == 0) allDone.TrySetResult(true);
                 await allDone.Task.ConfigureAwait(false);
+                // Bodies that had failed for real were dropped with only the source's exception thrown.
+                if (!exceptions.IsEmpty)
+                {
+                    var all = new List<Exception> { sourceFailure };
+                    all.AddRange(exceptions);
+                    throw new AggregateException(all);
+                }
                 throw;
             }
 

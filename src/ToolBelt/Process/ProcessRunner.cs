@@ -35,7 +35,10 @@ namespace ToolBelt.Process
         /// too: if a grandchild keeps the output pipes open past the timeout, the run ends timed out with the output
         /// read so far (allowing a second's grace for output still in flight). The exit code is then the child's own if
         /// it had exited, and -1 if it was killed. A grandchild still running once the child has exited is not killed
-        /// (its parent is gone, so it is no longer in the tree); put the child in a job object for that. Must be between zero and
+        /// (its parent is gone, so it is no longer in the tree); put the child in a job object for that. With no timeout,
+        /// once the child exits the run reads its output until the pipes close or nothing has arrived for a second, so a
+        /// grandchild holding them open can't keep the run waiting (it waited for the grandchild, or forever for a
+        /// server); the result is then not flagged timed out. Must be between zero and
         /// <see cref="int.MaxValue"/> milliseconds; <see cref="System.Threading.Timeout.InfiniteTimeSpan"/> means no
         /// timeout. An invalid value throws before the child starts.
         /// </summary>
@@ -129,19 +132,22 @@ namespace ToolBelt.Process
             int timeoutMs = TimeoutMilliseconds(options.Timeout);
             var run = Start(fileName, arguments, options);
 
-            bool timedOut = false;
+            bool timedOut = false, killed = false;
             if (timeoutMs < 0)
                 run.Process.WaitForExit();
             else if (!run.Process.WaitForExit(timeoutMs))
             {
                 timedOut = true;
-                KillTree(run.Process);
+                killed = KillTree(run.Process);
             }
 
             // A grandchild that inherited the output pipes can hold them open after the child is gone, so the
             // wait for the rest of the output is bounded too.
-            bool killed = timedOut;
-            if (!run.OutputClosed.Wait(OutputBudget(run, timeoutMs, timedOut)))
+            if (timeoutMs < 0)
+            {
+                while (!run.OutputClosed.Wait(OutputGraceMilliseconds) && !Quiet(run)) { }
+            }
+            else if (!run.OutputClosed.Wait(OutputBudget(run, timeoutMs, killed)))
                 timedOut = true;
             return Finish(run, timedOut, killed, options);
         }
@@ -156,16 +162,25 @@ namespace ToolBelt.Process
             var run = Start(fileName, arguments, options);
 
             bool exited = await CompletesWithin(run.Exited, timeoutMs, cancellationToken).ConfigureAwait(false);
-            bool timedOut = false, canceled = false;
+            bool timedOut = false, canceled = false, killed = false;
             if (!exited)
             {
                 canceled = cancellationToken.IsCancellationRequested;
                 timedOut = !canceled;
-                KillTree(run.Process);
+                killed = KillTree(run.Process);
             }
 
-            bool closed = await CompletesWithin(
-                run.OutputClosed, OutputBudget(run, timeoutMs, !exited), exited ? cancellationToken : CancellationToken.None).ConfigureAwait(false);
+            bool closed;
+            if (exited && timeoutMs < 0)
+            {
+                // No timeout: read until the pipes close or go quiet (see ProcessRunOptions.Timeout).
+                while (!(closed = await CompletesWithin(run.OutputClosed, OutputGraceMilliseconds, cancellationToken).ConfigureAwait(false))
+                       && !cancellationToken.IsCancellationRequested && !Quiet(run)) { }
+                if (!closed && !cancellationToken.IsCancellationRequested) closed = true;   // quiet: done, not timed out
+            }
+            else
+                closed = await CompletesWithin(
+                    run.OutputClosed, OutputBudget(run, timeoutMs, !exited), exited ? cancellationToken : CancellationToken.None).ConfigureAwait(false);
             if (!closed)
             {
                 if (exited && cancellationToken.IsCancellationRequested) canceled = true;
@@ -178,7 +193,7 @@ namespace ToolBelt.Process
                 run.Process.Dispose();
                 throw new OperationCanceledException(cancellationToken);
             }
-            return Finish(run, timedOut, !exited, options);
+            return Finish(run, timedOut, killed, options);
         }
 
         private sealed class RunState
@@ -194,6 +209,8 @@ namespace ToolBelt.Process
             public Exception? CallbackError;
             public int Done;             // the run has returned (or thrown): no more callbacks
             public int CallbacksRunning; // raised before Done is checked, so StopCallbacks can wait for the ones under way
+            public long Lines;           // lines read so far, so a wait for the output can tell flowing from quiet
+            public long LinesSeen;
 
             public Task Exited => ExitedSource.Task;
             public Task OutputClosed => Task.WhenAll(OutputEnd.Task, ErrorEnd.Task);
@@ -202,6 +219,15 @@ namespace ToolBelt.Process
         private static RunState Start(string fileName, string? arguments, ProcessRunOptions options)
         {
             if (fileName is null) throw new ArgumentNullException(nameof(fileName));
+            // Process.Start threw InvalidOperationException with no parameter name.
+            if (fileName.Length == 0) throw new ArgumentException("The file name must not be empty.", nameof(fileName));
+            // A key holding '=' became another variable ("A=B" set to "C" reached the child as A = "B=C"), and a NUL cut
+            // the block short.
+            if (options.Environment != null)
+                foreach (var kv in options.Environment)
+                    if (string.IsNullOrEmpty(kv.Key) || kv.Key.IndexOf('=') >= 0 || kv.Key.IndexOf('\0') >= 0 || (kv.Value != null && kv.Value.IndexOf('\0') >= 0))
+                        throw new ArgumentException($"Environment variable '{kv.Key}' is not valid: a name must be non-empty with no '=' or NUL, a value no NUL.",
+                            nameof(ProcessRunOptions.Environment));
 
             var psi = new ProcessStartInfo
             {
@@ -267,14 +293,44 @@ namespace ToolBelt.Process
             }
             catch (IOException) { /* the pipe broke */ }
             catch (ObjectDisposedException) { /* the run already finished */ }
-            catch (Exception ex) { Interlocked.CompareExchange(ref run.CallbackError, ex, null); }   // a decoding failure, say
+            catch (Exception ex)
+            {
+                // A decoding failure, say. The pipe is still drained: left unread, a child writing more than a pipe buffer
+                // blocked for good, so the run lasted its whole timeout, or forever with none.
+                Interlocked.CompareExchange(ref run.CallbackError, ex, null);
+                Drain(reader.BaseStream);
+            }
             finally { end.TrySetResult(true); }
+        }
+
+        private static void Drain(Stream stream)
+        {
+            try
+            {
+                var discard = new byte[4096];
+                while (stream.Read(discard, 0, discard.Length) > 0) { }
+            }
+            catch (IOException) { }
+            catch (ObjectDisposedException) { }
+        }
+
+        // No line read and no callback running for a whole grace period: what is holding the pipes open has gone quiet.
+        private static bool Quiet(RunState run)
+        {
+            long lines = Interlocked.Read(ref run.Lines);
+            bool quiet = lines == run.LinesSeen && Volatile.Read(ref run.CallbacksRunning) == 0;
+            run.LinesSeen = lines;
+            return quiet;
         }
 
         // Runs on the reader threads. A throwing callback must not escape there (it would crash the host), so the
         // first such exception is kept and rethrown to the caller once the run finishes.
         private static void OnLine(RunState run, string line, StringBuilder buffer, Action<string>? callback)
         {
+            Interlocked.Increment(ref run.Lines);
+            // After the run has returned nobody can read the buffer: a grandchild writing to an inherited pipe after a
+            // timeout grew it without bound.
+            if (Volatile.Read(ref run.Done) != 0) return;
             // Capture can fail too (OutOfMemoryException past the StringBuilder's 2 GB limit); escaping here would
             // crash the host, so it is reported the same way.
             try { lock (buffer) buffer.AppendLine(line); }
@@ -367,20 +423,24 @@ namespace ToolBelt.Process
             return first == task;
         }
 
-        private static void KillTree(DiagnosticsProcess process)
+        // Whether the child was killed: one that exited by itself as the timeout fired keeps its exit code (it was -1).
+        private static bool KillTree(DiagnosticsProcess process)
         {
             try
             {
-                if (process.HasExited) return;
+                if (process.HasExited) return false;
 #if NETSTANDARD2_0
                 process.Kill(); // best-effort: direct child only; the platform assembly can do a true tree kill
 #else
                 process.Kill(entireProcessTree: true);
 #endif
+                return true;
             }
             catch
             {
-                // The process may have exited between the check and the kill, or be inaccessible; ignore.
+                // The process may have exited between the check and the kill, or be inaccessible.
+                try { return !process.HasExited; }
+                catch { return true; }
             }
         }
     }

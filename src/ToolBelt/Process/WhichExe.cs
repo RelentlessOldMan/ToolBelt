@@ -41,8 +41,10 @@ namespace ToolBelt.Process
                 string dir = windows ? entry.Replace("\"", string.Empty) : entry;
                 if (dir.Length == 0) continue;
                 string candidate;
-                try { candidate = Path.Combine(dir, name); }
-                catch (ArgumentException) { continue; } // skip malformed PATH entries
+                // Full: a relative entry (bin) gave a relative result, though the full path is promised.
+                try { candidate = Path.GetFullPath(Path.Combine(dir, name)); }
+                catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+                { continue; } // skip malformed PATH entries
 
                 string? found = Resolve(candidate, tryAsIs, windows);
                 if (found != null) return found;

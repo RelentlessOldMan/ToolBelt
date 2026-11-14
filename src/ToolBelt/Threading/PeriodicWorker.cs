@@ -35,7 +35,7 @@ namespace ToolBelt.Threading
             _work = work ?? throw new ArgumentNullException(nameof(work));
             if (interval < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(interval), interval, "Interval must not be negative.");
             if (delay is null && interval.TotalMilliseconds > int.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(interval), interval, "Interval must be at most int.MaxValue milliseconds (about 24.8 days), the longest Task.Delay accepts.");
+                throw new ArgumentOutOfRangeException(nameof(interval), interval, "Interval must be at most int.MaxValue milliseconds (about 24.8 days), the longest Task.Delay accepts on every target (.NET 6+ alone accepts twice that).");
             _interval = interval;
             _onError = onError;
             _delay = delay ?? ((ts, ct) => Task.Delay(ts, ct));

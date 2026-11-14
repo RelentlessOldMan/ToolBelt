@@ -238,7 +238,8 @@ namespace ToolBelt.Tests.Threading
                 registered.Task.Wait();
                 throw new FormatException("source");
             }
-            var ex = await Check.ThrowsAsync<FormatException>(() => ParallelUtils.ForEachAsync(Source(), 2, async (i, ct) =>
+            // The callback's failure is the body's, kept with the source's since round 72; the source's comes first.
+            var agg = await Check.ThrowsAsync<AggregateException>(() => ParallelUtils.ForEachAsync(Source(), 2, async (i, ct) =>
             {
                 try
                 {
@@ -248,7 +249,8 @@ namespace ToolBelt.Tests.Threading
                 }
                 finally { Interlocked.Exchange(ref finished, 1); }
             }));
-            Check.Equal("source", ex.Message);
+            Check.True(agg.InnerExceptions[0] is FormatException { Message: "source" }, "the source's exception was not first");
+            Check.True(agg.InnerExceptions.Any(e => e is InvalidTimeZoneException), "the callback's failure was dropped");
             Check.Equal(1, Volatile.Read(ref finished), "the body was waited for");
         }
 

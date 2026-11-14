@@ -60,8 +60,9 @@ namespace ToolBelt.Resilience
             Refill(_clock());
 
             // A tolerance: refills summed in small steps fall short by rounding (ten 100 ms steps at 1/s left 0.9999999999999999),
-            // which refused a token that was due and under-granted by 10% when polled every 10 ms.
-            if (_tokens >= count - count * 1e-9)
+            // which refused a token that was due and under-granted by 10% when polled every 10 ms. Capped at a millionth of a
+            // token: in proportion to the count, int.MaxValue was granted with two tokens short.
+            if (_tokens >= count - Math.Min(count, 1000) * 1e-9)
             {
                 _tokens = Math.Max(0, _tokens - count);
                 return true;

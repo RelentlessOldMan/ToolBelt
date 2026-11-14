@@ -145,13 +145,15 @@ namespace ToolBelt.Resilience
         private void OnFailure(DateTimeOffset now, bool trial, int generation)
         {
             if (Stale(trial, generation)) return;
-            _consecutiveFailures++;
+            // Saturating: failed half-open trials kept counting, and past int.MaxValue a checked build threw over the
+            // operation's exception (the breaker stuck half-open), an unchecked one went negative.
+            if (_consecutiveFailures < int.MaxValue) _consecutiveFailures++;
             // A half-open trial that fails reopens immediately; otherwise open once the threshold is hit.
             if (trial || _consecutiveFailures >= _failureThreshold)
             {
                 _state = CircuitState.Open;
                 _openedAt = now;
-                _generation++;
+                unchecked { _generation++; }
             }
         }
     }

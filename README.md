@@ -495,7 +495,7 @@ src/
       WordWrap.cs           greedy word wrap to a column width (hard-breaks long words)
     Threading/
       AsyncEvent.cs         awaitable multicast event (sequential/parallel, aggregated errors)
-      AtomicCounters.cs     lock-free AtomicLong / AtomicDouble (interlocked add/exchange)
+      AtomicCounters.cs     lock-free AtomicLong / AtomicDouble (interlocked add/exchange); invariant ToString
       AsyncLock.cs          async mutual-exclusion lock (held across await)
       AsyncLazy.cs          run-once async initialization (result cached)
       AsyncManualResetEvent.cs  awaitable manual-reset event
@@ -566,7 +566,7 @@ src/
       PasswordHasher.cs     encoded PBKDF2 hash + constant-time verify + rehash-needed check (MaxIterations cap)
       AuthenticatedEncryption.cs  AES-GCM AEAD: self-describing nonce‖ct‖tag blob + detached form (net8.0)
     Process/
-      ProcessRunner.cs      run a child: deadlock-free capture, timeout + tree-kill, stdin/env/cancel
+      ProcessRunner.cs      run a child: deadlock-free capture, timeout + tree-kill, stdin/env/cancel; with no timeout, stops reading when output goes quiet after exit
       WhichExe.cs           resolve an executable on PATH (+ PATHEXT on Windows)
       ShellOpen.cs          open a file/folder/URL with the default handler (per-OS)
     Logging/
@@ -944,6 +944,7 @@ tests/
       ConcurrencyReviewTests.cs (review round 10 regressions: process timeouts and callbacks, pipeline completion, worker loops, dispose races)
       ConcurrencyReview2Tests.cs (second-pass regressions: backoff, breaker generations, clock steps, hedging, dispose from onError)
       ConcurrencyReview3Tests.cs (third-pass regressions: child stdin, token-bucket rounding, worker delay cancellation, retry policy nulls)
+      ConcurrencyReview4Tests.cs (fourth-pass regressions: draining after decode errors, grandchild-held pipes, cancelled races and events, observed faults, exact retry ticks)
       FlakeRootCauseTests.cs  (round 46: pipeline, async log sink and process readers run off the thread pool)
       CallbackReview54Tests.cs (round 54, cross-cutting: throwing comparers, hashes, clocks, handlers, error sinks and token callbacks)
       CancelDisposeReview55Tests.cs (round 55, cross-cutting: the caller's token, cancelled tokens honoured, Dispose racing the work)

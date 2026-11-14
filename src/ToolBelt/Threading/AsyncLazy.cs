@@ -24,7 +24,8 @@ namespace ToolBelt.Threading
             // A synchronous throw becomes the faulted task: Lazy rethrew it from Value instead.
             _lazy = new Lazy<Task<T>>(() =>
             {
-                try { return factory(); }
+                // A null task was cached, and every await threw NullReferenceException.
+                try { return factory() ?? Task.FromException<T>(new InvalidOperationException("The factory returned a null task.")); }
                 catch (Exception ex) { return Task.FromException<T>(ex); }
             }, LazyThreadSafetyMode.ExecutionAndPublication);
         }

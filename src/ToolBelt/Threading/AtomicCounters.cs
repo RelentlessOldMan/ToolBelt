@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Globalization;
 using System.Threading;
 
 namespace ToolBelt.Threading
@@ -26,7 +27,8 @@ namespace ToolBelt.Threading
         public long Exchange(long newValue) => Interlocked.Exchange(ref _value, newValue);
         public long CompareExchange(long newValue, long comparand) => Interlocked.CompareExchange(ref _value, newValue, comparand);
 
-        public override string ToString() => Value.ToString();
+        /// <summary>The value in the invariant culture (the current one gave "~5" where the minus sign is "~").</summary>
+        public override string ToString() => Value.ToString(CultureInfo.InvariantCulture);
     }
 
     /// <summary>
@@ -61,6 +63,7 @@ namespace ToolBelt.Threading
         public double Exchange(double newValue) => Interlocked.Exchange(ref _value, newValue);
         public double CompareExchange(double newValue, double comparand) => Interlocked.CompareExchange(ref _value, newValue, comparand);
 
-        public override string ToString() => Value.ToString();
+        /// <summary>The value in the invariant culture, round-trippable (de-DE gave "1,5"; .NET Framework kept 15 digits).</summary>
+        public override string ToString() => Value.ToString("R", CultureInfo.InvariantCulture);
     }
 }

@@ -41,17 +41,21 @@ namespace ToolBelt.Threading
         public async Task InvokeSequentialAsync(TArgs args, CancellationToken cancellationToken = default)
         {
             var exceptions = new List<Exception>();
+            bool canceled = false;
             foreach (var handler in Snapshot())
             {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    // A bare OperationCanceledException discarded the failures of the handlers before it.
-                    if (exceptions.Count == 0) throw new OperationCanceledException(cancellationToken);
-                    exceptions.Add(new OperationCanceledException(cancellationToken));
-                    throw new AggregateException(exceptions);
-                }
+                if (cancellationToken.IsCancellationRequested) { canceled = true; break; }
                 try { await handler(args, cancellationToken).ConfigureAwait(false); }
+                // A handler that honoured the caller's cancellation is the stop, not a failure (it was reported as both).
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { canceled = true; break; }
                 catch (Exception ex) { exceptions.Add(ex); }
+            }
+            if (canceled)
+            {
+                // A bare OperationCanceledException discarded the failures of the handlers before it.
+                if (exceptions.Count == 0) throw new OperationCanceledException(cancellationToken);
+                exceptions.Add(new OperationCanceledException(cancellationToken));
+                throw new AggregateException(exceptions);
             }
             if (exceptions.Count > 0) throw new AggregateException(exceptions);
         }
@@ -59,6 +63,8 @@ namespace ToolBelt.Threading
         /// <summary>Invokes all handlers concurrently and waits for them all.</summary>
         public async Task InvokeParallelAsync(TArgs args, CancellationToken cancellationToken = default)
         {
+            // As InvokeSequentialAsync: an already-cancelled token ran every handler and reported success.
+            cancellationToken.ThrowIfCancellationRequested();
             var handlers = Snapshot();
             var tasks = new List<Task>(handlers.Count);
             foreach (var handler in handlers)

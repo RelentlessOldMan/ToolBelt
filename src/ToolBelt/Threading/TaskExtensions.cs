@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Collections.Generic;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -24,6 +25,7 @@ namespace ToolBelt.Threading
                 cts.Cancel();
                 return await task.ConfigureAwait(false);
             }
+            Observe(task);
             throw new TimeoutException($"Operation timed out after {timeout}.");
         }
 
@@ -38,11 +40,21 @@ namespace ToolBelt.Threading
                 await task.ConfigureAwait(false);
                 return;
             }
+            Observe(task);
             throw new TimeoutException($"Operation timed out after {timeout}.");
         }
 
+        // A task given up on that faults later: its exception went unobserved (an UnobservedTaskException at a later GC).
+        private static void Observe(Task task) =>
+            task.ContinueWith(t => _ = t.Exception, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+
         private static Task StartDelay(TimeSpan timeout, CancellationToken cancellationToken)
         {
+            // Task.Delay truncates to whole milliseconds before checking: −0.5 ms timed out at once and −1.5 ms never did.
+            if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
+                throw new ArgumentOutOfRangeException(nameof(timeout), timeout,
+                    "Timeout must be Timeout.InfiniteTimeSpan or between zero and the longest delay Task.Delay accepts.");
             try { return Task.Delay(timeout, cancellationToken); }
             catch (ArgumentOutOfRangeException)
             {
@@ -58,7 +70,10 @@ namespace ToolBelt.Threading
             using (cancellationToken.Register(() => tcs.TrySetResult(true)))
             {
                 if (await Task.WhenAny(task, tcs.Task).ConfigureAwait(false) != task)
+                {
+                    Observe(task);
                     throw new OperationCanceledException(cancellationToken);
+                }
                 return await task.ConfigureAwait(false);
             }
         }
@@ -75,7 +90,9 @@ namespace ToolBelt.Threading
                 t =>
                 {
                     // Escaping, it faulted the continuation, which nothing observes: an UnobservedTaskException at a later GC.
-                    try { onError(t.Exception!.GetBaseException()); }
+                    // What await would throw: GetBaseException also unwrapped an AggregateException the task threw itself.
+                    AggregateException failure = t.Exception!;
+                    try { onError(failure.InnerExceptions.Count == 1 ? failure.InnerException! : failure); }
                     catch { }
                 },
                 CancellationToken.None,
@@ -108,8 +125,10 @@ namespace ToolBelt.Threading
             Task<TResult>? done = await first.Task.ConfigureAwait(false);
             if (done != null)
             {
+                // What await throws: the first inner exception. GetBaseException unwrapped an AggregateException the task
+                // threw itself, and gave the wrapper for a task faulted with several.
                 if (done.IsFaulted)
-                    throw done.Exception!.GetBaseException();
+                    ExceptionDispatchInfo.Capture(done.Exception!.InnerException!).Throw();
                 throw new TaskCanceledException(done);
             }
             var results = new TResult[all.Count];

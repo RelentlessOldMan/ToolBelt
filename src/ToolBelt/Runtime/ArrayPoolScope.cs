@@ -25,8 +25,10 @@ namespace ToolBelt.Runtime
     /// Two rules come with pooling. First, <see cref="Array"/> may be <b>longer</b> than requested and may hold
     /// <b>stale data</b> from a previous renter — use <see cref="Length"/>, <see cref="Segment"/> or
     /// <c>Span</c>, and never assume zeroes. Second, never keep a reference to the array after disposal: another
-    /// renter may already own it. To make that second mistake loud, every accessor throws
-    /// <see cref="ObjectDisposedException"/> once the scope is disposed, and disposal is idempotent so a double
+    /// renter may already own it. To make that second mistake loud, every accessor that reaches the array
+    /// (<see cref="Array"/>, <see cref="Segment"/>, <c>Span</c>, <c>Memory</c> and the indexer) throws
+    /// <see cref="ObjectDisposedException"/> once the scope is disposed (<see cref="Length"/> and <see cref="IsPooled"/>
+    /// still answer), and disposal is idempotent so a double
     /// <c>Dispose</c> can never return the same array to the pool twice (which would hand it to two renters at
     /// once). It is a class rather than a struct for exactly that reason — a copied struct could double-return.
     /// Not thread-safe; one owner at a time.

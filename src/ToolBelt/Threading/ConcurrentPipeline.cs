@@ -149,6 +149,8 @@ namespace ToolBelt.Threading
                     T item;
                     lock (_gate)
                     {
+                        // Dispose cancels: the drain handed every buffered item on to a consumer that ignored the token.
+                        if (ct.IsCancellationRequested) { _drained = _completed == 1 && _queue.Count == 0; return; }
                         if (_queue.Count == 0) break;
                         item = _queue.Dequeue();
                     }

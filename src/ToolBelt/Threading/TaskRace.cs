@@ -35,8 +35,8 @@ namespace ToolBelt.Threading
         /// starts another, up to <paramref name="maxAttempts"/> in flight; returns the first success and cancels the rest.
         /// Trims tail latency at the cost of occasional duplicate work. The attempt number (0-based) is passed in. Hedges
         /// start one <paramref name="hedgeDelay"/> apart whatever happens to the attempts in between; a delay of
-        /// <see cref="Timeout.InfiniteTimeSpan"/>, or one longer than <see cref="Task.Delay(TimeSpan)"/> accepts (about
-        /// 24.8 days), never hedges (a further attempt then starts only when every running one has failed).
+        /// <see cref="Timeout.InfiniteTimeSpan"/>, or one longer than int.MaxValue milliseconds (about 24.8 days, the
+        /// longest <see cref="Task.Delay(TimeSpan)"/> accepts on every target; .NET 6+ alone accepts twice that), never hedges (a further attempt then starts only when every running one has failed).
         /// </summary>
         public static async Task<T> Hedged<T>(Func<int, CancellationToken, Task<T>> attempt, TimeSpan hedgeDelay, int maxAttempts = 2,
             CancellationToken cancellationToken = default)
@@ -45,6 +45,7 @@ namespace ToolBelt.Threading
             if (maxAttempts < 1) throw new ArgumentOutOfRangeException(nameof(maxAttempts), maxAttempts, "Need at least one attempt.");
             if (hedgeDelay < TimeSpan.Zero && hedgeDelay != Timeout.InfiniteTimeSpan)
                 throw new ArgumentOutOfRangeException(nameof(hedgeDelay), hedgeDelay, "Delay must not be negative (use Timeout.InfiniteTimeSpan to never hedge).");
+            cancellationToken.ThrowIfCancellationRequested();   // an attempt that ignored it made the call succeed
             bool hedges = hedgeDelay != Timeout.InfiniteTimeSpan && hedgeDelay.TotalMilliseconds <= int.MaxValue;
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var running = new List<Task<T>>();
@@ -102,6 +103,8 @@ namespace ToolBelt.Threading
             var factories = attempts.ToList();
             if (factories.Count == 0) throw new ArgumentException("Need at least one attempt.", nameof(attempts));
             if (factories.Any(f => f is null)) throw new ArgumentException("Attempts must not be null.", nameof(attempts));
+            // Before starting: an attempt that ignored an already-cancelled token made the race succeed.
+            cancellationToken.ThrowIfCancellationRequested();
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var running = factories.Select(f => Start(() => f(cts.Token))).ToList();
@@ -113,10 +116,18 @@ namespace ToolBelt.Threading
                 {
                     var done = await Task.WhenAny(running).ConfigureAwait(false);
                     running.Remove(done);
-                    if (!successOnly) return await done.ConfigureAwait(false);
+                    if (!successOnly)
+                    {
+                        // The caller's token, not the linked one the attempt saw.
+                        if (done.Status != TaskStatus.RanToCompletion && cancellationToken.IsCancellationRequested)
+                            throw new OperationCanceledException(cancellationToken);
+                        return await done.ConfigureAwait(false);
+                    }
                     if (done.Status == TaskStatus.RanToCompletion)
                     {
                         if (accept == null || accept(done.Result)) return done.Result;
+                        // Cancelled with only rejections left, it reported "no acceptable result".
+                        cancellationToken.ThrowIfCancellationRequested();
                         failures.Add(new InvalidOperationException("Result rejected by the predicate."));
                         continue;
                     }
