@@ -97,11 +97,21 @@ namespace ToolBelt.Cli
                 while (j < text.Length && ((text[j] >= '0' && text[j] <= '9') || text[j] == ';' || text[j] == ':')) j++;
                 if (j < text.Length && text[j] == 'm')
                 {
-                    sb.Append(text, i, j + 1 - i);
                     bool reset = true;
-                    for (int k = esc + 2; k < j && text[k] != ';' && text[k] != ':'; k++)
+                    int k = esc + 2;
+                    for (; k < j && text[k] != ';' && text[k] != ':'; k++)
                         if (text[k] != '0') { reset = false; break; }
-                    if (reset) sb.Append(open);
+                    if (reset && k < j && text[k] == ';')
+                    {
+                        // ESC[0;32m: reset, our style, then the rest, so the text's own colour still wins (our style
+                        // was appended after the whole sequence and overrode its 32).
+                        sb.Append(text, i, esc - i).Append(Reset).Append(open).Append("\u001b[").Append(text, k + 1, j + 1 - (k + 1));
+                    }
+                    else
+                    {
+                        sb.Append(text, i, j + 1 - i);
+                        if (reset) sb.Append(open);
+                    }
                     i = j + 1;
                 }
                 else { sb.Append(text, i, esc + 2 - i); i = esc + 2; }

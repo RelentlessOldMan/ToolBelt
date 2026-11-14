@@ -39,7 +39,14 @@ namespace ToolBelt.Logging
             string time = e.Timestamp.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
             return e.Exception is null
                 ? $"{time} {Level(e.Level).Trim()} {e.Message}"
-                : $"{time} {Level(e.Level).Trim()} {e.Message} | {e.Exception.GetType().Name}: {e.Exception.Message}";
+                : $"{time} {Level(e.Level).Trim()} {e.Message} | {e.Exception.GetType().Name}: {MessageOf(e.Exception)}";
+        }
+
+        // An exception whose Message getter throws made Compact throw, and the console lost the event.
+        private static string MessageOf(Exception ex)
+        {
+            try { return ex.Message; }
+            catch (Exception inner) { return "(its Message threw " + inner.GetType().FullName + ")"; }
         }
 
         /// <summary>A single-line JSON object with escaped fields, for machine parsing (JSON-lines).</summary>

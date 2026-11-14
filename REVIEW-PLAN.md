@@ -52,7 +52,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 4 | 19 / 71 | re-queue (19 bugs) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 4 | 24 / 99 | re-queue (24 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 4 | 20 / 75 | re-queue (20 bugs, none severe) |
-| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 4 | 30 / 97 | re-queue (30 bugs, 1 severe) |
+| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 5 | 19 / 116 | re-queue (19 bugs, none severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 4 | 16 / 88 | re-queue (16 bugs, none severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 5 | 29 / 138 | re-queue (29 bugs, 1 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 4 | 25 / 99 | re-queue (25 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); **next: 12**, then 15, 5, 10, 16, 1, 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); **next: 15**, then 5, 10, 16, 1, 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -151,11 +151,48 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.18 | 75 | IO, fifth pass | 24 | (see tag) |
 | v2026.11.13.19 | 76 | Documents & config, fifth pass | 24 | (see tag) |
 | v2026.11.13.20 | 77 | Objects, functional, grids, graphs, intervals, fifth pass | 29 | (see tag) |
+| v2026.11.13.21 | 78 | Logging, diagnostics, CLI, fifth pass | 19 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 78: Logging, diagnostics, CLI, fifth pass (v2026.11.13.21)
+
+Two fresh reviewers (correctness, robustness): 19 distinct findings (two found by both), all real, so **19 bugs, none
+severe**. Section 12 stays re-queued. The regression tests are in `LoggingDiagnosticsCliReview78Tests` (22 tests).
+Each fix's test failed on the old code, run by name under a 60 s timeout; one is a differential guard that also passes
+at HEAD (the one-pass delimiter removal against repeated Replace over random values). One older test pinned the old
+form of a compound ANSI reset and was updated.
+
+- **Logging:** ScopedContext tokens disposed out of order brought back a disposed scope (push A, push B, dispose A,
+  dispose B left A current); only the innermost live scope now pops, to its nearest live ancestor. Each scope stored
+  the whole combined path, so 20,000 nested scopes held 1.9 GB; the path is now built on first read. The Compact
+  formatter read an exception's Message unguarded, so a Message that throws took the console sink down.
+  StructuredTextFormatter removed delimiters by repeating Replace until none was left, quadratic for a multi-character
+  delimiter (a 400,000-character value took 40 s); it is one pass now. FilterSink, RouterSink and RateLimitedSink
+  accepted events after Dispose (RateLimitedSink counted repeats it would never summarize); they throw
+  ObjectDisposedException, as the other sinks do, and RateLimitedSink no longer disposes its inner sink twice.
+  FileSink's cleanup of extra backups took the primary file for a backup when the search matched it, and threw
+  ArgumentOutOfRangeException. AsyncLogSink disposed from its own consumer thread lost a failing inner Dispose as an
+  unobserved task exception; it goes to onError. SyslogSink over UDP reset its back-off when a lookup failed and it
+  fell back to the last good address, so the back-off never grew.
+- **Diagnostics:** MetricsRegistry's mean under the sample cap, when the sum overflowed, added v/n in sorted order and
+  lost the small terms (Max, Max, -Max, -Max, 6 gave 0, and 1.2 past the cap); both paths now use the scaled sum.
+  FirstChanceMonitor dropped an exception whose Message throws, uncounted and unreported, and its record's ToString
+  threw; the per-type "(other messages)" signatures were not counted toward the cap, so many exception types grew the
+  table without bound (past the cap, every type now shares one signature). HealthCheck faulted the whole run, losing
+  every probe's result, when an exception's Message threw; an async probe that blocks before its first await took one
+  more pool thread on every run (40 after 40 runs); like a synchronous probe, it is not started again while the last
+  start is still running. Benchmark.Compare reported every candidate as 1.0 against a baseline that measured 0 ns
+  (now infinity, or 1.0 for another 0). EnvironmentReport merged case-variant variable names (PATH and path) off
+  Windows.
+- **CLI:** AnsiStyle put its style after a compound reset with colour (ESC[0;32m), so the outer colour overrode the
+  text's own 32; it now emits the reset, the style, then the rest. ConsoleTable left NEL, LS, PS, VT and FF in cells,
+  which broke rows on screen. ConsoleSpinner counted every astral character as two columns (U+1D400, a narrow letter,
+  too), BMP emoji (U+2705, U+26A1) as one, Hangul medial and final jamo and skin-tone modifiers as columns of their
+  own. ExitException with a null message printed the BCL's default "Exception of type ... was thrown."
+
 ### Round 77: Objects, functional, grids, graphs, intervals, fifth pass (v2026.11.13.20)
 
 Two fresh reviewers (correctness, robustness): 29 distinct findings, all confirmed, so **29 bugs, 1 severe** (a

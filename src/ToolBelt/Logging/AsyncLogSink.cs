@@ -26,6 +26,7 @@ namespace ToolBelt.Logging
         private readonly bool _blocks;
         private long _reentrantDropped;
         private int _disposed;
+        private readonly Action<Exception>? _onError;
 
         // The sink whose consumer is running on this thread, and how deeply it has re-entered.
         [ThreadStatic] private static AsyncLogSink? t_consuming;
@@ -43,6 +44,7 @@ namespace ToolBelt.Logging
             if (overflowPolicy != PipelineOverflowPolicy.Block && overflowPolicy != PipelineOverflowPolicy.DropOldest && overflowPolicy != PipelineOverflowPolicy.DropNewest)
                 throw new ArgumentOutOfRangeException(nameof(overflowPolicy), overflowPolicy, "Unknown overflow policy.");
             _ownsInner = ownsInner;
+            _onError = onError;
             _blocks = overflowPolicy == PipelineOverflowPolicy.Block;
             // onError runs on the consumer thread too: marked as such, an event it logs is written straight through
             // (queueing could wait for space only the consumer frees) and a Dispose from it does not wait for itself.
@@ -124,7 +126,16 @@ namespace ToolBelt.Logging
                 Task drained;
                 try { drained = _pipeline.CompleteAsync(); }
                 catch { drained = Task.CompletedTask; }
-                drained.ContinueWith(_ => Close(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+                // A Close that throws here has no caller to reach: it went to onError instead of becoming an unobserved
+                // task exception.
+                drained.ContinueWith(_ =>
+                {
+                    try { Close(); }
+                    catch (Exception ex)
+                    {
+                        try { _onError?.Invoke(ex); } catch { /* the error handler itself failed */ }
+                    }
+                }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
                 return;
             }
             try { _pipeline.CompleteAsync().GetAwaiter().GetResult(); } // drain buffered events

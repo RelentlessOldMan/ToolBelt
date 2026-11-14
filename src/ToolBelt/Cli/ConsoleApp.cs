@@ -34,7 +34,10 @@ namespace ToolBelt.Cli
     /// <summary>Throw from a command to exit with a specific code and a message for the user (no stack trace).</summary>
     public sealed class ExitException : Exception
     {
-        public ExitException(int exitCode, string message) : base(message) => ExitCode = exitCode;
+        /// <param name="exitCode">The process exit code.</param>
+        /// <param name="message">What to tell the user; null or empty prints nothing (null printed the BCL's default
+        /// "Exception of type ... was thrown.").</param>
+        public ExitException(int exitCode, string? message) : base(message ?? string.Empty) => ExitCode = exitCode;
 
         public int ExitCode { get; }
     }

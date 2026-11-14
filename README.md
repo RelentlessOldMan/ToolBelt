@@ -306,8 +306,8 @@ src/
       ScopedTimer.cs        time a using-block to a callback / metrics (injectable clock)
       ExceptionUtils.cs     root-cause / flatten / describe / transient-vs-permanent classify
       EnvironmentReport.cs  one-call bug-report snapshot (versions/OS/culture/uptime/env, secret-safe)
-      HealthCheck.cs        named probes w/ enforced timeouts (an abandoned probe's token is cancelled), run concurrently -> worst-status report
-      FirstChanceMonitor.cs report thrown-then-swallowed exceptions; throttled per signature, recursion-safe
+      HealthCheck.cs        named probes w/ enforced timeouts (an abandoned probe's token is cancelled; a stuck one isn't restarted), run concurrently -> worst-status report
+      FirstChanceMonitor.cs report thrown-then-swallowed exceptions; throttled per signature (bounded table), recursion-safe
       DiskSpace.cs          free space on a path's volume, writability probe, pre-run fit check + size estimate
       AssertInvariant.cs    conditionally compiled internal-consistency checks (DEBUG / TOOLBELT_INVARIANTS)
     Documents/
@@ -577,10 +577,10 @@ src/
       FileSink.cs           file sink with size-based rotation + retention
       SyslogSink.cs         RFC 5424 syslog over UDP or TCP (octet counting, connect timeout + back-off); failures counted, never thrown (Emit after Dispose throws ObjectDisposedException)
       AsyncLogSink.cs       off-thread bounded-queue sink (built on ConcurrentPipeline)
-      LogDecorators.cs      FilterSink / RouterSink / RateLimitedSink (composable sink wrappers)
+      LogDecorators.cs      FilterSink / RouterSink / RateLimitedSink (composable sink wrappers; Emit after Dispose throws ObjectDisposedException)
       LogFormatters.cs      plain / compact / single-line-JSON line formatters
       StructuredTextFormatter.cs  configurable field order / delimiter / timestamp (delimited preset)
-      ScopedContext.cs      ambient flow-local scope label folded into each event's category
+      ScopedContext.cs      ambient flow-local scope label folded into each event's category (out-of-order dispose safe; any depth)
   ToolBelt.Windows/         Windows platform satellite (net8.0-windows) — Win32 / registry utilities
     PowerStatus.cs          AC line / battery charge / saver mode via GetSystemPowerStatus
     SingleInstance.cs       single-instance gate over a named mutex (abandoned-owner safe, not tied to the calling thread)
@@ -1039,6 +1039,7 @@ tests/
       LoggingReview2Tests.cs (second-pass regressions: async sink cross-deadlock, syslog BOM and facility range, stack trace layout, metrics rounding, rotation with huge maxFiles, decorator failures)
       LoggingReview3Tests.cs (third-pass regressions: async sink self-dispose, clock steps, wrapped exit codes, counter saturation, delimiter overlap)
       LoggingReview4Tests.cs (fourth-pass regressions: rate-limiter deadlock, syslog IPv6 and stalled collectors, null events, metrics sample cap, health status, ANSI resets, column-aware spinner, progress floor)
+      LoggingDiagnosticsCliReview78Tests.cs (fifth pass: out-of-order scopes, linear scope and delimiter costs, throwing Messages, disposed decorators, bounded signatures, emoji widths)
   ToolBelt.Windows.Tests/   Windows-only integration tests for the platform satellite (net8.0-windows)
     PowerStatusTests.cs
     SingleInstanceTests.cs

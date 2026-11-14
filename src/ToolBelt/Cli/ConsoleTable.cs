@@ -16,7 +16,7 @@ namespace ToolBelt.Cli
     /// Builds a simple aligned monospace table for console output: a header row, a dashed divider, and
     /// one line per data row, with every column padded to the width of its widest cell. All rendered
     /// lines have identical length (in UTF-16 characters, so wide CJK or emoji cells may misalign on screen). Cell
-    /// values are used verbatim, except that line breaks and tabs become spaces (a null cell or header renders as
+    /// values are used verbatim, except that line breaks (CR, LF, NEL, LS, PS, VT, FF) and tabs become spaces (a null cell or header renders as
     /// empty).
     /// </summary>
     public sealed class ConsoleTable
@@ -105,12 +105,20 @@ namespace ToolBelt.Cli
         }
 
         // A line break in a cell split its row over several lines (and a tab moved everything after it), so the table
-        // lost its alignment; both become spaces.
+        // lost its alignment; both become spaces. NEL, LS, PS, VT and FF break lines too (only CR and LF were caught).
+        private static readonly char[] Breaks = { '\r', '\n', '\t', '\u0085', '\u2028', '\u2029', '\v', '\f' };
+
         private static string OneLine(string? cell)
         {
             if (cell is null) return string.Empty;
-            if (cell.IndexOfAny(new[] { '\r', '\n', '\t' }) < 0) return cell;
-            return cell.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
+            if (cell.IndexOfAny(Breaks) < 0) return cell;
+            var sb = new StringBuilder(cell.Length);
+            for (int i = 0; i < cell.Length; i++)
+            {
+                if (cell[i] == '\r' && i + 1 < cell.Length && cell[i + 1] == '\n') i++;
+                sb.Append(Array.IndexOf(Breaks, cell[i]) >= 0 ? ' ' : cell[i]);
+            }
+            return sb.ToString();
         }
 
         private static string RenderDivider(int[] widths)

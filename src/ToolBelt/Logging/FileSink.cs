@@ -118,14 +118,19 @@ namespace ToolBelt.Logging
         {
             string dir = Path.GetDirectoryName(_path)!, name = Path.GetFileName(_path);
             foreach (string file in Directory.GetFiles(dir, name + ".*"))
-            {
-                string suffix = Path.GetFileName(file).Substring(name.Length + 1);
-                if (suffix.Length == 0 || suffix.Length > 9) continue;
-                bool digits = true;
-                foreach (char c in suffix) if (c < '0' || c > '9') { digits = false; break; }
-                if (digits && suffix[0] != '0' && int.Parse(suffix, System.Globalization.CultureInfo.InvariantCulture) > _maxFiles)
-                    File.Delete(file);
-            }
+                if (BackupNumber(Path.GetFileName(file), name) > _maxFiles) File.Delete(file);
+        }
+
+        // The number of a backup file ("app.log.3" is 3), or 0 for any other name. The search pattern matches the primary
+        // file itself too (on Windows "app.log.*" also finds "app.log"), and taking its suffix threw
+        // ArgumentOutOfRangeException, which the rotation did not catch.
+        internal static int BackupNumber(string fileName, string name)
+        {
+            if (fileName.Length <= name.Length + 1 || !fileName.StartsWith(name + ".", StringComparison.OrdinalIgnoreCase)) return 0;
+            string suffix = fileName.Substring(name.Length + 1);
+            if (suffix.Length > 9 || suffix[0] == '0') return 0;
+            foreach (char c in suffix) if (c < '0' || c > '9') return 0;
+            return int.Parse(suffix, System.Globalization.CultureInfo.InvariantCulture);
         }
     }
 }

@@ -84,11 +84,38 @@ namespace ToolBelt.Logging
             // The Unicode line breaks too (NEL, LS, PS): a viewer that honours them split the record.
             value = value.Replace("\r", " ").Replace("\n", " ").Replace("\u0085", " ").Replace("\u2028", " ").Replace("\u2029", " ");
             // Until none is left: one pass of Replace can make a new delimiter when the delimiter has a space in it
-            // (" | | " became " |  | ", and ",, " became ", , " for ", ").
-            if (_delimiter.Length > 0 && _delimiter != " ")
-                while (value.IndexOf(_delimiter, StringComparison.Ordinal) >= 0) value = value.Replace(_delimiter, " ");
+            // (" | | " became " |  | ", and ",, " became ", , " for ", "). Repeating Replace took quadratic time (a
+            // 100,000-character value took 3 s), so one pass keeps the output free of the delimiter as it goes: a
+            // delimiter can only appear at its end, and becomes a space there, which is checked again.
+            if (_delimiter.Length > 0 && _delimiter != " " && value.IndexOf(_delimiter, StringComparison.Ordinal) >= 0)
+                value = _delimiter.Length == 1 ? value.Replace(_delimiter, " ") : RemoveDelimiters(value);
             if (!last) value = TrimOverlap(value);
             return value;
+        }
+
+        private string RemoveDelimiters(string value)
+        {
+            int n = _delimiter.Length;
+            var sb = new StringBuilder(value.Length);
+            foreach (char c in value)
+            {
+                sb.Append(c);
+                while (EndsWithDelimiter(sb))
+                {
+                    sb.Length -= n;
+                    sb.Append(' ');
+                }
+            }
+            return sb.ToString();
+        }
+
+        private bool EndsWithDelimiter(StringBuilder sb)
+        {
+            int n = _delimiter.Length, start = sb.Length - n;
+            if (start < 0) return false;
+            for (int i = 0; i < n; i++)
+                if (sb[start + i] != _delimiter[i]) return false;
+            return true;
         }
 
         // A value whose end runs into the delimiter that follows it ("x-" then "--", "a |" then " | ") made a delimiter

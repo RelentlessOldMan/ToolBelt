@@ -29,7 +29,7 @@ namespace ToolBelt.Diagnostics
 
         public override string ToString()
             => Time.ToString("HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture)
-               + $" first-chance {Exception.GetType().FullName}: {Exception.Message}"
+               + $" first-chance {Exception.GetType().FullName}: {FirstChanceMonitor.MessageOf(Exception)}"
                + (SuppressedSinceLast > 0 ? $" (+{SuppressedSinceLast} similar suppressed)" : "");
     }
 
@@ -53,7 +53,7 @@ namespace ToolBelt.Diagnostics
         /// <summary>Longest message kept in a signature; longer ones are cut and end with "…".</summary>
         public const int MaxMessageLength = 500;
 
-        private int _signatures;
+        private int _signatures, _overflowKeys;
         private readonly HashSet<Type> _ignored = new HashSet<Type>();
         private readonly object _ignoredGate = new object();
         private int _attached;
@@ -130,7 +130,7 @@ namespace ToolBelt.Diagnostics
                 if (IsIgnored(exception.GetType())) return;
                 if (Filter != null && !Filter(exception)) return;
                 // The message is cut to MaxMessageLength: whole messages were kept, so 300 large ones held 600 MB.
-                string message = exception.Message ?? string.Empty;
+                string message = MessageOf(exception);
                 if (message.Length > MaxMessageLength)
                 {
                     int cut = MaxMessageLength;
@@ -141,13 +141,29 @@ namespace ToolBelt.Diagnostics
                 // Bounded: messages that embed values ("bad value 'x123' at line 4711") would otherwise add a signature per
                 // throw for the life of the process. Past the cap, new messages share one per-type signature. The count is
                 // kept here: ConcurrentDictionary.Count takes every lock, and the cap was checked apart from the add.
+                // The per-type keys count toward the cap too, past which every type shares one key: they were free, so
+                // many distinct exception types grew the table without bound.
                 if (!_seen.TryGetValue(key, out Signature? sig))
                 {
                     if (Interlocked.Increment(ref _signatures) > MaxSignatures)
                     {
                         Interlocked.Decrement(ref _signatures);
                         key = exception.GetType().FullName + ": (other messages)";
-                        sig = _seen.GetOrAdd(key, _ => new Signature());
+                        if (!_seen.TryGetValue(key, out sig))
+                        {
+                            if (Interlocked.Increment(ref _overflowKeys) > MaxSignatures)
+                            {
+                                Interlocked.Decrement(ref _overflowKeys);
+                                key = "(other types): (other messages)";
+                                sig = _seen.GetOrAdd(key, _ => new Signature());
+                            }
+                            else
+                            {
+                                var fresh = new Signature();
+                                sig = _seen.GetOrAdd(key, fresh);
+                                if (!ReferenceEquals(sig, fresh)) Interlocked.Decrement(ref _overflowKeys);
+                            }
+                        }
                     }
                     else
                     {
@@ -181,6 +197,13 @@ namespace ToolBelt.Diagnostics
             {
                 active.Remove(this);
             }
+        }
+
+        // An exception whose Message threw was dropped without being counted or reported (and broke ToString).
+        internal static string MessageOf(Exception exception)
+        {
+            try { return exception.Message ?? string.Empty; }
+            catch (Exception ex) { return "(its Message threw " + ex.GetType().FullName + ")"; }
         }
 
         private bool IsIgnored(Type t)

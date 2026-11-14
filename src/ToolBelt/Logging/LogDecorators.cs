@@ -11,6 +11,7 @@ namespace ToolBelt.Logging
         private readonly ILogSink _inner;
         private readonly Func<LogEvent, bool> _predicate;
         private readonly bool _ownsInner;
+        private volatile bool _disposed;
 
         public FilterSink(ILogSink inner, Func<LogEvent, bool> predicate, bool ownsInner = false)
         {
@@ -26,11 +27,15 @@ namespace ToolBelt.Logging
         public void Emit(LogEvent logEvent)
         {
             if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
+            // Events after Dispose went on to the inner sink; every other sink throws, as this one now does.
+            if (_disposed) throw new ObjectDisposedException(nameof(FilterSink));
             if (_predicate(logEvent)) _inner.Emit(logEvent);
         }
 
         public void Dispose()
         {
+            if (_disposed) return;
+            _disposed = true;
             if (_ownsInner) _inner.Dispose();
         }
     }
@@ -47,6 +52,7 @@ namespace ToolBelt.Logging
         private (Func<LogEvent, bool> Predicate, ILogSink Sink)[] _routes = new (Func<LogEvent, bool>, ILogSink)[0];
         private readonly object _gate = new object();
         private readonly bool _ownsSinks;
+        private volatile bool _disposed;
 
         public RouterSink(bool ownsSinks = false) => _ownsSinks = ownsSinks;
 
@@ -70,6 +76,7 @@ namespace ToolBelt.Logging
         public void Emit(LogEvent logEvent)
         {
             if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
+            if (_disposed) throw new ObjectDisposedException(nameof(RouterSink));      // events after Dispose went on
             List<Exception>? errors = null;
             foreach (var route in System.Threading.Volatile.Read(ref _routes))
             {
@@ -90,6 +97,8 @@ namespace ToolBelt.Logging
 
         public void Dispose()
         {
+            if (_disposed) return;
+            _disposed = true;
             if (!_ownsSinks) return;
             foreach (var route in System.Threading.Volatile.Read(ref _routes))
             {
@@ -121,6 +130,7 @@ namespace ToolBelt.Logging
         private DateTimeOffset _windowStart;
         private long _suppressed;   // an int wrapped negative after 2^31 repeats and the summary vanished
         private LogEvent? _lastSuppressed;
+        private bool _disposed;
 
         public RateLimitedSink(ILogSink inner, TimeSpan window, Func<DateTimeOffset>? clock = null, bool ownsInner = false)
         {
@@ -140,6 +150,8 @@ namespace ToolBelt.Logging
             // through this sink, deadlocked (the consumer waited for the lock, the lock's holder for queue space).
             lock (_gate)
             {
+                // After Dispose a repeat was counted and never summarized (and a new message went on to a disposed sink).
+                if (_disposed) throw new ObjectDisposedException(nameof(RateLimitedSink));
                 bool same = _hasCurrent && logEvent.Level == _currentLevel
                     && string.Equals(logEvent.Category, _currentCategory, StringComparison.Ordinal)
                     && string.Equals(logEvent.Message, _currentMessage, StringComparison.Ordinal);
@@ -190,7 +202,12 @@ namespace ToolBelt.Logging
         public void Dispose()
         {
             LogEvent? summary;
-            lock (_gate) summary = TakeSummary();
+            lock (_gate)
+            {
+                if (_disposed) return;
+                _disposed = true;
+                summary = TakeSummary();
+            }
             try { if (summary != null) _inner.Emit(summary); }
             finally { if (_ownsInner) _inner.Dispose(); } // a throwing summary left the owned sink open
         }

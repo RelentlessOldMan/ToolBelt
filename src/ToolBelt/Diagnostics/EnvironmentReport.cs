@@ -41,6 +41,19 @@ namespace ToolBelt.Diagnostics
         public string UICulture { get; private set; } = "";
         public IReadOnlyDictionary<string, string> EnvironmentVariables { get; private set; } = new Dictionary<string, string>();
 
+        // Names are case-insensitive only on Windows: elsewhere PATH and path are two variables, and one dictionary
+        // ignoring case kept just one of them.
+        internal static Dictionary<string, string> CollectVariables(IEnumerable<string> names, Func<string, string?> get, bool windows)
+        {
+            var vars = new Dictionary<string, string>(windows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+            foreach (string name in names)
+            {
+                string? value = get(name);
+                if (value != null) vars[name] = value;
+            }
+            return vars;
+        }
+
         /// <summary>Captures the current environment. Supply variable names to include, or null for the default safe set.</summary>
         public static EnvironmentReport Capture(IReadOnlyCollection<string>? environmentVariableNames = null)
         {
@@ -60,12 +73,8 @@ namespace ToolBelt.Diagnostics
             }
             catch { /* some hosts restrict process self-inspection */ }
 
-            var vars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string name in environmentVariableNames ?? DefaultVariableNames)
-            {
-                string? value = Environment.GetEnvironmentVariable(name);
-                if (value != null) vars[name] = value;
-            }
+            Dictionary<string, string> vars = CollectVariables(environmentVariableNames ?? DefaultVariableNames,
+                Environment.GetEnvironmentVariable, RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
 
             return new EnvironmentReport
             {

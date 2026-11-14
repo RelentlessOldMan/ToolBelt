@@ -231,14 +231,23 @@ namespace ToolBelt.Diagnostics
             try
             {
                 // Started on the thread pool: an "async" probe that blocks before its first await would otherwise run on this
-                // thread, defeating the timeout race and holding up every probe after it.
+                // thread, defeating the timeout race and holding up every probe after it. While the last start has not
+                // returned (the probe is still blocked before its first await), no new one starts, as for a synchronous
+                // probe: each check took one more pool thread, without limit.
+                Task<Task<ProbeResult>>? previous = Volatile.Read(ref reg.Starting);
+                if (previous != null && !previous.IsCompleted)
+                    return new ProbeReport(reg.Name, reg.FailureStatus, "The previous run of this probe has not returned.", watch.Elapsed, false, null);
                 CancellationToken probeToken = probeCts.Token;
-                probeTask = Task.Run(() => reg.Probe(probeToken) ?? throw new InvalidOperationException("The probe returned a null task."));
+                Task<Task<ProbeResult>> start = Task.Factory.StartNew(
+                    () => reg.Probe(probeToken) ?? throw new InvalidOperationException("The probe returned a null task."),
+                    CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+                Volatile.Write(ref reg.Starting, start);
+                probeTask = start.Unwrap();
             }
             catch (Exception ex) when (!(ex is OperationCanceledException && outer.IsCancellationRequested))
             {
                 // A probe that throws synchronously, before producing a task.
-                return new ProbeReport(reg.Name, reg.FailureStatus, ex.Message, watch.Elapsed, false, ex);
+                return new ProbeReport(reg.Name, reg.FailureStatus, MessageOf(ex), watch.Elapsed, false, ex);
             }
 
             Task timeoutTask = Task.Delay(reg.Timeout, delayCts.Token);
@@ -276,8 +285,15 @@ namespace ToolBelt.Diagnostics
             }
             catch (Exception ex)
             {
-                return new ProbeReport(reg.Name, reg.FailureStatus, ex.Message, watch.Elapsed, false, ex);
+                return new ProbeReport(reg.Name, reg.FailureStatus, MessageOf(ex), watch.Elapsed, false, ex);
             }
+        }
+
+        // An exception whose Message threw faulted the whole run, losing every probe's result.
+        private static string MessageOf(Exception ex)
+        {
+            try { return ex.Message; }
+            catch (Exception inner) { return "(its Message threw " + inner.GetType().FullName + ")"; }
         }
 
         private static void ObserveLater(Task task)
@@ -310,6 +326,9 @@ namespace ToolBelt.Diagnostics
             public Func<CancellationToken, Task<ProbeResult>> Probe { get; }
             public TimeSpan Timeout { get; }
             public HealthStatus FailureStatus { get; }
+
+            // The last start of the probe: the call that returns its task.
+            public Task<Task<ProbeResult>>? Starting;
         }
     }
 }

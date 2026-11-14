@@ -393,10 +393,16 @@ namespace ToolBelt.Tests.Logging
         public void AnsiStyle_CompoundResetInsideText_ReopensTheOuterStyle()
         {
             var style = new AnsiStyle(true);
-            foreach (string reset in new[] { "\u001b[0;1m", "\u001b[;4m", "\u001b[00m", "\u001b[0m", "\u001b[m" })
+            // A compound reset is split (round 78): reset, our style, then the text's own attributes, so those still win.
+            var cases = new[]
+            {
+                ("\u001b[0;1m", "\u001b[0m\u001b[31m\u001b[1m"), ("\u001b[;4m", "\u001b[0m\u001b[31m\u001b[4m"),
+                ("\u001b[00m", "\u001b[00m\u001b[31m"), ("\u001b[0m", "\u001b[0m\u001b[31m"), ("\u001b[m", "\u001b[m\u001b[31m"),
+            };
+            foreach (var (reset, expected) in cases)
             {
                 string s = style.Foreground("a" + reset + "b", AnsiColor.Red);
-                Check.True(s.Contains(reset + "\u001b[31m"), reset.Replace("\u001b", "ESC") + ": " + s.Replace("\u001b", "ESC"));
+                Check.Equal("\u001b[31ma" + expected + "b\u001b[0m", s, reset.Replace("\u001b", "ESC"));
             }
             // Not resets: these leave the outer style alone.
             string bold = style.Foreground("a\u001b[1mb\u001b[10;0mc", AnsiColor.Red);

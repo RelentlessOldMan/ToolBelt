@@ -147,41 +147,22 @@ namespace ToolBelt.Diagnostics
             foreach (var kv in copies)
             {
                 var c = kv.Value;
-                if (c.Count == c.Kept.Length) timers[kv.Key] = Summarize(new List<double>(c.Kept));
-                else
-                {
-                    // Past the cap: exact count, min, max and mean, percentiles from the reservoir.
-                    double mean = c.Sum / c.Count;
-                    if (double.IsInfinity(mean)) mean = c.ScaledSum / c.Count * TwoTo512 * TwoTo512;
-                    mean = Math.Max(c.Min, Math.Min(c.Max, mean));
-                    var kept = new List<double>(c.Kept);
-                    kept.Sort();
-                    timers[kv.Key] = new TimerStats(c.Count, c.Min, c.Max, mean, Quantile(kept, 0.50), Quantile(kept, 0.95), Quantile(kept, 0.99));
-                }
+                // Exact count, min, max and mean; percentiles from the samples (all of them, or the reservoir past the cap).
+                // The mean is the same under the cap and past it: under it, an overflowing sum fell back to adding v/n in
+                // sorted order, where large opposite terms swallowed the small ones (Max, Max, -Max, -Max, 6 gave 0, and
+                // 1.2 past the cap).
+                double mean = c.Sum / c.Count;
+                if (double.IsInfinity(mean) || double.IsNaN(mean)) mean = c.ScaledSum / c.Count * TwoTo512 * TwoTo512;
+                mean = Math.Max(c.Min, Math.Min(c.Max, mean));
+                var kept = new List<double>(c.Kept);
+                kept.Sort();
+                timers[kv.Key] = new TimerStats(c.Count, c.Min, c.Max, mean, Quantile(kept, 0.50), Quantile(kept, 0.95), Quantile(kept, 0.99));
             }
             return new MetricsSnapshot(counters, gauges, timers);
         }
 
         private const double TwoTo512 = 1.3407807929942597e154;
         private const double TwoToMinus1024 = 5.562684646268003e-309;
-
-        private static TimerStats Summarize(List<double> sorted)
-        {
-            sorted.Sort();
-            double sum = 0;
-            for (int i = 0; i < sorted.Count; i++) sum += sorted[i];
-            double mean = sum / sorted.Count;
-            if (double.IsInfinity(mean))
-            {
-                mean = 0;                                                     // the sum overflowed: average scaled values
-                for (int i = 0; i < sorted.Count; i++) mean += sorted[i] / sorted.Count;
-            }
-            double min = sorted[0], max = sorted[sorted.Count - 1];
-            // Rounding put the mean of three 0.1s above the largest sample.
-            mean = Math.Max(min, Math.Min(max, mean));
-            return new TimerStats(sorted.Count, min, max, mean,
-                Quantile(sorted, 0.50), Quantile(sorted, 0.95), Quantile(sorted, 0.99));
-        }
 
         private static double Quantile(List<double> sorted, double p)
         {

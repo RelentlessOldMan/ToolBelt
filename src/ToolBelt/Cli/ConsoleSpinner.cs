@@ -179,19 +179,42 @@ namespace ToolBelt.Cli
         private static int Units(string s, int i)
             => char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]) ? 2 : 1;
 
-        // Columns for one character: none for marks and format characters, two for an astral character (mostly emoji
-        // and CJK extensions) or an East Asian wide one, else one.
+        // Columns for one character: none for marks, format characters, Hangul medial and final jamo (they join the
+        // initial one) and emoji skin-tone modifiers; two for an East Asian wide character, a BMP emoji shown as an emoji
+        // (U+2705, U+26A1, U+2B50), an astral emoji or symbol (U+1F000-1FAFF) or a CJK extension (planes 2 and 3); else
+        // one. Every astral character counted two (U+1D400, a narrow letter, too), and BMP emoji counted one.
         private static int Width(string s, int i, int n)
         {
             UnicodeCategory category = CharUnicodeInfo.GetUnicodeCategory(s, i);
             if (category == UnicodeCategory.NonSpacingMark || category == UnicodeCategory.EnclosingMark || category == UnicodeCategory.Format)
                 return 0;
-            if (n == 2) return 2;
+            if (n == 2)
+            {
+                int cp = char.ConvertToUtf32(s[i], s[i + 1]);
+                if (cp >= 0x1F3FB && cp <= 0x1F3FF) return 0;
+                return (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x20000 && cp <= 0x3FFFD) ? 2 : 1;
+            }
             char ch = s[i];
-            return (ch >= '\u1100' && ch <= '\u115F') || (ch >= '\u2E80' && ch <= '\uA4CF') || (ch >= '\uAC00' && ch <= '\uD7A3')
+            if (ch >= '\u1160' && ch <= '\u11FF') return 0;
+            if ((ch >= '\u1100' && ch <= '\u115F') || (ch >= '\u2E80' && ch <= '\uA4CF') || (ch >= '\uAC00' && ch <= '\uD7A3')
                 || (ch >= '\uF900' && ch <= '\uFAFF') || (ch >= '\uFE30' && ch <= '\uFE4F') || (ch >= '\uFF00' && ch <= '\uFF60')
-                || (ch >= '\uFFE0' && ch <= '\uFFE6') ? 2 : 1;
+                || (ch >= '\uFFE0' && ch <= '\uFFE6')) return 2;
+            for (int k = 0; k < WideEmoji.Length; k += 2)
+                if (ch >= WideEmoji[k] && ch <= WideEmoji[k + 1]) return 2;
+            return 1;
         }
+
+        // The BMP characters with Emoji_Presentation (East Asian Width W), as inclusive ranges.
+        private static readonly char[] WideEmoji =
+        {
+            '\u231A', '\u231B', '\u2329', '\u232A', '\u23E9', '\u23EC', '\u23F0', '\u23F0', '\u23F3', '\u23F3',
+            '\u25FD', '\u25FE', '\u2614', '\u2615', '\u2648', '\u2653', '\u267F', '\u267F', '\u2693', '\u2693',
+            '\u26A1', '\u26A1', '\u26AA', '\u26AB', '\u26BD', '\u26BE', '\u26C4', '\u26C5', '\u26CE', '\u26CE',
+            '\u26D4', '\u26D4', '\u26EA', '\u26EA', '\u26F2', '\u26F3', '\u26F5', '\u26F5', '\u26FA', '\u26FA',
+            '\u26FD', '\u26FD', '\u2705', '\u2705', '\u270A', '\u270B', '\u2728', '\u2728', '\u274C', '\u274C',
+            '\u274E', '\u274E', '\u2753', '\u2755', '\u2757', '\u2757', '\u2795', '\u2797', '\u27B0', '\u27B0',
+            '\u27BF', '\u27BF', '\u2B1B', '\u2B1C', '\u2B50', '\u2B50', '\u2B55', '\u2B55',
+        };
 
         // A broken writer (a closed pipe) threw out of the constructor and the Message setter, though Dispose ignored the
         // same failure; the spinner is cosmetic, so drawing fails quietly everywhere.

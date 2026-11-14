@@ -37,7 +37,7 @@ namespace ToolBelt.Diagnostics
         /// it is the whole application domain's allocation, so work on other threads during the run is counted too.
         /// </summary>
         public long AllocatedBytesPerOperation { get; }
-        /// <summary>Mean time relative to the baseline candidate (1.0 for the baseline). Set only by <see cref="Benchmark.Compare"/>.</summary>
+        /// <summary>Mean time relative to the baseline candidate (1.0 for the baseline; infinity when the baseline measured 0 ns and this did not). Set only by <see cref="Benchmark.Compare"/>.</summary>
         public double RelativeToBaseline { get; internal set; } = 1.0;
 
         public override string ToString()
@@ -96,7 +96,7 @@ namespace ToolBelt.Diagnostics
             {
                 double baseline = results[0].MeanNanoseconds;
                 foreach (var r in results)
-                    r.RelativeToBaseline = baseline > 0 ? r.MeanNanoseconds / baseline : 1.0;
+                    r.RelativeToBaseline = Relative(r.MeanNanoseconds, baseline);
             }
             return results;
         }
@@ -152,6 +152,11 @@ namespace ToolBelt.Diagnostics
             return GC.GetAllocatedBytesForCurrentThread();
 #endif
         }
+
+        // Against a baseline that measured 0 ns (below the timer's resolution) every candidate was reported as 1.0, even
+        // one that took a second.
+        internal static double Relative(double mean, double baseline)
+            => baseline > 0 ? mean / baseline : mean > 0 ? double.PositiveInfinity : 1.0;
 
 #if NETSTANDARD2_0
         private static readonly Func<long>? ThreadAllocated = FindThreadAllocated();

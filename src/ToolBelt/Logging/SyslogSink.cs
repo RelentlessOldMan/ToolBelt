@@ -128,25 +128,30 @@ namespace ToolBelt.Logging
             if (_udpTarget == null || now >= _udpRefreshAt)
             {
                 if (now < _retryAtTimestamp) throw new SocketException((int)SocketError.TryAgain);
-                IPEndPoint target;
+                IPEndPoint? target = null;
                 try { target = ResolveUdp(); }
                 catch
                 {
                     _backoff = _backoff == TimeSpan.Zero ? MinBackoff : TimeSpan.FromTicks(Math.Min(_backoff.Ticks * 2, MaxBackoff.Ticks));
                     _retryAtTimestamp = now + (long)(_backoff.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
                     if (_udpTarget == null) throw;
-                    target = _udpTarget;                                              // keep the last good address
+                    // Keep the last good address and look again when the back-off ends. Falling through reset the
+                    // back-off, so it never grew past the first step.
+                    _udpRefreshAt = _retryAtTimestamp;
                 }
-                _backoff = TimeSpan.Zero;
-                if (_udp != null && _udpTarget != null && _udpTarget.AddressFamily != target.AddressFamily)
+                if (target != null)
                 {
-                    _udp.Dispose();
-                    _udp = null;
+                    _backoff = TimeSpan.Zero;
+                    if (_udp != null && _udpTarget != null && _udpTarget.AddressFamily != target.AddressFamily)
+                    {
+                        _udp.Dispose();
+                        _udp = null;
+                    }
+                    _udpTarget = target;
+                    _udpRefreshAt = now + 60 * System.Diagnostics.Stopwatch.Frequency;
                 }
-                _udpTarget = target;
-                _udpRefreshAt = now + 60 * System.Diagnostics.Stopwatch.Frequency;
             }
-            _udp ??= new UdpClient(_udpTarget.AddressFamily);
+            _udp ??= new UdpClient(_udpTarget!.AddressFamily);                    // set above, or kept from before
             int length = payload.Length;
             if (length > UdpMaxBytes)
             {
