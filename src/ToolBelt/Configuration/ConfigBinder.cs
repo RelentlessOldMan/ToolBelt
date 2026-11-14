@@ -33,8 +33,10 @@ namespace ToolBelt.Configuration
     /// indexes must run 0, 1, 2, ... without gaps. A get-only list property is filled in place.</item>
     /// <item>Numbers are invariant: "0,5" is an error, not 5.</item>
     /// <item>A configured key is never dropped silently: a type the binder doesn't handle (a dictionary, a list of
-    /// objects, <see cref="Uri"/>), a read-only property, a list given one value ("Hosts=a,b") or a non-numeric index, or a
-    /// setter that throws is reported as an error.</item>
+    /// objects, <see cref="Uri"/>), a read-only property (one without a public setter), a list given one value
+    /// ("Hosts=a,b", also alongside its indexed keys) or a non-numeric index, a section given a value of its own
+    /// ("Server=localhost" beside "Server:Port"), or a setter that throws is reported as an error.</item>
+    /// <item>A key whose value is null is unset: the property keeps its default.</item>
     /// <item>A class may contain its own type (a fallback <c>Opts</c> inside <c>Opts</c>): each configured level is bound,
     /// down to <see cref="MaxDepth"/> sections; a key nested deeper is reported as an error.</item>
     /// <item>A <see cref="DateTimeOffset"/> without an offset is read as UTC (not the machine's zone). Only a
@@ -75,9 +77,11 @@ namespace ToolBelt.Configuration
 
                 if (IsScalar(pt))
                 {
-                    if (values.TryGetValue(key, out string? raw))
+                    // Null is unset, as it is for every other kind of property: it overwrote a string's default, and was a
+                    // conversion error ("cannot convert ''") for an int.
+                    if (values.TryGetValue(key, out string? raw) && raw != null)
                     {
-                        if (!prop.CanWrite) errors.Add($"'{key}': the property is read-only, so it cannot be bound.");
+                        if (!CanSet(prop)) errors.Add($"'{key}': the property is read-only, so it cannot be bound.");
                         else if (TryConvertScalar(raw, pt, out object? value)) TrySet(prop, obj, value, key, errors);
                         else errors.Add($"'{key}': cannot convert '{raw}' to {FriendlyName(pt)}.");
                     }
@@ -88,14 +92,12 @@ namespace ToolBelt.Configuration
                 else if (TryGetElementType(pt, out Type elementType))
                 {
                     object? sequence = BindSequence(pt, elementType, values, key, sep, errors);
-                    if (sequence == null)
-                    {
-                        // "Hosts=a,b": a list is not split from one value (EnvironmentVariables.GetList does that).
-                        if (values.TryGetValue(key, out string? whole) && !string.IsNullOrEmpty(whole))
-                            errors.Add($"'{key}': a list takes indexed keys ('{key}{sep}0', '{key}{sep}1', ...), not one value.");
-                        continue;
-                    }
-                    if (prop.CanWrite) { TrySet(prop, obj, sequence, key, errors); continue; }
+                    // "Hosts=a,b": a list is not split from one value (EnvironmentVariables.GetList does that). Beside indexed
+                    // keys too: there the value was dropped without a word.
+                    if (values.TryGetValue(key, out string? whole) && !string.IsNullOrEmpty(whole))
+                        errors.Add($"'{key}': a list takes indexed keys ('{key}{sep}0', '{key}{sep}1', ...), not one value.");
+                    if (sequence == null) continue;
+                    if (CanSet(prop)) { TrySet(prop, obj, sequence, key, errors); continue; }
                     // A get-only list (List<string> Hosts { get; } = new()) is filled in place rather than skipped.
                     if (prop.CanRead && TryGet(prop, obj, key, errors, out object? existing))
                     {
@@ -120,6 +122,9 @@ namespace ToolBelt.Configuration
                 }
                 else if (HasSection(values, key + sep))
                 {
+                    // "Server=localhost" beside "Server:Port=5": the section's own value was dropped without a word.
+                    if (values.TryGetValue(key, out string? own) && !string.IsNullOrEmpty(own))
+                        errors.Add($"'{key}': a section takes nested keys ('{key}{sep}...'), not a value of its own.");
                     // A type may contain itself (Opts.Fallback is an Opts): recursion still ends, because each level needs
                     // a configured key one section longer, and is capped well before the stack runs out.
                     if (depth >= MaxDepth)
@@ -133,7 +138,7 @@ namespace ToolBelt.Configuration
                     if (prop.CanRead && !TryGet(prop, obj, key, errors, out target)) continue;
                     if (target == null)
                     {
-                        if (!prop.CanWrite)
+                        if (!CanSet(prop))
                         {
                             errors.Add($"'{key}': the property is read-only and null, so its section cannot be bound.");
                             continue;
@@ -147,7 +152,7 @@ namespace ToolBelt.Configuration
                         catch (TargetInvocationException ex) { errors.Add($"'{key}': {(ex.InnerException ?? ex).Message}"); continue; }
                     }
                     BindInto(target, pt, values, key, sep, errors, depth + 1);
-                    if (prop.CanWrite) TrySet(prop, obj, target, key, errors);
+                    if (CanSet(prop)) TrySet(prop, obj, target, key, errors);
                 }
                 else if (values.TryGetValue(key, out string? whole) && !string.IsNullOrEmpty(whole))
                 {
@@ -174,6 +179,9 @@ namespace ToolBelt.Configuration
         // A class with properties to bind into: not a delegate or a collection (a dictionary or a list of objects).
         private static bool IsBindableClass(Type type)
             => type.IsClass && type != typeof(object) && !typeof(Delegate).IsAssignableFrom(type) && !typeof(System.Collections.IEnumerable).IsAssignableFrom(type);
+
+        // A public setter only: a private one (a value the type keeps out of outside hands) was set from configuration.
+        private static bool CanSet(PropertyInfo prop) => prop.GetSetMethod() != null;
 
         private static bool IsConfigured(Dictionary<string, string?> values, string key, string sep)
             => (values.TryGetValue(key, out string? v) && !string.IsNullOrEmpty(v)) || HasSection(values, key + sep);

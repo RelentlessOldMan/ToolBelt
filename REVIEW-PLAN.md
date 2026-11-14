@@ -47,7 +47,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 4 | 24 / 119 | re-queue (24 bugs, none severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 4 | 24 / 106 | re-queue (24 bugs, 1 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 4 | 10 / 57 | re-queue (10 bugs, 1 severe) |
-| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 4 | 29 / 93 | re-queue (29 bugs, 5 severe) |
+| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 5 | 24 / 117 | re-queue (24 bugs, none severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 5 | 24 / 149 | re-queue (24 bugs, 1 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 4 | 19 / 71 | re-queue (19 bugs) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 4 | 24 / 99 | re-queue (24 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); **next: 7**, then 14, 12, 15, 5, 10, 16, 1, 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); **next: 14**, then 12, 15, 5, 10, 16, 1, 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -149,11 +149,53 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.16 | 73 | WPF satellite, fourth pass | 24 | (see tag) |
 | v2026.11.13.17 | 74 | Text & small types, fourth pass | 20 | (see tag) |
 | v2026.11.13.18 | 75 | IO, fifth pass | 24 | (see tag) |
+| v2026.11.13.19 | 76 | Documents & config, fifth pass | 24 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 76: Documents & config, fifth pass (v2026.11.13.19)
+
+Two fresh reviewers (correctness, robustness): 24 distinct findings, all confirmed (four of them by reading the code
+rather than a probe), so **24 bugs, none severe**. Section 7 stays re-queued. The regression tests are in
+`DocumentsConfigReview5Tests` (25 tests), and each failed on the old code. The WithPrefix collision can only happen on
+Unix, so its test drives a new internal overload; at HEAD it fails only because that overload is missing. One fix has
+no failing test: SettingsStore's guarded temp-file delete, since no delete could be made to fail after a failed save.
+
+- **SettingsStore:** a type System.Text.Json cannot load at all (an abstract property type, a ConcurrentBag) made
+  LoadFrom move a valid file aside as corrupt on every launch. It now throws. Get-only queues, stacks, concurrent
+  collections and lists declared as `IEnumerable<T>`, `IReadOnlyList<T>`, `IReadOnlyCollection<T>` or
+  `IReadOnlyDictionary<K,V>` were saved but never loaded, so the next save erased them. They are now refilled from
+  the object the property holds. A stack came back reversed on every load. A property with a private setter was saved
+  but never loaded; it now loads through that setter. Update's rollback could restore a lossy copy, and a restore that
+  threw replaced the caller's exception. Now the copy is used only if it saves exactly as before; otherwise Value is
+  left alone and saving is refused until Reset, and the caller's exception always propagates. Update ran the change
+  before refusing to save an unreadable file, and a failed save left the change in place; Reset replaced Value before
+  its write could fail. The backup name of a corrupt file could pass 255 characters (or UTF-8 bytes), so the file
+  could not be moved aside. **Behaviour change:** a string holding a lone surrogate now makes Save throw
+  ArgumentException; it used to be written as U+FFFD. A save now keeps the Hidden and System attributes, fails at once
+  on a read-only file instead of retrying for half a second, removes temp files a crashed save left more than an hour
+  ago, and no longer lets a failed temp delete hide the real error.
+- **ConfigBinder:** a section's own value beside its keys ("Server=localhost" with "Server:Port") and a list's whole
+  value beside its indexed keys were dropped without a word; both are now errors. **Behaviour change:** a property
+  with a private setter is read-only, so configuring it is an error (it used to be set). **Behaviour change:** a null
+  value is unset and keeps the default, for every type; it used to clear a string and be a conversion error for an
+  int.
+- **EnvironmentVariables:** Get(null) now throws ArgumentNullException. RequireAll reports a null or empty element
+  as "names", not "name". **Behaviour change:** "y" and "n" are no longer booleans; they were never documented and
+  ConfigBinder refuses them. On Unix, WithPrefix let `APP_x` and `app_x` strip to one key and silently kept one of
+  them; that now throws InvalidOperationException naming both.
+- **PdfWriter:** an indented first word was never width-checked, so the line could run off the page; the indent now
+  shrinks to fit, and a hard-split first word keeps it. An image scaled to the full usable height could leave the
+  first page blank. A code block's background bar could cross the bottom margin. Corrupt compressed PNG data threw
+  InvalidDataException; it is now an ArgumentException naming "png".
+- **Smaller:** MarkdownReport's Code, Link text and Image alt text kept line breaks (CR, LF, U+2028, U+2029), so a
+  blank line ended the paragraph and left literal backticks or brackets behind. They are now spaces, as in Bold and
+  Italic. ReportBuilder's Markdown output gave an all-punctuation heading the anchor "section"; GitHub gives it "",
+  so the link pointed nowhere and a real "Section" heading got the wrong number. HTML keeps "section", since an id
+  can't be empty. DocxWriter's image alt text lost its tabs and line breaks to XML attribute normalization.
+
 ### Round 75: IO, fifth pass (v2026.11.13.18)
 
 Two fresh reviewers (correctness, robustness): 26 findings, 24 confirmed, so **24 bugs, 1 severe**. Section 8 stays

@@ -183,7 +183,8 @@ namespace ToolBelt.Documents
                     // Never split a surrogate pair across lines (an emoji is one '?', not two).
                     if (len > 1 && start + len < raw.Length && char.IsHighSurrogate(raw[start + len - 1]) && char.IsLowSurrogate(raw[start + len])) len--;
                     string piece = raw.Length == 0 ? "" : raw.Substring(start, len);
-                    EnsureRoom(s);
+                    // Room for the whole bar, not just the text: the last line's bar ran into the bottom margin.
+                    EnsureRoom(s * 1.3);
                     double baseline = _y - s;
                     _current.Content.Append("0.75 g ").Append(Num(_margin)).Append(' ').Append(Num(baseline - s * 0.3)).Append(" 2 ")
                             .Append(Num(s * 1.3)).Append(" re f 0 g\n");
@@ -304,7 +305,9 @@ namespace ToolBelt.Documents
             // and some viewers complain. Keep each side at least 0.01 pt.
             dw = Math.Max(dw, 0.01);
             dh = Math.Max(dh, 0.01);
-            if (_y - dh < _margin) NewPage();
+            // Not at the top of a page: an image scaled to the full usable height could round to just past the margin
+            // and leave the page it started on blank.
+            if (_y - dh < _margin && !AtTop) NewPage();
 
             var img = new PdfImage { Width = width, Height = height, Rgb = new byte[width * height * 3] };
             bool anyAlpha = false;
@@ -558,29 +561,38 @@ namespace ToolBelt.Documents
             var lines = new List<string>();
             if (text.Length == 0) { lines.Add(""); return lines; }
             // Leading spaces are kept (indented Lines output, aligned columns): they start the first line.
-            int indent = 0;
-            while (indent < text.Length && text[indent] == ' ') indent++;
-            var line = new StringBuilder(text, 0, indent, text.Length);
-            bool started = false;   // the line holds a word (not just the indent)
+            int lead = 0;
+            while (lead < text.Length && text[lead] == ' ') lead++;
             int[]? table = Widths(bold);
             // The line's width is kept as a running sum of font units (integers, so exact): measuring the whole candidate
             // line for every word made a long paragraph quadratic.
-            double space = Units(table, ' '), lineUnits = indent * space;
-            foreach (var word in text.Substring(indent).Split(' '))
+            double space = Units(table, ' ');
+            string rest = text.Substring(lead);
+            // The indent never pushes the first word past the right margin: it shrinks to what fits beside that word (or,
+            // for a word wider than the line, beside its first piece). It was added unchecked, so the line ran off the page.
+            string first = rest.Split(' ')[0];
+            double firstUnits = MeasureUnits(table, first);
+            if (firstUnits / 1000 * size > width && first.Length > 0)
+                firstUnits = MeasureUnits(table, first.Substring(0, IsPairStart(first, 0) ? 2 : 1));
+            int indent = lead;
+            while (indent > 0 && (indent * space + firstUnits) / 1000 * size > width) indent--;
+            var line = new StringBuilder(text, 0, indent, text.Length);
+            bool started = false;   // the line holds a word (not just the indent)
+            double lineUnits = indent * space;
+            foreach (var word in rest.Split(' '))
             {
                 string w = word;
                 // A word wider than the line is hard-split, in one pass over its characters (re-measuring the remaining
-                // tail for every piece made a long unbroken string, such as a base-64 blob, quadratic).
+                // tail for every piece made a long unbroken string, such as a base-64 blob, quadratic). The first piece of
+                // the first word keeps the indent.
                 if (Measure(w, size, bold) > width && w.Length > 1)
                 {
-                    if (started) lines.Add(line.ToString());
-                    line.Clear();
-                    lineUnits = 0;
+                    if (started) { lines.Add(line.ToString()); line.Clear(); lineUnits = 0; }
                     started = false;
                     int start = 0;
                     while (true)
                     {
-                        double units = 0;
+                        double units = lineUnits;
                         int end = start;
                         while (end < w.Length)
                         {
@@ -590,8 +602,10 @@ namespace ToolBelt.Documents
                             units = next;
                             end += step;
                         }
-                        if (end >= w.Length) { w = w.Substring(start); break; }  // the rest fits: it starts the next line
-                        lines.Add(w.Substring(start, end - start));
+                        if (end >= w.Length) { w = w.Substring(start); break; }  // the rest fits: it ends up on the line
+                        lines.Add(line.Append(w, start, end - start).ToString());
+                        line.Clear();
+                        lineUnits = 0;
                         start = end;
                     }
                 }
@@ -816,16 +830,24 @@ namespace ToolBelt.Documents
             if (expected > int.MaxValue) throw new ArgumentException("PNG image too large.", nameof(png));
             // Grow only as data actually inflates: a tiny file claiming a huge image fails before any large allocation.
             var raw = new byte[Math.Min(expected, 1 << 16)];
-            using (var inflate = new DeflateStream(new MemoryStream(z, 2, z.Length - 2), CompressionMode.Decompress))
+            // Corrupt compressed data threw InvalidDataException, not the ArgumentException every other bad PNG gets.
+            try
             {
-                int read = 0;
-                while (read < expected)
+                using (var inflate = new DeflateStream(new MemoryStream(z, 2, z.Length - 2), CompressionMode.Decompress))
                 {
-                    if (read == raw.Length) Array.Resize(ref raw, (int)Math.Min(expected, (long)raw.Length * 2));
-                    int got = inflate.Read(raw, read, raw.Length - read);
-                    if (got == 0) throw new ArgumentException("Truncated PNG image data.", nameof(png));
-                    read += got;
+                    int read = 0;
+                    while (read < expected)
+                    {
+                        if (read == raw.Length) Array.Resize(ref raw, (int)Math.Min(expected, (long)raw.Length * 2));
+                        int got = inflate.Read(raw, read, raw.Length - read);
+                        if (got == 0) throw new ArgumentException("Truncated PNG image data.", nameof(png));
+                        read += got;
+                    }
                 }
+            }
+            catch (InvalidDataException ex)
+            {
+                throw new ArgumentException("Corrupt PNG image data.", nameof(png), ex);
             }
             var rgba = new byte[width * height * 4];
             var prev = new byte[stride];

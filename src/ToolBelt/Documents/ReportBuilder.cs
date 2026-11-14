@@ -248,7 +248,7 @@ namespace ToolBelt.Documents
         /// <summary>GitHub-flavoured Markdown. See the class summary for what this target loses.</summary>
         public string ToMarkdown()
         {
-            var anchors = new Anchors();
+            var anchors = new Anchors(github: true);
             anchors.Next(Title);
             var headings = CollectHeadings(anchors);
             // Text is escaped like the other formats show it: literally, not as Markdown syntax.
@@ -466,8 +466,16 @@ namespace ToolBelt.Documents
             return list;
         }
 
-        /// <summary>The anchor id GitHub (and this HTML output) gives a heading: lower-case, punctuation dropped, spaces to hyphens.</summary>
+        /// <summary>The anchor id this HTML output gives a heading, as GitHub does: lower-case, punctuation dropped, spaces to
+        /// hyphens. A heading GitHub keeps nothing of (all punctuation) gets "section" here, since an HTML id can't be
+        /// empty; the Markdown output's links use GitHub's empty anchor for it.</summary>
         public static string Slug(string text)
+        {
+            string s = GithubSlug(text);
+            return s.Length == 0 ? "section" : s;
+        }
+
+        private static string GithubSlug(string text)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
             // GitHub keeps letters, marks, numbers, connector punctuation and '-', and turns each space into '-'. A
@@ -492,19 +500,23 @@ namespace ToolBelt.Documents
                 }
                 i += width - 1;
             }
-            // An HTML id can't be empty, so a heading with nothing GitHub keeps (all punctuation) gets "section".
-            return sb.Length == 0 ? "section" : sb.ToString();
+            return sb.ToString();
         }
 
         private sealed class Anchors
         {
             private readonly Dictionary<string, int> _seen = new Dictionary<string, int>(StringComparer.Ordinal);
+            private readonly bool _github;
+
+            // GitHub's own slugs (Markdown): an all-punctuation heading is "", then "-1", ...; "section" there pointed nowhere
+            // and threw off the numbering of a real "Section" heading.
+            public Anchors(bool github = false) => _github = github;
 
             // GitHub's de-duplication: the first "x" stays "x", repeats become "x-1", "x-2", ..., skipping any suffix a
             // heading already took (headings "x-1", "x", "x" get "x-1", "x", "x-2").
             public string Next(string text)
             {
-                string slug = Slug(text);
+                string slug = _github ? GithubSlug(text) : Slug(text);
                 if (!_seen.TryGetValue(slug, out int n)) { _seen[slug] = 0; return slug; }
                 string candidate;
                 do candidate = slug + "-" + (++n).ToString(CultureInfo.InvariantCulture);

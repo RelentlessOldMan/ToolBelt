@@ -24,8 +24,8 @@ namespace ToolBelt.Documents
     /// yields the finished document. Cell and inline-helper text is escaped so stray <c>|</c>, <c>*</c> or raw HTML
     /// (<c>&lt;</c>, <c>&amp;</c>) don't corrupt the layout; headings and paragraphs are Markdown as given, so they can
     /// carry <see cref="Bold"/>, <see cref="Link"/> and friends. Code fences and spans grow longer than any backtick
-    /// run inside them. Two lists in a row stay separate (the second uses the other marker), and an inline span's line
-    /// breaks become spaces.
+    /// run inside them. Two lists in a row stay separate (the second uses the other marker), and the line breaks in an
+    /// inline span, code span, link text or image alt text become spaces.
     /// </summary>
     public sealed class MarkdownReport
     {
@@ -140,7 +140,7 @@ namespace ToolBelt.Documents
         public MarkdownReport Image(string altText, string url)
         {
             if (url is null) throw new ArgumentNullException(nameof(url));
-            Block($"![{Escape(altText ?? "")}]({Destination(url)})");
+            Block($"![{Escape(OneLine(altText))}]({Destination(url)})");
             return this;
         }
 
@@ -181,7 +181,7 @@ namespace ToolBelt.Documents
         {
             // A blank line inside ended the paragraph and left both halves with stray markers; a line starting "- " began a
             // list. A span is inline, so its line breaks become spaces.
-            text = (text ?? "").Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ');
+            text = OneLine(text);
             string core = text.Trim();
             if (core.Length == 0) return text;   // "****" would be a thematic break
             int lead = text.IndexOf(core, StringComparison.Ordinal);
@@ -204,7 +204,8 @@ namespace ToolBelt.Documents
         {
             // Backslash escapes don't work inside a code span: use a longer delimiter, padded when the text touches a
             // backtick (CommonMark strips one space from each side).
-            text ??= "";
+            // A blank line inside ended the paragraph, leaving stray backticks.
+            text = OneLine(text);
             if (text.Length == 0) return "";   // two backticks are not a code span
             string fence = new string('`', LongestRun(text, '`') + 1);
             bool pad = text.Length > 0 && (text[0] == '`' || text[text.Length - 1] == '`'
@@ -212,7 +213,12 @@ namespace ToolBelt.Documents
             return pad ? fence + " " + text + " " + fence : fence + text + fence;
         }
         /// <summary>Inline link.</summary>
-        public static string Link(string text, string url) => "[" + Escape(text) + "](" + Destination(url ?? "") + ")";
+        public static string Link(string text, string url) => "[" + Escape(OneLine(text)) + "](" + Destination(url ?? "") + ")";
+
+        // Inline text is one line: CR, LF and the Unicode line and paragraph separators become spaces (a blank line in a
+        // link's text or an image's alt text ended the paragraph and left literal brackets behind).
+        private static string OneLine(string? text)
+            => (text ?? "").Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Replace('\u2028', ' ').Replace('\u2029', ' ');
 
         /// <summary>The finished Markdown document.</summary>
         public override string ToString() => _sb.ToString().TrimEnd('\n') + "\n";

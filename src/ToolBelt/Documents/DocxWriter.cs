@@ -219,7 +219,8 @@ namespace ToolBelt.Documents
             int id = ++_drawingId;
             string rel = "rIdImg" + index.ToString(CultureInfo.InvariantCulture);
             string name = "Picture " + id.ToString(CultureInfo.InvariantCulture);
-            string alt = Escape(altText ?? "");
+            // An attribute value's raw tab and line breaks are read back as spaces (XML attribute normalization).
+            string alt = Escape(altText ?? "").Replace("\t", "&#9;").Replace("\n", "&#10;").Replace("\r", "&#13;");
             _body.Append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:drawing>")
                  .Append("<wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\"><wp:extent cx=\"").Append(cx).Append("\" cy=\"").Append(cy).Append("\"/>")
                  .Append("<wp:docPr id=\"").Append(id).Append("\" name=\"").Append(name).Append("\" descr=\"").Append(alt).Append("\"/>")

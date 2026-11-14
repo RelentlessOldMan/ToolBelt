@@ -286,10 +286,11 @@ src/
       TtlCache.cs           time-expiring cache (injectable clock)
     Configuration/
       ConfigLayers.cs       merge sources by priority into a flat key space (with provenance)
-      ConfigBinder.cs       bind a flat key space to a typed object (nested/arrays/enums/durations)
+      ConfigBinder.cs       bind a flat key space to a typed object (nested/arrays/enums/durations); public setters only, null = unset
       EnvironmentVariables.cs  typed env reads (int/bool/duration/enum/list), malformed = error naming the variable
       SettingsStore.cs      per-user JSON settings: atomic save, corrupt file moved aside, defaults, Update restores on a throw;
-                            an unreadable file is never overwritten except by Reset, a symlink is written through (net8)
+                            an unreadable file is never overwritten except by Reset, a symlink is written through, any
+                            get-only collection or private setter reloads, a lone surrogate is refused (net8)
     Control/
       PidController.cs      PID with clamping, anti-windup, derivative-on-measurement
       PidTuning.cs          FOPDT model fit from a step test (two-point) + SIMC / lambda / Ziegler-Nichols / Cohen-Coon rules
@@ -739,6 +740,7 @@ tests/
       DocumentsConfigReview2Tests.cs (second-pass regressions: binder errors and decimal commas, rows split across PDF pages, AFM widths, GitHub slugs, Markdown escaping)
       DocumentsConfigReview3Tests.cs (third-pass regressions: get-only settings, silent binder drops, layer lookups, PDF indents, Markdown TOC and lists)
       DocumentsConfigReview4Tests.cs (fourth-pass regressions: settings saves refused after an unreadable load, symlinks, deep binder nesting, adjacent Markdown lists, PDF wrap cost, half-written tables)
+      DocumentsConfigReview5Tests.cs (fifth-pass regressions: every get-only collection and private setter reloads, exact Update rollback, binder drops, PDF indents, GitHub anchors)
     Enums/
       EnumExtensionsTests.cs
       EnumFlagsTests.cs

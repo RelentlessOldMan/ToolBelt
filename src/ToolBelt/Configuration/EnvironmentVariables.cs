@@ -37,7 +37,8 @@ namespace ToolBelt.Configuration
         /// <summary>The value, or null when unset or empty.</summary>
         public string? Get(string name)
         {
-            if (string.IsNullOrEmpty(name)) throw new ArgumentException("Name is required.", nameof(name));
+            if (name is null) throw new ArgumentNullException(nameof(name));
+            if (name.Length == 0) throw new ArgumentException("Name is required.", nameof(name));
             string? v = _get(name);
             return string.IsNullOrEmpty(v) ? null : v;
         }
@@ -52,6 +53,9 @@ namespace ToolBelt.Configuration
         public void RequireAll(params string[] names)
         {
             if (names is null) throw new ArgumentNullException(nameof(names));   // was LINQ's "source"
+            // A null or empty element was reported as Get's "name", not as the caller's argument.
+            foreach (string n in names)
+                if (string.IsNullOrEmpty(n)) throw new ArgumentException("Variable names must not be null or empty.", nameof(names));
             var missing = names.Where(n => Get(n) == null).ToList();
             if (missing.Count > 0) throw new InvalidOperationException("Required environment variables not set: " + string.Join(", ", missing) + ".");
         }
@@ -87,18 +91,31 @@ namespace ToolBelt.Configuration
         /// <summary>
         /// All variables whose names start with <paramref name="prefix"/> (process environment only, prefix matched
         /// ignoring case), prefix removed. Keys compare ignoring case on Windows, where the environment does too, and
-        /// exactly elsewhere, so <c>APP_X</c> and <c>app_x</c> stay separate on Linux.
+        /// exactly elsewhere, so <c>APP_X</c> and <c>app_x</c> stay separate on Linux. Two variables that differ only in
+        /// the prefix's case (<c>APP_x</c> and <c>app_x</c>, on Linux) would strip to the same key, so that throws an
+        /// <see cref="InvalidOperationException"/> naming both rather than keeping one.
         /// </summary>
         public static IReadOnlyDictionary<string, string> WithPrefix(string prefix, bool stripPrefix = true)
         {
             if (prefix is null) throw new ArgumentNullException(nameof(prefix));
-            bool windows = Environment.OSVersion.Platform == PlatformID.Win32NT;
-            var result = new SortedDictionary<string, string>(windows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
-            foreach (DictionaryEntry e in Environment.GetEnvironmentVariables())
+            return WithPrefix(Environment.GetEnvironmentVariables(), Environment.OSVersion.Platform == PlatformID.Win32NT, prefix, stripPrefix);
+        }
+
+        internal static IReadOnlyDictionary<string, string> WithPrefix(IDictionary variables, bool windows, string prefix, bool stripPrefix)
+        {
+            var comparer = windows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+            var result = new SortedDictionary<string, string>(comparer);
+            var from = new Dictionary<string, string>(comparer);
+            foreach (DictionaryEntry e in variables)
             {
                 string key = (string)e.Key;
-                if (key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    result[stripPrefix ? key.Substring(prefix.Length) : key] = (string?)e.Value ?? "";
+                if (!key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                string k = stripPrefix ? key.Substring(prefix.Length) : key;
+                // One silently replaced the other, depending on the environment's order.
+                if (from.TryGetValue(k, out string? other))
+                    throw new InvalidOperationException($"Environment variables '{other}' and '{key}' both give the key '{k}'.");
+                from[k] = key;
+                result[k] = (string?)e.Value ?? "";
             }
             return result;
         }
@@ -131,8 +148,9 @@ namespace ToolBelt.Configuration
         {
             switch (s.ToLowerInvariant())
             {
-                case "true": case "1": case "yes": case "y": case "on": return true;
-                case "false": case "0": case "no": case "n": case "off": return false;
+                // Exactly the documented words (and ConfigBinder's): "y" and "n" were accepted too.
+                case "true": case "1": case "yes": case "on": return true;
+                case "false": case "0": case "no": case "off": return false;
                 default: return null;
             }
         }
