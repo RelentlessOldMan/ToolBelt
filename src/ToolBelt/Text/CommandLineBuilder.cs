@@ -46,6 +46,8 @@ namespace ToolBelt.Text
             bool first = true;
             foreach (string arg in arguments)
             {
+                // Quote's own check named "argument", which is not a parameter of Join.
+                if (arg is null) throw new ArgumentException("The arguments must not contain null.", nameof(arguments));
                 if (!first) sb.Append(' ');
                 sb.Append(Quote(arg));
                 first = false;

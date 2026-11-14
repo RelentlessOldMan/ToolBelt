@@ -1,5 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Diagnostics;
+using System.Threading;
 
 namespace ToolBelt.Identifiers
 {
@@ -7,7 +9,10 @@ namespace ToolBelt.Identifiers
     /// Generates 64-bit, roughly time-ordered identifiers in the style of Twitter's Snowflake. The layout
     /// is: 1 unused sign bit, 41 bits of milliseconds since a custom epoch, 10 bits of machine id, and 12
     /// bits of per-millisecond sequence. IDs from one generator are strictly increasing. Time is read
-    /// through an injectable clock, so tests are deterministic. Thread-safe.
+    /// through an injectable clock, so tests are deterministic. Thread-safe. When the 4096 ids of a millisecond are used
+    /// up, NextId waits for the clock to reach the next one (an id is never stamped ahead of the clock, so a restarted
+    /// generator cannot repeat one); a clock that does not get there within a second (stopped, or stepped back further)
+    /// throws <see cref="InvalidOperationException"/>.
     /// </summary>
     public sealed class SnowflakeIdGenerator
     {
@@ -50,8 +55,7 @@ namespace ToolBelt.Identifiers
                 if (now == _lastTimestamp)
                 {
                     sequence = (_sequence + 1) & SequenceMask;
-                    if (sequence == 0)
-                        now = _lastTimestamp + 1; // sequence exhausted this ms: borrow the next
+                    if (sequence == 0) now = WaitForNextMillisecond();
                 }
 
                 // Checked before any state changes: the sequence was advanced first, so the call after this exception
@@ -73,6 +77,27 @@ namespace ToolBelt.Identifiers
             int machineId = (int)((id >> SequenceBits) & MaxMachineId);
             int sequence = (int)(id & SequenceMask);
             return (timestamp, machineId, sequence);
+        }
+
+        // Borrowing the next millisecond without waiting let the timestamp run ahead of the clock without limit (2M ids
+        // put it 310 ms ahead), so a restarted generator with the same machine id re-issued ids.
+        private long WaitForNextMillisecond()
+        {
+            if (_lastTimestamp >= MaxTimestamp)
+                throw new InvalidOperationException("The clock is past the last timestamp 41 bits can hold (about 69 years after the epoch).");
+            long start = Stopwatch.GetTimestamp();
+            var spin = new SpinWait();
+            while (true)
+            {
+                long now = CurrentMillis();
+                if (now > _lastTimestamp) return now;
+                if (Stopwatch.GetTimestamp() - start > Stopwatch.Frequency)
+                    throw new InvalidOperationException("All 4096 ids of this millisecond are used and the clock has not advanced for a second.");
+                // SpinWait sleeps after a few rounds, and a Windows sleep lasts about 15 ms: the wait is under a
+                // millisecond, so yield instead.
+                if (spin.NextSpinWillYield) Thread.Yield();
+                else spin.SpinOnce();
+            }
         }
 
         private long CurrentMillis()

@@ -8,9 +8,13 @@ namespace ToolBelt.Text
     /// Matches strings against shell-style glob patterns. Supported syntax: <c>*</c> (any run, including
     /// empty), <c>?</c> (any single character), and character classes <c>[abc]</c>, ranges <c>[a-z]</c>,
     /// and negation <c>[!abc]</c> / <c>[^abc]</c>. Everything else matches literally. Matching is
-    /// whole-string (anchored). An unterminated <c>[</c> class throws <see cref="FormatException"/>. With
-    /// <c>ignoreCase</c>, a character matches a class when it or its upper- or lower-case form is in the range as
-    /// written. Characters are UTF-16 code units, so <c>?</c> matches one half of a surrogate pair.
+    /// whole-string (anchored). An unterminated <c>[</c> class throws <see cref="FormatException"/>. A reversed range
+    /// such as <c>[z-a]</c> is empty (as in POSIX), and a <c>]</c> first in a class is a member that may start a range
+    /// (<c>[]-a]</c>). With <c>ignoreCase</c>, characters are equal when the invariant upper- and lower-case mappings
+    /// link them, directly or through each other ('ſ', 's' and 'S' all match), and a character matches a class when any
+    /// of those is in a range as written. The mappings are the runtime's: .NET Framework's leave 'ſ', the Kelvin sign and
+    /// some others alone, so there they match only themselves. Characters are UTF-16 code units, so <c>?</c> matches one half of a surrogate pair. Time is linear in
+    /// the input for short patterns: O(n·m/64) at worst, plus O(m) for each distinct input character.
     /// </summary>
     public static class GlobMatcher
     {
@@ -44,40 +48,70 @@ namespace ToolBelt.Text
             return Match(input, tokens, ignoreCase);
         }
 
+        // Backtracking on the last star was O(n·m): "*" + 20,000 'a's + "b" against 200,000 'a's took 14 s. The stars
+        // split the pattern into fixed-length segments; the first and last are anchored, and each middle one is taken at
+        // its leftmost occurrence (always safe, since every token matches exactly one character), found with a
+        // bit-parallel scan: O(n·m/64) plus O(m) for each distinct input character.
         private static bool Match(string s, List<Token> tokens, bool ignoreCase)
         {
-            int si = 0, ti = 0;
-            int starToken = -1, starInput = 0;
-
-            while (si < s.Length)
+            var segments = new List<(int Start, int Length)>();
+            int segStart = 0;
+            for (int t = 0; t <= tokens.Count; t++)
             {
-                if (ti < tokens.Count && tokens[ti].Kind != Kind.Star && MatchOne(tokens[ti], s[si], ignoreCase))
-                {
-                    si++;
-                    ti++;
-                }
-                else if (ti < tokens.Count && tokens[ti].Kind == Kind.Star)
-                {
-                    starToken = ti;
-                    starInput = si;
-                    ti++;
-                }
-                else if (starToken != -1)
-                {
-                    // Backtrack: let the last '*' swallow one more input character.
-                    ti = starToken + 1;
-                    starInput++;
-                    si = starInput;
-                }
-                else
-                {
-                    return false;
-                }
+                if (t < tokens.Count && tokens[t].Kind != Kind.Star) continue;
+                segments.Add((segStart, t - segStart));
+                segStart = t + 1;
             }
+            (int Start, int Length) first = segments[0], last = segments[segments.Count - 1];
+            if (segments.Count == 1) return s.Length == first.Length && MatchAt(s, 0, tokens, first, ignoreCase);
+            if (first.Length > s.Length - last.Length) return false;
+            if (!MatchAt(s, 0, tokens, first, ignoreCase) || !MatchAt(s, s.Length - last.Length, tokens, last, ignoreCase)) return false;
+            int pos = first.Length, limit = s.Length - last.Length;
+            for (int g = 1; g < segments.Count - 1; g++)
+            {
+                pos = FindLeftmost(s, pos, limit, tokens, segments[g], ignoreCase);
+                if (pos < 0) return false;
+            }
+            return true;
+        }
 
-            while (ti < tokens.Count && tokens[ti].Kind == Kind.Star)
-                ti++;
-            return ti == tokens.Count;
+        private static bool MatchAt(string s, int at, List<Token> tokens, (int Start, int Length) segment, bool ignoreCase)
+        {
+            for (int j = 0; j < segment.Length; j++)
+                if (!MatchOne(tokens[segment.Start + j], s[at + j], ignoreCase)) return false;
+            return true;
+        }
+
+        // Shift-And: bit j of the state is set when the segment's first j + 1 tokens match the input ending here. Returns
+        // the index just past the leftmost occurrence inside s[from, limit), or -1.
+        private static int FindLeftmost(string s, int from, int limit, List<Token> tokens, (int Start, int Length) segment, bool ignoreCase)
+        {
+            int k = segment.Length, words = (k + 63) >> 6;
+            int topWord = (k - 1) >> 6;
+            ulong topBit = 1UL << ((k - 1) & 63);
+            var state = new ulong[words];
+            var masks = new Dictionary<char, ulong[]>();
+            for (int i = from; i < limit; i++)
+            {
+                char c = s[i];
+                if (!masks.TryGetValue(c, out ulong[]? mask))
+                {
+                    mask = new ulong[words];
+                    for (int j = 0; j < k; j++)
+                        if (MatchOne(tokens[segment.Start + j], c, ignoreCase)) mask[j >> 6] |= 1UL << (j & 63);
+                    if ((long)masks.Count * words > 1 << 20) masks.Clear();   // keep the cache to about 8 MB
+                    masks[c] = mask;
+                }
+                ulong carry = 1;
+                for (int w = 0; w < words; w++)
+                {
+                    ulong next = state[w] >> 63;
+                    state[w] = ((state[w] << 1) | carry) & mask[w];
+                    carry = next;
+                }
+                if ((state[topWord] & topBit) != 0) return i + 1;
+            }
+            return -1;
         }
 
         private static bool MatchOne(Token token, char c, bool ignoreCase)
@@ -87,51 +121,61 @@ namespace ToolBelt.Text
                 case Kind.Any:
                     return true;
                 case Kind.Literal:
-                    // The same case forms a class tries, so 'ſ' matches neither "s" nor "[s]" and the Kelvin sign both "k" and
-                    // "[k]" (comparing upper cases had them disagree).
                     char p = token.Literal;
-                    return c == p || (ignoreCase && (char.ToUpperInvariant(c) == p || char.ToLowerInvariant(c) == p
-                        || char.ToUpperInvariant(p) == c || char.ToLowerInvariant(p) == c));
+                    return c == p || (ignoreCase && CaseClasses.Value.Root[c] == CaseClasses.Value.Root[p]);
                 case Kind.Class:
                     // Ranges are compared as written (folding the endpoints would turn [Z-a] into the empty range
-                    // Z..A); case-insensitivity instead tries the character in both cases, plus the members whose case
-                    // forms are the character but not the other way round (the Kelvin sign for 'k'), as a literal does.
-                    bool inSet = InRanges(token.Ranges!, c)
-                        || (ignoreCase && (InRanges(token.Ranges!, char.ToUpperInvariant(c)) || InRanges(token.Ranges!, char.ToLowerInvariant(c))
-                            || InOneWayForms(token.Ranges!, c)));
+                    // Z..A); case-insensitivity instead asks whether any character of c's case class is in them.
+                    bool inSet = InRanges(token.Ranges!, c) || (ignoreCase && InCaseClass(token.Ranges!, c));
                     return inSet != token.Negated;
                 default:
                     return false;
             }
         }
 
-        private static bool InOneWayForms((char Lo, char Hi)[] ranges, char c)
+        private static bool InCaseClass((char Lo, char Hi)[] ranges, char c)
         {
-            if (OneWayForms.Value.TryGetValue(c, out List<char>? members))
+            if (CaseClasses.Value.Members.TryGetValue(CaseClasses.Value.Root[c], out char[]? members))
                 foreach (char m in members)
                     if (InRanges(ranges, m)) return true;
             return false;
         }
 
-        // For each character, the characters x whose upper or lower form is it although its own forms don't lead back
-        // to x: 'S' ← 'ſ', 'k' ← the Kelvin sign, 'Ǆ' and 'ǆ' ← 'ǅ'. Built from the runtime's own case tables.
-        private static readonly Lazy<Dictionary<char, List<char>>> OneWayForms = new Lazy<Dictionary<char, List<char>>>(() =>
+        // Characters linked by the runtime's invariant upper- and lower-case mappings, closed transitively: 'ſ', 's' and
+        // 'S'; 'k', 'K' and the Kelvin sign; 'ǅ', 'Ǆ' and 'ǆ'. One step of the mapping was not symmetric, so 'ſ' matched
+        // "S" but not "s", and 'k' matched the Kelvin sign but 'K' did not.
+        private static readonly Lazy<(char[] Root, Dictionary<char, char[]> Members)> CaseClasses = new Lazy<(char[], Dictionary<char, char[]>)>(() =>
         {
-            var map = new Dictionary<char, List<char>>();
-            void Add(char form, char x)
+            var root = new char[char.MaxValue + 1];
+            for (int i = 0; i <= char.MaxValue; i++) root[i] = (char)i;
+            char Find(char x)
             {
-                if (!map.TryGetValue(form, out List<char>? list)) map[form] = list = new List<char>();
-                list.Add(x);
+                while (root[x] != x) x = root[x] = root[root[x]];
+                return x;
+            }
+            void Union(char x, char y)
+            {
+                char rx = Find(x), ry = Find(y);
+                if (rx != ry) root[Math.Max(rx, ry)] = (char)Math.Min(rx, ry);
             }
             for (int i = 0; i <= char.MaxValue; i++)
             {
                 char x = (char)i;
                 if (char.IsSurrogate(x)) continue;
-                char u = char.ToUpperInvariant(x), l = char.ToLowerInvariant(x);
-                if (u != x && char.ToLowerInvariant(u) != x) Add(u, x);
-                if (l != x && l != u && char.ToUpperInvariant(l) != x) Add(l, x);
+                Union(x, char.ToUpperInvariant(x));
+                Union(x, char.ToLowerInvariant(x));
             }
-            return map;
+            var groups = new Dictionary<char, List<char>>();
+            for (int i = 0; i <= char.MaxValue; i++)
+            {
+                char r = root[i] = Find((char)i);
+                if (r == i) continue;
+                if (!groups.TryGetValue(r, out List<char>? list)) groups[r] = list = new List<char> { r };
+                list.Add((char)i);
+            }
+            var members = new Dictionary<char, char[]>(groups.Count);
+            foreach (var g in groups) members[g.Key] = g.Value.ToArray();
+            return (root, members);
         });
 
         private static bool InRanges((char Lo, char Hi)[] ranges, char c)
@@ -186,20 +230,18 @@ namespace ToolBelt.Text
             }
 
             var ranges = new List<(char, char)>();
-            // A ']' immediately after the (optional) negation is a literal member, not the terminator.
-            if (i < pattern.Length && pattern[i] == ']')
+            // A ']' immediately after the (optional) negation is a member, not the terminator, and can start a range:
+            // "[]-a]" was read as the three members ']', '-' and 'a'.
+            bool first = true;
+            while (i < pattern.Length && (pattern[i] != ']' || first))
             {
-                ranges.Add((']', ']'));
-                i++;
-            }
-
-            while (i < pattern.Length && pattern[i] != ']')
-            {
+                first = false;
                 char lo = pattern[i];
                 if (i + 2 < pattern.Length && pattern[i + 1] == '-' && pattern[i + 2] != ']')
                 {
+                    // A reversed range was swapped, so "[z-a]" matched every lower-case letter; POSIX makes it empty.
                     char hi = pattern[i + 2];
-                    ranges.Add((lo <= hi ? lo : hi, lo <= hi ? hi : lo));
+                    if (lo <= hi) ranges.Add((lo, hi));
                     i += 3;
                 }
                 else

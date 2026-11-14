@@ -17,7 +17,8 @@ namespace ToolBelt.Tests.Identifiers
         public void IdsAreStrictlyIncreasing_AndUnique()
         {
             var clock = new FakeClock();
-            var gen = new SnowflakeIdGenerator(machineId: 1, clock: clock.Func);
+            // A clock that moves 1 µs per read: a frozen one now (correctly) stops after 4096 ids.
+            var gen = new SnowflakeIdGenerator(machineId: 1, clock: () => clock.Now = clock.Now.AddTicks(10));
             var seen = new HashSet<long>();
 
             long previous = long.MinValue;

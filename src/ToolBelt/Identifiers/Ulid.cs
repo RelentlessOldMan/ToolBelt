@@ -7,8 +7,9 @@ namespace ToolBelt.Identifiers
     /// Generates ULIDs — 128-bit, lexicographically sortable identifiers rendered as 26 Crockford
     /// Base32 characters. The high 48 bits are the millisecond timestamp (first 10 chars); the low 80
     /// bits are randomness (last 16 chars). Within a single millisecond the randomness is incremented so
-    /// ids stay strictly increasing (monotonic). Time and randomness are injectable for deterministic
-    /// tests. Thread-safe. (Crockford encoding is inlined so this file stands alone.)
+    /// ids stay strictly increasing (monotonic); if the 80 random bits run out within one millisecond,
+    /// <see cref="NewUlid"/> throws <see cref="InvalidOperationException"/> until the clock moves on, as the ULID spec
+    /// says. Time and randomness are injectable for deterministic tests. Thread-safe. (Crockford encoding is inlined so this file stands alone.)
     /// </summary>
     public sealed class UlidGenerator
     {
@@ -50,9 +51,13 @@ namespace ToolBelt.Identifiers
                 }
                 else
                 {
-                    // Same or earlier ms: keep the timestamp and bump randomness to preserve monotonicity.
+                    // Same or earlier ms: keep the timestamp and bump randomness to preserve monotonicity. An overflow
+                    // carried into the timestamp, stamping ids with a millisecond that had not come yet.
                     if (IncrementRandom(_lastRandom))
-                        _lastTimestamp++; // randomness overflowed; carry into the timestamp
+                    {
+                        for (int i = 0; i < _lastRandom.Length; i++) _lastRandom[i] = 0xFF;   // stay at the top
+                        throw new InvalidOperationException("The 80 random bits of this millisecond are used up; no greater ULID can be made until the clock moves on.");
+                    }
                 }
 
                 return Encode(_lastTimestamp, _lastRandom);

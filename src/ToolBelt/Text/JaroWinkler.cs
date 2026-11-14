@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Collections.Generic;
 
 namespace ToolBelt.Text
 {
@@ -24,20 +25,31 @@ namespace ToolBelt.Text
             var aMatched = new bool[lenA];
             var bMatched = new bool[lenB];
 
+            // Each a[i] takes the first unmatched b[j] equal to it in the window. Scanning the window was O(n·m) (80,000
+            // characters took 3.4 s); instead each character keeps a pointer into its positions in b. The window start
+            // never moves back and matches are taken in order, so every position before the pointer is used or behind.
+            var nextSame = new int[lenB];
+            var pointer = new Dictionary<char, int>();
+            for (int j = lenB - 1; j >= 0; j--)
+            {
+                nextSame[j] = pointer.TryGetValue(b[j], out int later) ? later : -1;
+                pointer[b[j]] = j;
+            }
             int matches = 0;
             for (int i = 0; i < lenA; i++)
             {
+                if (!pointer.TryGetValue(a[i], out int j)) continue;
                 int start = Math.Max(0, i - matchDistance);
                 int end = Math.Min(i + matchDistance + 1, lenB);
-                for (int j = start; j < end; j++)
+                while (j >= 0 && j < start) j = nextSame[j];
+                if (j >= 0 && j < end)
                 {
-                    if (bMatched[j] || a[i] != b[j])
-                        continue;
                     aMatched[i] = true;
                     bMatched[j] = true;
                     matches++;
-                    break;
+                    j = nextSame[j];
                 }
+                pointer[a[i]] = j;
             }
 
             if (matches == 0)

@@ -7,8 +7,9 @@ namespace ToolBelt.Text
 {
     /// <summary>
     /// Substitutes <c>{name}</c> placeholders in a template from a value lookup. Literal braces are written
-    /// by doubling: <c>{{</c> and <c>}}</c>. Placeholder names are trimmed of surrounding whitespace. An
-    /// unknown placeholder throws unless a default-value provider is supplied; a malformed template (an
+    /// by doubling: <c>{{</c> and <c>}}</c>. Placeholder names are trimmed of surrounding whitespace. With a dictionary
+    /// an unknown placeholder throws <see cref="KeyNotFoundException"/>; with a resolver function, whatever the resolver
+    /// returns or throws is used (so it can supply defaults); a malformed template (an
     /// unmatched or empty brace, or a '{' inside a placeholder) always throws <see cref="FormatException"/>. A null
     /// value is written as empty text.
     /// </summary>

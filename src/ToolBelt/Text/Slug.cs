@@ -1,15 +1,18 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
 namespace ToolBelt.Text
 {
     /// <summary>
-    /// Produces URL- and filename-safe "slugs": lowercase ASCII words joined by a separator. Accented
-    /// letters are folded to their base form (é → e, ü → u, and ß → ss, æ → ae, ø → o, ł → l, đ → d, þ → th, œ → oe, ı → i,
-    /// which have no decomposition); runs of any other character (an unpaired
-    /// surrogate included) collapse to a single separator; leading and trailing separators are trimmed.
+    /// Produces URL- and filename-safe "slugs": lowercase ASCII words joined by a separator. Latin letters are folded
+    /// to ASCII: accents dropped (é → e, ü → u), compatibility forms expanded (ĳ → ij, ǆ → dz, ſ → s, full-width Ａ → a,
+    /// ² → 2), and the letters with no decomposition mapped by hand: ß → ss, æ → ae, œ → oe, þ → th, ŋ → ng, ĸ → q, and
+    /// a letter with a stroke, bar, hook or curl to its base letter (ø → o, ł → l, đ → d, ħ → h, ŧ → t, ƀ → b, ƶ → z).
+    /// Runs of any other character (other scripts, an unpaired surrogate) collapse to a single separator; leading and
+    /// trailing separators are trimmed.
     /// The operation is idempotent.
     /// </summary>
     public static class Slug
@@ -29,10 +32,11 @@ namespace ToolBelt.Text
             if (separator != '-' && separator != '_' && separator != '.' && separator != '~')
                 throw new ArgumentException("The separator must be '-', '_', '.' or '~'.", nameof(separator));
 
-            // FormD splits accented letters into base + combining mark; we then drop the marks. Normalize throws on an
+            // FormKD splits accented letters into base + combining mark (we then drop the marks) and expands compatibility
+            // forms: FormD left 'ĳ', 'ŀ', 'ŉ' and 'ǆ' whole, and they were dropped. Normalize throws on an
             // unpaired surrogate and on noncharacters (U+FFFE; on .NET Framework also U+FFFF, U+FDD0 and the astral
             // ones), so those become spaces (separators) first.
-            string normalized = NormalizeD(ReplaceInvalid(text));
+            string normalized = NormalizeKD(ReplaceInvalid(text));
 
             var sb = new StringBuilder(normalized.Length);
             bool pendingSeparator = false;
@@ -43,7 +47,7 @@ namespace ToolBelt.Text
                     continue; // stripped diacritic
 
                 char lower = char.ToLowerInvariant(c);
-                string? folded = Fold(lower);                           // "Straße" gave "stra-e", "Øresund" "resund"
+                string? folded = Fold(lower) ?? Fold(c);                // "Straße" gave "stra-e", "Øresund" "resund"
                 if (folded != null)
                 {
                     bool sep = pendingSeparator && sb.Length > 0;
@@ -76,23 +80,26 @@ namespace ToolBelt.Text
             return sb.ToString();
         }
 
-        // Latin letters with no canonical decomposition, which FormD leaves whole.
-        private static string? Fold(char lower)
+        // Latin letters with no decomposition, which FormKD leaves whole: each entry is the letter and its ASCII spelling.
+        // Upper-case forms are listed too, for runtimes whose invariant lower-casing predates them. "Ħ" and "ŧ" were dropped.
+        private static readonly Dictionary<char, string> Folds = BuildFolds(
+            "ßss æae Æae ðd Ðd øo Øo þth Þth đd Đd ħh Ħh ıi ĸq łl Łl ŋng Ŋng œoe Œoe ŧt Ŧt ƀb Ƀb ƃb Ƃb ƈc "
+            + "Ƈc ƌd Ƌd ƒf Ƒf ƕhv Ƕhv ƙk Ƙk ƚl Ƚl ƞn Ƞn ƣoi Ƣoi ƥp Ƥp ƫt ƭt Ƭt ƴy Ƴy ƶz Ƶz ǝe Ǝe ǥg Ǥg ȡd ȣou "
+            + "Ȣou ȥz Ȥz ȴl ȵn ȶt ȷj ȸdb ȹqp ȼc Ȼc ȿs Ȿs ɀz Ɀz ɇe Ɇe ɉj Ɉj ɋq Ɋq ɍr Ɍr ɏy Ɏy ỻll Ỻll ỽv Ỽv ỿy "
+            + "Ỿy ⱡl Ⱡl ⱥa Ⱥa ⱦt Ⱦt ⱨh Ⱨh ⱪk Ⱪk ⱬz Ⱬz ⱱv ⱳw Ⱳw ⱴv ⱸe ⱹr ⱺo ꜩtz Ꜩtz ꜳaa Ꜳaa ꜵao Ꜵao ꜷau Ꜷau ꜹav "
+            + "Ꜹav ꜻav Ꜻav ꜽay Ꜽay ꝁk Ꝁk ꝃk Ꝃk ꝅk Ꝅk ꝉl Ꝉl ꝋo Ꝋo ꝍo Ꝍo ꝏoo Ꝏoo ꝑp Ꝑp ꝓp Ꝓp ꝕp Ꝕp ꝗq Ꝗq ꝙq Ꝙq ꝟv "
+            + "Ꝟv ꝡvy Ꝡvy ꝫet Ꝫet ꝭis Ꝭis ꝸum ꞁl Ꞁl ꞎl ꞑn Ꞑn ꞓc Ꞓc ꞔc Ꞔc ꞕh ꞗb Ꞗb ꞙf Ꞙf ꞡg Ꞡg ꞣk Ꞣk ꞥn Ꞥn ꞧr Ꞧr "
+            + "ꞩs Ꞩs ꞹu Ꞹu ꟈd Ꟈd ꟊs Ꟊs");
+
+        private static Dictionary<char, string> BuildFolds(string table)
         {
-            switch (lower)
-            {
-                case 'ß': return "ss";
-                case 'æ': return "ae";
-                case 'ø': return "o";
-                case 'ł': return "l";
-                case 'đ': return "d";
-                case 'ð': return "d";
-                case 'þ': return "th";
-                case 'œ': return "oe";
-                case 'ı': return "i";
-                default: return null;
-            }
+            var folds = new Dictionary<char, string>();
+            foreach (string entry in table.Split(' '))
+                folds[entry[0]] = entry.Substring(1);
+            return folds;
         }
+
+        private static string? Fold(char c) => Folds.TryGetValue(c, out string? folded) ? folded : null;
 
         private static string ReplaceInvalid(string text)
         {
@@ -120,9 +127,9 @@ namespace ToolBelt.Text
         private static bool IsNoncharacter(int cp) => (cp >= 0xFDD0 && cp <= 0xFDEF) || (cp & 0xFFFE) == 0xFFFE;
 
         // Anything else a runtime's normalizer refuses becomes a separator rather than an exception.
-        private static string NormalizeD(string text)
+        private static string NormalizeKD(string text)
         {
-            try { return text.Normalize(NormalizationForm.FormD); }
+            try { return text.Normalize(NormalizationForm.FormKD); }
             catch (ArgumentException)
             {
                 var sb = new StringBuilder(text.Length);
@@ -130,7 +137,7 @@ namespace ToolBelt.Text
                 {
                     int n = char.IsHighSurrogate(text[i]) && i + 1 < text.Length ? 2 : 1;
                     string one = text.Substring(i, n);
-                    try { sb.Append(one.Normalize(NormalizationForm.FormD)); }
+                    try { sb.Append(one.Normalize(NormalizationForm.FormKD)); }
                     catch (ArgumentException) { sb.Append(' ', n); }
                     i += n - 1;
                 }

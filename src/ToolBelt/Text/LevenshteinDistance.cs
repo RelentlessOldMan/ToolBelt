@@ -6,7 +6,8 @@ namespace ToolBelt.Text
     /// <summary>
     /// Levenshtein edit distance — the minimum number of single-character insertions, deletions, or
     /// substitutions to turn one string into another — plus a normalized similarity ratio. Uses a
-    /// two-row dynamic-programming rolling buffer, so memory is O(min length) rather than O(n·m).
+    /// two-row dynamic-programming rolling buffer, so memory is O(min length) rather than O(n·m). Time is O(n·m): two
+    /// 100,000-character strings take about ten billion steps, so bound the input lengths for untrusted text.
     /// </summary>
     public static class LevenshteinDistance
     {

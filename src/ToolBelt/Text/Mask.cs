@@ -19,6 +19,7 @@ namespace ToolBelt.Text
         {
             if (value is null) throw new ArgumentNullException(nameof(value));
             if (visibleCount < 0) throw new ArgumentOutOfRangeException(nameof(visibleCount), visibleCount, "Visible count must not be negative.");
+            if (char.IsSurrogate(maskChar)) throw new ArgumentException("The mask character must not be half of a surrogate pair (the result would be invalid UTF-16).", nameof(maskChar));
 
             int maskLength = value.Length - visibleCount;
             if (maskLength <= 0)
@@ -31,6 +32,7 @@ namespace ToolBelt.Text
         {
             if (value is null) throw new ArgumentNullException(nameof(value));
             if (visibleCount < 0) throw new ArgumentOutOfRangeException(nameof(visibleCount), visibleCount, "Visible count must not be negative.");
+            if (char.IsSurrogate(maskChar)) throw new ArgumentException("The mask character must not be half of a surrogate pair (the result would be invalid UTF-16).", nameof(maskChar));
 
             int maskLength = value.Length - visibleCount;
             if (maskLength <= 0)

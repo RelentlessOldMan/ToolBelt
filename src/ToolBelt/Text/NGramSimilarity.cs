@@ -49,16 +49,54 @@ namespace ToolBelt.Text
             return (double)intersection / union;
         }
 
-        private static Dictionary<string, int> Grams(string s, int n, out int total)
+        // An n-gram is kept as (string, start) with a rolling hash, compared in place: one Substring per gram allocated
+        // O(length·n) (40,000 characters with n = 20,000 took 1.5 GB).
+        private readonly struct Gram
         {
-            var grams = new Dictionary<string, int>();
-            total = 0;
-            for (int i = 0; i + n <= s.Length; i++)
+            public readonly string Source;
+            public readonly int Start;
+            public readonly ulong Hash;
+
+            public Gram(string source, int start, ulong hash)
             {
-                string g = s.Substring(i, n);
-                grams.TryGetValue(g, out int count);
-                grams[g] = count + 1;
-                total++;
+                Source = source;
+                Start = start;
+                Hash = hash;
+            }
+        }
+
+        private sealed class GramComparer : IEqualityComparer<Gram>
+        {
+            private readonly int _n;
+            public GramComparer(int n) => _n = n;
+            public bool Equals(Gram x, Gram y) => x.Hash == y.Hash && string.CompareOrdinal(x.Source, x.Start, y.Source, y.Start, _n) == 0;
+            public int GetHashCode(Gram g) => unchecked((int)(g.Hash ^ (g.Hash >> 32)));
+        }
+
+        private const ulong HashBase = 0x100000001B3UL;
+
+        private static Dictionary<Gram, int> Grams(string s, int n, out int total)
+        {
+            var grams = new Dictionary<Gram, int>(new GramComparer(n));
+            total = 0;
+            if (n > s.Length) return grams;
+            unchecked
+            {
+                ulong hash = 0, top = 1;                 // top = HashBase^(n-1)
+                for (int j = 0; j < n; j++)
+                {
+                    hash = hash * HashBase + s[j];
+                    if (j > 0) top *= HashBase;
+                }
+                for (int i = 0; ; i++)
+                {
+                    var g = new Gram(s, i, hash);
+                    grams.TryGetValue(g, out int count);
+                    grams[g] = count + 1;
+                    total++;
+                    if (i + n >= s.Length) break;
+                    hash = (hash - s[i] * top) * HashBase + s[i + n];
+                }
             }
             return grams;
         }

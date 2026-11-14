@@ -9,9 +9,12 @@ namespace ToolBelt.Text
     /// <summary>
     /// Converts identifiers between the common casing conventions. Input may be in any style — the string
     /// is first tokenized into words (splitting on separators, camelCase humps, and acronym boundaries),
-    /// then rejoined in the requested style. Conversions are idempotent per style and stable across styles, except
-    /// that adjacent one-letter words become a run of capitals in camelCase or PascalCase ("x_y_z" → "xYZ"), which
-    /// reads back as one acronym ("xYZ" → "xYz", "is_a_b" → "IsAB" → "is_ab"). Casing is invariant, with three
+    /// then rejoined in the requested style. A capital starts a word after a lower-case letter, and after a digit or
+    /// another capital when a lower-case letter follows it ("v2Beta" → v2 | Beta, "HTTPServer" → HTTP | Server, but
+    /// "A1B" is one word). Conversions are idempotent per style and stable across styles, except where camelCase and
+    /// PascalCase cannot show a boundary: a word starting with a digit joins the word before it ("v_1" → "v1"), and so
+    /// does a word whose second character is not a lower-case letter when the word before is one letter or ends in a
+    /// digit ("x_y_z" → "xYZ" → "xYz", "is_a_b" → "IsAB" → "is_ab", "md5_x" → "md5X" → "md5x"). Casing is invariant, with three
     /// additions so every style's output is properly cased: 'İ' lowers to 'i', 'ı' uppers to 'I' and 'ß' to "SS" ("Ss" at
     /// the start of a word), so the Turkish dotted and dotless i and the 'ß' don't survive a trip through an upper-case
     /// style. A letter with no case of its own continues the word it is in; a digraph such as 'ǆ' is titlecased ('ǅ').
@@ -57,12 +60,12 @@ namespace ToolBelt.Text
                 bool digit = char.IsDigit(value, i);
                 if (current.Length > 0)
                 {
-                    // lower/digit -> upper : a camelCase hump ("fooBar" => foo | Bar)
-                    bool humpBoundary = upper && (prevLower || prevDigit);
+                    // lower -> upper : a camelCase hump ("fooBar" => foo | Bar). After a digit only when a lower-case
+                    // letter follows ("md5Hash" => md5 | Hash): "A1B", CONSTANT_CASE for "a1b", read back as A1 | B.
+                    bool humpBoundary = upper && (prevLower || (prevDigit && LowerFollows(value, i + len)));
 
                     // UPPER UPPER lower : end of an acronym ("HTTPServer" => HTTP | Server)
-                    bool acronymBoundary = upper && prevUpper
-                        && i + len < value.Length && IsCasedLower(value, i + len, char.IsSurrogatePair(value, i + len) ? 2 : 1);
+                    bool acronymBoundary = upper && prevUpper && LowerFollows(value, i + len);
 
                     if (humpBoundary || acronymBoundary)
                         Flush(current, words);
@@ -71,7 +74,9 @@ namespace ToolBelt.Text
                 if (upper || lower || digit || current.Length == 0)
                 {
                     prevUpper = upper;
-                    prevLower = lower;
+                    // A word starting with 'ß' (no capital of its own) is lower-case: camelCase "ßBa" read back as one
+                    // word, so "ß-Ba" → "ßBa" → "ßba".
+                    prevLower = lower || (current.Length == 0 && !upper && !digit && char.IsLower(value, i));
                     prevDigit = digit;
                 }
                 current.Append(value, i, len);
@@ -121,6 +126,38 @@ namespace ToolBelt.Text
                 sb.Append(Capitalize(words[i]));
             }
             return sb.ToString();
+        }
+
+        // The next letter's index, past combining marks: in decomposed text "XMLÉcole" the É's accent hid the lower-case
+        // letter after it, so the acronym never ended.
+        private static int NextBase(string s, int i)
+        {
+            while (i < s.Length)
+            {
+                var category = CharUnicodeInfo.GetUnicodeCategory(s, i);
+                if (category != UnicodeCategory.NonSpacingMark && category != UnicodeCategory.SpacingCombiningMark
+                    && category != UnicodeCategory.EnclosingMark) break;
+                i += char.IsSurrogatePair(s, i) ? 2 : 1;
+            }
+            return i;
+        }
+
+        private static int Len(string s, int i) => char.IsSurrogatePair(s, i) ? 2 : 1;
+
+        // 'ß' counts as lower-case here unless a capital follows it, so "XBß" (PascalCase for x | bß) ends the acronym
+        // while "STRAßE" stays one word.
+        private static bool LowerFollows(string s, int i)
+        {
+            i = NextBase(s, i);
+            if (i >= s.Length) return false;
+            if (IsCasedLower(s, i, Len(s, i))) return true;
+            return s[i] == '\u00DF' && !UpperFollows(s, i + 1);
+        }
+
+        private static bool UpperFollows(string s, int i)
+        {
+            i = NextBase(s, i);
+            return i < s.Length && IsCasedUpper(s, i, Len(s, i));
         }
 
         private static void Flush(StringBuilder current, List<string> words)

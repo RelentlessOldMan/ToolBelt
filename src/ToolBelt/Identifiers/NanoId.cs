@@ -60,7 +60,13 @@ namespace ToolBelt.Identifiers
                 throw new ArgumentOutOfRangeException(nameof(size), size, "Size must be 1 to 0x3FFFFFDF (the longest string).");
             var chars = new char[size];
             for (int i = 0; i < size; i++)
-                chars[i] = _alphabet[_random.Next(_alphabet.Length)];
+            {
+                // A supplied Random that broke Next's contract surfaced as a bare IndexOutOfRangeException.
+                int k = _random.Next(_alphabet.Length);
+                if ((uint)k >= (uint)_alphabet.Length)
+                    throw new InvalidOperationException($"The supplied Random returned {k} from Next({_alphabet.Length}), outside [0, {_alphabet.Length}).");
+                chars[i] = _alphabet[k];
+            }
             return new string(chars);
         }
 #if NETSTANDARD2_0

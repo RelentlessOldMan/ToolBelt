@@ -51,7 +51,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 4 | 39 / 125 | re-queue (39 bugs, 7 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 4 | 19 / 71 | re-queue (19 bugs) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 4 | 24 / 99 | re-queue (24 bugs, 1 severe) |
-| 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 3 | 17 / 55 | re-queue (17 bugs) |
+| 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 4 | 20 / 75 | re-queue (20 bugs, none severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 4 | 30 / 97 | re-queue (30 bugs, 1 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 4 | 16 / 88 | re-queue (16 bugs, none severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 4 | 27 / 109 | re-queue (27 bugs, 3 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73); **next: 11** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): **next: 8**, then 7, 14, 12, 15, 5, 10, 16, 1, 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -147,11 +147,45 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.14 | 71 | Collections, fourth pass | 19 | (see tag) |
 | v2026.11.13.15 | 72 | Concurrency, fourth pass | 24 | (see tag) |
 | v2026.11.13.16 | 73 | WPF satellite, fourth pass | 24 | (see tag) |
+| v2026.11.13.17 | 74 | Text & small types, fourth pass | 20 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 74: Text & small types, fourth pass (v2026.11.13.17)
+
+Two fresh reviewers (correctness, robustness): 21 findings, 20 confirmed, so **20 bugs, none severe**. Section 11 stays
+re-queued, and with it the fourth pass is done: every section is re-queued for a fifth. The regression tests are in
+`TextReview4Tests` (28 tests); 24 failed on the old code, and the other four are differential guards for the rewritten
+matchers (glob against a regex, n-grams against substrings, Jaro against the window scan, the diff against an LCS
+table). Three doc fixes (AnsiText.VisibleLength, TemplateFormatter, Levenshtein's time) have no test. Not changed:
+Guard.InRange with min > max names "max", Guard's own parameter, as .NET does; blaming the caller's value was
+fixed in an earlier round.
+
+- **SnowflakeIdGenerator:** past 4,096 ids in a millisecond it borrowed the next one without waiting, so the timestamp
+  ran ahead of the clock without limit (2M ids put it 310 ms ahead) and a restarted generator re-issued ids.
+  **Behaviour change:** it now waits for the clock (yielding, not sleeping) and throws InvalidOperationException if the
+  clock does not move for a second.
+- **Quadratic and memory blow-ups:** GlobMatcher backtracked in O(n·m) ("*" + 20,000 'a's + "b" against 200,000 'a's
+  took 14 s; now a bit-parallel scan); NGramSimilarity built a substring per gram (now a rolling hash); Jaro scanned
+  the whole window per character (now O(n + m)); TextDiff kept an int per table cell (now one bit, and an
+  ArgumentException past 2^33 cells, about 92,000 lines each).
+- **GlobMatcher:** case-insensitive matching was one-sided ('ſ' matched "S" but not "s"; now the transitive closure
+  of the runtime's invariant mappings); a reversed range such as `[z-a]` was swapped into `[a-z]` (**behaviour
+  change:** now empty, as in POSIX); `[]-a]` was read as three members rather than the range ']' to 'a'.
+- **CaseConverter:** "A1B" split as A1 | B, so CONSTANT_CASE did not read back (a capital after a digit now starts a
+  word only when a lower-case letter follows); a word starting with 'ß', and titlecase letters, broke idempotence; in
+  decomposed text the accent hid the lower-case letter that ends an acronym ("XMLÉcole").
+- **Widths and escapes:** TextAlign counted conjoining jamo (a decomposed "한" was 4), missed Tangut, Khitan, Nushu and
+  the kana supplements (now 2) and counted "❤️" (emoji selector) as 1. AnsiText.Strip and TextAlign took a control
+  character inside an escape as a parameter: they now read sequences as a VT terminal does (the control character
+  is kept, CAN, SUB and non-ASCII characters end the sequence).
+- **Smaller:** Slug dropped Ħ, ŧ, ŋ, ĸ, Ĳ, ŀ, ŉ, ǆ and other Latin letters (now FormKD plus a fold table generated
+  from the Unicode names); a ULID random-part overflow carried into the timestamp (now InvalidOperationException, as
+  the spec says); NanoId turned a broken injected Random into IndexOutOfRangeException; CommandLineBuilder.Join named
+  "argument" for a null element; a lone surrogate was accepted as TextAlign's pad and Mask's mask character.
+
 ### Round 73: WPF satellite, fourth pass (v2026.11.13.16)
 
 Two fresh reviewers (correctness, robustness): 24 findings, 22 after merging the two both found, plus two found while

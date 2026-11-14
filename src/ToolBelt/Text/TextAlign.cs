@@ -35,7 +35,7 @@ namespace ToolBelt.Text
                     i++;
                     continue;
                 }
-                width += CharWidth(c);
+                width += CharWidth(c, i + 1 < text.Length && text[i + 1] == '\uFE0F');
             }
             return width;
         }
@@ -60,7 +60,8 @@ namespace ToolBelt.Text
             if (text is null) throw new ArgumentNullException(nameof(text));
             if (width < 0) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must not be negative.");
             // Padding counts characters, so a wide or zero-width pad broke "exactly width columns" ('中' gave 9 for 5).
-            if (DisplayWidth(pad.ToString()) != 1) throw new ArgumentOutOfRangeException(nameof(pad), pad, "The pad character must be one column wide.");
+            // A lone surrogate measured one column and padded the text with invalid UTF-16.
+            if (char.IsSurrogate(pad) || DisplayWidth(pad.ToString()) != 1) throw new ArgumentOutOfRangeException(nameof(pad), pad, "The pad character must be one column wide.");
             int current = DisplayWidth(text);
             if (current > width)
             {
@@ -103,6 +104,7 @@ namespace ToolBelt.Text
                     continue;
                 }
                 int len = char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]) ? 2 : 1;
+                if (i + len < text.Length && text[i + len] == '\uFE0F') len++;   // the emoji selector widens its base
                 int w = DisplayWidth(text.Substring(i, len));
                 if (used + w > budget) break;
                 sb.Append(text, i, len);
@@ -139,9 +141,11 @@ namespace ToolBelt.Text
             char kind = s[i + 1];
             if (kind == '[')
             {
+                // A control character inside acts and takes no columns, so it stays in the sequence; ESC, CAN, SUB or a
+                // non-ASCII character ends it early ("ESC [3 LF b" counted the 'b').
                 int j = i + 2;
-                while (j < s.Length && !(s[j] >= '@' && s[j] <= '~') && s[j] != '\u001b') j++;
-                if (j < s.Length) return s[j] == '\u001b' ? j - 1 : j;   // an ESC cancels the sequence and starts a new one
+                while (j < s.Length && (s[j] < '@' || s[j] == '\u007f') && !Aborts(s[j])) j++;
+                if (j < s.Length) return s[j] >= '@' && s[j] <= '~' ? j : j - 1;
                 finished = false;
                 return s.Length - 1;
             }
@@ -150,18 +154,20 @@ namespace ToolBelt.Text
                 for (int j = i + 2; j < s.Length; j++)
                 {
                     if (s[j] == '\a') return j;
+                    if (s[j] == '\u0018' || s[j] == '\u001a') return j - 1;                                  // CAN and SUB abort it
                     if (s[j] == '\u001b') return j + 1 < s.Length && s[j + 1] == '\\' ? j + 1 : j - 1;   // another ESC cancels it
                 }
                 finished = false;
                 return s.Length - 1;
             }
             int k = i + 1;
-            while (k < s.Length && s[k] >= ' ' && s[k] <= '/') k++;
-            if (k < s.Length && s[k] == '\u001b') return k - 1;         // "ESC ESC [31m" ate the second ESC as a final byte
-            if (k < s.Length) return k;
+            while (k < s.Length && (s[k] < '0' || s[k] == '\u007f') && !Aborts(s[k])) k++;
+            if (k < s.Length) return s[k] <= '~' && !Aborts(s[k]) ? k : k - 1;   // "ESC ESC [31m" ate the second ESC as a final byte
             finished = false;
             return s.Length - 1;
         }
+
+        private static bool Aborts(char c) => c == '\u001b' || c == '\u0018' || c == '\u001a' || c > '\u007f';
 
         // Width of the surrogate pair at `index`: combining marks, format characters, tags and variation selectors take no
         // columns; emoji and the CJK supplementary planes take two; everything else one. (Multi-code-point emoji built with
@@ -172,7 +178,22 @@ namespace ToolBelt.Text
             var cat = CharUnicodeInfo.GetUnicodeCategory(text, index);
             if (cat == UnicodeCategory.NonSpacingMark || cat == UnicodeCategory.EnclosingMark || cat == UnicodeCategory.Format) return 0;
             if (cp >= 0xE0000 && cp <= 0xE0FFF) return 0;                                   // tags, variation selectors supplement
-            return (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x20000 && cp <= 0x3FFFD) ? 2 : 1;
+            // Tangut, Khitan, the kana supplements and Nushu are East Asian Wide too (they counted one).
+            bool wide = (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x20000 && cp <= 0x3FFFD)
+                || (cp >= 0x16FE0 && cp <= 0x16FE4) || (cp >= 0x16FF0 && cp <= 0x16FF1)
+                || (cp >= 0x17000 && cp <= 0x18CD5) || (cp >= 0x18D00 && cp <= 0x18D08)
+                || (cp >= 0x1AFF0 && cp <= 0x1AFFE) || (cp >= 0x1B000 && cp <= 0x1B2FB);
+            return wide ? 2 : 1;
+        }
+
+        // `emojiSelector`: U+FE0F follows, asking for the emoji presentation, which terminals draw two columns wide
+        // ("❤️" counted one).
+        private static int CharWidth(char c, bool emojiSelector)
+        {
+            int w = CharWidth(c);
+            if (w != 1 || !emojiSelector || c < '\u00A0') return w;
+            var cat = CharUnicodeInfo.GetUnicodeCategory(c);
+            return cat == UnicodeCategory.OtherSymbol || cat == UnicodeCategory.MathSymbol || cat == UnicodeCategory.OtherPunctuation ? 2 : 1;
         }
 
         private static int CharWidth(char c)
@@ -181,6 +202,8 @@ namespace ToolBelt.Text
             var cat = CharUnicodeInfo.GetUnicodeCategory(c);
             if (cat == UnicodeCategory.NonSpacingMark || cat == UnicodeCategory.EnclosingMark || cat == UnicodeCategory.Format) return 0;
             if (c == '​') return 0;
+            // Hangul medial vowels and final consonants join the leading consonant's two columns ("한" decomposed counted 4).
+            if ((c >= 0x1160 && c <= 0x11FF) || (c >= 0xD7B0 && c <= 0xD7FF)) return 0;
             bool wide =
                 (c >= 0x1100 && c <= 0x115F) ||                    // Hangul Jamo
                 (c >= 0x2E80 && c <= 0x303E) ||                    // CJK radicals, punctuation

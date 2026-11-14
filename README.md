@@ -396,8 +396,8 @@ src/
     Identifiers/
       NanoId.cs             compact URL-safe random ids (injectable Random, non-crypto)
       ShortGuid.cs          Guid <-> compact 22-char URL-safe string (lossless)
-      SnowflakeIdGenerator.cs  64-bit time-ordered ids (injectable clock)
-      Ulid.cs               ULID generator (monotonic, Crockford, injectable clock/rng)
+      SnowflakeIdGenerator.cs  64-bit time-ordered ids (injectable clock; waits for the clock when a millisecond's ids run out)
+      Ulid.cs               ULID generator (monotonic, Crockford, injectable clock/rng; throws when a millisecond's randomness runs out)
     IO/
       AtomicFile.cs         crash-safe write (temp + swap, optional .bak backup)
       ByteSize.cs           human-readable byte sizes (format + parse, binary/decimal)
@@ -475,7 +475,7 @@ src/
       Tokenizer.cs          configurable quote/escape-aware splitter with spans (Shell / Csv presets)
       PercentEncoding.cs    RFC 3986 percent-encode/decode, strict UTF-8, form (+) variant
       TextAlign.cs          display-width pad/centre/fit: ANSI-, combining- and wide-char-aware
-      GlobMatcher.cs        glob matching (*, ?, [a-z], negation)
+      GlobMatcher.cs        glob matching (*, ?, [a-z], negation; linear-time, reversed ranges empty)
       HammingDistance.cs    Hamming distance between equal-length strings / bit sequences (BitDistance is long)
       Indent.cs             indent / dedent multi-line text
       JaroWinkler.cs        Jaro & Jaro-Winkler string similarity
@@ -490,7 +490,7 @@ src/
       Soundex.cs            American Soundex phonetic key
       StringSimilarity.cs   "did you mean" best/top-N match ranking (pluggable scorer)
       TemplateFormatter.cs  {name} placeholder substitution ({{ }} escaping)
-      TextDiff.cs           minimal line-based diff (LCS edit script; +/-/space format)
+      TextDiff.cs           minimal line-based diff (LCS edit script; +/-/space format; one bit per table cell, up to 2^33)
       Truncate.cs           ellipsis truncation (char-exact + word-aware)
       WordWrap.cs           greedy word wrap to a column width (hard-breaks long words)
     Threading/
@@ -923,6 +923,7 @@ tests/
       TextReviewTests.cs (round 11 review regressions: Text, Identifiers, Enums, Guards)
       TextReview2Tests.cs (round 32 review regressions: escapes, slug folding, case folding, validation)
       TextReview3Tests.cs (round 50 review regressions: id generator edges, DCS/APC strings, case-less letters, net48 limits)
+      TextReview4Tests.cs (round 74 review regressions: snowflake lead, linear glob/Jaro/n-grams, diff memory, VT escapes, wide scripts, slug folds)
       MiscReviewRegressionTests.cs  (2026-10-05 review regressions: Text, Cli, Threading, Time, Diagnostics, Collections)
       TruncateTests.cs
       WordWrapTests.cs

@@ -43,8 +43,9 @@ namespace ToolBelt.Text
     /// </summary>
     /// <remarks>
     /// Lines common to the start and end of both inputs are matched first, so the LCS table covers only the
-    /// changed middle: O(n·m) in time and memory for a middle of n and m lines — fine for source files and
-    /// typical documents, and for large inputs with a local change, but not for two large unrelated inputs. Line splitting treats <c>\r\n</c>
+    /// changed middle: O(n·m) in time, and n·m bits of memory, for a middle of n and m lines — fine for source files and
+    /// typical documents, and for large inputs with a local change, but not for two large unrelated inputs: a middle of
+    /// more than 2^33 cells (about 92,000 lines each) throws <see cref="ArgumentException"/>. Line splitting treats <c>\r\n</c>
     /// and <c>\n</c> as separators and does not retain the terminators.
     /// </remarks>
     public static class TextDiff
@@ -72,16 +73,32 @@ namespace ToolBelt.Text
             for (int k = 0; k < prefix; k++)
                 result.Add(new DiffLine(DiffOp.Equal, a[k]));
 
-            // LCS length table over the middle: lcs[i, j] = LCS length of a[prefix + i..] and b[prefix + j..].
-            // Filled from the bottom-right so the forward walk below can greedily take the direction that
-            // preserves the optimum.
+            // LCS lengths over the middle, lcs[i, j] = LCS length of a[prefix + i..] and b[prefix + j..], filled from the
+            // bottom-right two rows at a time. The forward walk below only needs, per cell, whether dropping a's line
+            // keeps the optimum (lcs[i + 1, j] >= lcs[i, j + 1]), so that is kept as one bit: the full int table took
+            // 1.5 GB for 20,000 unrelated lines a side, and past 2^31 cells could not be allocated at all.
             int n = a.Length - prefix - suffix, m = b.Length - prefix - suffix;
-            var lcs = new int[n + 1, m + 1];
+            long cells = (long)n * m;
+            if (cells > 1L << 33)
+                throw new ArgumentException($"The texts differ in {n} and {m} lines; diffing them needs more than 2^33 table cells.", nameof(newText));
+            var down = new ulong[(cells + 63) >> 6];
+            var next = new int[m + 1];
+            var cur = new int[m + 1];
             for (int i = n - 1; i >= 0; i--)
+            {
                 for (int j = m - 1; j >= 0; j--)
-                    lcs[i, j] = string.Equals(a[prefix + i], b[prefix + j], StringComparison.Ordinal)
-                        ? lcs[i + 1, j + 1] + 1
-                        : Math.Max(lcs[i + 1, j], lcs[i, j + 1]);
+                {
+                    cur[j] = string.Equals(a[prefix + i], b[prefix + j], StringComparison.Ordinal)
+                        ? next[j + 1] + 1
+                        : Math.Max(next[j], cur[j + 1]);
+                    if (next[j] >= cur[j + 1])
+                    {
+                        long bit = (long)i * m + j;
+                        down[bit >> 6] |= 1UL << (int)(bit & 63);
+                    }
+                }
+                int[] t = next; next = cur; cur = t;
+            }
 
             int x = 0, y = 0;
             while (x < n && y < m)
@@ -91,7 +108,7 @@ namespace ToolBelt.Text
                     result.Add(new DiffLine(DiffOp.Equal, a[prefix + x]));
                     x++; y++;
                 }
-                else if (lcs[x + 1, y] >= lcs[x, y + 1])
+                else if ((down[((long)x * m + y) >> 6] & (1UL << (int)(((long)x * m + y) & 63))) != 0)
                 {
                     // Dropping a[x] keeps (or ties) the optimum — emit it as a deletion.
                     result.Add(new DiffLine(DiffOp.Delete, a[prefix + x]));
