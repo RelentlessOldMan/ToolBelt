@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Globalization;
 
 namespace ToolBelt.Functional
 {
@@ -84,7 +85,10 @@ namespace ToolBelt.Functional
                 : Either<TLeft, TOut>.FromLeft(_left);
         }
 
-        public override string ToString() => _isRight ? $"Right({_right})" : $"Left({_left})";
+        // Invariant: the current culture printed 1.5 as "1,5".
+        public override string ToString() => _isRight
+            ? string.Format(CultureInfo.InvariantCulture, "Right({0})", _right)
+            : string.Format(CultureInfo.InvariantCulture, "Left({0})", _left);
     }
 
     /// <summary>

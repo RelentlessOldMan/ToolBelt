@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Globalization;
 
 namespace ToolBelt.Functional
 {
@@ -76,7 +77,8 @@ namespace ToolBelt.Functional
             return _hasValue ? onSome(_value) : onNone();
         }
 
-        public override string ToString() => _hasValue ? $"Some({_value})" : "None";
+        // Invariant: the current culture printed 1.5 as "1,5".
+        public override string ToString() => _hasValue ? string.Format(CultureInfo.InvariantCulture, "Some({0})", _value) : "None";
     }
 
     /// <summary>Factory helpers for <see cref="Option{T}"/> with type inference.</summary>

@@ -342,7 +342,7 @@ src/
     Intervals/
       Interval.cs           half-open [start, end) over any comparable key
       IntervalTree.cs       augmented index: intervals containing a point / overlapping a range
-      RangeMap.cs           non-overlapping key-range -> value (splits + coalesces; always minimal)
+      RangeMap.cs           non-overlapping key-range -> value (splits + coalesces; always minimal; blocked, near-linear inserts)
       RangeSet.cs           union / intersect / difference / complement over intervals
     Net/
       CidrRange.cs          CIDR block (v4/v6): parse, Contains, network/broadcast, count, enumerate
@@ -391,9 +391,9 @@ src/
       FlattenObject.cs      object graph -> flat path->value dictionary (any depth)
       UnflattenObject.cs    flat paths -> nested dictionaries/lists (inverse of Flatten), conflicts named
       ObjectMapper.cs       copy matching properties across types (convert / ignore / custom)
-      PropertyDiff.cs       differences between two graphs as (path, old, new) (any depth)
-      PropertyPath.cs       get/set via dotted path with indexers (clear per-segment errors; writes structs back)
-      TypeUtils.cs          friendly names / default / unwrap-nullable / numeric / safe convert / scan
+      PropertyDiff.cs       differences between two graphs as (path, old, new) (any depth; a shared pair once, at its first path)
+      PropertyPath.cs       get/set via dotted path with indexers (clear per-segment errors; writes structs back; invariant keys)
+      TypeUtils.cs          friendly names / default / unwrap-nullable / numeric / safe (never lossy) convert / scan
     Identifiers/
       NanoId.cs             compact URL-safe random ids (injectable Random, non-crypto)
       ShortGuid.cs          Guid <-> compact 22-char URL-safe string (lossless)
@@ -810,6 +810,7 @@ tests/
       ObjectsGraphsReview3Tests.cs (third-pass regressions: computed self-typed properties, overridden accessors, enum ranges, overflowing paths, argument validation)
       ObjectsGraphsReview59Tests.cs (fourth pass: chains of made objects, boxed cycles, member order, flatten collisions, lossy conversions, by-ref-like members)
       ObjectsReview60Tests.cs (round 59 follow-ups: deep generic names, lazy sequences of new objects, leaf-root unflatten)
+      ObjectsGraphsReview77Tests.cs (fifth pass: opaque leaves, walk budgets, generic dictionaries, round-trip keys, exact conversions, A* ties, RangeMap blocks)
     Identifiers/
       NanoIdTests.cs
       ShortGuidTests.cs

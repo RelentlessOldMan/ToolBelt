@@ -1,6 +1,8 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -17,11 +19,15 @@ namespace ToolBelt.Objects
         /// whose public properties do not determine the value), Uri, reflection objects (Type, MemberInfo, Assembly,
         /// Module), whose properties throw for many instances, and FileInfo / DirectoryInfo, whose Root, Parent and
         /// Directory getters build a new object on every call (a walk never met the same reference twice and never ended),
-        /// and IPAddress / EndPoint, whose ScopeId or Address getters throw for some addresses.
+        /// and IPAddress / EndPoint, whose ScopeId or Address getters throw for some addresses. Also leaves, compared by
+        /// their own Equals and never read: tasks, ValueTask and Lazy (reading Result or Value blocked forever on a pending
+        /// task, or ran the factory), wait handles, cancellation tokens, threads and delegates, and streams, readers and
+        /// writers (a MemoryStream's ReadTimeout throws).
         /// </summary>
         public static bool IsLeaf(Type type)
         {
             if (type.IsPrimitive || type.IsEnum) return true;
+            if (IsOpaque(type)) return true;
             return type == typeof(string)
                 || type == typeof(decimal)
                 || type == typeof(DateTime)
@@ -38,6 +44,67 @@ namespace ToolBelt.Objects
                 || typeof(System.Net.EndPoint).IsAssignableFrom(type);
         }
 
+        private static bool IsOpaque(Type type)
+        {
+            if (typeof(System.Threading.Tasks.Task).IsAssignableFrom(type)
+                || typeof(System.Threading.WaitHandle).IsAssignableFrom(type)
+                || type == typeof(System.Threading.CancellationToken)
+                || typeof(System.Threading.Thread).IsAssignableFrom(type)
+                || typeof(Delegate).IsAssignableFrom(type)
+                || typeof(Stream).IsAssignableFrom(type)
+                || typeof(TextReader).IsAssignableFrom(type)
+                || typeof(TextWriter).IsAssignableFrom(type)) return true;
+            string? name = type.FullName;
+            if (name == "System.Threading.Tasks.ValueTask") return true;
+            if (type.IsGenericType)
+            {
+                string? def = type.GetGenericTypeDefinition().FullName;
+                if (def == "System.Threading.Tasks.ValueTask`1" || def == "System.Lazy`1" || def == "System.Lazy`2") return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The most objects one walk expands (a lazily built chain, Next => _next ??= new Node(), is stored data that never
+        /// ends), and the most items it takes from one lazy sequence (an endless generator): past either, the walk throws
+        /// <see cref="InvalidOperationException"/> rather than running until memory is gone.
+        /// </summary>
+        public const int MaxObjects = 1 << 21, MaxLazyItems = 1 << 22;
+
+        /// <summary>The error for a walk past <see cref="MaxObjects"/>.</summary>
+        public static InvalidOperationException TooManyObjects()
+            => new InvalidOperationException($"The object graph has more than {MaxObjects.ToString("N0", CultureInfo.InvariantCulture)} objects to walk (it may be built lazily without end).");
+
+        /// <summary>
+        /// The text of a dictionary key in a path, the way <c>PropertyPath</c> parses it back: floating values in their
+        /// shortest round-trip form (.NET Framework's default printed 15 digits, so 0.3 and 0.1 + 0.2 spelled one key),
+        /// dates and offsets in the round-trip "O" form (the default dropped fractions of a second), TimeSpan in "c", and
+        /// anything else invariant.
+        /// </summary>
+        public static string KeyText(object? key)
+        {
+            switch (key)
+            {
+                case null: return "";
+                case double d:
+                {
+                    // .NET Framework prints -0.0 as "0"; .NET Core as "-0".
+                    if (d == 0 && double.IsNegativeInfinity(1 / d)) return "-0";
+                    string r = d.ToString("R", CultureInfo.InvariantCulture);
+                    return double.IsNaN(d) || double.Parse(r, NumberStyles.Float, CultureInfo.InvariantCulture).Equals(d) ? r : d.ToString("G17", CultureInfo.InvariantCulture);
+                }
+                case float f:
+                {
+                    if (f == 0 && float.IsNegativeInfinity(1 / f)) return "-0";
+                    string r = f.ToString("R", CultureInfo.InvariantCulture);
+                    return float.IsNaN(f) || float.Parse(r, NumberStyles.Float, CultureInfo.InvariantCulture).Equals(f) ? r : f.ToString("G9", CultureInfo.InvariantCulture);
+                }
+                case DateTime dt: return dt.ToString("O", CultureInfo.InvariantCulture);
+                case DateTimeOffset dto: return dto.ToString("O", CultureInfo.InvariantCulture);
+                case TimeSpan ts: return ts.ToString("c", CultureInfo.InvariantCulture);
+                default: return Convert.ToString(key, CultureInfo.InvariantCulture) ?? "";
+            }
+        }
         /// <summary>
         /// How many repeats (see <see cref="Trail"/>) a walk follows along one path before it stops descending.
         /// </summary>
@@ -47,6 +114,10 @@ namespace ToolBelt.Objects
         /// The value to walk in place of <paramref name="value"/>: a <c>Memory&lt;T&gt;</c> or <c>ReadOnlyMemory&lt;T&gt;</c>
         /// becomes an array of its contents (its own properties are only Length, IsEmpty and the unreadable Span), and a
         /// default <c>ImmutableArray&lt;T&gt;</c> or <c>ArraySegment&lt;T&gt;</c>, which throws when enumerated, becomes null.
+        /// A dictionary that implements only the generic <c>IDictionary&lt;K, V&gt;</c> or
+        /// <c>IReadOnlyDictionary&lt;K, V&gt;</c> (ExpandoObject) becomes an <see cref="IDictionary"/> view of itself, the
+        /// same view each time: it was walked as a sequence of key-value pairs, in order, so two Expandos holding the same
+        /// members in another order differed.
         /// </summary>
         public static object? Normalize(object value)
         {
@@ -57,13 +128,128 @@ namespace ToolBelt.Objects
                 if (name == "System.Memory`1" || name == "System.ReadOnlyMemory`1")
                 {
                     MethodInfo? toArray = type.GetMethod("ToArray", Type.EmptyTypes);
-                    if (toArray != null) return toArray.Invoke(value, null)!;
+                    if (toArray != null) return Call(toArray, value, null)!;
                 }
                 if (name == "System.Collections.Immutable.ImmutableArray`1"
-                    && type.GetProperty("IsDefault")?.GetValue(value) is true) return null;
-                if (name == "System.ArraySegment`1" && type.GetProperty("Array")?.GetValue(value) is null) return null;
+                    && type.GetProperty("IsDefault") is PropertyInfo isDefault && Call(isDefault.GetGetMethod()!, value, null) is true) return null;
+                if (name == "System.ArraySegment`1" && type.GetProperty("Array") is PropertyInfo array && Call(array.GetGetMethod()!, value, null) is null) return null;
             }
+            if (!(value is IDictionary) && GenericDictionary.Interface(type) != null)
+                return Views.GetValue(value, v => new GenericDictionary(v));
             return value;
+        }
+
+        private static readonly ConditionalWeakTable<object, GenericDictionary> Views = new ConditionalWeakTable<object, GenericDictionary>();
+
+        // A read-only IDictionary over a dictionary that implements only IDictionary<K, V> or IReadOnlyDictionary<K, V>,
+        // looking keys up with that dictionary's own comparer.
+        private sealed class GenericDictionary : IDictionary
+        {
+            private readonly object _source;
+            private readonly MethodInfo _containsKey, _tryGetValue;
+            private readonly PropertyInfo _count, _key, _value;
+            private readonly Type _keyType;
+
+            public GenericDictionary(object source)
+            {
+                _source = source;
+                Type i = Interface(source.GetType())!;
+                Type[] args = i.GetGenericArguments();
+                _keyType = args[0];
+                _containsKey = i.GetMethod("ContainsKey")!;
+                _tryGetValue = i.GetMethod("TryGetValue")!;
+                Type collection = typeof(IReadOnlyCollection<>).MakeGenericType(typeof(KeyValuePair<,>).MakeGenericType(args));
+                if (!collection.IsInstanceOfType(source)) collection = typeof(ICollection<>).MakeGenericType(typeof(KeyValuePair<,>).MakeGenericType(args));
+                _count = collection.GetProperty("Count")!;
+                Type pair = typeof(KeyValuePair<,>).MakeGenericType(args);
+                _key = pair.GetProperty("Key")!;
+                _value = pair.GetProperty("Value")!;
+            }
+
+            // IDictionary<K, V> first, then IReadOnlyDictionary<K, V>; the first of either kind the type lists.
+            public static Type? Interface(Type type)
+            {
+                Type? readOnly = null;
+                foreach (Type i in type.GetInterfaces())
+                {
+                    if (!i.IsGenericType) continue;
+                    Type d = i.GetGenericTypeDefinition();
+                    if (d == typeof(IDictionary<,>)) return i;
+                    if (d == typeof(IReadOnlyDictionary<,>) && readOnly is null) readOnly = i;
+                }
+                return readOnly;
+            }
+
+            private bool Fits(object key) => _keyType.IsInstanceOfType(key);
+
+            public bool Contains(object key) => Fits(key) && (bool)Call(_containsKey, _source, new[] { key })!;
+
+            public object? this[object key]
+            {
+                get
+                {
+                    if (!Fits(key)) return null;
+                    var args = new object?[] { key, null };
+                    return (bool)Call(_tryGetValue, _source, args)! ? args[1] : null;
+                }
+                set => throw new NotSupportedException();
+            }
+
+            public int Count => (int)Call(_count.GetGetMethod()!, _source, null)!;
+
+            public IDictionaryEnumerator GetEnumerator()
+            {
+                var entries = new List<DictionaryEntry>();
+                foreach (object? pair in (IEnumerable)_source)
+                    entries.Add(new DictionaryEntry(Call(_key.GetGetMethod()!, pair!, null)!, Call(_value.GetGetMethod()!, pair!, null)));
+                return new Entries(entries);
+            }
+
+            IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+            public ICollection Keys
+            {
+                get
+                {
+                    var keys = new List<object>();
+                    var e = GetEnumerator();
+                    while (e.MoveNext()) keys.Add(e.Key);
+                    return keys;
+                }
+            }
+
+            public ICollection Values
+            {
+                get
+                {
+                    var values = new List<object?>();
+                    var e = GetEnumerator();
+                    while (e.MoveNext()) values.Add(e.Value);
+                    return values;
+                }
+            }
+
+            public bool IsReadOnly => true;
+            public bool IsFixedSize => true;
+            public bool IsSynchronized => false;
+            public object SyncRoot => this;
+            public void Add(object key, object? value) => throw new NotSupportedException();
+            public void Clear() => throw new NotSupportedException();
+            public void Remove(object key) => throw new NotSupportedException();
+            public void CopyTo(Array array, int index) => throw new NotSupportedException();
+
+            private sealed class Entries : IDictionaryEnumerator
+            {
+                private readonly List<DictionaryEntry> _entries;
+                private int _i = -1;
+                public Entries(List<DictionaryEntry> entries) => _entries = entries;
+                public bool MoveNext() => ++_i < _entries.Count;
+                public void Reset() => _i = -1;
+                public DictionaryEntry Entry => _entries[_i];
+                public object Current => Entry;
+                public object Key => Entry.Key;
+                public object? Value => Entry.Value;
+            }
         }
 
         /// <summary>How a member's value relates to a second read of the same member (see <see cref="Read"/>).</summary>
@@ -140,10 +326,13 @@ namespace ToolBelt.Objects
                 return ta.Repeats >= tb.Repeats ? ta : tb;
             }
 
+            // A generic type repeats by its definition: W<T>.Next returning a new W<W<T>> made a new type at every level, so
+            // the chain never repeated and never ended.
             private static bool Contains(Link? link, Type type)
             {
+                Type def = type.IsGenericType ? type.GetGenericTypeDefinition() : type;
                 for (; link != null; link = link.Next)
-                    if (link.Type == type) return true;
+                    if (link.Type == type || (link.Type.IsGenericType && link.Type.GetGenericTypeDefinition() == def)) return true;
                 return false;
             }
         }
@@ -159,7 +348,25 @@ namespace ToolBelt.Objects
         public static IEnumerable<(string Name, object? Value, Origin Origin)> Read(object obj, bool includeFields)
         {
             Type type = obj.GetType();
-            foreach (PropertyInfo p in Visible(type.GetProperties(BindingFlags.Public | BindingFlags.Instance)))
+            List<PropertyInfo> properties = Visible(type.GetProperties(BindingFlags.Public | BindingFlags.Instance));
+            List<FieldInfo> fields = includeFields ? VisibleFields(type.GetFields(BindingFlags.Public | BindingFlags.Instance)) : new List<FieldInfo>();
+            if (fields.Count > 0)
+            {
+                // A field and a property of one name (a `new` field hiding a base property, or the reverse) are one member,
+                // the most derived, as in C#: both were read under one name (a duplicate path, two differences at one path).
+                var fieldByName = new Dictionary<string, FieldInfo>(StringComparer.Ordinal);
+                foreach (FieldInfo f in fields) fieldByName[f.Name] = f;
+                var hiddenFields = new HashSet<string>(StringComparer.Ordinal);
+                properties = properties.FindAll(p =>
+                {
+                    if (!fieldByName.TryGetValue(p.Name, out FieldInfo? f)) return true;
+                    if (f.DeclaringType != p.DeclaringType && p.DeclaringType!.IsAssignableFrom(f.DeclaringType)) return false;
+                    hiddenFields.Add(f.Name);
+                    return true;
+                });
+                fields = fields.FindAll(f => !hiddenFields.Contains(f.Name));
+            }
+            foreach (PropertyInfo p in properties)
             {
                 if (!IsReadableType(p.PropertyType)) continue;
                 MethodInfo? getter = PublicAccessor(p, setter: false);
@@ -168,8 +375,7 @@ namespace ToolBelt.Objects
                 Origin origin = value is null || IsLeaf(value.GetType()) ? Origin.Stable : OriginOf(value, Invoke(getter, obj));
                 yield return (p.Name, value, origin);
             }
-            if (includeFields)
-                foreach (FieldInfo f in VisibleFields(type.GetFields(BindingFlags.Public | BindingFlags.Instance)))
+            foreach (FieldInfo f in fields)
                     if (IsReadableType(f.FieldType))
                     {
                         object? value = f.GetValue(obj);
@@ -263,9 +469,11 @@ namespace ToolBelt.Objects
         }
 
         // Calls a getter, rethrowing what it threw rather than the TargetInvocationException reflection wraps it in.
-        private static object? Invoke(MethodInfo getter, object obj)
+        private static object? Invoke(MethodInfo getter, object obj) => Call(getter, obj, null);
+
+        private static object? Call(MethodInfo method, object obj, object?[]? args)
         {
-            try { return getter.Invoke(obj, null); }
+            try { return method.Invoke(obj, args); }
             catch (TargetInvocationException ex) when (ex.InnerException != null)
             {
                 ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
@@ -316,7 +524,8 @@ namespace ToolBelt.Objects
             {
                 if (!i.IsGenericType || i.GetGenericTypeDefinition() != typeof(ISet<>) || !i.IsInstanceOfType(b)) continue;
                 MethodInfo setEquals = i.GetMethod(nameof(ISet<int>.SetEquals))!;
-                return (bool)setEquals.Invoke(a, new[] { b })!;
+                // A throwing comparer escaped as TargetInvocationException rather than its own exception.
+                return (bool)Call(setEquals, a, new[] { b })!;
             }
             return null;
         }
@@ -334,11 +543,18 @@ namespace ToolBelt.Objects
             return true;
         }
 
-        /// <summary>The items of a sequence, materialized.</summary>
+        /// <summary>The items of a sequence, materialized; past <see cref="MaxLazyItems"/> from a lazy one, an error.</summary>
         public static List<object?> ToList(System.Collections.IEnumerable items)
         {
             var list = new List<object?>();
-            foreach (object? item in items) list.Add(item);
+            // An endless generator was read until memory ran out. A collection is finite: it knows its count.
+            bool lazy = !IsCollection(items.GetType());
+            foreach (object? item in items)
+            {
+                if (lazy && list.Count == MaxLazyItems)
+                    throw new InvalidOperationException($"A lazy sequence ({items.GetType().Name}) gave more than {MaxLazyItems.ToString("N0", CultureInfo.InvariantCulture)} items (it may never end).");
+                list.Add(item);
+            }
             return list;
         }
 

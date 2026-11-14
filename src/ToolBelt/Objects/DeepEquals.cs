@@ -32,7 +32,11 @@ namespace ToolBelt.Objects
     /// types have repeated three times along the path, and assumes equal beyond. A getter whose value is not a leaf is
     /// called twice, and a lazy sequence (one with no count) enumerated twice, to tell made objects from stored ones.
     /// The walk uses an explicit stack, so a deep graph (a long linked list) cannot overflow the call stack. A property
-    /// getter that throws propagates its own exception.
+    /// getter that throws propagates its own exception. A dictionary that implements only the generic interfaces
+    /// (ExpandoObject) compares by key, as any dictionary does. Tasks, Lazy values, streams, wait handles, threads and
+    /// delegates are compared with their own Equals, never read. A graph of more than 2,097,152 objects, or a lazy
+    /// sequence of more than 4,194,304 items, throws <see cref="InvalidOperationException"/>: either is most likely
+    /// built without end.
     /// </para>
     /// </summary>
     public static class DeepEquals
@@ -71,6 +75,7 @@ namespace ToolBelt.Objects
 
             // Boxes too: a boxed struct can reach itself through an object-typed member.
             if (!seen.Add((a, b))) return true;
+            if (seen.Count > ObjectMembers.MaxObjects) throw ObjectMembers.TooManyObjects();
 
             if (a is IDictionary da && b is IDictionary db)
             {

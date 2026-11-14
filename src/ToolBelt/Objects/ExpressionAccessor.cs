@@ -107,6 +107,10 @@ namespace ToolBelt.Objects
                     if (!typeof(TValue).IsValueType && member.Type.IsValueType && Nullable.GetUnderlyingType(member.Type) is null)
                         source = Expression.Condition(
                             Expression.Equal(value, Expression.Constant(null, typeof(TValue))), Expression.Default(member.Type), source);
+                    // A null int? into an int member threw "Nullable object must have a value".
+                    else if (Nullable.GetUnderlyingType(typeof(TValue)) != null && member.Type.IsValueType && Nullable.GetUnderlyingType(member.Type) is null)
+                        source = Expression.Condition(
+                            Expression.Property(value, "HasValue"), source, Expression.Default(member.Type));
                     Expression body = Expression.Assign(member, source);
                     return Expression.Lambda<Action<TTarget, TValue>>(body, instance, value).Compile();
                 });
@@ -148,7 +152,8 @@ namespace ToolBelt.Objects
             return Expression.Lambda<Action<object, object?>>(body, instance, value).Compile();
         }
 
-        // The public instance property (most derived, not an indexer) or else field named exactly memberName.
+        // The most derived public instance property (not an indexer) or field named exactly memberName: a `new` field
+        // hides a base property of its name, and a `new` property a base field, as in C#.
         private static MemberExpression Member(Expression instance, Type type, string memberName, bool write)
         {
             if (Unholdable(type))
@@ -169,9 +174,14 @@ namespace ToolBelt.Objects
                         throw new InvalidOperationException($"Member '{memberName}' is not {(write ? "writable" : "readable")}.");
                     return Expression.Property(instance, accessor);
                 }
+                if (t.GetField(memberName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly) is FieldInfo declared)
+                    return Field(instance, declared, memberName, write);
             }
-            FieldInfo? f = type.GetField(memberName, BindingFlags.Public | BindingFlags.Instance);
-            if (f != null)
+            throw new ArgumentException($"{type.Name} has no public instance property or field named '{memberName}'.", nameof(memberName));
+        }
+
+        private static MemberExpression Field(Expression instance, FieldInfo f, string memberName, bool write)
+        {
             {
                 if (Unholdable(f.FieldType))
                     throw new ArgumentException($"Member '{memberName}' is a {f.FieldType.Name}, which cannot be held as a value.", nameof(memberName));
@@ -179,7 +189,6 @@ namespace ToolBelt.Objects
                     throw new InvalidOperationException($"Member '{memberName}' is not writable.");
                 return Expression.Field(instance, f);
             }
-            throw new ArgumentException($"{type.Name} has no public instance property or field named '{memberName}'.", nameof(memberName));
         }
 
         // A by-ref (ref-returning property), pointer, or by-ref-like (Span) type.

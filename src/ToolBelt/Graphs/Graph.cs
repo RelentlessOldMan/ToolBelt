@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace ToolBelt.Graphs
 {
@@ -18,7 +19,8 @@ namespace ToolBelt.Graphs
             Weight = weight;
         }
 
-        public override string ToString() => $"{From} -> {To} ({Weight})";
+        /// <summary>"From -> To (weight)", in the invariant culture (the current one printed 1.5 as "1,5").</summary>
+        public override string ToString() => string.Format(CultureInfo.InvariantCulture, "{0} -> {1} ({2})", From, To, Weight);
     }
 
     /// <summary>

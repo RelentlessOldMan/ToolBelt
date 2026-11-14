@@ -54,7 +54,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 4 | 20 / 75 | re-queue (20 bugs, none severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 4 | 30 / 97 | re-queue (30 bugs, 1 severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 4 | 16 / 88 | re-queue (16 bugs, none severe) |
-| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 4 | 27 / 109 | re-queue (27 bugs, 3 severe) |
+| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 5 | 29 / 138 | re-queue (29 bugs, 1 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 4 | 25 / 99 | re-queue (25 bugs, 1 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 4 | 24 / 82 | re-queue (24 bugs, 1 severe) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 4 | 22 / 76 | re-queue (22 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); **next: 14**, then 12, 15, 5, 10, 16, 1, 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); **next: 12**, then 15, 5, 10, 16, 1, 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -150,11 +150,56 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.17 | 74 | Text & small types, fourth pass | 20 | (see tag) |
 | v2026.11.13.18 | 75 | IO, fifth pass | 24 | (see tag) |
 | v2026.11.13.19 | 76 | Documents & config, fifth pass | 24 | (see tag) |
+| v2026.11.13.20 | 77 | Objects, functional, grids, graphs, intervals, fifth pass | 29 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 77: Objects, functional, grids, graphs, intervals, fifth pass (v2026.11.13.20)
+
+Two fresh reviewers (correctness, robustness): 29 distinct findings, all confirmed, so **29 bugs, 1 severe** (a
+pending Task property hung every graph walker). Section 14 stays re-queued. The regression tests are in
+`ObjectsGraphsReview77Tests` (35 tests). Each fix's test failed on the old code; the "-0" text and random double keys
+fail only on .NET Framework 4.8, and were proven there. Four tests are differential guards that also pass at HEAD
+(A* against Dijkstra, FloodFill and RangeMap against naive references, RangeMap's enumeration check).
+
+- **Graph walkers (DeepEquals, PropertyDiff, FlattenObject):** a Task, ValueTask, Lazy, Stream, TextReader,
+  TextWriter, WaitHandle, CancellationToken, Thread or delegate was walked: a pending Task's Result blocked forever
+  (severe), a Lazy ran its factory, a Stream's ReadTimeout threw. They are now leaves, compared with their own Equals.
+  A lazily cached endless chain (`Next => _next ??= new Node()`) and an endless lazy sequence never ended; past
+  2,097,152 objects or 4,194,304 items a walk now throws InvalidOperationException. A chain whose type grows each step
+  (`W<T>.Next => new W<W<T>>()`) overflowed the stack; types now repeat by generic definition. A dictionary that has
+  only the generic interfaces (ExpandoObject) was walked as a sequence of pairs, so order mattered; it now compares,
+  diffs and flattens by key. Dictionary keys printed in a form that did not round-trip (a DateTime lost its
+  milliseconds, so two keys collided; a double lost digits on .NET Framework, and -0.0 printed as "0"); keys now use
+  round-trip text that PropertyPath reads back. With fields included, a `new` field hiding a base property (or the
+  reverse) was walked as two members of one name, so Flatten threw; the most derived one now wins. A set comparer's
+  exception came out wrapped in TargetInvocationException.
+- **PropertyDiff:** **Behaviour change:** a pair of objects reached along several paths is reported once, at the
+  first path; a diamond chain 40 levels deep took exponential time. Difference.ToString was culture-sensitive.
+- **PropertyPath:** `D[1,5]` read key 15 of a double or decimal dictionary (thousands separators were allowed). TimeSpan,
+  DateTimeOffset, Version and Uri keys did not convert. An array with a nonzero lower bound was indexed from 0. An
+  indexer's own exception was swallowed by TryGet. An out-of-range index named "index" rather than "path".
+  **Behaviour change:** an empty segment (`a..b`, `.a`, `a.`, `a.[0]`) is now ArgumentException; it used to be read
+  as a member with an empty name.
+- **TypeUtils:** **Behaviour change:** TryConvert no longer loses information silently. A double went to decimal
+  rounded to 15 digits (0.1 + 0.2 became 0.3) and 1e-30 became 0; an integer went to double or float inexactly (2^53 +
+  1); a nonzero double or text ("1e-400") underflowed to zero. All of these now fail. A date converted to string lost
+  its fraction of a second (it now uses "O"). Text "-0" lost its sign on .NET Framework. Half could not convert.
+  FriendlyName printed a rank-1 multi-dimensional array (`int[*]`) as `int[]`.
+- **Smaller:** ExpressionAccessor's typed setter threw on a null `int?` into an `int` member (it now stores 0), and
+  picked a base field over a derived property. ActivatorUtils chose a ValueType constructor over `int?` for an int.
+  Edge, Option, Result and Either printed 1.5 as "1,5" under a comma culture. Result.Try threw on an exception whose
+  Message is null. Memoize recursed until the stack overflowed when a function called itself with the argument it was
+  computing; it now throws InvalidOperationException, as Lazy does.
+- **Grids and intervals:** Dijkstra treated a diagonal step whose cost overflowed to infinity as a wall. A* expanded
+  nearly the whole grid on an open map: equal priorities were not broken by the heuristic, and 8-connected sums of
+  sqrt(2) differed by rounding noise; ties now go to the cell nearer the goal, within a relative 1e-12. FloodFill on a
+  T[,] over 2^24 cells switched to a HashSet (1.4 GB for a 4097 x 4097 grid); grids now always use a bitmap.
+  RangeMap inserted into a flat list, so 300,000 descending inserts took 14 s; it now uses blocks of entries and
+  stays near-linear.
+
 ### Round 76: Documents & config, fifth pass (v2026.11.13.19)
 
 Two fresh reviewers (correctness, robustness): 24 distinct findings, all confirmed (four of them by reading the code

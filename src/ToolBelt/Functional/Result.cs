@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Globalization;
 
 namespace ToolBelt.Functional
 {
@@ -81,7 +82,8 @@ namespace ToolBelt.Functional
             return _ok ? onSuccess(_value) : onFailure(Error);
         }
 
-        public override string ToString() => _ok ? $"Success({_value})" : $"Failure({Error})"; // default(Result<T>) printed "Failure()"
+        // default(Result<T>) printed "Failure()"; invariant, as the current culture printed 1.5 as "1,5".
+        public override string ToString() => _ok ? string.Format(CultureInfo.InvariantCulture, "Success({0})", _value) : $"Failure({Error})";
     }
 
     /// <summary>Factory helpers for <see cref="Result{T}"/> with type inference.</summary>
@@ -103,7 +105,9 @@ namespace ToolBelt.Functional
             }
             catch (Exception ex)
             {
-                return Result<T>.Failure(ex.Message);
+                // Message is virtual and may be null, which Failure refuses: the caller's exception was lost to an
+                // ArgumentNullException.
+                return Result<T>.Failure(ex.Message ?? ex.GetType().FullName ?? ex.GetType().Name);
             }
         }
     }

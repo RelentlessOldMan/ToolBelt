@@ -21,7 +21,18 @@ namespace ToolBelt.Objects
         public object? OldValue { get; }
         public object? NewValue { get; }
 
-        public override string ToString() => $"{Path}: {OldValue ?? "null"} -> {NewValue ?? "null"}";
+        /// <summary>"Path: old -> new", values in the invariant culture (a double in its shortest round-trip form).</summary>
+        public override string ToString() => $"{Path}: {Text(OldValue)} -> {Text(NewValue)}";
+
+        // The current culture printed 1.5 as "1,5", and .NET Framework printed 0.3 and 0.1 + 0.2 alike.
+        private static string Text(object? value) => value switch
+        {
+            null => "null",
+            double _ => ObjectMembers.KeyText(value),
+            float _ => ObjectMembers.KeyText(value),
+            IFormattable x => x.ToString(null, CultureInfo.InvariantCulture),
+            _ => value.ToString() ?? "",
+        };
     }
 
     /// <summary>
@@ -33,12 +44,17 @@ namespace ToolBelt.Objects
     /// Sets (<see cref="ISet{T}"/>) that differ are reported as one difference at the set's path; multi-dimensional
     /// arrays of different shapes likewise; a struct's public fields are always compared (Quaternion, Matrix4x4 and value
     /// tuples keep their value there), and a struct with no readable members compares with its own Equals. A FileInfo or
-    /// DirectoryInfo compares by type and full path. An object reached along several paths is reported on each path
-    /// where it differs, but a pair found equal is not walked again. A chain of getters that make a new object on every read
+    /// DirectoryInfo compares by type and full path. A pair of objects reached along several paths is compared once, on
+    /// the first path that reaches it, and its differences are reported there only (reporting them on every path made the
+    /// output, and the time, grow exponentially with the depth of a graph whose nodes share children). A chain of getters that make a new object on every read
     /// (a struct's Perpendicular, a class's Reciprocal, a Ping whose Next is a new Pong whose Next is a new Ping) never
     /// meets the same object twice, so it is followed only until its types have repeated three times along the path. A
     /// getter whose value is not a leaf is called twice, and a lazy sequence enumerated twice, to tell made objects from stored ones. The walk uses an explicit stack, so a deep graph cannot
-    /// overflow the call stack. A property getter that throws propagates its own exception.
+    /// overflow the call stack. A property getter that throws propagates its own exception. A dictionary that implements
+    /// only the generic interfaces (ExpandoObject) compares by key, and a key prints as <c>PropertyPath</c> parses it
+    /// back. Tasks, Lazy values, streams and delegates compare with their own Equals, never read. A graph of more than
+    /// 2,097,152 object pairs, or a lazy sequence of more than 4,194,304 items, throws
+    /// <see cref="InvalidOperationException"/>.
     /// </para>
     /// </summary>
     public static class PropertyDiff
@@ -76,7 +92,7 @@ namespace ToolBelt.Objects
             }
         }
 
-        private enum Kind { Visit, Report, Exit }
+        private enum Kind { Visit, Report }
 
         private struct Frame
         {
@@ -84,7 +100,6 @@ namespace ToolBelt.Objects
             public PathNode? Path;
             public object? A;
             public object? B;
-            public int Reported; // for an Exit: the number of differences when the pair was entered
             public ObjectMembers.Trail Trail; // for a Visit: what the path followed (ObjectMembers.Trail)
         }
 
@@ -92,13 +107,10 @@ namespace ToolBelt.Objects
         {
             var opt = options ?? new ObjectComparisonOptions();
             var result = new List<Difference>();
-            // Pairs on the current path, with their depth among them; a pair met again below itself is a cycle and is not
-            // descended. lows[d] is the shallowest depth a cycle from inside the open pair at depth d led back to.
-            var visiting = new Dictionary<(object, object), int>(ObjectMembers.ReferencePairComparer.Instance);
-            var lows = new List<int>();
-            // Pairs whose walk found no difference. A shared object met again along another path is skipped: re-walking
-            // it took time exponential in the depth of a graph whose nodes share children (equal diamond chains).
-            var equal = new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance);
+            // Pairs already taken up: a pair met again (a cycle, or a shared object along another path) is not walked
+            // again. Only pairs found equal were skipped before, so a shared pair that differed was walked and reported
+            // once per path: exponential in the depth of a graph whose nodes share children.
+            var seen = new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance);
             var work = new Stack<Frame>();
             work.Push(new Frame { Kind = Kind.Visit, A = a, B = b, Trail = ObjectMembers.Trail.Start });
             var children = new List<Frame>();
@@ -108,24 +120,12 @@ namespace ToolBelt.Objects
                 Frame f = work.Pop();
                 switch (f.Kind)
                 {
-                    case Kind.Exit:
-                        visiting.Remove((f.A!, f.B!));
-                        int low = lows[lows.Count - 1];
-                        lows.RemoveAt(lows.Count - 1);
-                        if (low < lows.Count)
-                        {
-                            // A cycle led back above this pair, so its walk stopped there: another path into the pair
-                            // can still find differences, and it is not known equal.
-                            if (lows.Count > 0) lows[lows.Count - 1] = Math.Min(lows[lows.Count - 1], low);
-                        }
-                        else if (result.Count == f.Reported) equal.Add((f.A!, f.B!));
-                        break;
                     case Kind.Report:
                         result.Add(new Difference(f.Path?.ToString() ?? "", f.A, f.B));
                         break;
                     default:
                         children.Clear();
-                        Visit(f.Path, f.A, f.B, f.Trail, opt, visiting, lows, equal, result.Count, children);
+                        Visit(f.Path, f.A, f.B, f.Trail, opt, seen, children);
                         // Push in reverse so the children are handled in order, as a recursive walk would.
                         for (int i = children.Count - 1; i >= 0; i--) work.Push(children[i]);
                         break;
@@ -134,10 +134,9 @@ namespace ToolBelt.Objects
             return result;
         }
 
-        // Emits, in order, the frames that handle this pair: reports, child visits, and an exit for a pair it enters.
+        // Emits, in order, the frames that handle this pair: reports and child visits.
         private static void Visit(PathNode? path, object? a, object? b, ObjectMembers.Trail trail, ObjectComparisonOptions opt,
-            Dictionary<(object, object), int> visiting, List<int> lows, HashSet<(object, object)> equal, int reported,
-            List<Frame> output)
+            HashSet<(object, object)> seen, List<Frame> output)
         {
             if (ReferenceEquals(a, b)) return;
             if (a is null || b is null) { output.Add(Report(path, a, b)); return; }
@@ -158,17 +157,8 @@ namespace ToolBelt.Objects
             }
 
             // Boxes too: a boxed struct can reach itself through an object-typed member.
-            {
-                if (equal.Contains((na, nb))) return; // already walked, and equal
-                if (visiting.TryGetValue((na, nb), out int depth))
-                {
-                    // A cycle: not descended. Mark the open pair above as cut short at that depth.
-                    lows[lows.Count - 1] = Math.Min(lows[lows.Count - 1], depth);
-                    return;
-                }
-                visiting.Add((na, nb), lows.Count);
-                lows.Add(int.MaxValue);
-            }
+            if (!seen.Add((na, nb))) return;
+            if (seen.Count > ObjectMembers.MaxObjects) throw ObjectMembers.TooManyObjects();
 
             if (na is IDictionary da && nb is IDictionary db)
             {
@@ -178,7 +168,7 @@ namespace ToolBelt.Objects
 
                 foreach (var key in keys)
                 {
-                    var p = new PathNode(path, Convert.ToString(key, CultureInfo.InvariantCulture) ?? "", indexed: true);
+                    var p = new PathNode(path, ObjectMembers.KeyText(key), indexed: true);
                     bool inA = da.Contains(key), inB = db.Contains(key);
                     if (inA && inB) output.Add(new Frame { Kind = Kind.Visit, Path = p, A = da[key], B = db[key], Trail = ObjectMembers.Trail.Pair(trail, da[key], ObjectMembers.Origin.Stable, db[key], ObjectMembers.Origin.Stable) });
                     else output.Add(Report(p, inA ? da[key] : null, inB ? db[key] : null));
@@ -227,8 +217,6 @@ namespace ToolBelt.Objects
                         });
                 }
             }
-
-            output.Add(new Frame { Kind = Kind.Exit, A = na, B = nb, Reported = reported });
         }
 
         private static Frame Report(PathNode? path, object? a, object? b) => new Frame { Kind = Kind.Report, Path = path, A = a, B = b };

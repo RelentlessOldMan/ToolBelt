@@ -10,12 +10,14 @@ namespace ToolBelt.Intervals
     /// equal value. After any sequence of assignments the map is always a minimal, non-overlapping,
     /// coalesced cover — the invariant that hand-rolled "sorted list of bands" code usually gets wrong at
     /// the seams. Ideal for calibration bands, tier tables and piecewise-constant settings. Set and Remove find
-    /// the affected segments by binary search and touch only those and their neighbors. If the key comparison or
-    /// the value comparer throws, the map is left as it was.
+    /// the affected segments by binary search and touch only those and their neighbors; the segments are kept in blocks,
+    /// so a Set or Remove anywhere costs a binary search and a shift within one block, not a shift of every later segment (assigning
+    /// ranges in descending order was quadratic). If the key comparison or the value comparer throws, the map is left as
+    /// it was. Changing the map while enumerating <see cref="Segments"/> throws InvalidOperationException.
     /// </summary>
     public sealed class RangeMap<TKey, TValue> where TKey : IComparable<TKey>
     {
-        private readonly List<Entry> _entries = new List<Entry>(); // sorted by Start, disjoint, coalesced
+        private readonly BlockList _entries = new BlockList(); // sorted by Start, disjoint, coalesced
         private readonly IEqualityComparer<TValue> _valueComparer;
 
         private struct Entry
@@ -150,6 +152,117 @@ namespace ToolBelt.Intervals
         }
 
         public bool ContainsKey(TKey key) => TryGet(key, out _);
+
+        // An indexed list stored as blocks of at most 2 * Block entries, with each block's first index: an insert or
+        // remove shifts one block and renumbers the blocks, rather than shifting every later entry.
+        private sealed class BlockList : IEnumerable<Entry>
+        {
+            private const int Block = 256;
+            private readonly List<List<Entry>> _blocks = new List<List<Entry>>();
+            private readonly List<int> _starts = new List<int>();
+            private int _version;
+
+            public int Count { get; private set; }
+
+            public Entry this[int index]
+            {
+                get { int b = Locate(index); return _blocks[b][index - _starts[b]]; }
+                set { int b = Locate(index); _blocks[b][index - _starts[b]] = value; _version++; }
+            }
+
+            // The block holding index (index == Count: the last block).
+            private int Locate(int index)
+            {
+                if ((uint)index > (uint)Count || (index == Count && Count == 0)) throw new ArgumentOutOfRangeException(nameof(index));
+                int lo = 0, hi = _blocks.Count - 1;
+                while (lo < hi)
+                {
+                    int mid = lo + (hi - lo + 1) / 2;
+                    if (_starts[mid] <= index) lo = mid; else hi = mid - 1;
+                }
+                return lo;
+            }
+
+            public List<Entry> GetRange(int index, int count)
+            {
+                var result = new List<Entry>(count);
+                for (int k = 0; k < count; k++) result.Add(this[index + k]);
+                return result;
+            }
+
+            public void InsertRange(int index, List<Entry> items)
+            {
+                if (items.Count == 0) return;
+                if (_blocks.Count == 0) _blocks.Add(new List<Entry>());
+                int b = index == Count ? _blocks.Count - 1 : Locate(index);
+                int start = index == Count ? Count - _blocks[b].Count : _starts[b];
+                List<Entry> block = _blocks[b];
+                block.InsertRange(index - start, items);
+                if (block.Count > 2 * Block)
+                {
+                    // Split into blocks of Block entries.
+                    var parts = new List<List<Entry>>();
+                    for (int k = 0; k < block.Count; k += Block) parts.Add(block.GetRange(k, Math.Min(Block, block.Count - k)));
+                    _blocks.RemoveAt(b);
+                    _blocks.InsertRange(b, parts);
+                }
+                Count += items.Count;
+                Renumber();
+            }
+
+            public void RemoveAt(int index) => RemoveRange(index, 1);
+
+            public void RemoveRange(int index, int count)
+            {
+                if (count == 0) return;
+                if (index < 0 || count < 0 || index + count > Count) throw new ArgumentOutOfRangeException(nameof(index));
+                while (count > 0)
+                {
+                    int b = Locate(index);
+                    int off = index - _starts[b];
+                    int n = Math.Min(count, _blocks[b].Count - off);
+                    _blocks[b].RemoveRange(off, n);
+                    count -= n;
+                    Count -= n;
+                    if (_blocks[b].Count == 0) _blocks.RemoveAt(b);
+                    Renumber();
+                }
+                // Neighbours that fit in one block are joined, so many removes cannot leave a block per entry.
+                for (int b = 0; b + 1 < _blocks.Count; b++)
+                    if (_blocks[b].Count + _blocks[b + 1].Count <= Block)
+                    {
+                        _blocks[b].AddRange(_blocks[b + 1]);
+                        _blocks.RemoveAt(b + 1);
+                        b--;
+                    }
+                Renumber();
+            }
+
+            private void Renumber()
+            {
+                _version++;
+                _starts.Clear();
+                int at = 0;
+                foreach (List<Entry> block in _blocks)
+                {
+                    _starts.Add(at);
+                    at += block.Count;
+                }
+            }
+
+            public IEnumerator<Entry> GetEnumerator()
+            {
+                int version = _version;
+                foreach (List<Entry> block in _blocks)
+                    foreach (Entry e in block)
+                    {
+                        yield return e;
+                        if (version != _version) throw new InvalidOperationException("The map was changed while its segments were enumerated.");
+                    }
+            }
+
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        }
 
         // True when segment a ends where b starts and they hold equal values.
         private bool Mergeable(Entry a, Entry b) => Cmp(a.End, b.Start) == 0 && _valueComparer.Equals(a.Value, b.Value);

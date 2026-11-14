@@ -133,6 +133,9 @@ namespace ToolBelt.Grids
                 double c = enterCost(tr, tc);
                 // NaN passed `c < 0`, and a NaN distance is never improved on, so the path went through the NaN cell.
                 if (!(c >= 0)) throw new InvalidOperationException(double.IsNaN(c) ? "An entry cost was NaN." : "Dijkstra does not support negative entry costs.");
+                // An infinite entry cost is no move (NaN to Search). A finite one whose diagonal product overflows to ∞ is
+                // still a move: it was dropped as "no move", so a reachable goal was reported as unreachable.
+                if (double.IsPositiveInfinity(c)) return double.NaN;
                 return (fr != tr && fc != tc) ? c * sqrt2 : c;
             };
             return Search(rows, cols, start, goal, passable, step, null, connectivity, allowCornerCutting);
@@ -178,7 +181,8 @@ namespace ToolBelt.Grids
             state.SetDist(startIdx, 0.0);
 
             var heap = new MinHeap(16);
-            heap.Push(startIdx, heuristic?.Invoke(start.Row, start.Col) ?? 0.0);
+            double h0 = heuristic?.Invoke(start.Row, start.Col) ?? 0.0;
+            heap.Push(startIdx, h0, h0);
 
             int dirs = connectivity == Connectivity.Eight ? 8 : 4;
             while (heap.TryPop(out int u, out _))
@@ -198,7 +202,7 @@ namespace ToolBelt.Grids
                     int v = vr * cols + vc;
                     if (state.Done(v)) continue;
                     double cost = step(ur, uc, vr, vc);
-                    if (double.IsPositiveInfinity(cost)) continue; // an infinite cost is no move
+                    if (double.IsNaN(cost)) continue; // the step's "no move" (an infinite entry cost)
                     // A cell not yet reached (no predecessor) is taken even at a total that overflowed to ∞: it was
                     // never less than the ∞ placeholder, so a finite path was reported as none.
                     double nd = state.Dist(u) + cost;
@@ -206,7 +210,10 @@ namespace ToolBelt.Grids
                     {
                         state.SetDist(v, nd);
                         state.SetPrev(v, u);
-                        heap.Push(v, nd + (heuristic?.Invoke(vr, vc) ?? 0.0));
+                        // Ties on f go to the smaller h (the deeper cell): with f alone, an open grid's whole tied
+                        // start-to-goal rectangle was expanded almost breadth-first.
+                        double h = heuristic?.Invoke(vr, vc) ?? 0.0;
+                        heap.Push(v, nd + h, h);
                     }
                 }
             }
@@ -319,7 +326,7 @@ namespace ToolBelt.Grids
         private sealed class MinHeap
         {
             private int[] _idx;
-            private double[] _key;
+            private double[] _key, _tie;
             private int _count;
 
             public MinHeap(int capacity)
@@ -327,17 +334,21 @@ namespace ToolBelt.Grids
                 if (capacity < 1) capacity = 1;
                 _idx = new int[capacity];
                 _key = new double[capacity];
+                _tie = new double[capacity];
             }
 
-            public void Push(int idx, double key)
+            // Ordered by key, then by tie.
+            public void Push(int idx, double key, double tie)
             {
                 if (_count == _idx.Length)
                 {
                     Array.Resize(ref _idx, _count * 2);
                     Array.Resize(ref _key, _count * 2);
+                    Array.Resize(ref _tie, _count * 2);
                 }
                 _idx[_count] = idx;
                 _key[_count] = key;
+                _tie[_count] = tie;
                 SiftUp(_count);
                 _count++;
             }
@@ -355,6 +366,7 @@ namespace ToolBelt.Grids
                 _count--;
                 _idx[0] = _idx[_count];
                 _key[0] = _key[_count];
+                _tie[0] = _tie[_count];
                 SiftDown(0);
                 return true;
             }
@@ -364,7 +376,7 @@ namespace ToolBelt.Grids
                 while (i > 0)
                 {
                     int p = (i - 1) / 2;
-                    if (_key[p] <= _key[i]) break;
+                    if (!Less(i, p)) break;
                     Swap(i, p);
                     i = p;
                 }
@@ -375,8 +387,8 @@ namespace ToolBelt.Grids
                 while (true)
                 {
                     int l = 2 * i + 1, r = 2 * i + 2, smallest = i;
-                    if (l < _count && _key[l] < _key[smallest]) smallest = l;
-                    if (r < _count && _key[r] < _key[smallest]) smallest = r;
+                    if (l < _count && Less(l, smallest)) smallest = l;
+                    if (r < _count && Less(r, smallest)) smallest = r;
                     if (smallest == i) break;
                     Swap(i, smallest);
                     i = smallest;
@@ -387,6 +399,17 @@ namespace ToolBelt.Grids
             {
                 (_idx[a], _idx[b]) = (_idx[b], _idx[a]);
                 (_key[a], _key[b]) = (_key[b], _key[a]);
+                (_tie[a], _tie[b]) = (_tie[b], _tie[a]);
+            }
+
+            // Keys within a relative 1e-12 are ties: sums of sqrt(2) steps along equally short paths differ in the last
+            // bits, which ordered the plateau of an 8-connected A* by rounding noise and expanded all of it.
+            private bool Less(int a, int b)
+            {
+                double ka = _key[a], kb = _key[b];
+                if (Math.Abs(ka - kb) <= 1e-12 * Math.Max(Math.Abs(ka), Math.Abs(kb)))
+                    return _tie[a] < _tie[b] || (_tie[a] == _tie[b] && ka < kb);
+                return ka < kb;
             }
         }
     }

@@ -59,7 +59,11 @@ namespace ToolBelt.Objects
                 Type element = type;
                 while (element.IsArray)
                 {
-                    suffix.Append('[').Append(',', element.GetArrayRank() - 1).Append(']');
+                    int rank = element.GetArrayRank();
+                    // A multi-dimensional array of rank 1 (int[*], lower bounds allowed) is not int[]: C# has no syntax for
+                    // it, so it is spelled as the runtime does.
+                    if (rank == 1 && element != element.GetElementType()!.MakeArrayType()) suffix.Append("[*]");
+                    else suffix.Append('[').Append(',', rank - 1).Append(']');
                     element = element.GetElementType()!;
                 }
                 return FriendlyName(element) + suffix;
@@ -143,8 +147,12 @@ namespace ToolBelt.Objects
         /// (like any formattable value) convert to text. A number converts to an enum only if it fits the enum's underlying
         /// type, and text converts to a floating type only if it is in range (or is an infinity). Conversions do not lose
         /// information silently: a fractional number does not convert to an integer type (2.5 is not rounded to 2), a finite
-        /// double beyond float's range does not become an infinity, and a double or float converts to its shortest
-        /// round-trip text.
+        /// double beyond float's range does not become an infinity, a nonzero number (or text) does not underflow to zero,
+        /// an integer converts to a floating type only if it is exactly representable (2^53 + 1 is not a double), a double
+        /// or float converts to decimal only if decimal holds its value exactly as its shortest round-trip text spells it,
+        /// a double or float converts to its shortest round-trip text, and a DateTime or DateTimeOffset to its round-trip
+        /// "O" text. Text "-0" is negative zero on every target framework. Half (.NET 5 and later) converts to the other
+        /// numeric types through double.
         /// </summary>
         public static bool TryConvert(object? value, Type targetType, out object? result)
         {
@@ -161,6 +169,10 @@ namespace ToolBelt.Objects
                 result = value;
                 return true;
             }
+
+            // Half is not IConvertible, so ChangeType refused it; double holds every Half exactly.
+            if (value.GetType().FullName == "System.Half" && underlying != typeof(string) && HalfToDouble(value) is double half)
+                return TryConvert(half, targetType, out result);
 
             try
             {
@@ -182,13 +194,33 @@ namespace ToolBelt.Objects
                 if (underlying == typeof(string) && (value is IFormattable || value is Uri || value is Version))
                 {
                     // Guid, TimeSpan, Version and Uri are not IConvertible, so ChangeType failed for them.
+                    // A date's default text dropped fractions of a second (and a DateTime's Kind).
                     result = value is double d ? RoundTrip(d) : value is float fl ? RoundTrip(fl)
+                        : value is DateTime dt ? dt.ToString("O", CultureInfo.InvariantCulture)
+                        : value is DateTimeOffset dto ? dto.ToString("O", CultureInfo.InvariantCulture)
                         : value is IFormattable f ? f.ToString(null, CultureInfo.InvariantCulture) : value.ToString();
+                    return true;
+                }
+                if (underlying == typeof(decimal) && (value is double || value is float))
+                {
+                    // Convert.ToDecimal(double) rounds to 15 significant digits (0.1 + 0.2 became 0.3) and underflows to 0.
+                    string r = value is double dd ? RoundTrip(dd) : RoundTrip((float)value);
+                    decimal m = decimal.Parse(r, NumberStyles.Float, CultureInfo.InvariantCulture);
+                    string back = m.ToString(CultureInfo.InvariantCulture);
+                    bool exact = value is double dv
+                        ? double.Parse(back, NumberStyles.Float, CultureInfo.InvariantCulture).Equals(dv)
+                        : float.Parse(back, NumberStyles.Float, CultureInfo.InvariantCulture).Equals((float)value);
+                    if (!exact && !(m == 0 && (value is double z ? z == 0 : (float)value == 0))) return Fail(targetType, out result);
+                    result = m;
                     return true;
                 }
                 if (IsIntegral(underlying) && !IsWhole(value)) return Fail(targetType, out result);
                 if (underlying == typeof(float) && value is double big && !double.IsInfinity(big) && !double.IsNaN(big)
                     && float.IsInfinity((float)big)) return Fail(targetType, out result);
+                // 1e-50 became 0f.
+                if (underlying == typeof(float) && value is double tiny && tiny != 0 && (float)tiny == 0) return Fail(targetType, out result);
+                if ((underlying == typeof(double) || underlying == typeof(float)) && !IntegerFits(value, underlying))
+                    return Fail(targetType, out result);
                 if (value is string str && ParseSpecial(str, underlying, out result)) return true;
                 // A floating target parses without thousands separators: the invariant "1,5" was 15, not a failure.
                 if (value is string text && (underlying == typeof(double) || underlying == typeof(float) || underlying == typeof(decimal)))
@@ -200,6 +232,18 @@ namespace ToolBelt.Objects
                     bool infinite = result is double dr ? double.IsInfinity(dr) : result is float fr && float.IsInfinity(fr);
                     if (infinite && text.IndexOf("Infinity", StringComparison.OrdinalIgnoreCase) < 0 && text.IndexOf('\u221E') < 0)
                         return Fail(targetType, out result);
+                    bool zero = result is double d0 ? d0 == 0 : result is float f0 ? f0 == 0 : (decimal)result! == 0;
+                    if (zero)
+                    {
+                        // "1e-400" underflowed to 0, which is not the number the text names.
+                        if (NonzeroMantissa(text)) return Fail(targetType, out result);
+                        // .NET Framework dropped the sign of "-0", so the text of -0.0 did not round-trip.
+                        if (text.TrimStart().StartsWith("-", StringComparison.Ordinal))
+                        {
+                            if (underlying == typeof(double)) result = -0.0;
+                            else if (underlying == typeof(float)) result = -0.0f;
+                        }
+                    }
                     return true;
                 }
                 result = Convert.ChangeType(value, underlying, CultureInfo.InvariantCulture);
@@ -213,9 +257,63 @@ namespace ToolBelt.Objects
             }
         }
 
+        // Whether the digits before any exponent include a nonzero one.
+        private static bool NonzeroMantissa(string text)
+        {
+            foreach (char c in text)
+            {
+                if (c == 'e' || c == 'E') break;
+                if (c >= '1' && c <= '9') return true;
+            }
+            return false;
+        }
+
+        // An integer converts to double or float only if the floating value is exactly that integer: 2^53 + 1 became
+        // 2^53. The floating value is checked through double, which holds every float exactly.
+        private static bool IntegerFits(object value, Type target)
+        {
+            const double TwoTo63 = 9223372036854775808.0, TwoTo64 = 18446744073709551616.0;
+            switch (value)
+            {
+                case long l:
+                {
+                    double r = target == typeof(float) ? (float)l : (double)l;
+                    return r < TwoTo63 && (long)r == l;
+                }
+                case ulong u:
+                {
+                    double r = target == typeof(float) ? (float)u : (double)u;
+                    return r < TwoTo64 && (ulong)r == u;
+                }
+                case int i:
+                {
+                    double r = (float)i;
+                    return target == typeof(double) || (r < 2147483648.0 && (int)r == i);
+                }
+                case uint ui:
+                {
+                    double r = (float)ui;
+                    return target == typeof(double) || (r < 4294967296.0 && (uint)r == ui);
+                }
+                default: return true;
+            }
+        }
+
+        // System.Half's explicit conversion to double, by reflection (Half is not in netstandard2.0).
+        private static object? HalfToDouble(object half)
+        {
+            foreach (MethodInfo m in half.GetType().GetMethods(BindingFlags.Public | BindingFlags.Static))
+                if (m.Name == "op_Explicit" && m.ReturnType == typeof(double) && m.GetParameters().Length == 1
+                    && m.GetParameters()[0].ParameterType == half.GetType())
+                    return m.Invoke(null, new[] { half });
+            return null;
+        }
+
         // .NET Framework's default and even "R" formats can drop a digit; fall back to all the digits when they do.
         private static string RoundTrip(double d)
         {
+            // .NET Framework prints -0.0 as "0" (and 0.0 equals -0.0, so the check below cannot see it).
+            if (d == 0 && double.IsNegativeInfinity(1 / d)) return "-0";
             string r = d.ToString("R", CultureInfo.InvariantCulture);
             return double.IsNaN(d) || double.Parse(r, NumberStyles.Float, CultureInfo.InvariantCulture).Equals(d)
                 ? r : d.ToString("G17", CultureInfo.InvariantCulture);
@@ -223,6 +321,7 @@ namespace ToolBelt.Objects
 
         private static string RoundTrip(float f)
         {
+            if (f == 0 && float.IsNegativeInfinity(1 / f)) return "-0";
             string r = f.ToString("R", CultureInfo.InvariantCulture);
             return float.IsNaN(f) || float.Parse(r, NumberStyles.Float, CultureInfo.InvariantCulture).Equals(f)
                 ? r : f.ToString("G9", CultureInfo.InvariantCulture);

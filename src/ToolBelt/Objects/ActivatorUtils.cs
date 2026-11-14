@@ -93,11 +93,14 @@ namespace ToolBelt.Objects
             {
                 if (args[i] is null) continue;
                 Type pt = parameters[i].ParameterType;
+                // Distances in half steps: an int argument fits int? better than ValueType (int? converts to ValueType,
+                // so C# picks it), but worse than int itself.
+                if (Nullable.GetUnderlyingType(pt) == args[i]!.GetType()) { score += 1; continue; }
                 int distance = 0;
                 Type? t = args[i]!.GetType();
                 while (t != null && t != pt) { t = t.BaseType; distance++; }
                 if (pt == typeof(object) && distance > 0) score += 2000;
-                else score += t == pt ? distance : 1000;   // reached only through an interface (or boxing to Nullable)
+                else score += t == pt ? 2 * distance : 1000;   // reached only through an interface
             }
             return score;
         }

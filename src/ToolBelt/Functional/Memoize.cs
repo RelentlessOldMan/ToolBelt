@@ -7,7 +7,9 @@ namespace ToolBelt.Functional
     /// <summary>
     /// Wraps a pure function so each distinct argument is computed at most once and cached. The returned
     /// delegates are NOT thread-safe unless created via the <c>ThreadSafe</c> overloads; use those when the
-    /// memoized function may be invoked concurrently.
+    /// memoized function may be invoked concurrently. A function that calls its own memoized delegate with the argument
+    /// it is computing (or a factory that calls itself) throws <see cref="InvalidOperationException"/>, as
+    /// <c>Lazy&lt;T&gt;</c> does; it recursed until the stack overflowed and ended the process.
     /// </summary>
     public static class Memoize
     {
@@ -18,12 +20,15 @@ namespace ToolBelt.Functional
         {
             if (function is null) throw new ArgumentNullException(nameof(function));
             var cache = new Dictionary<TArg, TResult>(comparer);
+            var computing = new HashSet<TArg>(comparer);
             return arg =>
             {
                 if (arg is null) throw new ArgumentNullException(nameof(arg));
                 if (!cache.TryGetValue(arg, out var value))
                 {
-                    value = function(arg);
+                    if (!computing.Add(arg)) throw Reentered();
+                    try { value = function(arg); }
+                    finally { computing.Remove(arg); }
                     cache[arg] = value;
                 }
                 return value;
@@ -34,18 +39,24 @@ namespace ToolBelt.Functional
         public static Func<TResult> Factory<TResult>(Func<TResult> factory)
         {
             if (factory is null) throw new ArgumentNullException(nameof(factory));
-            bool computed = false;
+            bool computed = false, computing = false;
             TResult value = default!;
             return () =>
             {
                 if (!computed)
                 {
-                    value = factory();
+                    if (computing) throw Reentered();
+                    computing = true;
+                    try { value = factory(); }
+                    finally { computing = false; }
                     computed = true;
                 }
                 return value;
             };
         }
+
+        private static InvalidOperationException Reentered()
+            => new InvalidOperationException("The memoized function called itself with the argument it is computing.");
 
         /// <summary>
         /// Memoizes a one-argument function with a lock so concurrent callers share one cache safely. To
@@ -58,17 +69,33 @@ namespace ToolBelt.Functional
         {
             if (function is null) throw new ArgumentNullException(nameof(function));
             var cache = new Dictionary<TArg, TResult>(comparer);
+            // The threads computing each argument: the same thread computing it again is a reentrant call.
+            var computing = new Dictionary<TArg, List<int>>(comparer);
             var gate = new object();
             return arg =>
             {
                 if (arg is null) throw new ArgumentNullException(nameof(arg));
+                int thread = Environment.CurrentManagedThreadId;
                 lock (gate)
                 {
                     if (cache.TryGetValue(arg, out var existing))
                         return existing;
+                    if (!computing.TryGetValue(arg, out List<int>? threads)) computing.Add(arg, threads = new List<int>());
+                    else if (threads.Contains(thread)) throw Reentered();
+                    threads.Add(thread);
                 }
 
-                var value = function(arg); // compute outside the lock; may be slow
+                TResult value;
+                try { value = function(arg); } // compute outside the lock; may be slow
+                finally
+                {
+                    lock (gate)
+                    {
+                        List<int> threads = computing[arg];
+                        threads.Remove(thread);
+                        if (threads.Count == 0) computing.Remove(arg);
+                    }
+                }
 
                 lock (gate)
                 {

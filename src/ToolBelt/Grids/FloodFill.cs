@@ -32,7 +32,7 @@ namespace ToolBelt.Grids
             comparer ??= EqualityComparer<T>.Default;
 
             T target = grid[row, col];
-            return Collect(rows, cols, row, col, connectivity, (r, c) => comparer.Equals(grid[r, c], target));
+            return Collect(rows, cols, row, col, connectivity, (r, c) => comparer.Equals(grid[r, c], target), gridBacked: true);
         }
 
         /// <summary>
@@ -59,7 +59,7 @@ namespace ToolBelt.Grids
             if (comparer.Equals(target, newValue))
                 return 0; // Already the target colour: nothing to change, and skipping avoids a pointless rescan.
 
-            var region = Collect(rows, cols, row, col, connectivity, (r, c) => comparer.Equals(grid[r, c], target));
+            var region = Collect(rows, cols, row, col, connectivity, (r, c) => comparer.Equals(grid[r, c], target), gridBacked: true);
             foreach (var cell in region)
                 grid[cell.Row, cell.Col] = newValue;
             return region.Count;
@@ -82,7 +82,7 @@ namespace ToolBelt.Grids
             if (cols < 0) throw new ArgumentOutOfRangeException(nameof(cols), cols, "Column count must not be negative.");
             if (row < 0 || row >= rows) throw new ArgumentOutOfRangeException(nameof(row), row, "Row is outside the grid.");
             if (col < 0 || col >= cols) throw new ArgumentOutOfRangeException(nameof(col), col, "Column is outside the grid.");
-            return Collect(rows, cols, row, col, connectivity, belongs);
+            return Collect(rows, cols, row, col, connectivity, belongs, gridBacked: false);
         }
 
         private static void CheckConnectivity(Connectivity connectivity)
@@ -92,20 +92,23 @@ namespace ToolBelt.Grids
         }
 
         private static IReadOnlyList<Cell> Collect(
-            int rows, int cols, int row, int col, Connectivity connectivity, Func<int, int, bool> belongs)
+            int rows, int cols, int row, int col, Connectivity connectivity, Func<int, int, bool> belongs, bool gridBacked)
         {
             var result = new List<Cell>();
             if (!belongs(row, col))
                 return result;
 
-            // A visited map for up to 2^24 cells; past that, a set of the cells reached, so a small region of a huge
-            // predicate grid (100000²) does not allocate a 10 GB map.
-            bool dense = (long)rows * cols <= 1 << 24;
-            var visited = dense ? new bool[rows, cols] : null;
+            // A visited bitmap, one bit a cell; for a predicate grid past 2^24 cells, a set of the cells reached, so a small
+            // region of a huge predicate grid (100000²) does not allocate a 1 GB map. A T[,] caller already holds at least a
+            // byte a cell, so its bitmap is always smaller than its grid (the set cost 5x the memory and 3x the time).
+            long cells = (long)rows * cols;
+            bool dense = gridBacked || cells <= 1 << 24;
+            var visited = dense ? new ulong[(cells + 63) >> 6] : null;
             var visitedSet = dense ? null : new HashSet<long>();
             var queue = new Queue<Cell>();
-            if (dense) visited![row, col] = true;
-            else visitedSet!.Add((long)row * cols + col);
+            long seed = (long)row * cols + col;
+            if (dense) visited![seed >> 6] |= 1UL << (int)(seed & 63);
+            else visitedSet!.Add(seed);
             queue.Enqueue(new Cell(row, col));
 
             int dirs = connectivity == Connectivity.Eight ? 8 : 4;
@@ -118,10 +121,11 @@ namespace ToolBelt.Grids
                     int nr = cell.Row + DRow[d];
                     int nc = cell.Col + DCol[d];
                     if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
-                    if (dense ? visited![nr, nc] : visitedSet!.Contains((long)nr * cols + nc)) continue;
+                    long at = (long)nr * cols + nc;
+                    if (dense ? (visited![at >> 6] & (1UL << (int)(at & 63))) != 0 : visitedSet!.Contains(at)) continue;
                     if (!belongs(nr, nc)) continue;
-                    if (dense) visited![nr, nc] = true;
-                    else visitedSet!.Add((long)nr * cols + nc);
+                    if (dense) visited![at >> 6] |= 1UL << (int)(at & 63);
+                    else visitedSet!.Add(at);
                     queue.Enqueue(new Cell(nr, nc));
                 }
             }

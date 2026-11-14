@@ -58,13 +58,14 @@ namespace ToolBelt.Tests.Objects
             Check.Equal("V", diffs![0].Path);
         }
 
-        public void PropertyDiff_SharedNodeDifferenceIsReportedOnEveryPath()
+        public void PropertyDiff_SharedNodeDifferenceIsReportedOnce()
         {
-            // Skipping a pair already seen must not hide differences: each path to a differing shared node reports.
+            // A differing shared node is reported on the first path that reaches it (round 77: reporting it on every path
+            // was exponential in the depth of a diamond chain).
             var a = MakeDiamond(1, 0); a.L!.V = 1;
             var b = MakeDiamond(1, 0); b.L!.V = 2;
             var paths = PropertyDiff.Compare(a, b).Select(d => d.Path).ToArray();
-            Check.Equal("L.V,R.V", string.Join(",", paths));
+            Check.Equal("L.V", string.Join(",", paths));
         }
 
         // ---- getters that return a new object every time ----
