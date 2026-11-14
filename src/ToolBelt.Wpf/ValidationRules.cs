@@ -148,7 +148,7 @@ namespace ToolBelt.Wpf
         public RuleBuilder<T> Matches(string pattern, string? message = null)
         {
             if (pattern is null) throw new ArgumentNullException(nameof(pattern));
-            var regex = new Regex("^(?:" + pattern + @")\z", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            var regex = RegexValidationRule.Build(pattern);
             return Must(v => v is not string s || s.Length == 0 || RegexValidationRule.SafeIsMatch(regex, s), message ?? $"{_property} has an invalid format.");
         }
 
@@ -256,7 +256,15 @@ namespace ToolBelt.Wpf
             return SafeIsMatch(_regex, text) ? ValidationResult.ValidResult : new ValidationResult(false, Message);
         }
 
-        private static Regex Build(string pattern) => new Regex("^(?:" + pattern + @")\z", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+        // The pattern is parsed on its own first: wrapped unchecked, "a)|(b" closed the group early and matched "abc" with
+        // no anchors. A valid pattern ending in a (?x) "#" comment swallowed the closing ")\z"; a line break ends the
+        // comment (and is ignored whitespace in that mode).
+        internal static Regex Build(string pattern)
+        {
+            _ = new Regex(pattern, RegexOptions.CultureInvariant);
+            try { return new Regex("^(?:" + pattern + @")\z", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)); }
+            catch (ArgumentException) { return new Regex("^(?:" + pattern + "\n)\\z", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)); }
+        }
 
         // A runaway pattern must not throw out of validation (a binding would surface it as a crash): treat it as no match.
         internal static bool SafeIsMatch(Regex regex, string text)

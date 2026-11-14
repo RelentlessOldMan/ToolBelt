@@ -23,7 +23,8 @@ namespace ToolBelt.Wpf
             if ((modifiers & ~(ModifierKeys.Alt | ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Windows)) != 0)
                 throw new ArgumentException("Only Alt, Control, Shift and Windows can be hotkey modifiers.", nameof(modifiers));
             if (key == Key.None || IsModifierKey(key)) throw new ArgumentException("The key must be a non-modifier key.", nameof(key));
-            if (!Enum.IsDefined(typeof(Key), key) || key == Key.ImeProcessed || key == Key.DeadCharProcessed)
+            if (!Enum.IsDefined(typeof(Key), key) || key == Key.ImeProcessed || key == Key.DeadCharProcessed
+                || KeyInterop.VirtualKeyFromKey(key) == 0)   // Key.LineFeed has no virtual key: TryRegister threw for it
                 throw new ArgumentException("The key is not one a hotkey can use.", nameof(key));
             Modifiers = modifiers;
             Key = key;
@@ -71,7 +72,8 @@ namespace ToolBelt.Wpf
                 catch (Exception ex) when (ex is NotSupportedException || ex is ArgumentException || ex is FormatException) { return false; }
             }
             if (key == Key.None || IsModifierKey(key) || !Enum.IsDefined(typeof(Key), key)
-                || key == Key.ImeProcessed || key == Key.DeadCharProcessed) return false;   // pseudo-keys never fire
+                || key == Key.ImeProcessed || key == Key.DeadCharProcessed
+                || KeyInterop.VirtualKeyFromKey(key) == 0) return false;   // pseudo-keys never fire
             gesture = new HotkeyGesture(mods, key);
             return true;
         }
@@ -114,6 +116,7 @@ namespace ToolBelt.Wpf
         private const int WM_HOTKEY = 0x0312;
         private const uint MOD_NOREPEAT = 0x4000;
         private const int ERROR_HOTKEY_ALREADY_REGISTERED = 1409;
+        private const int MaxAppId = 0xBFFF;   // applications use ids 0x0000-0xBFFF; negative ones are the system's (IDHOT_SNAPWINDOW)
 
         private readonly HwndSource _window;
         private readonly Dictionary<int, (HotkeyGesture Gesture, Action Callback)> _hotkeys = new Dictionary<int, (HotkeyGesture, Action)>();
@@ -180,9 +183,16 @@ namespace ToolBelt.Wpf
             uint mods = (uint)gesture.Modifiers | (noRepeat ? MOD_NOREPEAT : 0); // ModifierKeys values match MOD_ALT/CONTROL/SHIFT/WIN
             uint vk = (uint)KeyInterop.VirtualKeyFromKey(gesture.Key);
             if (vk == 0) throw new ArgumentException("The gesture has no key a hotkey can use.", nameof(gesture));   // default(HotkeyGesture) registered
+            // The next free id in 1..0xBFFF, chosen before registering: a counter that overflowed after registering threw
+            // with the hotkey held by Windows but untracked (or, unchecked, wrapped into the system's negative ids).
             int candidate = _nextId;
+            while (_hotkeys.ContainsKey(candidate))
+            {
+                candidate = candidate >= MaxAppId ? 1 : candidate + 1;
+                if (candidate == _nextId) throw new InvalidOperationException("Every hotkey id is in use.");
+            }
             if (!RegisterHotKey(_window.Handle, candidate, mods, vk)) return false;
-            _nextId++;
+            _nextId = candidate >= MaxAppId ? 1 : candidate + 1;
             _hotkeys[candidate] = (gesture, callback);
             id = candidate;
             return true;
@@ -194,7 +204,7 @@ namespace ToolBelt.Wpf
             ThrowIfDisposed();
             _window.VerifyAccess();      // another thread's UnregisterHotKey failed silently, leaking the hotkey
             if (!_hotkeys.Remove(id)) return false;
-            UnregisterHotKey(_window.Handle, id);
+            if (WindowAlive) UnregisterHotKey(_window.Handle, id);
             return true;
         }
 
@@ -203,7 +213,8 @@ namespace ToolBelt.Wpf
             if (_disposed) return;
             _window.VerifyAccess();      // before any state changes: it threw half-way, leaving every hotkey registered
             _disposed = true;
-            foreach (int id in _hotkeys.Keys) UnregisterHotKey(_window.Handle, id);
+            if (WindowAlive)
+                foreach (int id in _hotkeys.Keys) UnregisterHotKey(_window.Handle, id);
             _hotkeys.Clear();
             _window.RemoveHook(WndProc);
             _window.Dispose();
@@ -219,6 +230,10 @@ namespace ToolBelt.Wpf
             }
             return IntPtr.Zero;
         }
+
+        // Once the dispatcher has shut down the window is gone (handle 0), and with it its hotkeys: UnregisterHotKey(NULL, id)
+        // removed another thread-level hotkey that happened to share the id.
+        private bool WindowAlive => !_window.IsDisposed && _window.Handle != IntPtr.Zero;
 
         private bool Holds(HotkeyGesture gesture)
         {

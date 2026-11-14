@@ -49,14 +49,17 @@ namespace ToolBelt.Wpf
     /// field. Install a listener and every failure raises <see cref="BindingFailed"/> and is kept in <see cref="Failures"/>;
     /// with <see cref="ThrowOnFailure"/> the binding throws instead — the right setting in UI tests and debug builds so a
     /// broken binding fails loudly. Dispose to detach. Warnings (e.g. fallback values) are ignored unless
-    /// <see cref="IncludeWarnings"/>.
+    /// <see cref="IncludeWarnings"/>. At most <see cref="MaxFailures"/> are kept (the oldest go first; every one is still
+    /// raised).
     /// </summary>
     public sealed class BindingFailureListener : TraceListener
     {
         private readonly StringBuilder _pending = new StringBuilder();
         private readonly List<BindingFailure> _failures = new List<BindingFailure>();
         private readonly object _gate = new object();
-        private bool _disposed;
+        private int _disposed;
+        private int _maxFailures = 10000;
+        private const int MaxPendingChars = 1 << 16;
 
         // The trace level is process-wide: raise it once for the first listener and restore it after the last, so listeners
         // disposed in any order never switch tracing off under one that is still attached.
@@ -102,6 +105,34 @@ namespace ToolBelt.Wpf
 
         public IReadOnlyList<BindingFailure> Failures { get { lock (_gate) return _failures.ToArray(); } }
 
+        /// <summary>How many failures <see cref="Failures"/> keeps (default 10,000): a listener left on for a long session grew without limit.</summary>
+        public int MaxFailures
+        {
+            get => _maxFailures;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(value), value, "Must not be negative.");
+                lock (_gate)
+                {
+                    _maxFailures = value;
+                    Trim();
+                }
+            }
+        }
+
+        /// <summary>How many failures were dropped from <see cref="Failures"/> to stay within <see cref="MaxFailures"/>.</summary>
+        public long DroppedFailures { get { lock (_gate) return _dropped; } }
+
+        private long _dropped;
+
+        private void Trim()
+        {
+            int excess = _failures.Count - _maxFailures;
+            if (excess <= 0) return;
+            _failures.RemoveRange(0, excess);
+            _dropped += excess;
+        }
+
         public void Clear() { lock (_gate) _failures.Clear(); }
 
         public override void TraceEvent(TraceEventCache? eventCache, string source, TraceEventType eventType, int id, string? message)
@@ -116,8 +147,30 @@ namespace ToolBelt.Wpf
             Report(id, args is { Length: > 0 } && format != null ? string.Format(CultureInfo.InvariantCulture, format, args) : format ?? "");
         }
 
-        // Plain Write/WriteLine (used by some WPF paths): accumulate until a line ends.
-        public override void Write(string? message) { lock (_gate) _pending.Append(message); }
+        // TraceSource.TraceData went to the base class, which wrote a "Critical: " or "Warning: " header the line parser
+        // never matched: critical failures were always dropped, and warnings even with IncludeWarnings.
+        public override void TraceData(TraceEventCache? eventCache, string source, TraceEventType eventType, int id, object? data)
+        {
+            if (eventType > TraceEventType.Warning || (eventType == TraceEventType.Warning && !IncludeWarnings)) return;
+            Report(id, data?.ToString() ?? "");
+        }
+
+        public override void TraceData(TraceEventCache? eventCache, string source, TraceEventType eventType, int id, params object?[]? data)
+        {
+            if (eventType > TraceEventType.Warning || (eventType == TraceEventType.Warning && !IncludeWarnings)) return;
+            Report(id, data is null ? "" : string.Join(", ", data.Select(o => o?.ToString())));
+        }
+
+        // Plain Write/WriteLine (used by some WPF paths): accumulate until a line ends. Text that never ends a line is
+        // capped (it grew for the life of the listener).
+        public override void Write(string? message)
+        {
+            lock (_gate)
+            {
+                _pending.Append(message);
+                if (_pending.Length > MaxPendingChars) _pending.Remove(0, _pending.Length - MaxPendingChars);
+            }
+        }
 
         public override void WriteLine(string? message)
         {
@@ -136,16 +189,20 @@ namespace ToolBelt.Wpf
         private void Report(int id, string message)
         {
             var failure = new BindingFailure(id, message.Trim());
-            lock (_gate) _failures.Add(failure);
+            lock (_gate)
+            {
+                _failures.Add(failure);
+                Trim();
+            }
             BindingFailed?.Invoke(this, failure);
             if (ThrowOnFailure) throw new BindingFailureException(failure);
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && !_disposed)
+            // Claimed atomically: two threads disposing at once both passed a plain flag and took the listener count down twice.
+            if (disposing && System.Threading.Interlocked.Exchange(ref _disposed, 1) == 0)
             {
-                _disposed = true;
                 lock (LevelGate)
                 {
                     PresentationTraceSources.DataBindingSource.Listeners.Remove(this);

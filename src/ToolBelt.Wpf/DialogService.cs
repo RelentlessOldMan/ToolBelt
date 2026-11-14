@@ -156,8 +156,11 @@ namespace ToolBelt.Wpf
         private static Window? DefaultOwner()
         {
             Application? app = Application.Current;
-            if (app is null) return null;
-            return app.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? app.MainWindow;
+            // On a secondary UI thread the app's windows belong to another thread: reading them threw, so every dialog
+            // failed. Such a dialog is shown unowned.
+            if (app is null || !app.Dispatcher.CheckAccess()) return null;
+            Window? owner = app.Windows.OfType<Window>().FirstOrDefault(w => w.CheckAccess() && w.IsActive) ?? app.MainWindow;
+            return owner != null && owner.CheckAccess() ? owner : null;
         }
     }
 

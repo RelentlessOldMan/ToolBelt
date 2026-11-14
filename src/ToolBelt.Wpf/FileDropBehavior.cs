@@ -5,6 +5,8 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Media3D;
 
 namespace ToolBelt.Wpf
 {
@@ -17,7 +19,8 @@ namespace ToolBelt.Wpf
     /// command also sets <c>AllowDrop</c>; clearing it detaches everything and restores the previous <c>AllowDrop</c>. The
     /// tunnelling (Preview) drag events are used, so controls with their own drag handling (a <c>TextBox</c> accepts dragged
     /// text) do not swallow files — and only drags carrying files are handled, so that text drag-and-drop keeps working.
-    /// No dependency on an external behaviors package.
+    /// With nested drop targets the innermost one under the pointer decides (its filter, its cursor, its command); an
+    /// outer target steps aside. No dependency on an external behaviors package.
     /// </summary>
     public static class FileDropBehavior
     {
@@ -134,6 +137,7 @@ namespace ToolBelt.Wpf
         {
             if (!(sender is DependencyObject d)) return;
             if (!HasFileDrop(e.Data)) return;      // text and other drags: leave them to the control
+            if (InnerTargetBelow(d, e)) return;
             ICommand? command = GetCommand(d);
             string? extensions = GetExtensions(d);
             // DragOver fires continuously while hovering, and filtering touches the disk once per file (Directory.Exists):
@@ -175,13 +179,29 @@ namespace ToolBelt.Wpf
             return true;
         }
 
+        // The Preview events tunnel from the outside in, and the outer target marked them handled: a nested target never
+        // saw the drop (the outer one ran its command, or refused files the inner one accepts).
+        private static bool InnerTargetBelow(DependencyObject target, DragEventArgs e)
+        {
+            for (DependencyObject? d = e.OriginalSource as DependencyObject; d != null && !ReferenceEquals(d, target); d = Parent(d))
+                if (GetCommand(d) != null) return true;
+            return false;
+        }
+
+        private static DependencyObject? Parent(DependencyObject d)
+        {
+            if (d is Visual || d is Visual3D) return VisualTreeHelper.GetParent(d) ?? LogicalTreeHelper.GetParent(d);
+            return d is ContentElement ce ? ContentOperations.GetParent(ce) ?? LogicalTreeHelper.GetParent(d) : null;
+        }
+
         // The cache held the last drag's paths for the life of the thread.
         private static void OnDragLeave(object sender, DragEventArgs e) => _drag = null;
 
         private static void OnDrop(object sender, DragEventArgs e)
         {
-            _drag = null;
             if (!(sender is DependencyObject d)) return;
+            if (InnerTargetBelow(d, e)) return;
+            _drag = null;
             ICommand? command = GetCommand(d);
             string[] files = GetFiles(e.Data, GetExtensions(d));
             if (command != null && files.Length > 0 && command.CanExecute(files))

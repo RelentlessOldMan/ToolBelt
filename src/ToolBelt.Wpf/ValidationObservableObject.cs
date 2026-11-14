@@ -40,19 +40,24 @@ namespace ToolBelt.Wpf
         public bool HasErrors => _errors.Count > 0;
 
         /// <summary>
-        /// Returns the errors for <paramref name="propertyName"/>, or all errors when it is null/empty
-        /// (per the <see cref="INotifyDataErrorInfo"/> contract).
+        /// Returns the errors for <paramref name="propertyName"/>; null or empty means the object-level errors (those set
+        /// under the name ""), per the <see cref="INotifyDataErrorInfo"/> contract. <see cref="GetAllErrors"/> returns
+        /// every property's.
         /// </summary>
         public IEnumerable GetErrors(string? propertyName)
         {
-            if (string.IsNullOrEmpty(propertyName))
-            {
-                var all = new List<string>();
-                foreach (var list in _errors.Values)
-                    all.AddRange(list);
-                return all;
-            }
-            return _errors.TryGetValue(propertyName!, out var errors) ? errors.ToArray() : Array.Empty<string>();
+            // Every property's errors were returned for "": WPF asks for "" when the object itself is a bound value (a
+            // ContentControl showing a child view model), so the whole control went red with the child's field errors.
+            return _errors.TryGetValue(propertyName ?? "", out var errors) ? errors.ToArray() : Array.Empty<string>();
+        }
+
+        /// <summary>Every error currently recorded, object-level and per property.</summary>
+        public IReadOnlyList<string> GetAllErrors()
+        {
+            var all = new List<string>();
+            foreach (var list in _errors.Values)
+                all.AddRange(list);
+            return all;
         }
 
         /// <summary>

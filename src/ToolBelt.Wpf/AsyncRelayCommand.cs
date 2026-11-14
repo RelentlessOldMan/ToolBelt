@@ -50,7 +50,9 @@ namespace ToolBelt.Wpf
             try
             {
                 RaiseCanExecuteChanged();
-                await _execute();   // no ConfigureAwait(false): the end-of-run CanExecuteChanged must be raised on the UI thread
+                // No ConfigureAwait(false): the end-of-run CanExecuteChanged must be raised on the UI thread. A null task threw
+                // a bare NullReferenceException from inside the command.
+                await (_execute() ?? throw new InvalidOperationException("The execute delegate returned null instead of a Task."));
             }
             catch (Exception ex) { failure = ex; }
             _isExecuting = false;

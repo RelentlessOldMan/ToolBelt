@@ -2,7 +2,9 @@
 using System;
 using System.Globalization;
 using System.Windows;
+using System.Runtime.InteropServices;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 
@@ -23,7 +25,18 @@ namespace ToolBelt.Wpf
         /// <summary>Supplies the decimal separator and negative sign; defaults to the current culture.</summary>
         public CultureInfo? Culture { get; set; }
 
-        internal NumberFormatInfo Format => (Culture ?? CultureInfo.CurrentCulture).NumberFormat;
+        // A custom culture with an empty minus sign made every text "start with the sign", so every keystroke was refused.
+        internal NumberFormatInfo Format
+        {
+            get
+            {
+                NumberFormatInfo nf = (Culture ?? CultureInfo.CurrentCulture).NumberFormat;
+                if (nf.NegativeSign.Length != 0) return nf;
+                var copy = (NumberFormatInfo)nf.Clone();
+                copy.NegativeSign = "-";
+                return copy;
+            }
+        }
         internal bool AllowsNegative => Minimum < 0;
     }
 
@@ -37,9 +50,12 @@ namespace ToolBelt.Wpf
     /// 100 is refused. Backspace or Delete inside a multi-character minus sign removes the whole sign, and Ctrl+Backspace /
     /// Ctrl+Delete delete to the start / end of the text. Up/Down arrows and the mouse wheel (while
     /// focused) step by <c>Step</c>, clamped; on losing focus the text is clamped, rounded and reformatted. The decimal
-    /// separator comes from the TextBox's <c>Language</c> (set <c>xml:lang</c> on the window), or from the user's current
-    /// culture when no Language was set anywhere — so "1,5" works on a German machine either way. An ASCII "-" is accepted
-    /// even where the culture's minus sign is U+2212. The rules are public pure
+    /// separator is the one the box's value is read with: when <c>Text</c> is bound, the binding's <c>ConverterCulture</c>
+    /// or else the box's <c>Language</c> (WPF's default is en-US whatever the machine, so set <c>xml:lang</c> on the
+    /// window for local separators); when it is not bound, the Language if one was set, else the user's current culture.
+    /// An ASCII "-" is accepted even where the culture's minus sign is U+2212. Insert (overtype mode) is disabled, since
+    /// overtyping replaces characters the checks do not see, and text dragged onto the box is refused (paste it
+    /// instead). The rules are public pure
     /// functions (<see cref="IsAcceptablePartial"/>, <see cref="Coerce"/>, <see cref="StepValue"/>) and
     /// <see cref="StepBy"/>/<see cref="Normalize"/> drive a box from code (e.g. spin buttons).
     /// </summary>
@@ -120,8 +136,9 @@ namespace ToolBelt.Wpf
 
         /// <summary>
         /// Parses, clamps to [Minimum, Maximum], rounds to <see cref="NumericInputRules.DecimalPlaces"/> and formats; the
-        /// result always lies in the range (a bound with more decimals than are shown clamps to the nearest shown value
-        /// inside it), and Minimum wins when it exceeds Maximum. Returns null when the text holds no number (empty, a lone
+        /// result lies in the range whenever some value at the shown precision does (a bound with more decimals than are
+        /// shown clamps to the nearest shown value inside it); when none does ([0.25, 0.26] at one decimal), Minimum rounded
+        /// to the shown precision is used, which lies just outside. Minimum wins when it exceeds Maximum. Returns null when the text holds no number (empty, a lone
         /// sign, a value too large for a double, ...).
         /// </summary>
         public static string? Coerce(string text, NumericInputRules rules)
@@ -154,6 +171,8 @@ namespace ToolBelt.Wpf
                 if (double.IsInfinity(v)) v = sign * double.MaxValue;     // stepping past double.MaxValue read "∞"
                 // A step under half a display unit would round straight back (5 − 0.5 → 4.5 → 5): move one unit instead.
                 if (sign != 0 && v == start) v = Round(start + sign * Math.Pow(10, -RoundingDigits(rules)), rules);
+                // From 2^53 up a whole unit is below the spacing of doubles, so the value never moved: take the next double.
+                if (sign != 0 && v == start) v = sign > 0 ? Math.BitIncrement(start) : Math.BitDecrement(start);
             }
             return Format(Clamp(v, rules), rules);
         }
@@ -181,18 +200,30 @@ namespace ToolBelt.Wpf
             if (coerced != null && coerced != box.Text) box.Text = coerced;
         }
 
-        /// <summary>The rules currently attached to <paramref name="box"/>, with its Language's culture.</summary>
+        /// <summary>
+        /// The rules currently attached to <paramref name="box"/>, with the culture its value is read with: a binding on
+        /// <c>Text</c> converts with its <c>ConverterCulture</c> or else the box's Language (en-US unless set); an unbound
+        /// box uses the Language if one was set, else the current culture.
+        /// </summary>
         public static NumericInputRules RulesFor(TextBox box)
         {
             if (box is null) throw new ArgumentNullException(nameof(box));
-            CultureInfo culture;
-            // WPF's default Language is en-US whatever the OS culture; only honour it when someone actually set it.
-            bool languageSet = DependencyPropertyHelper.GetValueSource(box, FrameworkElement.LanguageProperty).BaseValueSource != BaseValueSource.Default;
-            if (!languageSet) culture = CultureInfo.CurrentCulture;
-            else
+            CultureInfo? culture = null;
+            BindingBase? binding = BindingOperations.GetBindingBase(box, TextBox.TextProperty);
+            if (binding is Binding single) culture = single.ConverterCulture;
+            else if (binding is MultiBinding multi) culture = multi.ConverterCulture;
+            if (culture is null)
             {
-                try { culture = box.Language.GetSpecificCulture(); }
-                catch (InvalidOperationException) { culture = CultureInfo.CurrentCulture; }
+                // A bound box under de-DE accepted "1,5", which the binding read with WPF's en-US default as 15. Unbound,
+                // WPF's default Language means nothing, so only a Language someone actually set is honoured.
+                bool languageSet = binding != null
+                    || DependencyPropertyHelper.GetValueSource(box, FrameworkElement.LanguageProperty).BaseValueSource != BaseValueSource.Default;
+                if (!languageSet) culture = CultureInfo.CurrentCulture;
+                else
+                {
+                    try { culture = box.Language.GetSpecificCulture(); }
+                    catch (InvalidOperationException) { culture = CultureInfo.CurrentCulture; }
+                }
             }
             return new NumericInputRules
             {
@@ -212,11 +243,17 @@ namespace ToolBelt.Wpf
             box.PreviewKeyDown -= OnPreviewKeyDown;
             box.PreviewMouseWheel -= OnPreviewMouseWheel;
             box.LostKeyboardFocus -= OnLostFocus;
+            box.PreviewDragEnter -= OnPreviewDrag;
+            box.PreviewDragOver -= OnPreviewDrag;
+            box.PreviewDrop -= OnPreviewDrag;
             DataObject.RemovePastingHandler(box, OnPasting);
             CommandManager.RemovePreviewExecutedHandler(box, OnPreviewExecuted);
             if ((bool)e.NewValue)
             {
                 CommandManager.AddPreviewExecutedHandler(box, OnPreviewExecuted);
+                box.PreviewDragEnter += OnPreviewDrag;
+                box.PreviewDragOver += OnPreviewDrag;
+                box.PreviewDrop += OnPreviewDrag;
                 box.PreviewTextInput += OnPreviewTextInput;
                 box.PreviewKeyDown += OnPreviewKeyDown;
                 box.PreviewMouseWheel += OnPreviewMouseWheel;
@@ -242,9 +279,16 @@ namespace ToolBelt.Wpf
         private static void OnPasting(object sender, DataObjectPastingEventArgs e)
         {
             if (!(sender is TextBox box)) return;
-            string? pasted = e.DataObject.GetDataPresent(DataFormats.UnicodeText)
-                ? e.DataObject.GetData(DataFormats.UnicodeText) as string
-                : null;
+            string? pasted;
+            // A foreign data source may advertise text and then fail to render it (DV_E_FORMATETC): the COMException
+            // escaped the paste.
+            try
+            {
+                pasted = e.DataObject.GetDataPresent(DataFormats.UnicodeText)
+                    ? e.DataObject.GetData(DataFormats.UnicodeText) as string
+                    : null;
+            }
+            catch (ExternalException) { pasted = null; }
             if (pasted is null) { e.CancelCommand(); return; }
             string trimmed = pasted.Trim();
             if (!IsAcceptablePartial(Proposed(box, trimmed), RulesFor(box))) { e.CancelCommand(); return; }
@@ -262,11 +306,26 @@ namespace ToolBelt.Wpf
             }
         }
 
+        // Dropped text (from another app, or dragged within the box) went in unchecked. Text drops are refused; dropped
+        // files are left to whoever handles them.
+        private static void OnPreviewDrag(object sender, DragEventArgs e)
+        {
+            bool text;
+            try { text = !e.Data.GetDataPresent(DataFormats.FileDrop) && (e.Data.GetDataPresent(DataFormats.UnicodeText) || e.Data.GetDataPresent(DataFormats.Text)); }
+            catch (ExternalException) { text = true; }
+            if (!text) return;
+            e.Effects = DragDropEffects.None;
+            e.Handled = true;
+        }
+
         // Deletions never reach PreviewTextInput: "10.5" with the "." deleted became "105", past a maximum of 100.
         private static void OnPreviewExecuted(object sender, ExecutedRoutedEventArgs e)
         {
             if (!(sender is TextBox box) || box.IsReadOnly) return;
             ICommand command = e.Command;
+            // Overtype mode replaced the character after the caret, but the checks modelled an insertion: "1.5" with "5"
+            // overtyped after the "1" was checked as "15.5" under a maximum of 100 and became "155".
+            if (command == EditingCommands.ToggleInsert) { e.Handled = true; return; }
             bool cut = command == ApplicationCommands.Cut, back = command == EditingCommands.Backspace, del = command == EditingCommands.Delete;
             bool prevWord = command == EditingCommands.DeletePreviousWord, nextWord = command == EditingCommands.DeleteNextWord;
             if (!(cut || back || del || prevWord || nextWord)) return;

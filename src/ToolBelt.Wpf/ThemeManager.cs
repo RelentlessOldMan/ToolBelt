@@ -110,6 +110,7 @@ namespace ToolBelt.Wpf
         public void Apply(AppTheme theme)
         {
             ThrowIfDisposed();
+            CheckTheme(theme);   // (AppTheme)42 applied Light and reported 42 as the effective theme
             AppTheme effective = theme == AppTheme.System ? GetSystemTheme() : theme;
             ResourceDictionary dictionary = Resolve(effective);   // throws for an unregistered theme: change nothing first
             Requested = theme;
@@ -124,10 +125,15 @@ namespace ToolBelt.Wpf
             var merged = _target.MergedDictionaries;
             int index = _applied is null ? -1 : merged.IndexOf(_applied);
             // On the first Apply, adopt a registered dictionary the app already merged (App.xaml): adding a second copy
-            // left the first behind it, so it outlived every later switch.
+            // left the first behind it, so it outlived every later switch. A theme registered by Uri is matched by the
+            // merged copy's Source (it is a different instance).
             if (_applied is null)
+            {
                 foreach (ResourceDictionary? known in new[] { dictionary, _light, _dark })
                     if (known != null && (index = merged.IndexOf(known)) >= 0) break;
+                for (int i = 0; index < 0 && i < merged.Count; i++)
+                    if (SameSource(merged[i].Source, _lightUri) || SameSource(merged[i].Source, _darkUri)) index = i;
+            }
             if (index < 0) merged.Add(dictionary);
             else if (!ReferenceEquals(merged[index], dictionary)) merged[index] = dictionary;
             _applied = dictionary;
@@ -159,6 +165,7 @@ namespace ToolBelt.Wpf
         /// </summary>
         public static ResourceDictionary CreateDefaultPalette(AppTheme theme)
         {
+            CheckTheme(theme);
             bool dark = (theme == AppTheme.System ? GetSystemTheme() : theme) == AppTheme.Dark;
             var d = new ResourceDictionary
             {
@@ -224,6 +231,27 @@ namespace ToolBelt.Wpf
         private void ThrowIfDisposed()
         {
             if (_disposed) throw new ObjectDisposedException(nameof(ThemeManager));
+        }
+
+        private static void CheckTheme(AppTheme theme)
+        {
+            if (theme != AppTheme.Light && theme != AppTheme.Dark && theme != AppTheme.System)
+                throw new ArgumentOutOfRangeException(nameof(theme), theme, "Not a defined theme.");
+        }
+
+        // App.xaml's Source="Themes/Light.xaml" and a registered pack URI name the same dictionary: compare them resolved
+        // against the application's pack base, ignoring case.
+        private static bool SameSource(Uri? merged, Uri? registered)
+        {
+            if (merged is null || registered is null) return false;
+            return string.Equals(Absolute(merged), Absolute(registered), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string Absolute(Uri uri)
+        {
+            if (uri.IsAbsoluteUri) return uri.AbsoluteUri;
+            try { return new Uri(new Uri("pack://application:,,,/"), uri).AbsoluteUri; }
+            catch (UriFormatException) { return uri.OriginalString; }
         }
 
         private static SolidColorBrush Brush(int rgb)

@@ -609,16 +609,16 @@ src/
     RelayCommand.cs         ICommand over delegates (+ generic RelayCommand<T>)
     AsyncRelayCommand.cs    async ICommand (Task execute) with re-entrancy guard
     NotifyTaskCompletion.cs bindable async-task wrapper (status/result/error via INPC)
-    ValidationObservableObject.cs  INotifyDataErrorInfo + INotifyPropertyChanged validation base
+    ValidationObservableObject.cs  INotifyDataErrorInfo + INotifyPropertyChanged validation base (GetErrors(null) = object-level; GetAllErrors)
     ValidationRules.cs      fluent rule sets (Required/Range/Length/Matches/Must/DependsOn) + RuleValidatedObject + XAML rules
-    BindingDiagnostics.cs   BindingFailureListener (surface or throw on binding errors) + pass-through DebugConverter
+    BindingDiagnostics.cs   BindingFailureListener (surface or throw on binding errors; bounded by MaxFailures) + pass-through DebugConverter
     ValueConverters.cs      common IValueConverters (bool/visibility/null/enum by value or name/count)
     MultiValueConverters.cs IMultiValueConverters (boolean AND / OR for MultiBinding)
     BindingProxy.cs         Freezable DataContext bridge for out-of-tree bindings
     Messenger.cs            thread-safe WEAK-reference pub/sub (recipient-keyed, no forgotten-unsubscribe leak)
     DialogService.cs        IDialogService + WPF impl (MessageBox/file/folder) + strict RecordingDialogService fake
     IncrementalCollection.cs  page-at-a-time ObservableCollection (coalesced loads, stale-page-safe reset)
-    FileDropBehavior.cs     attached: dropped files -> ICommand, extension filter, correct drag-over effects
+    FileDropBehavior.cs     attached: dropped files -> ICommand, extension filter, correct drag-over effects; innermost target decides
     NumericInputBehavior.cs attached: numeric TextBox (min/max/decimals, culture-aware, arrows/wheel step, checked typing/paste/delete)
     GlobalHotkeys.cs        system-wide RegisterHotKey on a message-only window + HotkeyGesture parse/format
     ThemeManager.cs         light/dark ResourceDictionary swap in place + Windows app-mode probe/follow (SystemThemeApplyFailed) + palette
@@ -1080,6 +1080,7 @@ tests/
     WpfReviewTests.cs       (round 16 review regressions: command threading, numeric input, paging reset, regex timeouts, converters)
     WpfReview2Tests.cs      (round 33 review regressions: numeric clamping, hotkey threading, theme adoption, drag filtering, validation)
     WpfReview3Tests.cs      (round 49 review regressions: numeric deletions, shared-load cancellation, theme follow failures, hotkey gestures)
+    WpfReview4Tests.cs      (round 73 review regressions: bound-box culture, overtype and text drops, nested drop targets, object-level errors, anchored patterns, hotkey ids)
     CallbackReview54Tests.cs  (round 54: throwing handlers in validation, commands and incremental loading)
     CancelDisposeReview55Tests.cs (round 55: incremental loading's cancelled tokens)
     UiReviewRegressionTests.cs  (2026-10-05 review regressions: WPF satellite)

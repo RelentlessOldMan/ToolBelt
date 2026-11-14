@@ -71,14 +71,16 @@ namespace ToolBelt.Wpf.Tests
             Check.True(changedProps.Contains("HasErrors"), "HasErrors change raised");
         }
 
-        public void GetErrors_NullReturnsAll()
+        // Round 73: null/"" means the object-level errors (INotifyDataErrorInfo); GetAllErrors returns every property's.
+        public void GetErrors_NullReturnsObjectLevel_GetAllErrorsReturnsAll()
         {
             var m = new Model();
             m.Seed("e1", "e2");
-            var all = new List<object>();
+            var none = new List<object>();
             foreach (var e in m.GetErrors(null))
-                all.Add(e);
-            Check.Equal(2, all.Count);
+                none.Add(e);
+            Check.Equal(0, none.Count);
+            Check.Equal(2, m.GetAllErrors().Count);
         }
 
         public void ClearAllErrors_Empties()

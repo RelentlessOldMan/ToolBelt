@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -21,7 +22,9 @@ namespace ToolBelt.Wpf
     /// stale results can never be appended to the new list. <see cref="IsLoading"/>, <see cref="HasMoreItems"/> and
     /// <see cref="LastError"/> raise <c>PropertyChanged</c> for binding (a busy indicator, a retry prompt). A failed
     /// page leaves <see cref="HasMoreItems"/> true so the load can be retried, records the exception in
-    /// <see cref="LastError"/>, and is rethrown to the caller; cancellation is rethrown without being recorded.
+    /// <see cref="LastError"/>, and is rethrown to the caller; cancellation is rethrown without being recorded (an
+    /// <see cref="OperationCanceledException"/> the loader raised on its own, such as an HTTP timeout, while its token was
+    /// not cancelled is a failure like any other: recorded, and the task faults).
     /// Intended for use on the UI thread: items are added after awaiting the loader, on the captured context.
     /// </para>
     /// </summary>
@@ -76,7 +79,7 @@ namespace ToolBelt.Wpf
             if (cancellationToken.IsCancellationRequested) return Task.FromCanceled<int>(cancellationToken);
             LoadState? load = _load;
             if (load != null && !load.Task.IsCompleted)
-                return load.Cancelling ? LoadAfterAsync(load.Task, cancellationToken) : Join(load, cancellationToken);
+                return load.TryJoin() ? Follow(load, cancellationToken) : LoadAfterAsync(load.Task, cancellationToken);
             if (!HasMoreItems) return Task.FromResult(0);
             // Publish the in-flight load before the loader runs: a loader that completes synchronously adds its items (and
             // raises CollectionChanged) before LoadCoreAsync returns, and a handler calling LoadMoreAsync from there must get
@@ -84,33 +87,63 @@ namespace ToolBelt.Wpf
             var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
             load = new LoadState(tcs.Task);
             _load = load;
-            Task<int> mine = Join(load, cancellationToken);
-            _ = Complete(LoadCoreAsync(_generation, load), tcs);
+            load.TryJoin();
+            Task<int> mine = Follow(load, cancellationToken);
+            _ = Complete(LoadCoreAsync(_generation, load), load, tcs);
             return mine;
         }
 
         // One load, shared by every caller waiting on it. A caller's token used to cancel the load under all of them.
+        // Joining and the last waiter leaving are decided under one lock: a caller that joined between the last waiter's
+        // count reaching zero and its cancel was cancelled without asking.
         private sealed class LoadState
         {
             public LoadState(Task<int> task) => Task = task;
             public readonly Task<int> Task;
             public readonly CancellationTokenSource Cts = new CancellationTokenSource();
-            public int Waiters;
-            private int _cancelling;
-            public bool Cancelling => Volatile.Read(ref _cancelling) != 0;
-            public void Cancel() { Volatile.Write(ref _cancelling, 1); Cts.Cancel(); }
+            private readonly object _gate = new object();
+            private int _waiters;
+            private bool _cancelling;
+
+            /// <summary>Adds a waiter; false once the load is being cancelled (wait for it to end, then load afresh).</summary>
+            public bool TryJoin()
+            {
+                lock (_gate)
+                {
+                    if (_cancelling) return false;
+                    _waiters++;
+                    return true;
+                }
+            }
+
+            /// <summary>Removes a waiter; true when it was the last, which marks the load cancelling (the caller cancels it).</summary>
+            public bool Leave()
+            {
+                lock (_gate)
+                {
+                    if (--_waiters != 0 || _cancelling) return false;
+                    _cancelling = true;
+                    return true;
+                }
+            }
+
+            public void Cancel()
+            {
+                lock (_gate) _cancelling = true;
+                Cts.Cancel();
+            }
         }
 
-        private static Task<int> Join(LoadState load, CancellationToken cancellationToken)
+        // Follows a load the caller has joined.
+        private static Task<int> Follow(LoadState load, CancellationToken cancellationToken)
         {
-            Interlocked.Increment(ref load.Waiters);
             if (!cancellationToken.CanBeCanceled) return load.Task;   // this waiter never leaves, so the load is never cancelled
             var mine = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
             CancellationTokenRegistration registration = cancellationToken.Register(() =>
             {
                 // The last waiter cancels the load and keeps following it (it ends cancelled, unless the loader ignores
                 // the token); the others just stop waiting.
-                if (Interlocked.Decrement(ref load.Waiters) == 0) load.Cancel();
+                if (load.Leave()) load.Cts.Cancel();
                 else mine.TrySetCanceled(cancellationToken);
             });
             load.Task.ContinueWith(t =>
@@ -138,28 +171,43 @@ namespace ToolBelt.Wpf
             return await LoadMoreAsync(cancellationToken).ConfigureAwait(true);
         }
 
-        private static async Task Complete(Task<int> load, TaskCompletionSource<int> tcs)
+        // Only a cancellation of the load's own token ends it cancelled: a loader's own OperationCanceledException (an HTTP
+        // timeout) was recorded in LastError yet ended the task Canceled, not Faulted.
+        private static async Task Complete(Task<int> work, LoadState load, TaskCompletionSource<int> tcs)
         {
-            try { tcs.TrySetResult(await load.ConfigureAwait(false)); }
-            catch (OperationCanceledException oce) { tcs.TrySetCanceled(oce.CancellationToken); }
+            try { tcs.TrySetResult(await work.ConfigureAwait(false)); }
+            catch (OperationCanceledException oce) when (load.Cts.IsCancellationRequested) { tcs.TrySetCanceled(oce.CancellationToken); }
             catch (Exception ex) { tcs.TrySetException(ex); }
         }
 
         /// <summary>
         /// Discards everything (including any page in flight) and loads the first page again. If cancelling the old load
-        /// throws (a loader's cancellation callback threw), the list is still reset and the exception propagates.
+        /// throws (a loader's cancellation callback threw), or a CollectionChanged or PropertyChanged handler does, every
+        /// step of the reset still happens and the exception propagates (several together as an
+        /// <see cref="AggregateException"/>); no new page is loaded then.
         /// </summary>
         public Task<int> ResetAsync(CancellationToken cancellationToken = default)
         {
-            _generation++;
+            _generation = unchecked(_generation + 1);   // checked builds threw after int.MaxValue resets
             LoadState? old = _load;
             _load = null;
-            ClearItems();
-            HasMoreItems = true;
-            IsLoading = false;
-            LastError = null;
-            old?.Cancel();   // last: a throwing token callback left the list uncleared and IsLoading true for good
+            // Each step runs even if an earlier one throws: a CollectionChanged handler that threw from ClearItems left
+            // IsLoading true for good, HasMoreItems stale and the old load running.
+            var failures = new List<Exception>();
+            Step(failures, ClearItems);
+            Step(failures, () => HasMoreItems = true);
+            Step(failures, () => IsLoading = false);
+            Step(failures, () => LastError = null);
+            Step(failures, () => old?.Cancel());   // last: a throwing token callback left the list uncleared and IsLoading true for good
+            if (failures.Count == 1) ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures.Count > 1) throw new AggregateException(failures);
             return LoadMoreAsync(cancellationToken);
+        }
+
+        private static void Step(List<Exception> failures, Action step)
+        {
+            try { step(); }
+            catch (Exception ex) { failures.Add(ex); }
         }
 
         private async Task<int> LoadCoreAsync(int generation, LoadState load)
