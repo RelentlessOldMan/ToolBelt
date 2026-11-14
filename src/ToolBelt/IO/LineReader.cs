@@ -32,16 +32,21 @@ namespace ToolBelt.IO
     /// A leading UTF-8 byte order mark is skipped (the first line's offset is then 3). Reading starts at the stream's
     /// current position, and offsets are positions in the stream (for a stream that cannot seek, counted from where reading began).
     /// A line longer than <c>maxLineBytes</c> throws <see cref="InvalidDataException"/> (a stream with no line breaks
-    /// otherwise grew one buffer until memory ran out).
+    /// otherwise grew one buffer until memory ran out). The limit is 0 to 0x3FFFFFDF, the longest string, and that by
+    /// default: a longer line could not be decoded into one.
     /// </summary>
     public static class LineReader
     {
         private static readonly byte[] Bom = { 0xEF, 0xBB, 0xBF };
 
-        public static IEnumerable<TextLine> ReadLines(Stream stream, Encoding? encoding = null, int maxLineBytes = 0x7FFFFFC7)
+        private const int MaxStringLength = 0x3FFFFFDF;
+
+        public static IEnumerable<TextLine> ReadLines(Stream stream, Encoding? encoding = null, int maxLineBytes = MaxStringLength)
         {
             if (stream is null) throw new ArgumentNullException(nameof(stream));
-            if (maxLineBytes < 0) throw new ArgumentOutOfRangeException(nameof(maxLineBytes), maxLineBytes, "Must be non-negative.");
+            // The old default, 0x7FFFFFC7, could not be reached: a line past the longest string ended in OutOfMemoryException.
+            if (maxLineBytes < 0 || maxLineBytes > MaxStringLength)
+                throw new ArgumentOutOfRangeException(nameof(maxLineBytes), maxLineBytes, "Must be from 0 to 0x3FFFFFDF.");
             encoding ??= Encoding.UTF8;
             byte[] lineBreak = encoding.GetBytes("\r\n");
             if (lineBreak.Length != 2 || lineBreak[0] != (byte)'\r' || lineBreak[1] != (byte)'\n')
@@ -84,6 +89,9 @@ namespace ToolBelt.IO
                             continue;
                         }
                         bomMatched = -1;   // not a BOM: the bytes already buffered are ordinary text
+                        // They were added without the limit check: "EF 0A" with a limit of 0 yielded a 1-byte line.
+                        if (line.Count > maxLineBytes)
+                            throw new InvalidDataException($"The line at byte {lineStart} is longer than {maxLineBytes} bytes.");
                     }
 
                     if (afterCarriageReturn)
@@ -119,6 +127,8 @@ namespace ToolBelt.IO
                 }
             }
 
+            if (line.Count > maxLineBytes)   // a partial BOM at the end of the stream
+                throw new InvalidDataException($"The line at byte {lineStart} is longer than {maxLineBytes} bytes.");
             if (line.Count > 0)
                 yield return new TextLine(lineStart, encoding.GetString(line.ToArray()));
         }

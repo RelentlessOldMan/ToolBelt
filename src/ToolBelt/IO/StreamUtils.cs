@@ -34,22 +34,31 @@ namespace ToolBelt.IO
             return total;
         }
 
-        /// <summary>Reads exactly <paramref name="count"/> bytes or throws <see cref="EndOfStreamException"/>.</summary>
+        /// <summary>
+        /// Reads exactly <paramref name="count"/> bytes (0 to 0x7FFFFFC7, the largest byte array) or throws
+        /// <see cref="EndOfStreamException"/>. Memory grows with what the stream holds, not with the count asked for.
+        /// </summary>
         public static byte[] ReadExactly(Stream source, int count)
         {
             if (source is null) throw new ArgumentNullException(nameof(source));
-            if (count < 0) throw new ArgumentOutOfRangeException(nameof(count), count, "Count must be non-negative.");
+            if (count < 0 || count > MaxByteArray) throw new ArgumentOutOfRangeException(nameof(count), count, "Count must be from 0 to 0x7FFFFFC7.");
 
-            var buffer = new byte[count];
+            // A count read from a header (a length prefix, say) was allocated in full before reading: a 4-byte stream
+            // saying "2 GB" cost 2 GB, or OutOfMemoryException, before the EndOfStreamException it deserved.
+            var buffer = new byte[Math.Min(count, InitialChunk)];
             int offset = 0;
             while (offset < count)
             {
-                int read = source.Read(buffer, offset, count - offset);
+                if (offset == buffer.Length)
+                    Array.Resize(ref buffer, (int)Math.Min(count, Math.Max(2L * buffer.Length, InitialChunk)));
+                int read = source.Read(buffer, offset, buffer.Length - offset);
                 if (read == 0)
                     throw new EndOfStreamException($"Expected {count} bytes but the stream ended after {offset}.");
                 offset += read;
             }
             return buffer;
         }
+
+        private const int MaxByteArray = 0x7FFFFFC7, InitialChunk = 1 << 20;
     }
 }

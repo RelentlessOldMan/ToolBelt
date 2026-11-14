@@ -38,15 +38,23 @@ namespace ToolBelt.IO
             return result;
         }
 
-        /// <summary>Formats fields into fixed columns, padding to width and truncating overflow.</summary>
+        /// <summary>
+        /// Formats fields into fixed columns, padding to width and truncating overflow. The widths may total at most
+        /// 0x3FFFFFDF, the longest string.
+        /// </summary>
         public static string Format(IReadOnlyList<string> fields, IReadOnlyList<int> widths, bool leftAlign = true)
         {
             if (fields is null) throw new ArgumentNullException(nameof(fields));
             ValidateWidths(widths);
             if (fields.Count != widths.Count)
                 throw new ArgumentException("fields and widths must have the same length.", nameof(widths));
+            // A line too long to be a string ended in OutOfMemoryException part way through building it.
+            long total = 0;
+            for (int i = 0; i < widths.Count; i++) total += widths[i];
+            if (total > 0x3FFFFFDF)
+                throw new ArgumentOutOfRangeException(nameof(widths), total, "The widths must total at most 0x3FFFFFDF.");
 
-            var sb = new StringBuilder();
+            var sb = new StringBuilder((int)Math.Min(total, 1 << 16));
             for (int i = 0; i < fields.Count; i++)
             {
                 string f = fields[i] ?? string.Empty;

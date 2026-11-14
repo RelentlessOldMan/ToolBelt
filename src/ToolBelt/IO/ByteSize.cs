@@ -14,11 +14,12 @@ namespace ToolBelt.IO
         private static readonly string[] BinaryUnits = { "B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB" };
         private static readonly string[] DecimalUnits = { "B", "KB", "MB", "GB", "TB", "PB", "EB" };
 
-        /// <summary>Formats a byte count, e.g. 1536 → "1.50 KiB" (binary) or "1.54 KB" (decimal).</summary>
+        /// <summary>Formats a byte count, e.g. 1536 → "1.50 KiB" (binary) or "1.54 KB" (decimal), with 0 to 99 decimals.</summary>
         public static string Format(long bytes, bool binary = true, int decimals = 2)
         {
-            if (decimals < 0)
-                throw new ArgumentOutOfRangeException(nameof(decimals), decimals, "Decimals must not be negative.");
+            // .NET Framework reads "F100" as a custom format: 1536 with 100 decimals gave "F102 KiB".
+            if (decimals < 0 || decimals > 99)
+                throw new ArgumentOutOfRangeException(nameof(decimals), decimals, "Decimals must be from 0 to 99.");
 
             string sign = bytes < 0 ? "-" : "";
             // Use double magnitude; long.MinValue negates safely through double.
@@ -33,17 +34,20 @@ namespace ToolBelt.IO
                 value /= @base;
                 unit++;
             }
-            // 1048575 B is 1023.999 KiB, which rounds to "1024.00 KiB": carry into the next unit instead.
-            if (unit > 0 && unit < units.Length - 1 && Math.Round(value, Math.Min(decimals, 15)) >= @base)
+            if (unit == 0)
+                return $"{sign}{(long)magnitude} {units[0]}"; // whole bytes, no decimals
+
+            string format = "F" + decimals.ToString(CultureInfo.InvariantCulture);
+            string text = value.ToString(format, CultureInfo.InvariantCulture);
+            // 1048575 B is 1023.999 KiB, which rounds to "1024.00 KiB": carry into the next unit instead. Decided on the
+            // formatted text: .NET Framework's "F" rounds through 15 digits, so Math.Round's answer was not what it printed.
+            if (unit < units.Length - 1 && double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture) >= @base)
             {
                 value /= @base;
                 unit++;
+                text = value.ToString(format, CultureInfo.InvariantCulture);
             }
-
-            if (unit == 0)
-                return $"{sign}{(long)magnitude} {units[0]}"; // whole bytes, no decimals
-            return sign + value.ToString("F" + decimals.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)
-                   + " " + units[unit];
+            return sign + text + " " + units[unit];
         }
 
         /// <summary>Parses a human-readable size. Throws <see cref="FormatException"/> on invalid input.</summary>

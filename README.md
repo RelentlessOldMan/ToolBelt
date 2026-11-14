@@ -411,12 +411,12 @@ src/
       HexDump.cs            classic offset/hex/ascii hex dump
       LineReader.cs         enumerate lines with byte offsets (mixed line endings; ASCII-compatible encodings, UTF-8 BOM skipped; line-length cap)
       SafeFileName.cs       sanitize a string into a filename safe on every OS (Windows rules everywhere; capped in UTF-8 bytes)
-      StreamUtils.cs        copy-with-progress (+ cancellation) / read-exactly
+      StreamUtils.cs        copy-with-progress (+ cancellation) / read-exactly (memory grows with the data)
       StreamWrappers.cs     CountingStream (bytes read/written) and TeeStream (duplicate reads or writes); closed after Dispose even when leaving the inner open
-      TempFile.cs           disposable temp file & directory scopes
-      ZipUtils.cs           zip create/extract/list/read (entry and total size caps, keeps empty dirs and times; update via a copy); Zip-Slip guarded, links never followed
+      TempFile.cs           disposable temp file & directory scopes (extension checked; iterative delete, any depth)
+      ZipUtils.cs           zip create/extract/list/read (entry and total size caps, keeps empty dirs and times; update via a streamed copy); Zip-Slip guarded, links never followed
       TarUtils.cs           tar/.tar.gz create/extract/list (keeps empty dirs, total size cap); traversal rejected, links never created or followed (net8)
-      DirectoryUtils.cs     tree copy (overwrite/filter policies), delete w/ read-only + cancellable lock retry, never follows links (re-checked per file)
+      DirectoryUtils.cs     tree copy (overwrite/filter policies), delete w/ read-only + cancellable lock retry, never follows links (re-checked per file); CopyOptions.CancellationToken
       ChecksumManifest.cs   SHA-256 tree manifest in sha256sum format: create/save/verify/compare directories (with a file filter)
       FileWatcher.cs        debounced, coalescing FileSystemWatcher; wait-until-stable; rescans on overflow/restart/dir moves
     Numerics/
@@ -837,6 +837,7 @@ tests/
       IONetFrameworkReview57Tests.cs (round 57: zip names .NET Framework cannot read, copies into the source through a junction)
       IOReview58Tests.cs    (fourth pass: junction swaps mid-operation, tar guard parsing, names ending in a dot, archive names, -0, surrogates)
       IOReview58ApiTests.cs (fourth pass: cancellable delete, line-length and archive total caps)
+      IOReview75Tests.cs     (fifth pass: deep-tree delete and copy, streaming zip replace, invariant CSV floats, Win32 wildcards, reparse tags)
       CoverageGapTests.cs   (behaviour behind coverage holes found by a coverlet run)
     Numerics/
       AngleTests.cs

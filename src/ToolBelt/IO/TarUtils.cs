@@ -219,7 +219,9 @@ namespace ToolBelt.IO
             // On Windows "x.txt:hidden" is an alternate data stream of x.txt, data no directory listing shows.
             if (entryName.IndexOf('\0') >= 0 || (Path.DirectorySeparatorChar == '\\' && entryName.IndexOf(':') >= 0))
                 throw new InvalidDataException($"Archive entry '{entryName.Replace('\0', '?')}' has a character not allowed in a file name.");
-            string relative = entryName.Replace('\\', '/');
+            // A backslash is a separator only where it is one: on Unix it is a name character (Create keeps it), and
+            // "a\b" came back as file b in directory a.
+            string relative = Path.DirectorySeparatorChar == '\\' ? entryName.Replace('\\', '/') : entryName;
             if (relative.StartsWith("/", StringComparison.Ordinal) || Path.IsPathRooted(relative))
                 throw new InvalidDataException($"Archive entry '{entryName}' has an absolute path.");
             // On Windows "aux.txt" or "x/CON" opens a device: the data went to it (or the write failed with a misleading error).

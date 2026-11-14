@@ -48,7 +48,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 4 | 24 / 106 | re-queue (24 bugs, 1 severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 4 | 10 / 57 | re-queue (10 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 4 | 29 / 93 | re-queue (29 bugs, 5 severe) |
-| 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 4 | 39 / 125 | re-queue (39 bugs, 7 severe) |
+| 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 5 | 24 / 149 | re-queue (24 bugs, 1 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 4 | 19 / 71 | re-queue (19 bugs) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 4 | 24 / 99 | re-queue (24 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 4 | 20 / 75 | re-queue (20 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): **next: 8**, then 7, 14, 12, 15, 5, 10, 16, 1, 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); **next: 7**, then 14, 12, 15, 5, 10, 16, 1, 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -148,11 +148,58 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.15 | 72 | Concurrency, fourth pass | 24 | (see tag) |
 | v2026.11.13.16 | 73 | WPF satellite, fourth pass | 24 | (see tag) |
 | v2026.11.13.17 | 74 | Text & small types, fourth pass | 20 | (see tag) |
+| v2026.11.13.18 | 75 | IO, fifth pass | 24 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 75: IO, fifth pass (v2026.11.13.18)
+
+Two fresh reviewers (correctness, robustness): 26 findings, 24 confirmed, so **24 bugs, 1 severe**. Section 8 stays
+re-queued. The regression tests are in `IOReview75Tests` (23 tests). Each failed on the old code: on .NET 8, or on
+.NET Framework for the ByteSize carry, the CsvBinder overflow, DosMatch and IsLink. The exception is the TarUtils
+backslash test, which can only fail on Unix. Three fixes have no failing test. The DotEnv doc now lists `\r`. ZipUtils
+now replaces the target instead of deleting it and then moving: a move that failed after the delete lost the only
+copy, but no move could be made to fail between those two steps. The FixedWidth limit is tested only for the
+exception, since the old code's failure was an OutOfMemoryException. Refuted: FileWatcher.Start leaving the OS watcher
+running when the first snapshot throws, because the snapshot tolerates IO errors and cannot throw them. Also refuted:
+a PAX header followed by a GNU long-name header slipping past the tar guard (TarReader refuses that order).
+
+- **TempDirectory (severe):** Dispose used the BCL's recursive delete, which overflowed the stack on a deep tree and
+  so ended the process (past about 4,500 levels on a 1 MB stack, or 1,500 on 64 KB). The delete is now iterative,
+  bottom-up, clears ReadOnly as it goes and removes a link without following it.
+- **Deep trees:** DirectoryUtils.Delete and Copy checked every ancestor for a link swap on every item, so the cost
+  was files x depth: 40 s to delete a chain 800 deep. Each folder now checks only itself; Delete goes back to checking
+  every ancestor once a retry has waited. The netstandard DosMatch was recursive and ended the process on a pattern
+  of 30,000 '*'; it is now an iterative DP with the same rules as .NET Core. That also fixes "*." and "a?" not
+  matching "a.".
+- **Memory:** ZipUtils.AddOrReplaceEntry rewrote the archive in Update mode, which holds every entry in memory: 400 MB
+  to add 3 bytes to a 400 MB zip. It now streams each entry across, keeping stored entries stored, and their times
+  and attributes. An entry this runtime cannot read falls back to the old in-memory rewrite. StreamUtils.ReadExactly
+  allocated the whole count before reading anything, so a 4-byte stream claiming 2 GB cost 2 GB. It now grows with
+  the data, and a count above 0x7FFFFFC7 throws ArgumentOutOfRangeException.
+- **CsvBinder:** float, double and decimal now parse invariantly with no thousands separators. **Behaviour change:**
+  "1,5" was read as 15 and is now refused. A float too large for its type is now ±Infinity on .NET Framework too
+  (it used to throw there). **Behaviour change:** a DateTimeOffset without an offset is now UTC, not the machine's
+  offset.
+- **FileWatcher:** a name ending in a dot or a space lost its deletions and ignored StableFor, because the snapshot
+  normalized the path. Such names are now kept as listed.
+- **Names and paths:** FileRetention's '?' did not match what the listing matched before a dot or at the end of a
+  name. It now follows the BCL's Win32 rules exactly. **Behaviour change:** TempFile refuses an extension holding ':',
+  a separator or an invalid character, which could escape the temp folder or create an alternate data stream.
+  ChecksumManifest refuses "./", which it used to write as a line its own Parse rejected. SafeFileName kept a lone
+  surrogate, and a multi-byte replacement could break its UTF-8 byte cap. TarUtils on Unix turned a backslash in an
+  entry name into a directory separator.
+- **Smaller:** JsonFile.TryLoad swallowed the unsupported-type error that its doc says propagates. **Behaviour
+  change:** ByteSize.Format's decimals is now 0 to 99; above that it printed garbage on .NET Framework, and there it
+  could also print "1024.00 TiB" instead of carrying. LineReader's default limit (0x7FFFFFC7) could never be reached,
+  so it is now 0x3FFFFFDF, the longest string, and a larger limit throws. A partial BOM's bytes also skipped the limit
+  check. FixedWidth.Format threw OutOfMemoryException for widths too long for a string; it now throws
+  ArgumentOutOfRangeException. The netstandard IsLink took every reparse point for a link, so .NET Framework skipped
+  OneDrive placeholders. It now reads the reparse tag. **New:** `CopyOptions.CancellationToken`, checked before each
+  file.
+
 ### Round 74: Text & small types, fourth pass (v2026.11.13.17)
 
 Two fresh reviewers (correctness, robustness): 21 findings, 20 confirmed, so **20 bugs, none severe**. Section 11 stays

@@ -12,8 +12,11 @@ namespace ToolBelt.IO
     /// that matches two properties differing only in case, neither exactly, throws <see cref="ArgumentException"/>); a
     /// property hidden with <c>new</c> is the derived one. Values convert with the
     /// invariant culture: numbers, bool, enums (by name or number), char, <see cref="Guid"/>, <see cref="TimeSpan"/>,
-    /// <see cref="DateTime"/> and <see cref="DateTimeOffset"/> (round-trip "O" format, Kind and offset kept),
-    /// <see cref="Uri"/> and strings; an empty field is null for a nullable or reference-type property, except a string,
+    /// <see cref="DateTime"/> and <see cref="DateTimeOffset"/> (round-trip "O" format, Kind and offset kept; a
+    /// <see cref="DateTimeOffset"/> written without an offset is UTC), <see cref="Uri"/> and strings. A floating-point
+    /// field takes '.' as its decimal point and no thousands separator ("1,5" is refused, not read as 15), and one too
+    /// large for its type is a signed infinity for float and double (on every runtime) and refused for decimal;
+    /// an empty field is null for a nullable or reference-type property, except a string,
     /// which gets "" (CSV cannot tell a null string from an empty one, so a null string reads back as "").
     /// <see cref="ToFields"/> writes values in the same forms, so a record round-trips. This mapping step is the single biggest reason people reach for a
     /// third-party CSV package, and it is very achievable BCL-only.
@@ -149,20 +152,33 @@ namespace ToolBelt.IO
                 }
                 if (t == typeof(DateTimeOffset))
                 {
-                    bool ok = DateTimeOffset.TryParse(s, inv, DateTimeStyles.None, out DateTimeOffset d);
+                    // No offset in the text took the machine's local one, so the value depended on where it was read.
+                    bool ok = DateTimeOffset.TryParse(s, inv, DateTimeStyles.AssumeUniversal, out DateTimeOffset d);
                     value = d;
                     return ok;
                 }
                 if (t == typeof(Uri)) { bool ok = Uri.TryCreate(s, UriKind.RelativeOrAbsolute, out Uri? u); value = u; return ok; }
                 if (t == typeof(char)) { if (text.Length != 1) return false; value = text[0]; return true; }
+                // Convert.ChangeType allowed thousands separators in these, so "1,5" bound as 15; and an overflow gave
+                // infinity on .NET Core but FormatException on .NET Framework.
+                if (t == typeof(double) || t == typeof(float))
+                {
+                    double d;
+                    try { d = double.Parse(s, NumberStyles.Float, inv); }
+                    catch (OverflowException) { d = s.Length > 0 && s[0] == '-' ? double.NegativeInfinity : double.PositiveInfinity; }
+                    if (d == 0 && s.Length > 0 && s[0] == '-') d = -0.0;
+                    if (t == typeof(double)) { value = d; return true; }
+                    float f;
+                    try { f = float.Parse(s, NumberStyles.Float, inv); }
+                    catch (OverflowException) { f = d < 0 ? float.NegativeInfinity : float.PositiveInfinity; }
+                    if (f == 0 && s.Length > 0 && s[0] == '-') f = -0.0f;
+                    value = f;
+                    return true;
+                }
+                if (t == typeof(decimal)) { bool ok = decimal.TryParse(s, NumberStyles.Float, inv, out decimal m); value = m; return ok; }
                 if (typeof(IConvertible).IsAssignableFrom(t))
                 {
                     value = Convert.ChangeType(s, t, inv);
-                    if (s.Length > 0 && s[0] == '-')
-                    {
-                        if (value is double d && d == 0) value = -0.0;
-                        else if (value is float f && f == 0) value = -0.0f;
-                    }
                     return true;
                 }
                 return false;

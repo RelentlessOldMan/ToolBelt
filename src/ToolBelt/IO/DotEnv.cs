@@ -8,7 +8,7 @@ namespace ToolBelt.IO
     /// <summary>
     /// Parses <c>.env</c>-style configuration text into key/value pairs. Blank lines and <c>#</c> comment
     /// lines are ignored, an optional <c>export</c> prefix is stripped, and values may be single- or
-    /// double-quoted. Double-quoted values honor <c>\n</c>, <c>\t</c>, <c>\"</c>, and <c>\\</c> escapes
+    /// double-quoted. Double-quoted values honor <c>\n</c>, <c>\r</c>, <c>\t</c>, <c>\"</c>, and <c>\\</c> escapes
     /// (any other backslash is kept as written); single-quoted values are literal; a quoted value may be followed by a <c>#</c> comment. Unquoted values
     /// are trimmed, and a <c>#</c> starts a comment only at the start of the value or after whitespace (so
     /// <c>URL=http://x/#frag</c> keeps its fragment). A leading byte order mark is ignored, and <c>export</c> may be

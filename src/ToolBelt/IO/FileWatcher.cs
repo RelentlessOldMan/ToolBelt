@@ -307,24 +307,29 @@ namespace ToolBelt.IO
         internal bool ContainsUnder(string directory)
             => _directories.TryGetValue(directory.TrimEnd(Path.DirectorySeparatorChar), out int n) && n > 0;
 
-        internal bool Contains(string path) => _files.ContainsKey(Path.GetFullPath(path));
+        // The key Take uses, the listed path: GetFullPath and FileInfo.FullName drop a trailing dot or space, so "pre."
+        // was looked up as "pre" and its deletion was dropped as unknown. A path that needs the exact form is already full.
+        private static string Key(string path) => !ReferenceEquals(DirectoryUtils.Exact(path), path) ? path : Path.GetFullPath(path);
+
+        internal bool Contains(string path) => _files.ContainsKey(Key(path));
 
         internal void Record(string path)
         {
             try
             {
-                var fi = new FileInfo(path);
+                string key = Key(path);
+                var fi = new FileInfo(DirectoryUtils.Exact(key));
                 if (fi.Exists)
                 {
-                    if (!_files.ContainsKey(fi.FullName)) CountAncestors(fi.FullName, +1);
-                    _files[fi.FullName] = (fi.Length, fi.LastWriteTimeUtc);
+                    if (!_files.ContainsKey(key)) CountAncestors(key, +1);
+                    _files[key] = (fi.Length, fi.LastWriteTimeUtc);
                 }
-                else Remove(fi.FullName);
+                else Remove(key);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
         }
 
-        internal void Forget(string path) => Remove(Path.GetFullPath(path));
+        internal void Forget(string path) => Remove(Key(path));
 
         private void Remove(string full)
         {
@@ -653,7 +658,7 @@ namespace ToolBelt.IO
         private bool IsStable(FileChange change, DateTime now)
         {
             FileInfo fi;
-            try { fi = new FileInfo(change.FullPath); }
+            try { fi = new FileInfo(DirectoryUtils.Exact(change.FullPath)); }   // "dotted." is not "dotted", which never exists
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException) { _probes.Remove(change.FullPath); return true; }
             if (change.Kind == FileChangeKind.Deleted || !fi.Exists) { _probes.Remove(change.FullPath); return true; }
             var current = (fi.Length, fi.LastWriteTimeUtc);

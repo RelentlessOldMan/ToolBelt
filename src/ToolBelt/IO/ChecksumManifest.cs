@@ -58,7 +58,7 @@ namespace ToolBelt.IO
             _entries = new SortedDictionary<string, string>(StringComparer.Ordinal);
             foreach (var kv in entries)
             {
-                string path = NormalizePath(kv.Key ?? throw new ArgumentException("A path is null.", nameof(entries)));
+                string path = NormalizePath(kv.Key ?? throw new ArgumentException("A path is null.", nameof(entries)), nameof(entries));
                 string hash = NormalizeHash(kv.Value) ?? throw new ArgumentException($"'{kv.Value}' is not a SHA-256 hex digest.", nameof(entries));
                 if (_entries.ContainsKey(path)) throw new ArgumentException($"Duplicate path '{path}'.", nameof(entries));
                 _entries.Add(path, hash);
@@ -214,12 +214,14 @@ namespace ToolBelt.IO
             return sb.ToString();
         }
 
-        private static string NormalizePath(string path)
+        private static string NormalizePath(string path, string paramName)
         {
-            if (path.Length == 0) throw new ArgumentException("A path is empty.", nameof(path));
             // Backslashes are kept: they are legal in POSIX names. A leading "./" (as `find . | xargs sha256sum`
-            // produces) is dropped so such manifests compare with ones written here.
-            return path.StartsWith("./", StringComparison.Ordinal) ? path.Substring(2) : path;
+            // produces) is dropped so such manifests compare with ones written here. Empty is checked after: "./" was
+            // accepted as "", which wrote a line Parse refuses.
+            string name = path.StartsWith("./", StringComparison.Ordinal) ? path.Substring(2) : path;
+            if (name.Length == 0) throw new ArgumentException($"The path '{path}' names no file.", paramName);
+            return name;
         }
 
         private static string? NormalizeHash(string? hash)

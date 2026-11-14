@@ -68,12 +68,7 @@ namespace ToolBelt.IO
                         onEntry?.Invoke(entryName);
                     }
                 }
-#if NET6_0_OR_GREATER
-                File.Move(temp, zipFull, overwrite: true);
-#else
-                if (File.Exists(zipFull)) File.Delete(zipFull);
-                File.Move(temp, zipFull);
-#endif
+                MoveOver(temp, zipFull);
             }
             finally
             {
@@ -148,12 +143,8 @@ namespace ToolBelt.IO
                     SetTime(temp, entry.LastWriteTime.DateTime, directory: false);
                     // A read-only file is not replaced by a move (UnauthorizedAccessException); overwrite means replace it.
                     if (overwrite) ClearReadOnly(target);
-#if NET6_0_OR_GREATER
-                    File.Move(temp, target, overwrite);
-#else
-                    if (overwrite && File.Exists(target)) File.Delete(target);
-                    File.Move(temp, target);
-#endif
+                    if (overwrite) MoveOver(temp, target);
+                    else File.Move(temp, target);
                 }
                 finally
                 {
@@ -194,7 +185,9 @@ namespace ToolBelt.IO
 
         /// <summary>
         /// Adds an entry, replacing every existing one with the same name. The zip is rewritten beside itself and moved
-        /// over the original once complete, so a failure leaves it as it was.
+        /// over the original once complete, so a failure leaves it as it was. The other entries are streamed across
+        /// (recompressed, stored ones kept stored), so memory does not grow with the archive; one this runtime cannot
+        /// read (an unsupported compression method) is kept as it was by an in-memory rewrite instead.
         /// </summary>
         public static void AddOrReplaceEntry(string zipPath, string entryName, byte[] content, CompressionLevel level = CompressionLevel.Optimal)
         {
@@ -208,33 +201,82 @@ namespace ToolBelt.IO
             string temp = Path.Combine(Path.GetDirectoryName(zipFull)!, ".zip-" + Guid.NewGuid().ToString("N") + ".tmp");
             try
             {
-                using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
-                {
-                    if (File.Exists(zipFull))
-                        using (var original = new FileStream(zipFull, FileMode.Open, FileAccess.Read, FileShare.Read))
-                            original.CopyTo(fs);
-                    fs.Position = 0;
-                    using var archive = OpenArchive(fs, ZipArchiveMode.Update);
-                    // GetEntry finds only one of several same-named entries; remove them all.
-                    var stale = new List<ZipArchiveEntry>();
-                    foreach (ZipArchiveEntry e in EntriesOf(archive))
-                        if (string.Equals(e.FullName, entryName, StringComparison.Ordinal)) stale.Add(e);
-                    foreach (ZipArchiveEntry e in stale) e.Delete();
-                    ZipArchiveEntry entry = archive.CreateEntry(entryName, level);
-                    using Stream entryStream = entry.Open();
-                    entryStream.Write(content, 0, content.Length);
-                }
-#if NET6_0_OR_GREATER
-                File.Move(temp, zipFull, overwrite: true);
-#else
-                if (File.Exists(zipFull)) File.Delete(zipFull);
-                File.Move(temp, zipFull);
-#endif
+                bool streamed;
+                try { streamed = RewriteStreaming(zipFull, temp, entryName, content, level); }
+                catch (Exception ex) when (ex is NotSupportedException || ex is InvalidDataException) { streamed = false; }
+                if (!streamed) RewriteInMemory(zipFull, temp, entryName, content, level);
+                MoveOver(temp, zipFull);
             }
             finally
             {
                 try { if (File.Exists(temp)) File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             }
+        }
+
+        // Update mode loads every entry into memory when it saves: a 3-byte entry added to a 400 MB zip took 400 MB, and
+        // one over 2 GB failed. False when an entry cannot be read here, so the in-memory form keeps it as it was.
+        private static bool RewriteStreaming(string zipFull, string temp, string entryName, byte[] content, CompressionLevel level)
+        {
+            using (var fs = new FileStream(temp, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+            using (var output = new ZipArchive(fs, ZipArchiveMode.Create))
+            {
+                if (File.Exists(zipFull))
+                {
+                    using var original = new FileStream(zipFull, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    using var archive = OpenArchive(original, ZipArchiveMode.Read);
+                    foreach (ZipArchiveEntry e in EntriesOf(archive))
+                    {
+                        // GetEntry finds only one of several same-named entries; every one is left out.
+                        if (string.Equals(e.FullName, entryName, StringComparison.Ordinal)) continue;
+                        bool stored = e.CompressedLength == e.Length && e.Length > 0;
+                        ZipArchiveEntry copy = output.CreateEntry(e.FullName, stored ? CompressionLevel.NoCompression : CompressionLevel.Optimal);
+                        copy.LastWriteTime = e.LastWriteTime;
+#if NET6_0_OR_GREATER
+                        copy.ExternalAttributes = e.ExternalAttributes;
+#endif
+                        if (e.FullName.EndsWith("/", StringComparison.Ordinal) && e.Length == 0) continue;
+                        Stream source;
+                        try { source = e.Open(); }
+                        catch (Exception ex) when (ex is NotSupportedException || ex is InvalidDataException) { return false; }
+                        using (source)
+                        using (Stream target = copy.Open())
+                            source.CopyTo(target);
+                    }
+                }
+                ZipArchiveEntry entry = output.CreateEntry(entryName, level);
+                using Stream entryStream = entry.Open();
+                entryStream.Write(content, 0, content.Length);
+            }
+            return true;
+        }
+
+        private static void RewriteInMemory(string zipFull, string temp, string entryName, byte[] content, CompressionLevel level)
+        {
+            using var fs = new FileStream(temp, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+            if (File.Exists(zipFull))
+                using (var original = new FileStream(zipFull, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    original.CopyTo(fs);
+            fs.Position = 0;
+            using var archive = OpenArchive(fs, ZipArchiveMode.Update);
+            var stale = new List<ZipArchiveEntry>();
+            foreach (ZipArchiveEntry e in EntriesOf(archive))
+                if (string.Equals(e.FullName, entryName, StringComparison.Ordinal)) stale.Add(e);
+            foreach (ZipArchiveEntry e in stale) e.Delete();
+            ZipArchiveEntry entry = archive.CreateEntry(entryName, level);
+            using Stream entryStream = entry.Open();
+            entryStream.Write(content, 0, content.Length);
+        }
+
+        // Replaces target with source. Deleting the target and then moving lost it when the move failed: the finally then
+        // deleted the only copy left.
+        private static void MoveOver(string source, string target)
+        {
+#if NET6_0_OR_GREATER
+            File.Move(source, target, overwrite: true);
+#else
+            if (File.Exists(target)) File.Replace(source, target, destinationBackupFileName: null, ignoreMetadataErrors: true);
+            else File.Move(source, target);
+#endif
         }
 
         private static void ClearReadOnly(string path)

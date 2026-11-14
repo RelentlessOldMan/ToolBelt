@@ -162,27 +162,46 @@ namespace ToolBelt.IO
             return found;
         }
 
-        // Windows-style wildcard match ('*' any run, '?' one character), case-insensitive.
+        // The BCL's Win32 wildcard rules (FileSystemName.MatchesWin32Expression), case-insensitive, so the re-check keeps
+        // exactly what the listing returned: "*.*" is every file, a trailing "*." means "no extension", '?' matches one
+        // character or none before a '.' or at the end ("app?.log" lists app.log), and a '.' before '?' or '*' matches
+        // the end of the name too ("*.?" lists README). Read with '?' as exactly one character, those files were listed
+        // but neither kept nor deleted, so they never counted toward the limits.
+        private const char DosStar = '<', DosQm = '>', DosDot = '"';
+
         private static bool Matches(string name, string pattern)
         {
-            // The BCL's DOS rules: "*.*" is every file (README too), and a trailing '.' means "no extension" ("*." is
-            // README). Matched literally, both dropped files the listing had returned.
-            if (pattern == "*.*") return true;
-            if (pattern.Length > 1 && pattern[pattern.Length - 1] == '.')
+            if (pattern == "*" || pattern == "*.*") return true;
+            var expr = new System.Text.StringBuilder(pattern.Length);
+            for (int i = 0; i < pattern.Length; i++)
             {
-                if (name.IndexOf('.') >= 0) return false;
-                pattern = pattern.TrimEnd('.');
+                char c = pattern[i];
+                if (c == '.' && i == pattern.Length - 1 && i >= 1 && pattern[i - 1] == '*') expr[expr.Length - 1] = DosStar;
+                else if (c == '.' && i < pattern.Length - 1 && (pattern[i + 1] == '?' || pattern[i + 1] == '*')) expr.Append(DosDot);
+                else expr.Append(c == '?' ? DosQm : c);
             }
-            int n = 0, p = 0, star = -1, mark = 0;
-            while (n < name.Length)
-            {
-                if (p < pattern.Length && (pattern[p] == '?' || char.ToUpperInvariant(pattern[p]) == char.ToUpperInvariant(name[n]))) { n++; p++; }
-                else if (p < pattern.Length && pattern[p] == '*') { star = p++; mark = n; }
-                else if (star >= 0) { p = star + 1; n = ++mark; }
-                else return false;
-            }
-            while (p < pattern.Length && pattern[p] == '*') p++;
-            return p == pattern.Length;
+            int lastDot = name.LastIndexOf('.');
+            int m = expr.Length, n = name.Length;
+            // can[p, k]: expr[p..] matches name[k..]. Filled from the end; names and patterns are short.
+            var can = new bool[m + 1, n + 1];
+            can[m, n] = true;
+            for (int p = m - 1; p >= 0; p--)
+                for (int k = n; k >= 0; k--)
+                {
+                    char e = expr[p];
+                    bool end = k == n;
+                    can[p, k] = e switch
+                    {
+                        '*' => can[p + 1, k] || (!end && can[p, k + 1]),
+                        // Any run up to the final '.', which it may also take and then stop.
+                        DosStar => can[p + 1, k] || (!end && k != lastDot && can[p, k + 1]) || (!end && k == lastDot && can[p + 1, k + 1]),
+                        // One character; none at the end or before a '.'; a '.' only when it ends the name.
+                        DosQm => end ? can[p + 1, k] : name[k] == '.' ? can[p + 1, k] || (k == n - 1 && can[p + 1, k + 1]) : can[p + 1, k + 1],
+                        DosDot => end ? can[p + 1, k] : name[k] == '.' && can[p + 1, k + 1],
+                        _ => !end && char.ToUpperInvariant(e) == char.ToUpperInvariant(name[k]) && can[p + 1, k + 1],
+                    };
+                }
+            return can[0, 0];
         }
 
         /// <summary>

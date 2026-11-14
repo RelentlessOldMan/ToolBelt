@@ -12,8 +12,9 @@ namespace ToolBelt.IO
     /// trailing dots and spaces (which Windows strips) are trimmed, Windows reserved device names (CON, PRN,
     /// AUX, NUL, COM0-9, LPT0-9 and their superscript-digit forms, CONIN$, CONOUT$, also with an extension or
     /// trailing spaces before it) are escaped, and the result is capped at <c>maxLength</c> UTF-8 bytes (the Unix
-    /// limit, which also keeps it within Windows' limit in characters) without splitting a surrogate pair. An empty
-    /// result becomes "_".
+    /// limit, which also keeps it within Windows' limit in characters) without splitting a surrogate pair. An unpaired
+    /// surrogate (not a character on any file system) is replaced too. An empty result becomes the replacement, so
+    /// <c>maxLength</c> must hold the replacement's UTF-8 bytes.
     /// </summary>
     public static class SafeFileName
     {
@@ -50,12 +51,20 @@ namespace ToolBelt.IO
             if (name is null) throw new ArgumentNullException(nameof(name));
             if (maxLength <= 0) throw new ArgumentOutOfRangeException(nameof(maxLength), maxLength, "Max length must be positive.");
 
-            if (IsInvalid(replacement) || replacement == ' ' || replacement == '.')
+            if (IsInvalid(replacement) || replacement == ' ' || replacement == '.' || char.IsSurrogate(replacement))
                 throw new ArgumentException("Replacement must itself be a valid filename character.", nameof(replacement));
+            // The fallback for an empty result: '€' with a cap of 1 gave a 3-byte name.
+            int replacementBytes = replacement < 0x80 ? 1 : replacement < 0x800 ? 2 : 3;
+            if (maxLength < replacementBytes)
+                throw new ArgumentOutOfRangeException(nameof(maxLength), maxLength, $"Max length must hold the replacement's {replacementBytes} UTF-8 bytes.");
 
             var sb = new StringBuilder(name.Length);
-            foreach (char c in name)
-                sb.Append(IsInvalid(c) ? replacement : c);
+            for (int i = 0; i < name.Length; i++)
+            {
+                char c = name[i];
+                if (char.IsHighSurrogate(c) && i + 1 < name.Length && char.IsLowSurrogate(name[i + 1])) { sb.Append(c).Append(name[++i]); continue; }
+                sb.Append(IsInvalid(c) || char.IsSurrogate(c) ? replacement : c);   // a lone surrogate was kept
+            }
 
             // Windows trims trailing dots and spaces.
             string result = sb.ToString().TrimEnd(' ', '.');

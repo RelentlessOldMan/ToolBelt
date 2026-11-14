@@ -37,6 +37,9 @@ namespace ToolBelt.IO
         /// Receives (path, exception) for each failure and lets the copy continue. When null, the first failure throws.
         /// </summary>
         public Action<string, Exception>? OnError { get; set; }
+
+        /// <summary>Ends the copy (part done) with <see cref="OperationCanceledException"/>, checked before each file.</summary>
+        public CancellationToken CancellationToken { get; set; }
     }
 
     /// <summary>What a <see cref="DirectoryUtils.Copy"/> did.</summary>
@@ -123,6 +126,7 @@ namespace ToolBelt.IO
             pending.Push(src);
             while (pending.Count > 0)
             {
+                options.CancellationToken.ThrowIfCancellationRequested();
                 string dir = pending.Pop();
                 folders.Add(dir);
                 string[] dirs;
@@ -159,14 +163,17 @@ namespace ToolBelt.IO
 
                 foreach (string file in files)
                 {
+                    options.CancellationToken.ThrowIfCancellationRequested();
                     string fileRel = Relative(src, file);
                     if (options.FileFilter != null && !options.FileFilter(fileRel)) continue;
                     string to = Path.Combine(target, Path.GetFileName(file));
                     try
                     {
                         // A folder on either side swapped for a link since it was checked would read or write outside the tree.
-                        if (LinkBetween(src, dir)) throw new IOException($"Source folder '{dir}' became a link; refusing to copy through it.");
-                        if (LinkBetween(dst, target)) throw new IOException($"Destination folder '{target}' became a link; refusing to copy through it.");
+                        // Each folder's ancestors were checked in their own turn (the list is top-down), so only the folder
+                        // itself is: checking every ancestor for every file cost files x depth (40 s at depth 800).
+                        if (dir.Length > src.Length && IsLink(dir)) throw new IOException($"Source folder '{dir}' became a link; refusing to copy through it.");
+                        if (rel.Length > 0 && IsLink(target)) throw new IOException($"Destination folder '{target}' became a link; refusing to copy through it.");
                         if (IsLink(to)) throw new IOException($"Destination '{to}' is a link; refusing to write through it.");
                         bool exists = File.Exists(Exact(to));
                         if (exists)
@@ -287,13 +294,17 @@ namespace ToolBelt.IO
                     else pending.Push(sub);
                 }
             }
+            // Until a retry has waited, the walk has not paused and each folder checks only itself; after one, every
+            // ancestor too. Checking the ancestors for every item cost files x depth: 40 s for a chain 800 deep.
+            bool waited = false;
+            bool Swapped(string dir) => waited ? LinkBetween(root, dir) : dir.Length > root.Length && IsLink(dir);
             for (int i = order.Count - 1; i >= 0; i--)
             {
                 token.ThrowIfCancellationRequested();
                 string dir = order[i];
                 // A folder swapped for a link since it was listed (while a retry waited on a locked file, say) would have its
                 // target's files deleted: each file is checked just before it goes, and such a folder loses only the link.
-                bool swapped = LinkBetween(root, dir);
+                bool swapped = Swapped(dir);
                 if (!swapped)
                 {
                     string[] files;
@@ -301,9 +312,11 @@ namespace ToolBelt.IO
                     catch (DirectoryNotFoundException) { files = Array.Empty<string>(); }   // removed meanwhile
                     foreach (string file in files)
                     {
+                        int attempts = 0;
                         Retry(() =>
                         {
-                            if (LinkBetween(root, dir)) { swapped = true; return; }
+                            if (attempts++ > 0) waited = true;
+                            if (Swapped(dir)) { swapped = true; return; }
                             ClearReadOnly(file);
                             File.Delete(Exact(file));
                         }, retries, delay, token);
@@ -524,7 +537,7 @@ namespace ToolBelt.IO
         }
 
         // A junction or symbolic link. Other reparse points (cloud-file placeholders, deduplicated files) are ordinary
-        // files and folders; telling them apart needs LinkTarget (net6+), so older targets treat every reparse point as a link.
+        // files and folders: told apart by LinkTarget (net6+), or else by the reparse tag.
         private static bool IsLink(string path)
         {
             try
@@ -537,11 +550,42 @@ namespace ToolBelt.IO
                 try { return info.LinkTarget != null; }
                 catch (Exception ex) when (IsIoError(ex)) { return true; }
 #else
-                return true;
+                return IsLinkTag(path);
 #endif
             }
             catch (Exception ex) when (IsIoError(ex)) { return false; }
         }
+
+#if !NET6_0_OR_GREATER
+        // Without LinkTarget the reparse tag is read from the folder's directory entry, as the BCL does: only a symbolic
+        // link or a junction is a link. Every reparse point was taken for one, so a cloud-file placeholder folder (a
+        // OneDrive folder, say) was skipped by Copy and Walk on .NET Framework.
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private struct Win32FindData
+        {
+            public uint Attributes, CreationLow, CreationHigh, AccessLow, AccessHigh, WriteLow, WriteHigh, SizeHigh, SizeLow;
+            public uint ReparseTag, Reserved1;
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.ByValTStr, SizeConst = 260)] public string FileName;
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.ByValTStr, SizeConst = 14)] public string AlternateFileName;
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", EntryPoint = "FindFirstFileW", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern IntPtr FindFirstFile(string fileName, out Win32FindData data);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern bool FindClose(IntPtr handle);
+
+        private const uint SymbolicLinkTag = 0xA000000C, MountPointTag = 0xA0000003;
+
+        private static bool IsLinkTag(string path)
+        {
+            if (Path.DirectorySeparatorChar != '\\') return true;   // elsewhere only a symbolic link is a reparse point
+            IntPtr handle = FindFirstFile(path.TrimEnd('\\', '/'), out Win32FindData data);
+            if (handle == new IntPtr(-1)) return true;   // unreadable: still taken for a link, the safe side
+            FindClose(handle);
+            return data.ReparseTag == SymbolicLinkTag || data.ReparseTag == MountPointTag;
+        }
+#endif
 
         private static void ClearReadOnly(string path)
         {
@@ -669,47 +713,37 @@ namespace ToolBelt.IO
             return sb.ToString();
         }
 
-        // FsRtlIsNameInExpression's rules, case-insensitive: '*' any run; '<' any run that does not take the name's last
-        // '.'; '>' one character other than '.', or nothing at a '.' or the end; '"' a '.', or nothing at the end.
+        // .NET Core's Win32 matcher (MatchesWin32Expression), case-insensitive: '*' any run; '<' any run that takes the
+        // name's last '.' only as its final character; '>' one character, or nothing at the end or before a '.' (and the
+        // '.' itself when it ends the name); '"' a '.', or nothing at the end. Iterative over one row per expression
+        // character: the recursive form overflowed the stack (ending the process) on a pattern of 30,000 '*', and its
+        // '<' and '>' refused "a." for "*." and "a?", which .NET Core lists.
         private static bool DosMatch(string expression, string name)
         {
             int lastDot = name.LastIndexOf('.');
-            var memo = new Dictionary<long, bool>();
-            bool At(int p, int n)
+            int n = name.Length;
+            // next[k]: expression[p + 1..] matches name[k..]; cur is the row for p, filled from the name's end.
+            var next = new bool[n + 2];
+            var cur = new bool[n + 2];
+            next[n] = true;
+            for (int p = expression.Length - 1; p >= 0; p--)
             {
-                if (p == expression.Length) return n == name.Length;
-                long key = ((long)p << 32) | (uint)n;
-                if (memo.TryGetValue(key, out bool known)) return known;
-                bool result;
-                char c = expression[p];
-                switch (c)
+                char e = expression[p];
+                for (int k = n; k >= 0; k--)
                 {
-                    case '*':
-                        result = false;
-                        for (int k = n; k <= name.Length && !result; k++) result = At(p + 1, k);
-                        break;
-                    case '<':
-                        result = false;
-                        for (int k = n; k <= name.Length && !result; k++)
-                        {
-                            if (k > n && k - 1 == lastDot) break;   // it may not take the last dot
-                            result = At(p + 1, k);
-                        }
-                        break;
-                    case '>':
-                        result = n < name.Length && name[n] != '.' ? At(p + 1, n + 1) : At(p + 1, n);
-                        break;
-                    case '"':
-                        result = n < name.Length ? name[n] == '.' && At(p + 1, n + 1) : At(p + 1, n);
-                        break;
-                    default:
-                        result = n < name.Length && char.ToUpperInvariant(c) == char.ToUpperInvariant(name[n]) && At(p + 1, n + 1);
-                        break;
+                    bool end = k == n;
+                    cur[k] = e switch
+                    {
+                        '*' => next[k] || (!end && cur[k + 1]),
+                        '<' => next[k] || (!end && k != lastDot && cur[k + 1]) || (!end && k == lastDot && next[k + 1]),
+                        '>' => end ? next[k] : name[k] == '.' ? next[k] || (k == n - 1 && next[k + 1]) : next[k + 1],
+                        '"' => end ? next[k] : name[k] == '.' && next[k + 1],
+                        _ => !end && char.ToUpperInvariant(e) == char.ToUpperInvariant(name[k]) && next[k + 1],
+                    };
                 }
-                memo[key] = result;
-                return result;
+                var swap = next; next = cur; cur = swap;
             }
-            return At(0, 0);
+            return next[0];
         }
 #endif
 

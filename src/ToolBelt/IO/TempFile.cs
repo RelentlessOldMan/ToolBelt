@@ -8,7 +8,8 @@ namespace ToolBelt.IO
     /// <summary>
     /// A uniquely named temporary file that is deleted when the scope is disposed. Use with
     /// <c>using</c> so the file is cleaned up even on exceptions. Deletion is best-effort — a file that
-    /// cannot be removed (e.g. still open elsewhere) does not throw from <see cref="Dispose"/>.
+    /// cannot be removed (e.g. still open elsewhere) does not throw from <see cref="Dispose"/>. The extension may not
+    /// hold a path separator, ':' or another character a file name cannot have.
     /// </summary>
     public sealed class TempFile : IDisposable
     {
@@ -39,7 +40,12 @@ namespace ToolBelt.IO
         {
             if (string.IsNullOrEmpty(extension))
                 return string.Empty;
-            return extension!.StartsWith(".", StringComparison.Ordinal) ? extension : "." + extension;
+            // "/../../victim.txt" opened (and truncated, then deleted) a file outside the temp folder, and ":s" made an
+            // alternate data stream whose base file was left behind.
+            if (extension!.IndexOf(':') >= 0 || extension.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0
+                || extension.IndexOf('/') >= 0 || extension.IndexOf('\\') >= 0)
+                throw new ArgumentException($"'{extension}' is not a file extension.", nameof(extension));
+            return extension.StartsWith(".", StringComparison.Ordinal) ? extension : "." + extension;
         }
 
         internal static void TryDelete(string path)
@@ -60,38 +66,32 @@ namespace ToolBelt.IO
             catch (UnauthorizedAccessException) { /* best-effort */ }
         }
 
-        // Clears ReadOnly on everything under dir (not through links), which Directory.Delete refuses to remove.
-        internal static void ClearReadOnlyTree(string dir)
+        // Deletes a tree through the exact form of each name, clearing ReadOnly (which Directory.Delete refuses) on the
+        // way; a linked folder loses only the link. Iterative, bottom-up: the BCL's recursive delete, and this one when
+        // it recursed, overflowed the stack on a deep tree (depth 8,000), which ends the process.
+        internal static void DeleteTree(string root)
         {
-            var pending = new Stack<string>();
-            pending.Push(dir);
+            var pending = new Stack<(string Dir, bool Emptied)>();
+            pending.Push((root, false));
             while (pending.Count > 0)
             {
-                string d = pending.Pop();
-                foreach (string f in List(d, directories: false))
+                (string dir, bool emptied) = pending.Pop();
+                if (emptied) { Directory.Delete(Exact(dir)); continue; }
+                pending.Push((dir, true));
+                foreach (string f in List(dir, directories: false))
                 {
                     FileAttributes a = File.GetAttributes(Exact(f));
                     if ((a & FileAttributes.ReadOnly) != 0) File.SetAttributes(Exact(f), a & ~FileAttributes.ReadOnly);
+                    File.Delete(Exact(f));
                 }
-                foreach (string sub in List(d, directories: true))
+                foreach (string sub in List(dir, directories: true))
                 {
                     FileAttributes a = File.GetAttributes(Exact(sub));
                     if ((a & FileAttributes.ReadOnly) != 0) File.SetAttributes(Exact(sub), a & ~FileAttributes.ReadOnly);
-                    if ((a & FileAttributes.ReparsePoint) == 0) pending.Push(sub);
+                    if ((a & FileAttributes.ReparsePoint) != 0) Directory.Delete(Exact(sub));
+                    else pending.Push((sub, false));
                 }
             }
-        }
-
-        // Deletes a tree through the exact form of each name; a linked folder loses only the link.
-        internal static void DeleteTree(string dir)
-        {
-            foreach (string f in List(dir, directories: false)) File.Delete(Exact(f));
-            foreach (string sub in List(dir, directories: true))
-            {
-                if ((File.GetAttributes(Exact(sub)) & FileAttributes.ReparsePoint) != 0) Directory.Delete(Exact(sub));
-                else DeleteTree(sub);
-            }
-            Directory.Delete(Exact(dir));
         }
 
         // Win32 path normalisation drops a trailing dot or space from each name, so a listed file "a." was read, replaced
@@ -174,14 +174,10 @@ namespace ToolBelt.IO
             {
                 if (!Directory.Exists(Path))
                     return;
-                try { Directory.Delete(Path, recursive: true); }
-                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
-                {
-                    // A read-only file (common after a git clone into it), or on .NET Framework a name ending in a dot or
-                    // space, which its recursive delete cannot reach: clear the attributes and delete name by name.
-                    TempFile.ClearReadOnlyTree(Path);
-                    TempFile.DeleteTree(Path);
-                }
+                // Name by name, not Directory.Delete(recursive): that overflows the stack on a deep tree, refuses a
+                // read-only file (common after a git clone into it), and on .NET Framework cannot reach a name ending in
+                // a dot or space.
+                TempFile.DeleteTree(Path);
             }
             catch (IOException) { /* best-effort */ }
             catch (UnauthorizedAccessException) { /* best-effort */ }

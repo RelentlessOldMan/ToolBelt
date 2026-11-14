@@ -84,7 +84,11 @@ namespace ToolBelt.IO
                 value = Load<T>(path, options);
                 return true;
             }
-            catch (Exception ex) when (ex is JsonException || ex is IOException || ex is UnauthorizedAccessException || ex is NotSupportedException)
+            // Not NotSupportedException: the serializer throws it for a type it cannot handle (an interface), a fault in
+            // the type that the doc says propagates, and it was reported as a bad file. One that wraps a JsonException is
+            // about the file's content.
+            catch (Exception ex) when (ex is JsonException || ex is IOException || ex is UnauthorizedAccessException
+                                       || (ex is NotSupportedException && ex.InnerException is JsonException))
             {
                 error = ex.Message;
                 return false;
