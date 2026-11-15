@@ -21,6 +21,9 @@ namespace ToolBelt.Visualization
             if (!(height > 0) || double.IsInfinity(height)) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive and finite.");
             if (double.IsNaN(left) || double.IsInfinity(left)) throw new ArgumentOutOfRangeException(nameof(left), left, "Left must be finite.");
             if (double.IsNaN(top) || double.IsInfinity(top)) throw new ArgumentOutOfRangeException(nameof(top), top, "Top must be finite.");
+            // Each finite on its own, but Right or Bottom overflowed to ∞ (1e308 + 1e308) and every mapping with it.
+            if (double.IsInfinity(left + width)) throw new ArgumentOutOfRangeException(nameof(width), width, "Left + Width must be finite.");
+            if (double.IsInfinity(top + height)) throw new ArgumentOutOfRangeException(nameof(height), height, "Top + Height must be finite.");
             CheckRange(xMin, xMax, logX, nameof(xMin));
             CheckRange(yMin, yMax, logY, nameof(yMin));
             Left = left;

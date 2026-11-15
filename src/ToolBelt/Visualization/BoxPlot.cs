@@ -214,7 +214,11 @@ namespace ToolBelt.Visualization
             // Weighted, not a + f·(b − a): the difference was ∞ − ∞ = NaN between infinities and overflowed for ±1e308.
             if (lo == hi || a == b) return a;
             if (double.IsInfinity(a) && double.IsInfinity(b)) return f < 0.5 ? a : b; // −∞ to +∞ (was NaN), as Percentile
-            return (1 - f) * a + f * b;
+            // a + f·(b − a) where the difference is finite: the weighted form left the hull (7 and 7+ulp gave less
+            // than 7) and lost precision. Clamped, as rounding can still step just past b.
+            double d = b - a;
+            double v = double.IsInfinity(d) ? (1 - f) * a + f * b : a + f * d;
+            return Math.Max(a, Math.Min(b, v));
         }
     }
 }

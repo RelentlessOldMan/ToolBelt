@@ -81,7 +81,7 @@ namespace ToolBelt.Visualization
                 // wrapped it into a bogus one).
                 if (Math.Abs(px / dx) > 1e9 || Math.Abs(py / dy) > 1e9) continue;
                 var key = Nearest(px, py, dx, dy);
-                counts[key] = counts.TryGetValue(key, out int n) ? n + 1 : 1;
+                counts[key] = counts.TryGetValue(key, out int n) ? Bump(n) : 1;
             }
             return counts.Select(kv =>
             {
@@ -90,6 +90,11 @@ namespace ToolBelt.Visualization
                 return new HexCell(ax, ay, kv.Value, frame.UnmapX(ax), frame.UnmapY(ay));
             }).OrderBy(c => c.CenterY).ThenBy(c => c.CenterX).ToArray();
         }
+
+        // A cell's count is an int: past int.MaxValue points it wrapped to int.MinValue (or threw OverflowException in a
+        // checked build), so the hexagon reported a negative count.
+        private static int Bump(int n)
+            => n == int.MaxValue ? throw new ArgumentException("More than int.MaxValue points fall in one hexagon.", "points") : n + 1;
 
         /// <summary>Pixel centre of hexagon (column <paramref name="i"/>, row <paramref name="j"/>) relative to the plot origin.</summary>
         public static (double X, double Y) Center(int i, int j, double dx, double dy)

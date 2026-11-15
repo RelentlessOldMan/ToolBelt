@@ -171,7 +171,13 @@ namespace ToolBelt.Visualization
                 opts[i].Height = o.PanelHeight;
             }
 
-            // Shared ranges: the union of what each panel would show on its own.
+            // Shared ranges: the union of what each panel would show on its own. A linear panel's range written into a
+            // log panel failed there (ParamName "explicitMin"), so a shared axis must be one kind in every panel.
+            for (int i = 1; i < n; i++)
+            {
+                if (o.ShareX && opts[i].XAxis != opts[0].XAxis || o.ShareY && opts[i].YAxis != opts[0].YAxis)
+                    throw new ArgumentException($"Panel {i}'s shared axis is not the same kind as panel 0's.", nameof(panels));
+            }
             if (o.ShareX || o.ShareY)
             {
                 double xMin = double.PositiveInfinity, xMax = double.NegativeInfinity;

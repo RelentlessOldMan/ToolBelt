@@ -36,7 +36,8 @@ namespace ToolBelt.Visualization
         /// <summary>A clock: rising edges at <paramref name="start"/> + k·<paramref name="period"/> until <paramref name="end"/>.</summary>
         public static TimingSignal Clock(string name, double period, double start, double end, double duty = 0.5)
         {
-            if (!(period > 0)) throw new ArgumentOutOfRangeException(nameof(period), period, "Period must be positive.");
+            // ∞ gave zero cycles and an empty clock without a word.
+            if (!(period > 0) || double.IsInfinity(period)) throw new ArgumentOutOfRangeException(nameof(period), period, "Period must be positive and finite.");
             if (!(duty > 0 && duty < 1)) throw new ArgumentOutOfRangeException(nameof(duty), duty, "Duty must be in (0, 1).");
             if (double.IsNaN(start) || double.IsInfinity(start) || double.IsNaN(end) || double.IsInfinity(end)) throw new ArgumentException("Start and end must be finite.", double.IsNaN(start) || double.IsInfinity(start) ? nameof(start) : nameof(end));
             double cycles = Math.Ceiling((end - start) / period);
@@ -50,6 +51,10 @@ namespace ToolBelt.Visualization
                 double fall = t + period * duty;
                 // Past double.MaxValue the edge failed in the constructor, naming "changes" (not a parameter here).
                 if (double.IsInfinity(fall)) throw new ArgumentException("A clock edge lies beyond double.MaxValue.", nameof(period));
+                // At a start far above the period the edges rounded onto each other (1e15 with period 0.01), and
+                // equal times kept only the last change, so the clock drew as a flat line.
+                if (!(fall > t) || !(start + (k + 1) * period > fall))
+                    throw new ArgumentException("The period is too small to resolve at this start time.", nameof(period));
                 c.Add((t, true));
                 c.Add((fall, false));
             }
@@ -64,12 +69,18 @@ namespace ToolBelt.Visualization
         public static TimingSignal FromSamples(string name, IReadOnlyList<double> samples, double sampleRate, double lowThreshold, double highThreshold, double startTime = 0)
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
-            if (!(sampleRate > 0)) throw new ArgumentOutOfRangeException(nameof(sampleRate));
+            // ∞ put every sample at startTime, so only the last change survived.
+            if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
+            // A NaN low threshold was reported as the high one.
+            if (double.IsNaN(lowThreshold)) throw new ArgumentOutOfRangeException(nameof(lowThreshold), lowThreshold, "Low threshold must not be NaN.");
             if (!(highThreshold >= lowThreshold)) throw new ArgumentException("High threshold must not be below the low threshold.", nameof(highThreshold));
             // Both failed in the constructor, naming "changes" (not a parameter here).
             if (double.IsNaN(startTime) || double.IsInfinity(startTime)) throw new ArgumentOutOfRangeException(nameof(startTime), startTime, "Start time must be finite.");
             if (samples.Count > 1 && double.IsInfinity(startTime + (samples.Count - 1) / sampleRate))
                 throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "The sample times run beyond double.MaxValue.");
+            // Sample times that round onto each other (startTime 1e300) collapsed the edges.
+            if (samples.Count > 1 && !(startTime + 1 / sampleRate > startTime && startTime + (samples.Count - 1) / sampleRate > startTime + (samples.Count - 2) / sampleRate))
+                throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "The sample interval is too small to resolve at this start time.");
             var c = new List<(double, bool?)>();
             bool? level = null;
             c.Add((startTime, null));
@@ -93,7 +104,13 @@ namespace ToolBelt.Visualization
             var result = new List<(double, string?)>();
             foreach (var c in ordered)
             {
-                if (result.Count > 0 && result[result.Count - 1].Item1 == c.Time) result[result.Count - 1] = (c.Time, c.Value);
+                if (result.Count > 0 && result[result.Count - 1].Item1 == c.Time)
+                {
+                    // The replacement may now repeat its predecessor's value (0→1 then 1→0 at one time): drop it then,
+                    // as a same-value change is dropped anywhere else.
+                    if (result.Count > 1 && result[result.Count - 2].Item2 == c.Value) result.RemoveAt(result.Count - 1);
+                    else result[result.Count - 1] = (c.Time, c.Value);
+                }
                 else if (result.Count == 0 || result[result.Count - 1].Item2 != c.Value) result.Add((c.Time, c.Value));
             }
             return result.AsReadOnly(); // a bare List could be cast back and edited
@@ -248,6 +265,10 @@ namespace ToolBelt.Visualization
         public static IReadOnlyList<(double Start, double End, string? Value)> Segments(TimingSignal signal, double t0, double t1)
         {
             if (signal is null) throw new ArgumentNullException(nameof(signal));
+            // NaN compared false everywhere and returned a NaN-ended segment; a reversed window returned nothing.
+            if (double.IsNaN(t0)) throw new ArgumentOutOfRangeException(nameof(t0), t0, "The window start must not be NaN.");
+            if (double.IsNaN(t1)) throw new ArgumentOutOfRangeException(nameof(t1), t1, "The window end must not be NaN.");
+            if (t1 < t0) throw new ArgumentException("The window end is before its start.", nameof(t1));
             var result = new List<(double, double, string?)>();
             string? current = null;
             double from = t0;

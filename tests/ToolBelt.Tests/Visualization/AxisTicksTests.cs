@@ -35,7 +35,9 @@ namespace ToolBelt.Tests.Visualization
         public void Linear_TightKeepsOnlyInRangeTicks()
         {
             TickSet t = AxisTicks.Linear(0.13, 0.97, 5, loose: false);
-            Check.Equal("0.5", Join(t));
+            // The smallest nice step with at most 5 ticks inside the range (the step search counted the bracketing ticks
+            // until round 80, which chose 0.5 and a single tick).
+            Check.Equal("0.2,0.4,0.6,0.8", Join(t));
             Check.Close(0.13, t.Min);
             Check.Close(0.97, t.Max);
         }

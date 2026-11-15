@@ -50,7 +50,8 @@ namespace ToolBelt.Visualization
         /// <summary>Linear ticks over [<paramref name="min"/>, <paramref name="max"/>].</summary>
         public static TickSet Linear(double min, double max, int maxTicks = 6, bool loose = true)
         {
-            Normalize(ref min, ref max, maxTicks);
+            double givenMin = Math.Min(min, max), givenMax = Math.Max(min, max);
+            bool opened = Normalize(ref min, ref max, maxTicks);
             double raw = max / (maxTicks - 1) - min / (maxTicks - 1); // max − min overflowed for ±1e308
             // The step is digit × 10^exponent and each tick is parsed from its exact decimal (k·digit)E(exponent):
             // rounding k·step to at most 15 decimals collapsed every tick of [1.6e-19, 1.7e-19] onto 0.
@@ -71,7 +72,10 @@ namespace ToolBelt.Visualization
                 double candidate = Decimal(d, e);
                 if (double.IsInfinity(candidate)) break; // only near double.MaxValue: keep the last finite step
                 step = candidate; digit = d; exponent = e;
-                if (CountTicks(min, max, candidate) <= maxTicks || (candidate >= reach && CountTicks(min, max, candidate) != long.MaxValue))
+                // A tight axis keeps only the ticks inside the range, so only those count: counting the bracketing ones
+                // chose step 10 for Linear(3.4, 6.68, 2, false), which has no tick inside, over step 2 (4 and 6).
+                long count = CountTicks(min, max, candidate, loose);
+                if (count <= maxTicks || (candidate >= reach && count != long.MaxValue))
                     break;
             }
 
@@ -79,17 +83,21 @@ namespace ToolBelt.Visualization
             long first = (long)Math.Floor(min / step + 1e-9);
             long last = (long)Math.Ceiling(max / step - 1e-9);
             var values = new List<double>();
+            var multiples = new List<long>();
             for (long k = first; k <= last; k++)
             {
                 double v = Decimal(k * digit, exponent);
                 if (double.IsInfinity(v)) continue; // a loose tick past double.MaxValue
                 if (!loose && (v < min - step * 1e-9 || v > max + step * 1e-9)) continue;
                 values.Add(v);
+                multiples.Add(k * digit);
             }
             var labels = new List<string>(values.Count);
             // One format for the whole axis, from its largest magnitude: per tick, 0..1.2e7 read 0|5000000|1E+7|1.5E+7.
             double axisMag = values.Count == 0 ? 0 : Math.Max(Math.Abs(values[0]), Math.Abs(values[values.Count - 1]));
-            foreach (double v in values) labels.Add(FormatLinear(v, step, decimals, axisMag));
+            for (int i = 0; i < values.Count; i++)
+                labels.Add(FormatLinear(values[i], step, decimals, axisMag, multiples[i], exponent));
+            if (opened && !loose) return Within(values, labels, step, givenMin, givenMax);
             return loose
                 ? new TickSet(values, labels, step, Math.Min(values[0], min), Math.Max(values[values.Count - 1], max))
                 : new TickSet(values, labels, step, min, max);
@@ -135,6 +143,7 @@ namespace ToolBelt.Visualization
         /// </summary>
         public static TickSet Time(double minSeconds, double maxSeconds, int maxTicks = 6, bool loose = true)
         {
+            double givenMin = minSeconds, givenMax = maxSeconds;
             Normalize(ref minSeconds, ref maxSeconds, maxTicks);
             double step = double.NaN;
             // As Linear: once the step reaches the largest magnitude no larger one has fewer ticks, so stop there
@@ -142,7 +151,7 @@ namespace ToolBelt.Visualization
             double reach = Math.Max(Math.Abs(minSeconds), Math.Abs(maxSeconds));
             // Below a second the table is the 1-2-5 decimal series, which Linear continues past its 1 ms end:
             // [0.0001, 0.0002] got no tight ticks at all, and a loose [0, 0.001] axis.
-            TickSet linear = Linear(minSeconds, maxSeconds, maxTicks, loose);
+            TickSet linear = Linear(givenMin, givenMax, maxTicks, loose);   // the caller's range: Linear opens it as it needs
             double fine = linear.Step;
             // Past 15 decimals the seconds labels and the rounding to them can't follow ([1.6e-19, 1.7e-19] came out as six
             // ticks at 0, all "0.000000000000000s"), so the linear ticks are used with their own labels.
@@ -154,7 +163,7 @@ namespace ToolBelt.Visualization
             }
             if (fine < TimeSteps[0]) step = fine;
             else foreach (double candidate in TimeSteps)
-                if (CountTicks(minSeconds, maxSeconds, candidate) <= maxTicks || candidate >= reach) { step = candidate; break; }
+                if (CountTicks(minSeconds, maxSeconds, candidate, loose) <= maxTicks || candidate >= reach) { step = candidate; break; }
             if (double.IsNaN(step))
             {
                 // Beyond the table (multi-day spans): fall back to whole multiples of a day on a nice 1-2-5 scale.
@@ -231,7 +240,8 @@ namespace ToolBelt.Visualization
             3600, 7200, 10800, 21600, 43200, 86400,
         };
 
-        private static void Normalize(ref double min, ref double max, int maxTicks)
+        // True when the range was opened because it is too narrow to step.
+        private static bool Normalize(ref double min, ref double max, int maxTicks)
         {
             if (maxTicks < 2) throw new ArgumentOutOfRangeException(nameof(maxTicks), maxTicks, "Need at least two ticks.");
             // int.MaxValue ticks built 2^31 ticks and labels (or ran out of memory).
@@ -249,22 +259,28 @@ namespace ToolBelt.Visualization
                 else { min -= pad; max += pad; }
             }
             // A span this close to the subnormal range underflowed the step to 0, and the step search never ended
-            // ([ε, ε], [−ε, ε]). Both ends are below ~1e-234 here, so the midpoint ± 1e-250 is representable.
-            if (max - min < 1e-250)
+            // ([ε, ε], [−ε, ε]). Both ends are below ~1e-284 here, so the midpoint ± 1e-300 is representable. (From
+            // 1e-250 this opened [1e-300, 2e-300], which steps fine.)
+            if (max - min < 1e-300)
             {
                 double mid = min / 2 + max / 2;
-                min = mid - 1e-250;
-                max = mid + 1e-250;
+                min = mid - 1e-300;
+                max = mid + 1e-300;
+                return true;
             }
+            return false;
         }
 
         // In doubles: the long casts wrapped once |value / step| passed 9.2e18 (epoch nanoseconds read as seconds),
         // so a hopeless step "fitted". Past 2^52 steps the multiples are not even distinct, so count it as too many.
-        private static long CountTicks(double min, double max, double step)
+        // Loose: the ticks that bracket the range; tight: those inside it.
+        private static long CountTicks(double min, double max, double step, bool loose)
         {
             double a = min / step, b = max / step;
             if (!(Math.Abs(a) < 4.5e15) || !(Math.Abs(b) < 4.5e15)) return long.MaxValue;
-            return (long)Math.Ceiling(b - 1e-9) - (long)Math.Floor(a + 1e-9) + 1;
+            return loose
+                ? (long)Math.Ceiling(b - 1e-9) - (long)Math.Floor(a + 1e-9) + 1
+                : (long)Math.Floor(b + 1e-9) - (long)Math.Ceiling(a - 1e-9) + 1;
         }
 
         private static int DecimalsFor(double step)
@@ -293,19 +309,41 @@ namespace ToolBelt.Visualization
             return v == 0 ? 0 : v; // no negative zero
         }
 
-        private static string FormatLinear(double value, double step, int decimals, double axisMag)
+        // The tick is multiple × 10^exponent, exactly.
+        private static string FormatLinear(double value, double step, int decimals, double axisMag, long multiple, int exponent)
         {
             double mag = Math.Max(axisMag, step);
             if (mag >= 1e7 || step < 1e-5)
             {
-                if (value == 0) return "0";
-                // Enough mantissa digits to resolve the step: a fixed "0.###" gave every tick of
-                // [12345670, 12345680] the label "1.235E+7".
-                int digits = (int)Math.Floor(Math.Log10(Math.Abs(value))) - (int)Math.Floor(Math.Log10(step) + 1e-9);
-                digits = Math.Max(0, Math.Min(16, digits));
-                return value.ToString(digits == 0 ? "0E+0" : "0." + new string('#', digits) + "E+0", CultureInfo.InvariantCulture);
+                // From the tick's exact decimal: a custom format prints at most 15 significant digits, so the ticks of
+                // [1, 1 + 4e-15] read 1E+0 five times (and the 12345670..12345680 ticks once all read "1.235E+7").
+                if (multiple == 0) return "0";
+                string digits = (multiple < 0 ? -multiple : multiple).ToString(CultureInfo.InvariantCulture);
+                int scientific = exponent + digits.Length - 1;
+                digits = digits.TrimEnd('0');
+                string mantissa = digits.Length == 1 ? digits : digits.Substring(0, 1) + "." + digits.Substring(1);
+                return (multiple < 0 ? "-" : "") + mantissa + "E" + (scientific < 0 ? "-" : "+")
+                    + Math.Abs(scientific).ToString(CultureInfo.InvariantCulture);
             }
             return value.ToString(decimals == 0 ? "0" : "0." + new string('0', decimals), CultureInfo.InvariantCulture);
+        }
+
+        // The ticks inside [min, max] (an axis opened around a range too narrow to step), and the range itself; its ends
+        // are the ticks when no step fits inside. The opened range was returned as the tight range, and Log10(1e-300,
+        // 2e-300, loose: false) had ticks at ±1e-250 and none on the data.
+        private static TickSet Within(List<double> values, List<string> labels, double step, double min, double max)
+        {
+            var v = new List<double>();
+            var l = new List<string>();
+            for (int i = 0; i < values.Count; i++)
+                if (values[i] >= min && values[i] <= max) { v.Add(values[i]); l.Add(labels[i]); }
+            if (v.Count < 2)
+            {
+                v.Clear(); l.Clear();
+                v.Add(min); l.Add(min.ToString("R", CultureInfo.InvariantCulture));
+                if (max != min) { v.Add(max); l.Add(max.ToString("R", CultureInfo.InvariantCulture)); }
+            }
+            return new TickSet(v, l, step, min, max);
         }
     }
 }

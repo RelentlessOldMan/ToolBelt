@@ -46,6 +46,8 @@ namespace ToolBelt.Visualization
             if (columns is null) throw new ArgumentNullException(nameof(columns));
             int k = names.Count;
             if (k < 1 || columns.Count != k) throw new ArgumentException("Need one column per name (at least one).", nameof(columns));
+            // A null name failed inside SvgUtils, naming "text".
+            if (names.Any(nm => nm is null)) throw new ArgumentException("Names must not be null.", nameof(names));
             if (columns.Any(c => c is null)) throw new ArgumentException("Columns must not be null.", nameof(columns));
             int n = columns[0].Count;
             if (columns.Any(c => c.Count != n)) throw new ArgumentException("All columns must have the same length.", nameof(columns));
@@ -60,6 +62,8 @@ namespace ToolBelt.Visualization
             if (!(o.Gap >= 0) || o.Gap > 1e6) throw new ArgumentOutOfRangeException(nameof(options), "Gap must be in [0, 1e6].");
             if (!(o.PointRadius >= 0) || o.PointRadius > 1e6) throw new ArgumentOutOfRangeException(nameof(options), "PointRadius must be in [0, 1e6].");
             if (!(o.PointOpacity >= 0 && o.PointOpacity <= 1)) throw new ArgumentOutOfRangeException(nameof(options), "PointOpacity must be in [0, 1].");
+            // A null or empty palette failed inside Palettes.Cycle, naming "palette".
+            if (o.Palette is null || o.Palette.Count == 0) throw new ArgumentException("Palette must have at least one colour.", nameof(options));
 
             var ticks = new TickSet[k];
             for (int v = 0; v < k; v++)
@@ -114,9 +118,14 @@ namespace ToolBelt.Visualization
                               .Append("\" r=\"").Append(SvgUtils.Number(o.PointRadius)).Append("\" fill=\"").Append(SvgUtils.Color(c))
                               .Append("\" fill-opacity=\"").Append(SvgUtils.Number(o.PointOpacity)).Append("\"/>\n");
                         }
-                        if (o.ShowCorrelation && Pearson(columns[col], columns[row]) is double r)
+                        if (o.ShowCorrelation && Pearson(columns[col], columns[row]) is double r0)
+                        {
+                            // Rounded first, then zero unsigned: r = −0.001 printed "−0.00".
+                            double r = Math.Round(r0, 2);
+                            if (r == 0) r = 0;
                             sb.Append("<text x=\"").Append(SvgUtils.Number(x0 + size - 4)).Append("\" y=\"").Append(SvgUtils.Number(y0 + 12))
                               .Append("\" text-anchor=\"end\" fill=\"#555\" stroke=\"#fafafa\" stroke-width=\"3\" paint-order=\"stroke\">r = ").Append(r.ToString("0.00", CultureInfo.InvariantCulture)).Append("</text>\n");
+                        }
                     }
                     sb.Append("</g>\n");
 
@@ -124,7 +133,9 @@ namespace ToolBelt.Visualization
                     if (row == k - 1)
                         for (int t = 0; t < xt.Count; t++)
                         {
-                            double px = x0 + (0.5 * xt.Values[t] - 0.5 * xt.Min) / (0.5 * xt.Max - 0.5 * xt.Min) * size; // halved: no ∞ span
+                            double fx = (0.5 * xt.Values[t] - 0.5 * xt.Min) / (0.5 * xt.Max - 0.5 * xt.Min); // halved: no ∞ span
+                            if (OnEdge(fx)) continue;
+                            double px = x0 + fx * size;
                             sb.Append("<line x1=\"").Append(SvgUtils.Number(px)).Append("\" y1=\"").Append(SvgUtils.Number(y0 + size)).Append("\" x2=\"").Append(SvgUtils.Number(px))
                               .Append("\" y2=\"").Append(SvgUtils.Number(y0 + size + 4)).Append("\" stroke=\"#444\"/>\n<text x=\"").Append(SvgUtils.Number(px)).Append("\" y=\"")
                               .Append(SvgUtils.Number(y0 + size + 15)).Append("\" text-anchor=\"middle\">").Append(SvgUtils.EscapeText(xt.Labels[t])).Append("</text>\n");
@@ -134,7 +145,9 @@ namespace ToolBelt.Visualization
                         var yt = ticks[row];
                         for (int t = 0; t < yt.Count; t++)
                         {
-                            double py = y0 + size - (0.5 * yt.Values[t] - 0.5 * yt.Min) / (0.5 * yt.Max - 0.5 * yt.Min) * size;
+                            double fy = (0.5 * yt.Values[t] - 0.5 * yt.Min) / (0.5 * yt.Max - 0.5 * yt.Min);
+                            if (OnEdge(fy)) continue;
+                            double py = y0 + size - fy * size;
                             sb.Append("<line x1=\"").Append(SvgUtils.Number(x0 - 4)).Append("\" y1=\"").Append(SvgUtils.Number(py)).Append("\" x2=\"").Append(SvgUtils.Number(x0))
                               .Append("\" y2=\"").Append(SvgUtils.Number(py)).Append("\" stroke=\"#444\"/>\n<text x=\"").Append(SvgUtils.Number(x0 - 6)).Append("\" y=\"")
                               .Append(SvgUtils.Number(py + 3.5)).Append("\" text-anchor=\"end\">").Append(SvgUtils.EscapeText(yt.Labels[t])).Append("</text>\n");
@@ -179,11 +192,17 @@ namespace ToolBelt.Visualization
             }
         }
 
+        // A tick on a panel edge collides with the neighbouring panel's edge label (the padded range often ends on a nice
+        // number), so only ticks strictly inside are drawn.
+        private static bool OnEdge(double fraction) => !(fraction > 1e-9 && fraction < 1 - 1e-9);
+
         /// <summary>Pearson correlation over rows where both values are finite (null if fewer than 3 such rows or no variance).</summary>
         public static double? Pearson(IReadOnlyList<double> x, IReadOnlyList<double> y)
         {
             if (x is null) throw new ArgumentNullException(nameof(x));
             if (y is null) throw new ArgumentNullException(nameof(y));
+            // The longer list's tail was ignored without a word.
+            if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.", nameof(y));
             // r does not depend on scale, so the deviations are halved (no overflow for ±1e308) and divided by their
             // largest: the squares and Sqrt(sxx·syy) overflowed at 1e200 and underflowed to 0 at 1e-90 (r came out 1).
             int count = Math.Min(x.Count, y.Count), n = 0;

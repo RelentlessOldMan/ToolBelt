@@ -18,9 +18,13 @@ namespace ToolBelt.Tests.Visualization
     {
         public void TimingClock_HugeStartTimeTerminates()
         {
-            var t = Task.Run(() => TimingSignal.Clock("clk", 1e-8, 1.7e9, 1.7e9 + 1e-5));
+            var t = Task.Run(() => TimingSignal.Clock("clk", 1e-6, 1.7e9, 1.7e9 + 1e-3));
             Check.True(t.Wait(5000), "Clock with an epoch-second start must terminate");
             Check.True(t.Result.Changes.Count >= 2);
+            // A period below the start's resolution (1e-8 at 1.7e9) rounded the edges onto each other; it throws now.
+            var tiny = Task.Run(() => Check.Throws<ArgumentException>(() => TimingSignal.Clock("clk", 1e-8, 1.7e9, 1.7e9 + 1e-5)));
+            Check.True(tiny.Wait(5000), "Clock with an unresolvable period must terminate");
+            Check.Equal("period", tiny.Result.ParamName);
             Check.Throws<ArgumentException>(() => TimingSignal.Clock("c", 1, double.NaN, 5));
         }
 

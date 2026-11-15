@@ -203,6 +203,9 @@ namespace ToolBelt.Visualization
         private static void SvgPointer(StringBuilder sb, Item it, PlotFrame f, double fontSize)
         {
             double tipX, tipY, tailX, tailY;
+            // The label's side is decided once, from the requested offset: re-deciding it after the clamp could flip the
+            // anchor (a tail clamped past the tip), running the label off the plot it was clamped to stay inside.
+            bool runsLeft, above;
             if (it.Kind == Kind.Callout)
             {
                 if (!f.ContainsX(it.A) || !f.ContainsY(it.B)) return;
@@ -213,10 +216,10 @@ namespace ToolBelt.Visualization
                 // Keep the label (and so the arrow's tail) inside the plot: a point near an edge would otherwise push
                 // its pixel-offset label off the chart. Horizontal room depends on which way the text runs.
                 double w = SvgUtils.EstimateTextWidth(it.Label ?? "", fontSize);
-                bool runsLeft = tipX >= tailX; // label anchored "end"
+                runsLeft = tipX >= tailX; // label anchored "end"
                 double minX = f.Left + 2 + (runsLeft ? w : 0), maxX = f.Right - 2 - (runsLeft ? 0 : w);
                 if (minX <= maxX) tailX = Math.Max(minX, Math.Min(maxX, tailX));
-                bool above = tipY >= tailY;
+                above = tipY >= tailY;
                 double minY = f.Top + 2 + (above ? fontSize + 3 : 0), maxY = f.Bottom - 2 - (above ? 0 : fontSize);
                 if (minY <= maxY) tailY = Math.Max(minY, Math.Min(maxY, tailY));
                 sb.Append("<circle cx=\"").Append(SvgUtils.Number(tipX)).Append("\" cy=\"").Append(SvgUtils.Number(tipY))
@@ -227,6 +230,7 @@ namespace ToolBelt.Visualization
                 if (!f.ContainsX(it.A) || !f.ContainsY(it.B) || !f.ContainsX(it.C) || !f.ContainsY(it.D)) return;
                 tailX = f.MapX(it.A); tailY = f.MapY(it.B); tipX = f.MapX(it.C); tipY = f.MapY(it.D);
                 if (double.IsNaN(tailX) || double.IsNaN(tailY) || double.IsNaN(tipX) || double.IsNaN(tipY)) return;
+                runsLeft = tipX >= tailX; above = tipY >= tailY;
             }
 
             // Stop the shaft short of a callout's marker so the head stays visible.
@@ -252,8 +256,8 @@ namespace ToolBelt.Visualization
             if (!string.IsNullOrEmpty(it.Label))
             {
                 // Label sits at the tail, on the side away from the target.
-                string anchor = tipX >= tailX ? "end" : "start";
-                double ty = tailY + (tipY >= tailY ? -3 : fontSize);
+                string anchor = runsLeft ? "end" : "start";
+                double ty = tailY + (above ? -3 : fontSize);
                 Text(sb, tailX, ty, it.Label!, it.Color, anchor);
             }
         }

@@ -153,6 +153,11 @@ namespace ToolBelt.Visualization
             if (!(o.FontSize > 0) || double.IsInfinity(o.FontSize)) throw new ArgumentOutOfRangeException("options", "FontSize must be positive and finite.");
             if (!Finite(o.XMin) || !Finite(o.XMax) || !Finite(o.YMin) || !Finite(o.YMax))
                 throw new ArgumentOutOfRangeException("options", "Axis limits must be finite.");
+            // A reversed pair was swapped without a word (ErrorBarChart and HeatMap reject it), and a non-positive log
+            // limit failed naming "explicitMin", a private helper's parameter.
+            if (o.XMin > o.XMax || o.YMin > o.YMax) throw new ArgumentException("An axis minimum is above its maximum.", "options");
+            if (o.XAxis == AxisKind.Log && (o.XMin <= 0 || o.XMax <= 0) || o.YAxis == AxisKind.Log && (o.YMin <= 0 || o.YMax <= 0))
+                throw new ArgumentOutOfRangeException("options", "A log axis needs strictly positive limits.");
             if (o.FontFamily is null) throw new ArgumentException("FontFamily must not be null.", "options");
             if (o.MaxXTicks < 2 || o.MaxYTicks < 2) // failed inside AxisTicks as "maxTicks"
                 throw new ArgumentOutOfRangeException("options", "MaxXTicks and MaxYTicks must be at least 2.");
@@ -230,7 +235,7 @@ namespace ToolBelt.Visualization
             }
             if (lo > hi) (lo, hi) = (hi, lo);
             if (kind == AxisKind.Log && (!(lo > 0) || !(hi > 0)))
-                throw new ArgumentOutOfRangeException(nameof(explicitMin), "A log axis needs strictly positive limits.");
+                throw new ArgumentOutOfRangeException("options", "A log axis needs strictly positive limits.");
             bool tight = explicitMin.HasValue && explicitMax.HasValue;
 
             TickSet ticks = kind switch

@@ -115,6 +115,8 @@ namespace ToolBelt.Visualization
                     if (!IsFinite(center[i])) { havePrev = false; continue; }
                     double x = MapX(i), y = MapY(center[i]);
                     if (havePrev) image.DrawLineClipped(prevX, prevY, x, y, options.CenterColor, left, top, right, bottom);
+                    // No finite neighbour on either side (one point, or one between gaps) drew nothing; as LinePlot, a dot.
+                    else if (!(i + 1 < n && IsFinite(center[i + 1]))) image.DrawLineClipped(x, y, x, y, options.CenterColor, left, top, right, bottom);
                     prevX = x; prevY = y; havePrev = true;
                 }
             }

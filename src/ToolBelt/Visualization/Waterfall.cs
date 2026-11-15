@@ -153,6 +153,8 @@ namespace ToolBelt.Visualization
             // NaN surfaced from AxisTicks as "min", and +∞ was silently dropped.
             if (options.ValueMin is double vmn && (double.IsNaN(vmn) || double.IsInfinity(vmn)) || options.ValueMax is double vmx && (double.IsNaN(vmx) || double.IsInfinity(vmx)))
                 throw new ArgumentOutOfRangeException(nameof(options), "ValueMin and ValueMax must be finite.");
+            // Swapped without a word before (ErrorBarChart and HeatMap reject a reversed range).
+            if (options.ValueMin > options.ValueMax) throw new ArgumentException("ValueMin is above ValueMax.", nameof(options));
             double min = double.PositiveInfinity, max = double.NegativeInfinity;
             if (options.ValueMin is null || options.ValueMax is null)
                 foreach (double v in data)
@@ -196,8 +198,11 @@ namespace ToolBelt.Visualization
         private static WaterfallLayout ComputeLayout(double[,] data, WaterfallOptions o)
         {
             Validate(data, o);
-            if (!(o.Width > 0) || !(o.Height > 0) || !(o.FontSize > 0))
-                throw new ArgumentOutOfRangeException("options", "Width, Height and FontSize must be positive.");
+            // ∞ failed later naming "width", "height" or "fontSize", and fewer than two ticks as "maxTicks".
+            if (!(o.Width > 0) || !(o.Height > 0) || !(o.FontSize > 0) || double.IsInfinity(o.Width) || double.IsInfinity(o.Height) || double.IsInfinity(o.FontSize))
+                throw new ArgumentOutOfRangeException("options", "Width, Height and FontSize must be positive and finite.");
+            if (o.MaxFrequencyTicks < 2 || o.MaxTimeTicks < 2)
+                throw new ArgumentOutOfRangeException("options", "MaxFrequencyTicks and MaxTimeTicks must be at least 2.");
             int rows = data.GetLength(0), cols = data.GetLength(1);
             double fLo = o.FrequencyStart - o.FrequencyStep / 2, fHi = o.FrequencyStart + (cols - 0.5) * o.FrequencyStep;
             double tLo = o.TimeStart, tHi = o.TimeStart + rows * o.TimeStep;
@@ -303,7 +308,9 @@ namespace ToolBelt.Visualization
                 // Flat data: every tick would land at the same height and the labels would overprint. Show the one value.
                 double py = f.Bottom - 0.5 * f.Height;
                 Tick(sb, x + BarWidth, py, x + BarWidth + 4, py, axis);
-                Text(sb, x + BarWidth + 6, py + fs * 0.35, l.VMin.ToString("G4", System.Globalization.CultureInfo.InvariantCulture), "start", ink);
+                // Round-trip, without a sign on zero: "G4" printed 12345.678 as 1.235E+04, and -0 as "-0" on .NET 8 only.
+                double flat = l.VMin == 0 ? 0 : l.VMin;
+                Text(sb, x + BarWidth + 6, py + fs * 0.35, flat.ToString("R", System.Globalization.CultureInfo.InvariantCulture), "start", ink);
             }
             else
             {
@@ -352,6 +359,10 @@ namespace ToolBelt.Visualization
             double fEnd = o.FrequencyStart + (data.GetLength(1) - 0.5) * o.FrequencyStep, tEnd = o.TimeStart + data.GetLength(0) * o.TimeStep;
             if (double.IsInfinity(fEnd) || double.IsInfinity(o.FrequencyStart - o.FrequencyStep / 2) || double.IsInfinity(tEnd))
                 throw new ArgumentOutOfRangeException("options", "The frequency or time axis overflows; reduce the step or start.");
+            // A step below the start's resolution collapsed the axis to one value ([1e17, 1e17] for step 1), which the
+            // layout then opened and labelled with a span the data don't have.
+            if (!(fEnd > o.FrequencyStart - o.FrequencyStep / 2) || !(tEnd > o.TimeStart))
+                throw new ArgumentOutOfRangeException("options", "The step is too small to resolve at this start; reduce the start or enlarge the step.");
             if (o.FontFamily is null) throw new ArgumentException("FontFamily must not be null.", "options");
         }
     }

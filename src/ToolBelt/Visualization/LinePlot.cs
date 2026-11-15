@@ -137,6 +137,9 @@ namespace ToolBelt.Visualization
             if (m < 0) throw new ArgumentOutOfRangeException(nameof(options), m, "Margin must not be negative.");
             int left = m, right = width - 1 - m, top = m, bottom = height - 1 - m;
             if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.", nameof(options));
+            // A NaN limit fell to the [0, 1] default and ∞ failed inside PlotFrame, naming "xMin" or "yMin".
+            if (!Limit(options.MinX) || !Limit(options.MaxX) || !Limit(options.MinY) || !Limit(options.MaxY))
+                throw new ArgumentOutOfRangeException(nameof(options), "MinX, MaxX, MinY and MaxY must be finite.");
             Bounds(series, options, out double minX, out double maxX, out double minY, out double maxY);
             OpenPastLimit(ref minX, ref maxX, options.MinX.HasValue, options.MaxX.HasValue);
             OpenPastLimit(ref minY, ref maxY, options.MinY.HasValue, options.MaxY.HasValue);
@@ -146,6 +149,8 @@ namespace ToolBelt.Visualization
         }
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        private static bool Limit(double? v) => v is null || IsFinite(v.Value);
 
         // One explicit limit past all the data (or with no data at all) opens the axis beyond it, as SvgChart's and
         // HexBin's axes do: Min = 100 over data 0..10 drew a reversed 100..10 axis.

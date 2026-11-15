@@ -528,15 +528,15 @@ src/
       Palettes.cs           Okabe-Ito / Tableau10, WCAG luminance + contrast ratio, contrasting label colour, hex
       SvgDocument.cs        fluent SVG vector builder (shapes/text/path; invariant coords)
       SvgUtils.cs           shared SVG primitives: escaping, numbers/colors, PathBuilder, transforms, text-width estimate
-      AxisTicks.cs          nice ticks + labels: linear (1-2-5, count-bounded, maxTicks ≤ 10,000), log decades, clock-friendly time
+      AxisTicks.cs          nice ticks + labels: linear (1-2-5, count-bounded, maxTicks ≤ 10,000), log decades, clock-friendly time; tight mode keeps the given bounds
       PlotFrame.cs          shared data<->pixel mapping (linear/log axes) for renderers and overlays
       Annotations.cs        data-space ref lines / bands / callouts / arrows -> SVG (labelled) or raster
       SvgChart.cs           labelled SVG XY chart: line/scatter/bar, linear/log/time axes, grid, legend, annotations
       MultiPanel.cs         grid of SvgChart panels w/ common title + shared x/y (exactly aligned); raster tiling
-      Waterfall.cs          time x frequency waterfall: SVG (embedded PNG cells, freq/time axes, color scale) or raster
+      Waterfall.cs          time x frequency waterfall: SVG (embedded PNG cells, freq/time axes, color scale) or raster; ValueMin ≤ ValueMax
       HexBin.cs             exact hexagonal binning in pixel space + SVG (log colour, count scale, edge cells clipped)
-      ScatterMatrix.cs      pairs plot: histograms on the diagonal, group colours + legend, Pearson r per panel
-      TimingDiagram.cs      logic-analyser view: digital lanes, labelled buses, unknown hatching, cursors, SI time axis (an explicit window needs Start < End)
+      ScatterMatrix.cs      pairs plot: histograms on the diagonal, group colours + legend, Pearson r per panel (equal lengths)
+      TimingDiagram.cs      logic-analyser view: digital lanes, labelled buses, unknown hatching, cursors, SI time axis (an explicit window needs Start < End; a period or sample interval must be resolvable at its start time)
       Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops)
       Colorbar.cs           render a colormap as a gradient legend strip (vertical/horizontal)
       HeatMap.cs            render a 2-D grid via a colormap (cell size, range, NaN color)
@@ -1000,6 +1000,7 @@ tests/
       ChartsReview2Tests.cs (second-pass regressions: subnormal and ±1e308 ranges, exact decimal ticks, one explicit limit past the data, bounded work)
       ChartsReview3Tests.cs (third-pass regressions: sub-millisecond time ticks, one bound past the data, overflowing spans, option validation)
       ChartsReview4Tests.cs (fourth-pass regressions: two ticks over ±MaxValue, bounded hatch and binning, limits at MaxValue, subnormal Pearson)
+      ChartsReview80Tests.cs (fifth pass: tight tick search and bounds, exact exponent labels, option validation, unresolvable steps, ordered quartiles, callout sides)
       DocsVizReviewRegressionTests.cs  (2026-10-05 review regressions: Documents and Visualization)
     Resilience/
       RetryTests.cs

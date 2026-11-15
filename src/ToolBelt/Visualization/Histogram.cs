@@ -137,6 +137,10 @@ namespace ToolBelt.Visualization
             if (right <= left || bottom <= top) throw new ArgumentException("Image is too small for the margin.", nameof(options));
             // A bar needs a pixel column: 2e9 bins on a 100-pixel plot allocated 16 GB of edges to draw bars 0 wide.
             if (bins > right - left + 1) throw new ArgumentOutOfRangeException(nameof(bins), bins, $"More bins than the plot's {right - left + 1} pixel columns.");
+            // Bin's own checks named its "min" and "max" parameters, which Render does not have.
+            if (options.Min is double hmn && (double.IsNaN(hmn) || double.IsInfinity(hmn)) || options.Max is double hmx && (double.IsNaN(hmx) || double.IsInfinity(hmx)))
+                throw new ArgumentOutOfRangeException(nameof(options), "Min and Max must be finite.");
+            if (options.Min > options.Max) throw new ArgumentException("Min is above Max.", nameof(options));
             var (_, counts) = Bin(data, bins, options.Min, options.Max);
 
             if (options.DrawFrame)
