@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
@@ -11,11 +12,13 @@ using System.Windows.Media.Media3D;
 namespace ToolBelt.Wpf
 {
     /// <summary>
-    /// Attached behavior that accepts files dropped onto any element and hands their paths (a <c>string[]</c>) to a
+    /// Attached behavior that accepts files dropped onto any element (a <see cref="UIElement"/>, <see cref="ContentElement"/>
+    /// or <see cref="UIElement3D"/>) and hands their paths (a <c>string[]</c>) to a
     /// bound <see cref="ICommand"/>:
     /// <c>&lt;ListBox tb:FileDropBehavior.Command="{Binding ImportCommand}" tb:FileDropBehavior.Extensions=".csv;.txt"/&gt;</c>.
     /// While dragging, the cursor shows Copy only when the drop holds at least one acceptable file and the command
-    /// can execute them, otherwise None — so users see before releasing whether a drop will be taken. Setting the
+    /// can execute them, otherwise None — so users see before releasing whether a drop will be taken (Copy only when the
+    /// source allows it; a drop the command takes reports Copy back to the source, never Move). Setting the
     /// command also sets <c>AllowDrop</c>; clearing it detaches everything and restores the previous <c>AllowDrop</c>. The
     /// tunnelling (Preview) drag events are used, so controls with their own drag handling (a <c>TextBox</c> accepts dragged
     /// text) do not swallow files — and only drags carrying files are handled, so that text drag-and-drop keeps working.
@@ -39,8 +42,8 @@ namespace ToolBelt.Wpf
         /// <summary>
         /// The dropped file paths that pass the <paramref name="extensions"/> filter (case-insensitive, on the end of the
         /// name, so ".tar.gz" works; "*.*" or "*" accepts every file). With a filter, folders are excluded — even one whose name ends in a listed extension;
-        /// without one, everything in the drop is returned. Empty when the drop holds no files, or when its source fails to
-        /// render them.
+        /// without one, every path in the drop is returned, folders included (a null entry never is). The array is always
+        /// a new one. Empty when the drop holds no files, or when its source fails to render them.
         /// </summary>
         public static string[] GetFiles(IDataObject data, string? extensions)
         {
@@ -66,8 +69,14 @@ namespace ToolBelt.Wpf
         {
             if (paths is null) return Array.Empty<string>();
             var accepted = ParseExtensions(extensions, out bool anyFile);
-            if (accepted.Count == 0 && !anyFile) return paths;
             var result = new List<string>();
+            // With no filter the source's own array went to the command, null entries and all.
+            if (accepted.Count == 0 && !anyFile)
+            {
+                foreach (string p in paths)
+                    if (p != null) result.Add(p);
+                return result.ToArray();
+            }
             foreach (string p in paths)
                 if (p != null && (anyFile || HasExtension(p, accepted)) && !Directory.Exists(p)) result.Add(p);
             return result.ToArray();
@@ -106,32 +115,56 @@ namespace ToolBelt.Wpf
             return set;
         }
 
-        // AllowDrop as it was before the behavior turned it on, restored when the command is cleared.
+        // AllowDrop's local value as it was before the behavior turned it on (NoLocalValue when it had none: AllowDrop
+        // inherits), restored when the command is cleared. Writing back the effective value made it local, so the element
+        // stopped inheriting AllowDrop from its ancestors.
         private static readonly DependencyProperty PriorAllowDropProperty =
-            DependencyProperty.RegisterAttached("PriorAllowDrop", typeof(bool?), typeof(FileDropBehavior), new PropertyMetadata(null));
+            DependencyProperty.RegisterAttached("PriorAllowDrop", typeof(object), typeof(FileDropBehavior), new PropertyMetadata(null));
+
+        private static readonly object NoLocalValue = new object();
+
+        // Elements the behavior has attached to: only these are nested targets. A Command on an element it could not
+        // attach to made the outer target step aside with nothing taking the drop.
+        private static readonly DependencyProperty AttachedProperty =
+            DependencyProperty.RegisterAttached("Attached", typeof(bool), typeof(FileDropBehavior), new PropertyMetadata(false));
 
         private static void OnCommandChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
-            if (!(d is UIElement element)) return;
-            element.PreviewDragEnter -= OnDragOver;
-            element.PreviewDragOver -= OnDragOver;
-            element.PreviewDragLeave -= OnDragLeave;
-            element.PreviewDrop -= OnDrop;
-            if (!(e.NewValue is ICommand) && element.GetValue(PriorAllowDropProperty) is bool prior)
+            // ContentElement and UIElement3D take drops too; only UIElement got the handlers.
+            if (!(d is UIElement || d is ContentElement || d is UIElement3D) || !(d is IInputElement element)) return;
+            element.RemoveHandler(DragDrop.PreviewDragEnterEvent, (DragEventHandler)OnDragOver);
+            element.RemoveHandler(DragDrop.PreviewDragOverEvent, (DragEventHandler)OnDragOver);
+            element.RemoveHandler(DragDrop.PreviewDragLeaveEvent, (DragEventHandler)OnDragLeave);
+            element.RemoveHandler(DragDrop.PreviewDropEvent, (DragEventHandler)OnDrop);
+            object? prior = d.GetValue(PriorAllowDropProperty);
+            if (!(e.NewValue is ICommand) && prior != null)
             {
-                element.AllowDrop = prior;
-                element.ClearValue(PriorAllowDropProperty);
+                if (ReferenceEquals(prior, NoLocalValue)) d.ClearValue(UIElement.AllowDropProperty);
+                else if (prior is BindingExpressionBase binding) BindingOperations.SetBinding(d, UIElement.AllowDropProperty, binding.ParentBindingBase);
+                else d.SetValue(UIElement.AllowDropProperty, prior);
+                d.ClearValue(PriorAllowDropProperty);
+                d.ClearValue(AttachedProperty);
             }
             if (e.NewValue is ICommand)
             {
-                if (element.GetValue(PriorAllowDropProperty) is null) element.SetValue(PriorAllowDropProperty, element.AllowDrop);
-                element.AllowDrop = true;
-                element.PreviewDragEnter += OnDragOver;
-                element.PreviewDragOver += OnDragOver;
-                element.PreviewDragLeave += OnDragLeave;
-                element.PreviewDrop += OnDrop;
+                if (prior is null)
+                {
+                    object local = d.ReadLocalValue(UIElement.AllowDropProperty);
+                    d.SetValue(PriorAllowDropProperty, ReferenceEquals(local, DependencyProperty.UnsetValue) ? NoLocalValue : local);
+                }
+                d.SetValue(UIElement.AllowDropProperty, true);
+                d.SetValue(AttachedProperty, true);
+                element.AddHandler(DragDrop.PreviewDragEnterEvent, (DragEventHandler)OnDragOver);
+                element.AddHandler(DragDrop.PreviewDragOverEvent, (DragEventHandler)OnDragOver);
+                element.AddHandler(DragDrop.PreviewDragLeaveEvent, (DragEventHandler)OnDragLeave);
+                element.AddHandler(DragDrop.PreviewDropEvent, (DragEventHandler)OnDrop);
             }
         }
+
+        // The target sets a subset of what the source allows: Copy was shown (and a drop returned every allowed effect)
+        // even when the source allowed only Move, and a source told Move may delete its originals.
+        private static DragDropEffects CopyIfAllowed(DragEventArgs e)
+            => (e.AllowedEffects & DragDropEffects.Copy) != 0 ? DragDropEffects.Copy : DragDropEffects.None;
 
         private static void OnDragOver(object sender, DragEventArgs e)
         {
@@ -148,7 +181,7 @@ namespace ToolBelt.Wpf
             if (c is null || !c.Data.TryGetTarget(out IDataObject? cached) || !ReferenceEquals(cached, e.Data)
                 || c.Extensions != extensions || !SamePaths(c.Raw, raw))
                 _drag = c = new DragCache(e.Data, raw, extensions, Filter(raw, extensions));
-            e.Effects = command != null && c.Files.Length > 0 && command.CanExecute(c.Files) ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Effects = command != null && c.Files.Length > 0 && command.CanExecute(c.Files) ? CopyIfAllowed(e) : DragDropEffects.None;
             e.Handled = true;
         }
 
@@ -184,7 +217,7 @@ namespace ToolBelt.Wpf
         private static bool InnerTargetBelow(DependencyObject target, DragEventArgs e)
         {
             for (DependencyObject? d = e.OriginalSource as DependencyObject; d != null && !ReferenceEquals(d, target); d = Parent(d))
-                if (GetCommand(d) != null) return true;
+                if ((bool)d.GetValue(AttachedProperty) && GetCommand(d) != null) return true;
             return false;
         }
 
@@ -204,11 +237,14 @@ namespace ToolBelt.Wpf
             _drag = null;
             ICommand? command = GetCommand(d);
             string[] files = GetFiles(e.Data, GetExtensions(d));
-            if (command != null && files.Length > 0 && command.CanExecute(files))
+            DragDropEffects effect = CopyIfAllowed(e);
+            if (command != null && files.Length > 0 && effect != DragDropEffects.None && command.CanExecute(files))
             {
-                command.Execute(files);
+                e.Effects = effect;   // left as every allowed effect, Move included
                 e.Handled = true;
+                command.Execute(files);
             }
+            else if (HasFileDrop(e.Data)) e.Effects = DragDropEffects.None;
         }
     }
 }

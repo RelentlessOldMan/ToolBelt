@@ -113,7 +113,8 @@ namespace ToolBelt.Wpf
     /// <summary>
     /// Maps a count to a <see cref="Visibility"/>: a positive number (any numeric type), or a non-empty collection /
     /// sequence, becomes Visible; null, zero, or an empty collection becomes Collapsed (or Hidden via
-    /// <see cref="UseHidden"/>). <see cref="Invert"/> swaps the sense — handy for "show this when the list is
+    /// <see cref="UseHidden"/>). A bool counts as itself; any other object (not a number or a sequence) counts as
+    /// present, so is Visible. A string is a sequence of characters, so "0" is Visible: bind the number itself. <see cref="Invert"/> swaps the sense — handy for "show this when the list is
     /// empty" placeholders. One-way: <see cref="ConvertBack"/> returns <see cref="Binding.DoNothing"/>.
     /// </summary>
     public sealed class CountToVisibilityConverter : IValueConverter
@@ -138,6 +139,7 @@ namespace ToolBelt.Wpf
                 double n => n > 0,
                 float n => n > 0,
                 decimal n => n > 0,
+                bool b => b,   // false showed the element (a HasItems mis-bound to the count converter)
                 ICollection c => c.Count > 0,
                 IEnumerable e => HasAny(e),
                 _ => IsPositiveNumber(value) ?? true,

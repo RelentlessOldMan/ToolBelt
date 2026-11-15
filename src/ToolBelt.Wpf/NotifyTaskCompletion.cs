@@ -1,10 +1,11 @@
-// ToolBelt.Wpf drop-in — Windows-only (net8.0-windows), self-contained (BCL only).
+// ToolBelt.Wpf drop-in — Windows-only (net8.0-windows), self-contained (BCL + WPF).
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 
 namespace ToolBelt.Wpf
 {
@@ -17,7 +18,9 @@ namespace ToolBelt.Wpf
     /// The notifications are raised on the synchronization context that created the wrapper (the UI thread), so
     /// handlers may touch UI objects. Await <see cref="Completion"/> to know when they have been raised. A handler that
     /// throws does not stop the other notifications or handlers; its exception is rethrown afterwards on that context
-    /// (an unhandled UI exception, like any handler's), or faults <see cref="Completion"/> when there is no context.
+    /// (an unhandled UI exception, like any handler's), or faults <see cref="Completion"/> when there is no context. If
+    /// the creating thread's dispatcher has shut down by the time the task finishes, the notifications are skipped and
+    /// <see cref="Completion"/> still completes.
     /// </summary>
     public sealed class NotifyTaskCompletion<TResult> : INotifyPropertyChanged
     {
@@ -51,15 +54,31 @@ namespace ToolBelt.Wpf
 
         private async Task WatchAsync(Task<TResult> task)
         {
-            try
+            // A continuation posted to a dispatcher that had shut down never ran, so Completion never completed.
+            Dispatcher? dispatcher = SynchronizationContext.Current is DispatcherSynchronizationContext
+                ? Dispatcher.FromThread(Thread.CurrentThread) : null;
+            if (dispatcher is null)
             {
-                await task;      // back on the creating context (ConfigureAwait(false) raised them on the thread pool)
+                try
+                {
+                    await task;      // back on the creating context (ConfigureAwait(false) raised them on the thread pool)
+                }
+                catch
+                {
+                    // Observed via IsFaulted/ErrorMessage — never rethrown.
+                }
+                Raise();
+                return;
             }
-            catch
-            {
-                // Observed via IsFaulted/ErrorMessage below — never rethrown.
-            }
+            try { await task.ConfigureAwait(false); }
+            catch { /* as above */ }
+            if (dispatcher.HasShutdownStarted) return;
+            try { await dispatcher.InvokeAsync(Raise).Task.ConfigureAwait(false); }
+            catch (OperationCanceledException) { }   // the dispatcher shut down before it ran (the operation was aborted)
+        }
 
+        private void Raise()
+        {
             var handler = PropertyChanged;
             if (handler is null)
                 return;

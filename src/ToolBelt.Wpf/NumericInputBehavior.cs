@@ -267,6 +267,13 @@ namespace ToolBelt.Wpf
             string text = box.Text ?? "";
             int start = Math.Min(box.SelectionStart, text.Length);
             int length = Math.Min(box.SelectionLength, text.Length - start);
+            // TextBox inserts only what MaxLength leaves room for: a paste of "1." into "5" with MaxLength 2 was checked
+            // as "1.5" and became 15.
+            if (box.MaxLength > 0)
+            {
+                int room = Math.Max(0, box.MaxLength - (text.Length - length));
+                if (insert.Length > room) insert = insert.Substring(0, room);
+            }
             return text.Substring(0, start) + insert + text.Substring(start + length);
         }
 

@@ -78,10 +78,13 @@ namespace ToolBelt.Wpf
                 : throw new ArgumentOutOfRangeException(nameof(value), value, "MinZoom must be a positive finite number.");
         }
 
-        /// <summary>The largest scale fitting and zooming allow: a positive finite number.</summary>
+        /// <summary>
+        /// The largest scale fitting and zooming allow: a positive finite number. Set below <see cref="MinZoom"/>, it reads
+        /// as <see cref="MinZoom"/> (as a RangeBase's Maximum is coerced), so the order the two are set in does not matter.
+        /// </summary>
         public double MaxZoom
         {
-            get => _maxZoom;
+            get => Math.Max(_maxZoom, _minZoom);   // MinZoom 5 with MaxZoom 1 sent every zoom to 5, above the "largest" scale
             set => _maxZoom = value > 0 && !double.IsInfinity(value)
                 ? value
                 : throw new ArgumentOutOfRangeException(nameof(value), value, "MaxZoom must be a positive finite number.");
@@ -164,13 +167,18 @@ namespace ToolBelt.Wpf
         /// with the resulting scale clamped to [<paramref name="minZoom"/>, <paramref name="maxZoom"/>]. The figure point
         /// under <paramref name="viewPoint"/> stays under it. A zoom that would leave the view non-invertible (WPF treats
         /// a scale below about 5e-8 as singular) or not finite returns <paramref name="view"/> unchanged.
-        /// <paramref name="viewPoint"/> must be finite.
+        /// <paramref name="viewPoint"/> must be finite, and the bounds not NaN with <paramref name="minZoom"/> at most
+        /// <paramref name="maxZoom"/>.
         /// </summary>
         public static Matrix ZoomAbout(Matrix view, Point viewPoint, double factor, double minZoom = 0, double maxZoom = double.MaxValue)
         {
             if (!(factor > 0) || double.IsInfinity(factor)) throw new ArgumentOutOfRangeException(nameof(factor), factor, "Factor must be positive.");
             if (!double.IsFinite(viewPoint.X) || !double.IsFinite(viewPoint.Y))
                 throw new ArgumentOutOfRangeException(nameof(viewPoint), viewPoint, "The point must be finite.");   // a NaN offset still "had an inverse"
+            // A NaN bound turned that side of the clamp off; min above max sent every zoom to min.
+            if (double.IsNaN(minZoom)) throw new ArgumentOutOfRangeException(nameof(minZoom), minZoom, "The bound must not be NaN.");
+            if (double.IsNaN(maxZoom) || maxZoom < minZoom)
+                throw new ArgumentOutOfRangeException(nameof(maxZoom), maxZoom, "The bound must not be NaN or below minZoom.");
             double current = view.M11;
             double target = Clamp(current * factor, minZoom, maxZoom);
             double f = target / current;

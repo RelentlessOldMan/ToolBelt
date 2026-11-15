@@ -69,6 +69,8 @@ namespace ToolBelt.Wpf
             if (propertyName is null) throw new ArgumentNullException(nameof(propertyName));
             if (errors is null) throw new ArgumentNullException(nameof(errors));
             var list = new List<string>(errors);
+            // AddError refused a null error; a null here showed as an empty red box with no message.
+            if (list.Contains(null!)) throw new ArgumentException("Errors must not contain null.", nameof(errors));
             if (_errors.TryGetValue(propertyName, out var old) ? old.SequenceEqual(list, StringComparer.Ordinal) : list.Count == 0)
                 return;
             bool hadErrors = HasErrors;

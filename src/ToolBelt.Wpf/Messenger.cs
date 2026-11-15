@@ -30,10 +30,26 @@ namespace ToolBelt.Wpf
     /// </summary>
     public sealed class Messenger
     {
-        // recipient -> (message type -> handlers). Weakly keyed: an entry vanishes when its recipient is collected.
-        private readonly ConditionalWeakTable<object, Dictionary<Type, List<Delegate>>> _registrations =
-            new ConditionalWeakTable<object, Dictionary<Type, List<Delegate>>>();
+        // recipient -> its registration. Weakly keyed: an entry vanishes when its recipient is collected.
+        private readonly ConditionalWeakTable<object, Registration> _registrations = new ConditionalWeakTable<object, Registration>();
+        // message type -> the registrations that have (or had) handlers for it, held weakly and pruned as they go stale.
+        // Send walked every recipient of every message type, under the lock, to find the few for one type.
+        private readonly Dictionary<Type, TypeIndex> _byType = new Dictionary<Type, TypeIndex>();
         private readonly object _gate = new object();
+
+        private sealed class Registration
+        {
+            public readonly Dictionary<Type, List<Delegate>> Handlers = new Dictionary<Type, List<Delegate>>();
+            // The types whose index holds this registration, so registering again does not add it twice.
+            public readonly HashSet<Type> Indexed = new HashSet<Type>();
+            public bool Removed;
+        }
+
+        private sealed class TypeIndex
+        {
+            public readonly List<WeakReference<Registration>> Entries = new List<WeakReference<Registration>>();
+            public int PruneAt = 16;
+        }
 
         /// <summary>A shared default instance for app-wide messaging.</summary>
         public static Messenger Default { get; } = new Messenger();
@@ -49,15 +65,27 @@ namespace ToolBelt.Wpf
             if (recipient.GetType().IsValueType)   // each call boxes it afresh: the registration could never be found again
                 throw new ArgumentException("The recipient must be a reference type; a boxed value has no identity to register.", nameof(recipient));
             if (handler is null) throw new ArgumentNullException(nameof(handler));
+            Type type = typeof(TMessage);
             lock (_gate)
             {
-                var byType = _registrations.GetValue(recipient, _ => new Dictionary<Type, List<Delegate>>());
-                if (!byType.TryGetValue(typeof(TMessage), out var list))
+                Registration registration = _registrations.GetValue(recipient, _ => new Registration());
+                if (!registration.Handlers.TryGetValue(type, out var list))
                 {
                     list = new List<Delegate>();
-                    byType[typeof(TMessage)] = list;
+                    registration.Handlers[type] = list;
                 }
                 list.Add(handler);
+                if (registration.Indexed.Add(type))
+                {
+                    if (!_byType.TryGetValue(type, out var index)) _byType[type] = index = new TypeIndex();
+                    index.Entries.Add(new WeakReference<Registration>(registration));
+                    // Pruned as it doubles, so recipients collected without ever being sent to don't pile up.
+                    if (index.Entries.Count >= index.PruneAt)
+                    {
+                        Walk(type, index, null);
+                        index.PruneAt = Math.Max(16, index.Entries.Count * 2);
+                    }
+                }
             }
         }
 
@@ -67,10 +95,13 @@ namespace ToolBelt.Wpf
             if (recipient is null) throw new ArgumentNullException(nameof(recipient));
             lock (_gate)
             {
-                if (!_registrations.TryGetValue(recipient, out var byType) || !byType.Remove(typeof(TMessage)))
+                if (!_registrations.TryGetValue(recipient, out var registration) || !registration.Handlers.Remove(typeof(TMessage)))
                     return false;
-                if (byType.Count == 0)
+                if (registration.Handlers.Count == 0)
+                {
                     _registrations.Remove(recipient);
+                    registration.Removed = true;
+                }
                 return true;
             }
         }
@@ -80,7 +111,12 @@ namespace ToolBelt.Wpf
         {
             if (recipient is null) throw new ArgumentNullException(nameof(recipient));
             lock (_gate)
-                return _registrations.Remove(recipient);
+            {
+                if (!_registrations.TryGetValue(recipient, out var registration)) return false;
+                _registrations.Remove(recipient);
+                registration.Removed = true;
+                return true;
+            }
         }
 
         /// <summary>True if <paramref name="recipient"/> currently has a handler registered for <typeparamref name="TMessage"/>.</summary>
@@ -88,33 +124,55 @@ namespace ToolBelt.Wpf
         {
             if (recipient is null) throw new ArgumentNullException(nameof(recipient));
             lock (_gate)
-                return _registrations.TryGetValue(recipient, out var byType) && byType.ContainsKey(typeof(TMessage));
+                return _registrations.TryGetValue(recipient, out var registration) && registration.Handlers.ContainsKey(typeof(TMessage));
         }
 
         /// <summary>
         /// Delivers <paramref name="message"/> to every live recipient's handlers for <typeparamref name="TMessage"/>
-        /// exactly — the type argument, not the message's runtime type.
+        /// exactly — the type argument, not the message's runtime type — in the order the recipients first registered for
+        /// it. The cost is in proportion to that type's recipients, not every recipient's.
         /// </summary>
         public void Send<TMessage>(TMessage message)
         {
-            var handlers = new List<Action<TMessage>>();
+            var handlers = new List<Delegate>();
             lock (_gate)
-            {
-                // Enumerating yields only live recipients; the snapshot keeps them alive for the delivery.
-                foreach (var pair in _registrations)
-                    if (pair.Value.TryGetValue(typeof(TMessage), out var list))
-                        foreach (var d in list)
-                            handlers.Add((Action<TMessage>)d);
-            }
+                if (_byType.TryGetValue(typeof(TMessage), out var index))
+                    Walk(typeof(TMessage), index, handlers);
             foreach (var handler in handlers)
-                handler(message);
+                ((Action<TMessage>)handler)(message);
+        }
+
+        // Drops the index's stale entries (recipient collected, unregistered, or no longer handling the type), collecting the
+        // live entries' handlers when asked.
+        private void Walk(Type type, TypeIndex index, List<Delegate>? handlers)
+        {
+            List<WeakReference<Registration>> entries = index.Entries;
+            int kept = 0;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                WeakReference<Registration> entry = entries[i];
+                if (!entry.TryGetTarget(out Registration? registration) || registration.Removed) continue;
+                if (!registration.Handlers.TryGetValue(type, out var list))
+                {
+                    registration.Indexed.Remove(type);
+                    continue;
+                }
+                entries[kept++] = entry;
+                handlers?.AddRange(list);
+            }
+            entries.RemoveRange(kept, entries.Count - kept);
+            if (kept == 0) _byType.Remove(type);
         }
 
         /// <summary>Removes all registrations.</summary>
         public void Clear()
         {
             lock (_gate)
+            {
+                foreach (var pair in _registrations) pair.Value.Removed = true;
                 _registrations.Clear();
+                _byType.Clear();
+            }
         }
     }
 }

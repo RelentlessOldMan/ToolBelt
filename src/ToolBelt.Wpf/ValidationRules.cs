@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Text.RegularExpressions;
 using System.Windows.Controls;
 
@@ -118,10 +119,14 @@ namespace ToolBelt.Wpf
             return this;
         }
 
-        /// <summary>Inclusive range for comparable values (null passes — combine with <see cref="Required"/>).</summary>
+        /// <summary>
+        /// Inclusive range for comparable values (null passes — combine with <see cref="Required"/>). Strings compare
+        /// ordinally, so the result does not depend on the current culture.
+        /// </summary>
         public RuleBuilder<T> Range(T min, T max, string? message = null)
         {
-            var cmp = Comparer<T>.Default;
+            // Comparer<string>.Default compares in the culture current at each check: "chyba" left ["a", "d"] under cs-CZ.
+            IComparer<T> cmp = typeof(T) == typeof(string) ? (IComparer<T>)(object)StringComparer.Ordinal : Comparer<T>.Default;
             if (cmp.Compare(min, max) > 0) throw new ArgumentException("min must not exceed max.", nameof(max));
             _set.Add(_property, () =>
             {
@@ -133,13 +138,25 @@ namespace ToolBelt.Wpf
             return this;
         }
 
-        /// <summary>Minimum string length (null passes).</summary>
+        /// <summary>Minimum string length (null passes). The length must not be negative.</summary>
         public RuleBuilder<T> MinLength(int length, string? message = null)
-            => Must(v => v is not string s || s.Length >= length, message ?? $"{_property} must be at least {length} characters.");
+        {
+            NonNegative(length);
+            return Must(v => v is not string s || s.Length >= length, message ?? $"{_property} must be at least {length} characters.");
+        }
 
-        /// <summary>Maximum string length (null passes).</summary>
+        /// <summary>Maximum string length (null passes). The length must not be negative.</summary>
         public RuleBuilder<T> MaxLength(int length, string? message = null)
-            => Must(v => v is not string s || s.Length <= length, message ?? $"{_property} must be at most {length} characters.");
+        {
+            NonNegative(length);
+            return Must(v => v is not string s || s.Length <= length, message ?? $"{_property} must be at most {length} characters.");
+        }
+
+        // A negative length was accepted: MaxLength(-1) failed every string, even "", and MinLength(-5) did nothing.
+        private static void NonNegative(int length)
+        {
+            if (length < 0) throw new ArgumentOutOfRangeException(nameof(length), length, "Must not be negative.");
+        }
 
         /// <summary>
         /// The string matches <paramref name="pattern"/> (whole value; null/empty passes). A match that runs past the
@@ -165,7 +182,9 @@ namespace ToolBelt.Wpf
     /// A <see cref="ValidationObservableObject"/> whose errors come from a <see cref="ValidationRuleSet"/>: declare rules
     /// in the constructor through <see cref="Rules"/>, write setters with <see cref="SetAndValidate"/>, and the property
     /// (plus any properties that depend on it) is re-validated on every change. <see cref="ValidateAll"/> checks
-    /// everything — call it before saving so untouched fields show their errors too.
+    /// everything — call it before saving so untouched fields show their errors too. A rule that throws does not stop the
+    /// other properties being validated: the exception is rethrown after them all (several together as an
+    /// <see cref="AggregateException"/>), and the property whose rule threw keeps the errors it had.
     /// </summary>
     public abstract class RuleValidatedObject : ValidationObservableObject
     {
@@ -176,16 +195,34 @@ namespace ToolBelt.Wpf
         {
             if (propertyName is null) throw new ArgumentNullException(nameof(propertyName));
             bool changed = SetProperty(ref field, value, propertyName);
-            ValidateProperty(propertyName);
-            foreach (string dependent in Rules.Dependents(propertyName).ToList()) ValidateProperty(dependent);
+            // One throwing rule left every property after it in the loop with stale errors.
+            var failures = new List<Exception>();
+            Validate(failures, propertyName);
+            foreach (string dependent in Rules.Dependents(propertyName).ToList()) Validate(failures, dependent);
+            ThrowIfAny(failures);
             return changed;
         }
 
         /// <summary>Validates every property with rules; returns true when there are no errors.</summary>
         public bool ValidateAll()
         {
-            foreach (string p in Rules.Properties.ToList()) ValidateProperty(p);
+            var failures = new List<Exception>();
+            foreach (string p in Rules.Properties.ToList()) Validate(failures, p);
+            ThrowIfAny(failures);
             return !HasErrors;
+        }
+
+        private void Validate(List<Exception> failures, string propertyName)
+        {
+            try { ValidateProperty(propertyName); }
+            catch (Exception ex) { failures.Add(ex); }
+        }
+
+        // One failure is rethrown as itself; several together.
+        private static void ThrowIfAny(List<Exception> failures)
+        {
+            if (failures.Count == 1) ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures.Count > 1) throw new AggregateException(failures);
         }
 
         protected void ValidateProperty(string propertyName) => SetErrors(propertyName, Rules.Validate(propertyName));
@@ -214,7 +251,9 @@ namespace ToolBelt.Wpf
         {
             string text = Convert.ToString(value, cultureInfo)?.Trim() ?? "";
             if (text.Length == 0) return AllowEmpty ? ValidationResult.ValidResult : new ValidationResult(false, Message ?? "A number is required.");
-            if (!double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, cultureInfo, out double v) || double.IsNaN(v))
+            // As WPF's DoubleConverter parses: with AllowThousands, "1,5" passed as 15 under en-US and the binding then
+            // failed to convert it.
+            if (!double.TryParse(text, NumberStyles.Float, cultureInfo, out double v) || double.IsNaN(v))
                 return new ValidationResult(false, Message ?? "Not a number.");
             if (v < Minimum || v > Maximum)
                 return new ValidationResult(false, Message ?? string.Format(cultureInfo, "Must be between {0} and {1}.", Minimum, Maximum));
@@ -229,7 +268,7 @@ namespace ToolBelt.Wpf
     public sealed class RegexValidationRule : ValidationRule
     {
         private Regex? _regex;
-        private string _pattern = ".*";
+        private string _pattern = "(?s).*";   // ".*" rejected any text with a line break
 
         public string Pattern
         {

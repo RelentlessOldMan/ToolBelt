@@ -2,6 +2,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Windows;
 using System.Windows.Markup;
 using System.Windows.Media;
@@ -25,7 +26,8 @@ namespace ToolBelt.Wpf
     /// replaced in place, so other merged dictionaries and their order are untouched, and controls that reference
     /// theme keys with <c>DynamicResource</c> restyle immediately. <see cref="AppTheme.System"/> resolves through
     /// <see cref="GetSystemTheme"/>; with <see cref="FollowSystem"/> on, a change in Windows settings re-applies it
-    /// (marshalled to the dispatcher of the thread that created the manager). <see cref="CreateDefaultPalette"/>
+    /// (marshalled to the dispatcher of the thread that created the manager; created on a non-STA thread that has none,
+    /// the application's, and turning it on with neither throws <see cref="InvalidOperationException"/>). <see cref="CreateDefaultPalette"/>
     /// offers a minimal starter set of brushes. Dispose to stop listening for system changes.
     /// </summary>
     public sealed class ThemeManager : IDisposable
@@ -33,7 +35,7 @@ namespace ToolBelt.Wpf
         private const string PersonalizeKey = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
 
         private readonly ResourceDictionary _target;
-        private readonly Dispatcher _dispatcher;
+        private readonly Dispatcher? _dispatcher;
         private ResourceDictionary? _light, _dark, _applied;
         private Uri? _lightUri, _darkUri;
         private bool _followSystem, _subscribed, _disposed;
@@ -41,7 +43,11 @@ namespace ToolBelt.Wpf
         public ThemeManager(ResourceDictionary target)
         {
             _target = target ?? throw new ArgumentNullException(nameof(target));
-            _dispatcher = Dispatcher.CurrentDispatcher;
+            // Dispatcher.CurrentDispatcher made a dispatcher nothing pumped on a thread without one, so following the
+            // system theme silently did nothing and the queued operations piled up.
+            // An STA thread may become a UI thread, so it still gets its own dispatcher.
+            _dispatcher = Dispatcher.FromThread(Thread.CurrentThread)
+                ?? (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA ? Dispatcher.CurrentDispatcher : Application.Current?.Dispatcher);
         }
 
         /// <summary>A manager for the running application's resources.</summary>
@@ -71,6 +77,8 @@ namespace ToolBelt.Wpf
             set
             {
                 ThrowIfDisposed();
+                if (value && _dispatcher is null)
+                    throw new InvalidOperationException("Following the system theme needs a dispatcher: create the manager on a UI thread.");   // queued to a dispatcher nothing pumped
                 _followSystem = value;
                 if (value && !_subscribed) { SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged; _subscribed = true; }
                 else if (!value && _subscribed) { SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged; _subscribed = false; }
@@ -213,7 +221,7 @@ namespace ToolBelt.Wpf
         private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
         {
             if (e.Category != UserPreferenceCategory.General) return; // app-mode changes arrive as General
-            _dispatcher.BeginInvoke(new Action(() =>
+            _dispatcher!.BeginInvoke(new Action(() =>
             {
                 try
                 {

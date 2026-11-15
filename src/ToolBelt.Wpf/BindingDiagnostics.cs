@@ -55,7 +55,8 @@ namespace ToolBelt.Wpf
     public sealed class BindingFailureListener : TraceListener
     {
         private readonly StringBuilder _pending = new StringBuilder();
-        private readonly List<BindingFailure> _failures = new List<BindingFailure>();
+        // A queue: at the cap, RemoveRange(0, 1) shifted the whole list on every failure.
+        private readonly Queue<BindingFailure> _failures = new Queue<BindingFailure>();
         private readonly object _gate = new object();
         private int _disposed;
         private int _maxFailures = 10000;
@@ -85,7 +86,12 @@ namespace ToolBelt.Wpf
                     _originalLevel = source.Switch.Level;
                     // Refresh() resets every WPF source, so the app's RoutedEventSource (and the rest) went Off for good.
                     SourceLevels[] others = OtherSources.Select(p => ((TraceSource)p.GetValue(null)!).Switch.Level).ToArray();
+                    // Refresh() also runs Trace.Refresh(), which re-reads config for every Switch and TraceSource in the
+                    // process and rebuilds Trace.Listeners: the app's own sources and switches fell back to their defaults
+                    // and listeners it added in code were gone. Put them all back.
+                    var snapshot = new TraceSnapshot();
                     PresentationTraceSources.Refresh();
+                    snapshot.Restore();
                     for (int i = 0; i < OtherSources.Length; i++)
                         ((TraceSource)OtherSources[i].GetValue(null)!).Switch.Level = others[i];
                     source = PresentationTraceSources.DataBindingSource;
@@ -129,8 +135,70 @@ namespace ToolBelt.Wpf
         {
             int excess = _failures.Count - _maxFailures;
             if (excess <= 0) return;
-            _failures.RemoveRange(0, excess);
+            for (int i = 0; i < excess; i++) _failures.Dequeue();
             _dropped += excess;
+        }
+
+        // Every live Switch's setting, every live TraceSource's switch and listeners, and Trace.Listeners. The runtime keeps
+        // the live switches and sources in private lists of weak references; if a runtime names them differently, only
+        // Trace.Listeners and WPF's own sources are restored.
+        private sealed class TraceSnapshot
+        {
+            private static readonly PropertyInfo? SwitchSetting =
+                typeof(Switch).GetProperty("SwitchSetting", BindingFlags.Instance | BindingFlags.NonPublic);
+
+            private readonly TraceListener[] _listeners = Copy(Trace.Listeners);
+            private readonly List<KeyValuePair<Switch, object>> _switches = new List<KeyValuePair<Switch, object>>();
+            private readonly List<(TraceSource Source, SourceSwitch Switch, TraceListener[] Listeners)> _sources =
+                new List<(TraceSource, SourceSwitch, TraceListener[])>();
+
+            public TraceSnapshot()
+            {
+                foreach (TraceSource source in Live<TraceSource>("s_tracesources"))
+                    _sources.Add((source, source.Switch, Copy(source.Listeners)));
+                if (SwitchSetting != null && SwitchSetting.CanRead && SwitchSetting.CanWrite)
+                    foreach (Switch s in Live<Switch>("s_switches"))
+                        _switches.Add(new KeyValuePair<Switch, object>(s, SwitchSetting.GetValue(s)!));
+            }
+
+            public void Restore()
+            {
+                Put(Trace.Listeners, _listeners);
+                foreach (var (source, sw, listeners) in _sources)
+                {
+                    if (!ReferenceEquals(source.Switch, sw)) source.Switch = sw;
+                    Put(source.Listeners, listeners);
+                }
+                foreach (var pair in _switches)
+                    if (!Equals(SwitchSetting!.GetValue(pair.Key), pair.Value)) SwitchSetting.SetValue(pair.Key, pair.Value);
+            }
+
+            private static List<T> Live<T>(string field) where T : class
+            {
+                var live = new List<T>();
+                if (typeof(T).GetField(field, BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null) is List<WeakReference<T>> list)
+                    lock (list)
+                        foreach (WeakReference<T> w in list)
+                            if (w.TryGetTarget(out T? item)) live.Add(item);
+                return live;
+            }
+
+            private static TraceListener[] Copy(TraceListenerCollection listeners)
+            {
+                lock (listeners)
+                {
+                    var copy = new TraceListener[listeners.Count];
+                    listeners.CopyTo(copy, 0);
+                    return copy;
+                }
+            }
+
+            private static void Put(TraceListenerCollection listeners, TraceListener[] saved)
+            {
+                if (Copy(listeners).SequenceEqual(saved)) return;
+                listeners.Clear();
+                listeners.AddRange(saved);
+            }
         }
 
         public void Clear() { lock (_gate) _failures.Clear(); }
@@ -191,7 +259,7 @@ namespace ToolBelt.Wpf
             var failure = new BindingFailure(id, message.Trim());
             lock (_gate)
             {
-                _failures.Add(failure);
+                _failures.Enqueue(failure);
                 Trim();
             }
             BindingFailed?.Invoke(this, failure);
@@ -216,7 +284,8 @@ namespace ToolBelt.Wpf
     /// <summary>Thrown by a <see cref="BindingFailureListener"/> with <c>ThrowOnFailure</c> set.</summary>
     public sealed class BindingFailureException : InvalidOperationException
     {
-        public BindingFailureException(BindingFailure failure) : base(failure?.ToString()) => Failure = failure!;
+        public BindingFailureException(BindingFailure failure)
+            : base((failure ?? throw new ArgumentNullException(nameof(failure))).ToString()) => Failure = failure;
 
         public BindingFailure Failure { get; }
     }

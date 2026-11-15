@@ -16,7 +16,10 @@ namespace ToolBelt.Wpf
     /// <see cref="PageSize"/> marks the end (<see cref="HasMoreItems"/> becomes false).
     /// <para>
     /// Concurrent calls while a page is loading share that one load instead of fetching twice; each caller's token
-    /// cancels only that caller's wait, and the load itself is cancelled once every waiting caller has cancelled.
+    /// cancels only that caller's wait, and the load itself is cancelled once every waiting caller has cancelled. That
+    /// last caller follows the cancelled load to its end, so <see cref="IsLoading"/> is false once its await returns; a
+    /// loader that ignores its token keeps it waiting until the page arrives, which is then appended and returned. A
+    /// caller arriving while a cancelled load winds down waits for it (its own token ends that wait), then loads afresh.
     /// <see cref="ResetAsync"/>
     /// clears the list and starts over; a page still in flight from before the reset is discarded when it arrives, so
     /// stale results can never be appended to the new list. <see cref="IsLoading"/>, <see cref="HasMoreItems"/> and
@@ -165,8 +168,11 @@ namespace ToolBelt.Wpf
         // A load every waiter has abandoned is winding down: a new caller waits for it, then loads afresh.
         private async Task<int> LoadAfterAsync(Task<int> cancelling, CancellationToken cancellationToken)
         {
-            try { await cancelling.ConfigureAwait(true); }
-            catch (Exception) { }   // its own waiters see its outcome
+            // The caller's token ends this wait too: it was only checked once the old load ended, which a loader ignoring
+            // its token may never do.
+            var stop = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using (cancellationToken.Register(() => stop.TrySetResult(true)))
+                await Task.WhenAny(cancelling, stop.Task).ConfigureAwait(true);   // its own waiters see the old load's outcome
             cancellationToken.ThrowIfCancellationRequested();
             return await LoadMoreAsync(cancellationToken).ConfigureAwait(true);
         }
