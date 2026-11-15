@@ -143,8 +143,8 @@ namespace ToolBelt.Visualization
         /// <summary>
         /// Estimates the rendered width of <paramref name="text"/> in a Helvetica/Arial-like sans-serif at
         /// <paramref name="fontSize"/>, from the standard Helvetica advance widths for printable ASCII. Non-ASCII
-        /// letters use an average width, East Asian wide characters and emoji a full em (an emoji joined by U+200D counts
-        /// once), and combining marks, joiners and variation selectors zero. Bold is
+        /// letters use an average width, East Asian wide characters and emoji a full em (an emoji joined by U+200D, or a
+        /// flag's pair of regional indicators, counts once), and combining marks, joiners and variation selectors zero. Bold is
         /// approximated by a uniform widening. An estimate for layout (centering, right-aligning, avoiding overlap)
         /// — the real width depends on the viewer's font, so leave a little slack.
         /// </summary>
@@ -154,7 +154,7 @@ namespace ToolBelt.Visualization
             if (!(fontSize >= 0) || double.IsInfinity(fontSize))                   // ∞ gave NaN for "" and ∞ otherwise
                 throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be non-negative and finite.");
             double units = 0;
-            bool joined = false;
+            bool joined = false, flagHalf = false;
             for (int i = 0; i < text.Length; i++)
             {
                 char ch = text[i];
@@ -163,12 +163,17 @@ namespace ToolBelt.Visualization
                     // An astral character: about an em, but nothing after a zero-width joiner (the parts of an emoji
                     // sequence render as one glyph), for a skin-tone modifier, or for an astral mark or tag.
                     int cp = char.ConvertToUtf32(ch, text[i + 1]);
-                    bool zero = joined || (cp >= 0x1F3FB && cp <= 0x1F3FF) || IsZeroWidth(CharUnicodeInfo.GetUnicodeCategory(text, i));
+                    // A flag is a pair of regional indicators, paired left to right: the second of a pair counted
+                    // another em.
+                    bool indicator = cp >= 0x1F1E6 && cp <= 0x1F1FF, second = indicator && flagHalf;
+                    flagHalf = indicator && !flagHalf;
+                    bool zero = joined || second || (cp >= 0x1F3FB && cp <= 0x1F3FF) || IsZeroWidth(CharUnicodeInfo.GetUnicodeCategory(text, i));
                     units += zero ? 0 : 1000;
                     joined = false;
                     i++;
                     continue;
                 }
+                flagHalf = false;
                 // A symbol joined by U+200D (the heart in a couple emoji) is part of the glyph before it.
                 units += joined && CharUnicodeInfo.GetUnicodeCategory(ch) == UnicodeCategory.OtherSymbol ? 0 : AdvanceWidth(ch);
                 if (ch != '\uFE0F') joined = ch == '\u200D';             // a variation selector keeps the join

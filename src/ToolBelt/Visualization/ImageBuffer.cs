@@ -163,26 +163,41 @@ namespace ToolBelt.Visualization
             var lo = u0 <= u1 ? (U: u0, V: v0, VEdge: false) : (U: u1, V: v1, VEdge: false);
             var hi = u0 <= u1 ? (U: u1, V: v1, VEdge: false) : (U: u0, V: v0, VEdge: false);
             a = b = default;
+            // Which side of [vLo, vHi] each end is on, decided exactly: comparing the edge crossings (inexact below 2^40)
+            // with the ends dropped a segment touching the rectangle only at an endpoint on an edge, and drew a pixel for
+            // one ending 5e-24 outside it. The line is monotone in v, so an end outside is cut back to the edge it is past.
+            int sideLo = lo.U >= uLo ? Side(lo.V, vLo, vHi) : SideAt(uLo, u0, v0, u1, v1, vLo, vHi);
+            int sideHi = hi.U <= uHi ? Side(hi.V, vLo, vHi) : SideAt(uHi, u0, v0, u1, v1, vLo, vHi);
             if (uLo > lo.U) lo = (uLo, RoundedAlong(uLo, u0, v0, u1, v1), false);
             if (uHi < hi.U) hi = (uHi, RoundedAlong(uHi, u0, v0, u1, v1), false);
-            if (v0 == v1)
-            {
-                if (v0 < vLo || v0 > vHi) return false;
-            }
-            else
-            {
-                // The line is monotone in v, so the u where it crosses vLo and vHi bound the part between them.
-                double ca = Along(vLo, v0, u0, v1, u1), cb = Along(vHi, v0, u0, v1, u1);
-                var (cLo, eLo, cHi, eHi) = ca <= cb ? (ca, vLo, cb, vHi) : (cb, vHi, ca, vLo);
-                if (cLo > lo.U) lo = (cLo, eLo, true);
-                if (cHi < hi.U) hi = (cHi, eHi, true);
-            }
-            if (lo.U > hi.U) return false;
+            if (lo.U > hi.U || (sideLo != 0 && sideLo == sideHi)) return false;
+            if (sideLo != 0) lo = (lo.U, sideLo < 0 ? vLo : vHi, true);
+            if (sideHi != 0) hi = (hi.U, sideHi < 0 ? vLo : vHi, true);
             // An end cut by a v edge lies on that edge; its u is the exact crossing, rounded once.
             (double U, double V) End((double U, double V, bool VEdge) e)
                 => e.VEdge ? (RoundedAlong(e.V, v0, u0, v1, u1), e.V) : (e.U, e.V);
             (a, b) = u0 <= u1 ? (End(lo), End(hi)) : (End(hi), End(lo));
             return true;
+        }
+
+        private static int Side(double v, double vLo, double vHi) => v < vLo ? -1 : v > vHi ? 1 : 0;
+
+        // Side of the line's exact v at u. Up to 2^40 the double is within 2^-11 of it, which settles any edge further
+        // off than that; otherwise the exact value is compared.
+        private static int SideAt(double u, double u0, double v0, double u1, double v1, double vLo, double vHi)
+        {
+            const double Small = 1099511627776.0;                               // 2^40
+            if (Math.Abs(u0) <= Small && Math.Abs(v0) <= Small && Math.Abs(u1) <= Small && Math.Abs(v1) <= Small)
+            {
+                double f = Along(u, u0, v0, u1, v1);
+                const double Margin = 1.0 / 1024;
+                if (f < vLo - Margin) return -1;
+                if (f > vHi + Margin) return 1;
+                if (f > vLo + Margin && f < vHi - Margin) return 0;
+            }
+            Exact(u, u0, v0, u1, v1, out BigInteger num, out BigInteger den);
+            if (num < new BigInteger(vLo) * den) return -1;
+            return num > new BigInteger(vHi) * den ? 1 : 0;
         }
 
         // The v coordinate at u on the line through (u0, v0) and (u1, v1), u0 ≠ u1. Up to 2^40 doubles are within 2^-11 of

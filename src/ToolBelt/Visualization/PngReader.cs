@@ -35,13 +35,22 @@ namespace ToolBelt.Visualization
             using var ms = new MemoryStream();
             var header = new byte[8];
             if (ReadFully(stream, header, 8) < 8) throw new InvalidDataException("Not a PNG file.");
+            // Each chunk is checked as it arrives: unchecked, a non-PNG source (a GIF, endless zeros) was read up to 2 GB
+            // before Decode(byte[]) rejected it.
+            for (int i = 0; i < 8; i++) if (header[i] != Signature[i]) throw new InvalidDataException("Not a PNG file (bad signature).");
             ms.Write(header, 0, 8);
             var buffer = new byte[1 << 16];
-            while (true)
+            for (bool first = true; ; first = false)
             {
+                long start = ms.Length;
                 int got = ReadFully(stream, header, 8);
                 ms.Write(header, 0, got);
                 if (got < 8) break;                                              // truncated: Decode(byte[]) says so
+                for (int i = 4; i < 8; i++)
+                    if (!(header[i] >= 'A' && header[i] <= 'Z' || header[i] >= 'a' && header[i] <= 'z'))
+                        throw new InvalidDataException("Bad PNG chunk type.");
+                if (first && !(header[4] == 'I' && header[5] == 'H' && header[6] == 'D' && header[7] == 'R' && Be32(header, 0) == 13))
+                    throw new InvalidDataException("PNG does not start with IHDR.");
                 long rest = (long)unchecked((uint)Be32(header, 0)) + 4;                  // body and CRC
                 if (ms.Length + rest > 0x7FFFFFC7) throw new InvalidDataException("PNG stream is too large (over 2 GB).");
                 for (long left = rest; left > 0;)
@@ -52,6 +61,10 @@ namespace ToolBelt.Visualization
                     left -= n;
                 }
                 if (rest < 0) break;
+                int length = (int)(ms.Length - start - 12);
+                byte[] all = ms.GetBuffer();
+                if (Crc32(all, (int)start + 4, length + 4) != unchecked((uint)Be32(all, (int)start + 8 + length)))
+                    throw new InvalidDataException("CRC mismatch in PNG chunk.");
                 if (header[4] == 'I' && header[5] == 'E' && header[6] == 'N' && header[7] == 'D') break;
             }
             return Decode(ms.ToArray());

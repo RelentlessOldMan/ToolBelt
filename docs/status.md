@@ -17,7 +17,7 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
    re-queued. The fifth pass runs in the order in REVIEW-PLAN.md: round 75 (section 8) 24 bugs, 1 severe (a stack
    overflow deleting a deep temp tree), so it stays re-queued; round 76 (section 7) 24 bugs, none severe, so it
    stays re-queued too; round 77 (section 14) 29 bugs, 1 severe (a pending Task hung the graph walkers), so it
-   stays re-queued; round 78 (section 12) 19 bugs, none severe, so it stays re-queued; round 79 (section 15) 15 bugs, none severe, so it stays re-queued; round 80 (section 5) 21 bugs, none severe, so it stays re-queued; round 81 (section 10) 15 bugs, 1 severe, so it stays re-queued; round 82 (section 16) 20 bugs, none severe, so it stays re-queued; round 83 (section 1) 14 bugs, none severe, so it stays re-queued; section 6 is next.
+   stays re-queued; round 78 (section 12) 19 bugs, none severe, so it stays re-queued; round 79 (section 15) 15 bugs, none severe, so it stays re-queued; round 80 (section 5) 21 bugs, none severe, so it stays re-queued; round 81 (section 10) 15 bugs, 1 severe, so it stays re-queued; round 82 (section 16) 20 bugs, none severe, so it stays re-queued; round 83 (section 1) 14 bugs, none severe, so it stays re-queued; round 84 (section 6) is in progress: reviewed (10 bugs, 1 severe), C1, C2 and most of R1 fixed and committed unreleased (verify green before R1; Binary and Png suites green after), the rest listed in BUGLIST.md as R84-*; finish those, then release round 84.
 
 ## Built
 
