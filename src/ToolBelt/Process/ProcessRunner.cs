@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Text;
@@ -23,6 +24,10 @@ namespace ToolBelt.Process
         /// <summary>
         /// Text piped to the child's standard input (in the background, encoded with <see cref="Encoding"/> when set),
         /// then the stream is closed. Null gives the child an empty, closed stdin (it does not inherit the caller's).
+        /// On .NET Framework (the netstandard2.0 build), when the console's input code page is UTF-8 (65001), the
+        /// framework writes a UTF-8 byte order mark to the child's stdin as it starts, before this text and even when
+        /// this is null; netstandard2.0 offers no way to choose the stdin encoding, so a child that minds it should skip
+        /// a leading EF BB BF.
         /// </summary>
         public string? StandardInput { get; set; }
 
@@ -38,8 +43,8 @@ namespace ToolBelt.Process
         /// (its parent is gone, so it is no longer in the tree); put the child in a job object for that. With no timeout,
         /// once the child exits the run reads its output until the pipes close or nothing has arrived for a second, so a
         /// grandchild holding them open can't keep the run waiting (it waited for the grandchild, or forever for a
-        /// server); the result is then not flagged timed out. Must be between zero and
-        /// <see cref="int.MaxValue"/> milliseconds; <see cref="System.Threading.Timeout.InfiniteTimeSpan"/> means no
+        /// server); any text counts as arriving, a line not yet finished too, and is kept. The result is then not
+        /// flagged timed out. Must be between zero and <see cref="int.MaxValue"/> milliseconds; <see cref="System.Threading.Timeout.InfiniteTimeSpan"/> means no
         /// timeout. An invalid value throws before the child starts.
         /// </summary>
         public TimeSpan? Timeout { get; set; }
@@ -92,7 +97,7 @@ namespace ToolBelt.Process
         public ProcessResult EnsureSuccess()
         {
             if (Success) return this;
-            string reason = TimedOut ? "timed out" : $"exited with code {ExitCode}";
+            string reason = TimedOut ? "timed out" : "exited with code " + ExitCode.ToString(CultureInfo.InvariantCulture);
             throw new ProcessRunException($"Process {reason}: {CommandLine}", ExitCode, TimedOut, StandardError);
         }
     }
@@ -209,7 +214,7 @@ namespace ToolBelt.Process
             public Exception? CallbackError;
             public int Done;             // the run has returned (or thrown): no more callbacks
             public int CallbacksRunning; // raised before Done is checked, so StopCallbacks can wait for the ones under way
-            public long Lines;           // lines read so far, so a wait for the output can tell flowing from quiet
+            public long Lines;           // reads that returned text so far, so a wait for the output can tell flowing from quiet
             public long LinesSeen;
 
             public Task Exited => ExitedSource.Task;
@@ -250,6 +255,12 @@ namespace ToolBelt.Process
                     else psi.Environment[kv.Key] = kv.Value;
                 }
 
+            // Encoded before the child starts: an encoder that throws (a strict one meeting a lone surrogate) threw on the
+            // writer thread, where nothing caught it, and took the host down.
+            byte[]? inputBytes = options.StandardInput != null && options.Encoding != null
+                ? options.Encoding.GetBytes(options.StandardInput) // no preamble: a child reading stdin doesn't expect one
+                : null;
+
             var run = new RunState { CommandLine = string.IsNullOrEmpty(arguments) ? fileName : fileName + " " + arguments };
             var process = new DiagnosticsProcess { StartInfo = psi, EnableRaisingEvents = true };
             process.Exited += (_, __) => run.ExitedSource.TrySetResult(true);
@@ -269,8 +280,7 @@ namespace ToolBelt.Process
             {
                 StreamWriter stdin = process.StandardInput;
                 string text = options.StandardInput;
-                Encoding? encoding = options.Encoding;
-                StartThread(() => WriteInput(stdin, text, encoding), "ProcessRunner stdin");
+                StartThread(() => WriteInput(run, stdin, text, inputBytes), "ProcessRunner stdin");
             }
             else
             {
@@ -288,8 +298,40 @@ namespace ToolBelt.Process
         {
             try
             {
-                string? line;
-                while ((line = reader.ReadLine()) != null) OnLine(run, line, buffer, callback);
+                // In chunks, not ReadLine: a grandchild streaming text with no line break looked quiet (nothing counted until
+                // a whole line arrived), so a run with no timeout ended early and the unfinished line was lost.
+                var chars = new char[4096];
+                var text = new StringBuilder();
+                StringBuilder? line = callback is null ? null : new StringBuilder();
+                var lines = new List<string>();
+                bool afterCr = false;
+                int n;
+                while ((n = reader.Read(chars, 0, chars.Length)) > 0)
+                {
+                    Interlocked.Increment(ref run.Lines);
+                    text.Clear();
+                    lines.Clear();
+                    int start = 0;
+                    for (int i = 0; i < n; i++)
+                    {
+                        char c = chars[i];
+                        bool lf = afterCr && c == '\n'; // the second half of a \r\n, perhaps split across reads
+                        afterCr = c == '\r';
+                        if (c != '\r' && c != '\n') continue;
+                        text.Append(chars, start, i - start);
+                        line?.Append(chars, start, i - start);
+                        start = i + 1;
+                        if (lf) continue;
+                        text.Append(Environment.NewLine);
+                        if (line != null) { lines.Add(line.ToString()); line.Clear(); }
+                    }
+                    text.Append(chars, start, n - start);
+                    line?.Append(chars, start, n - start);
+                    Capture(run, buffer, text.ToString());
+                    foreach (string l in lines) OnLine(run, l, callback);
+                }
+                // As ReadLine: an unfinished last line is still a line.
+                if (line != null && line.Length > 0) OnLine(run, line.ToString(), callback);
             }
             catch (IOException) { /* the pipe broke */ }
             catch (ObjectDisposedException) { /* the run already finished */ }
@@ -323,18 +365,23 @@ namespace ToolBelt.Process
             return quiet;
         }
 
-        // Runs on the reader threads. A throwing callback must not escape there (it would crash the host), so the
-        // first such exception is kept and rethrown to the caller once the run finishes.
-        private static void OnLine(RunState run, string line, StringBuilder buffer, Action<string>? callback)
+        // Runs on the reader threads, as text arrives (an unfinished line too, so a run that ends while a grandchild is
+        // mid-line keeps what it wrote).
+        private static void Capture(RunState run, StringBuilder buffer, string text)
         {
-            Interlocked.Increment(ref run.Lines);
             // After the run has returned nobody can read the buffer: a grandchild writing to an inherited pipe after a
             // timeout grew it without bound.
             if (Volatile.Read(ref run.Done) != 0) return;
-            // Capture can fail too (OutOfMemoryException past the StringBuilder's 2 GB limit); escaping here would
-            // crash the host, so it is reported the same way.
-            try { lock (buffer) buffer.AppendLine(line); }
+            // Capture can fail (OutOfMemoryException past the StringBuilder's 2 GB limit); escaping here would crash the
+            // host, so it is reported as a callback's exception is.
+            try { lock (buffer) buffer.Append(text); }
             catch (Exception ex) { Interlocked.CompareExchange(ref run.CallbackError, ex, null); }
+        }
+
+        // Runs on the reader threads. A throwing callback must not escape there (it would crash the host), so the
+        // first such exception is kept and rethrown to the caller once the run finishes.
+        private static void OnLine(RunState run, string line, Action<string>? callback)
+        {
             // After a timeout or a cancel the reader threads kept calling back after Run had returned. Counting the call
             // before reading Done (both full fences) means StopCallbacks either sees it running or it sees Done.
             if (callback is null) return;
@@ -360,21 +407,22 @@ namespace ToolBelt.Process
                 spin.SpinOnce();
         }
 
-        private static void WriteInput(StreamWriter stdin, string text, Encoding? encoding)
+        private static void WriteInput(RunState run, StreamWriter stdin, string text, byte[]? bytes)
         {
             try
             {
-                if (encoding is null)
-                    stdin.Write(text);
-                else
-                {
-                    byte[] bytes = encoding.GetBytes(text); // no preamble: a child reading stdin doesn't expect one
-                    stdin.BaseStream.Write(bytes, 0, bytes.Length);
-                }
+                if (bytes is null) stdin.Write(text);
+                else stdin.BaseStream.Write(bytes, 0, bytes.Length);
                 stdin.Close();
             }
             catch (IOException) { /* the child exited (or was killed) without reading all of it */ }
             catch (ObjectDisposedException) { /* the run already finished */ }
+            catch (Exception ex)
+            {
+                // Escaping here would crash the host: kept and rethrown to the caller, like a callback's exception.
+                Interlocked.CompareExchange(ref run.CallbackError, ex, null);
+                try { stdin.Dispose(); } catch { }
+            }
         }
 
         private static ProcessResult Finish(RunState run, bool timedOut, bool killed, ProcessRunOptions options)
@@ -389,10 +437,17 @@ namespace ToolBelt.Process
             if (callbackError != null) ExceptionDispatchInfo.Capture(callbackError).Throw();
 
             string output, error;
-            lock (run.Output) output = run.Output.ToString();
-            lock (run.Error) error = run.Error.ToString();
+            lock (run.Output) output = Terminated(run.Output);
+            lock (run.Error) error = Terminated(run.Error);
             var result = new ProcessResult(exitCode, output, error, run.Stopwatch.Elapsed, timedOut, run.CommandLine);
             return options.ThrowOnNonZeroExit ? result.EnsureSuccess() : result;
+        }
+
+        // Every line ends in a newline, the last one too (see ProcessResult.StandardOutput).
+        private static string Terminated(StringBuilder buffer)
+        {
+            string text = buffer.ToString();
+            return text.Length == 0 || text.EndsWith(Environment.NewLine, StringComparison.Ordinal) ? text : text + Environment.NewLine;
         }
 
         // Validated before the child starts, so a bad value can't leave a process running.

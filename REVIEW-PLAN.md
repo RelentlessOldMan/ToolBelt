@@ -50,7 +50,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 5 | 24 / 117 | re-queue (24 bugs, none severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 5 | 24 / 149 | re-queue (24 bugs, 1 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 4 | 19 / 71 | re-queue (19 bugs) |
-| 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 4 | 24 / 99 | re-queue (24 bugs, 1 severe) |
+| 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 5 | 15 / 114 | re-queue (15 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 4 | 20 / 75 | re-queue (20 bugs, none severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 5 | 19 / 116 | re-queue (19 bugs, none severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 4 | 16 / 88 | re-queue (16 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); **next: 10**, then 16, 1, 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); **next: 16**, then 1, 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -154,11 +154,42 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.21 | 78 | Logging, diagnostics, CLI, fifth pass | 19 | (see tag) |
 | v2026.11.14.0 | 79 | Windows satellite, fifth pass | 15 | (see tag) |
 | v2026.11.14.1 | 80 | Charts, fifth pass | 21 | (see tag) |
+| v2026.11.14.2 | 81 | Concurrency, fifth pass | 15 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 81: Concurrency, fifth pass (v2026.11.14.2)
+
+Two fresh reviewers (correctness, robustness): 17 findings, of which two pairs overlapped, so **15 bugs, 1 severe**
+(R1). Section 10 stays re-queued. The regression tests are in `ConcurrencyReview81Tests` (16 tests: 15 failed on the
+old code, run by name under a 60 s timeout, and one guards the new line splitting). One older test called the private
+`OnLine` by reflection and now calls `Capture`. Two suspected findings (a failed kill reported as done, reader threads
+held by a grandchild after a timeout) are in BUGLIST.md.
+
+- **ProcessRunner (severe):** a stdin encoder that throws (a strict UTF-8 meeting a lone surrogate) threw on the writer
+  thread and took the host down; the input is encoded before the child starts, so the caller gets the exception.
+- **ProcessRunner:** with no timeout, a grandchild streaming text with no line break looked quiet, so the run ended
+  early and the unfinished line was lost; the readers take text in chunks, count any text as arriving, and keep a
+  partial line (split on \r, \n and \r\n as ReadLine does). EnsureSuccess formatted the exit code in the current
+  culture. On .NET Framework under a UTF-8 console the child's stdin starts with a BOM; netstandard2.0 cannot avoid it,
+  so it is documented.
+- **AsyncEvent:** InvokeParallelAsync turned the caller's cancel into an AggregateException of TaskCanceledExceptions;
+  it throws OperationCanceledException, or, with real failures too, an AggregateException holding both. A handler's
+  own OperationCanceledException was replaced by a new TaskCanceledException. With no handlers and a cancelled token
+  the parallel form threw and the sequential one returned; both throw.
+- **TaskExtensions, TaskRace:** WhenAllOrFirstException never observed the faults after the first, and Hedged did not
+  observe an attempt that faulted as the caller cancelled (UnobservedTaskException). Hedged left one timer behind per
+  failed attempt until the whole race ended.
+- **Retry, ConcurrentPipeline:** a DelayAsync returning null threw NullReferenceException and lost the operation's
+  error; it throws InvalidOperationException with that error inside. A producer blocked by the Block policy when the
+  pipeline was disposed got OperationCanceledException; it gets ObjectDisposedException, as documented.
+- **ArrayPoolScope, WhichExe, Jitter:** clearOnReturn did nothing on .NET 8 for an array longer than the pool's largest
+  bucket (the pool drops it uncleared); the scope clears it itself. With PATHEXT unset the fallback order was
+  .EXE;.CMD;.BAT;.COM, not cmd's .COM;.EXE;.BAT;.CMD. Equal jitter rounded half the delay down, so an odd tick count
+  fell below delay/2.
+
 ### Round 80: Charts, fifth pass (v2026.11.14.1)
 
 Two fresh reviewers (correctness, robustness): 24 findings, of which three pairs overlapped, so **21 bugs, none

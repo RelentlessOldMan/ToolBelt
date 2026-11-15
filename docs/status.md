@@ -17,21 +17,21 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
    re-queued. The fifth pass runs in the order in REVIEW-PLAN.md: round 75 (section 8) 24 bugs, 1 severe (a stack
    overflow deleting a deep temp tree), so it stays re-queued; round 76 (section 7) 24 bugs, none severe, so it
    stays re-queued too; round 77 (section 14) 29 bugs, 1 severe (a pending Task hung the graph walkers), so it
-   stays re-queued; round 78 (section 12) 19 bugs, none severe, so it stays re-queued; round 79 (section 15) 15 bugs, none severe, so it stays re-queued; round 80 (section 5) 21 bugs, none severe, so it stays re-queued; section 10 is next.
+   stays re-queued; round 78 (section 12) 19 bugs, none severe, so it stays re-queued; round 79 (section 15) 15 bugs, none severe, so it stays re-queued; round 80 (section 5) 21 bugs, none severe, so it stays re-queued; round 81 (section 10) 15 bugs, 1 severe, so it stays re-queued; section 16 is next.
 
 ## Built
 
 - **The library** (2026-09-25 to 2026-10-05): 29+ divisions in the core plus the Windows, WPF and WinForms
   satellites. The README's Layout is the inventory.
-- **The review** (2026-10-07 onward): 80 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
+- **The review** (2026-10-07 onward): 81 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
   sections, two rounds on flaky tests and the incomplete beta/gamma harness, and four cross-cutting rounds (round 54,
   throwing callbacks: 36 bugs, 2 severe; round 55, cancellation and dispose races: 17 bugs, 2 severe, both a Ctrl+C
   handler letting a token callback's exception escape; round 56, non-finite and extreme numerics: 34 bugs, 2 severe,
   both hangs on data near MaxValue; round 57, the whole suite on .NET Framework 4.8: 4 bugs, none severe). The fourth
   pass began with IO (round 58: 39 bugs, 7 severe, mostly junction swaps mid-operation, the tar guard and names
   ending in a dot).
-- **Checks every round passes:** the full verify (core 3640 tests, Windows 153, WPF 185, WinForms 104,
-  MathChecks 40 at v2026.11.14.1), the overflow-checked build with no failures (since round 48), and the special
+- **Checks every round passes:** the full verify (core 3656 tests, Windows 153, WPF 185, WinForms 104,
+  MathChecks 40 at v2026.11.14.2), the overflow-checked build with no failures (since round 48), and the special
   functions against mpmath (graded in condition-number units).
 - **.NET Framework 4.8:** since round 57 the whole core suite compiles and passes there (3079 tests; net8-only
   types' tests are guarded out).
@@ -49,7 +49,10 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
 - `scripts/net48.sh` for one section: under a minute (Text, Identifiers, Enums, Guards: 309 tests in 2 s). Every
   folder: about 4 minutes (build about 1 minute, tests 168 s).
 - Memory: a few core image tests (PNG and BMP size limits) each allocate an image buffer of about 2 GB, near the
-  largest array; the peak hasn't been measured. Nothing else needs more than a few GB. No GPU.
+  largest array; the peak hasn't been measured. `ArrayPoolScope_LongerThanThePoolKeeps_IsClearedAndNotPooled`
+  allocates a 1 GB array. Nothing else needs more than a few GB. No GPU. On a heavily loaded machine the verify took
+  over 10 minutes, and a few timing tests (the not-quadratic checks, Snowflake's one-second clock stall, the 300 ms
+  ProcessRunner timeouts, 20,000 echoes in 30 s) failed at HEAD as well; re-run them alone on a quieter machine.
 
 ## Lessons
 

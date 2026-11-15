@@ -68,7 +68,8 @@ namespace ToolBelt.Threading
         /// <summary>
         /// Offers an item. Returns false if it was dropped (DropNewest on a full pipeline). For the Block
         /// policy this waits for space and always returns true. Throws <see cref="InvalidOperationException"/>
-        /// once <see cref="CompleteAsync"/> has been called, including for a producer still waiting for space.
+        /// once <see cref="CompleteAsync"/> has been called, and <see cref="ObjectDisposedException"/> once the pipeline is
+        /// disposed, in both cases including for a producer still waiting for space.
         /// An item for which this returned true is processed unless the pipeline is disposed first, or, under
         /// <see cref="PipelineOverflowPolicy.DropOldest"/>, a later item evicts it while it is still buffered.
         /// </summary>
@@ -79,7 +80,13 @@ namespace ToolBelt.Threading
 
             if (_policy == PipelineOverflowPolicy.Block)
             {
-                _space!.Wait(_cts.Token);
+                // Dispose cancels the wait: the producer got an OperationCanceledException for a token it never saw, where a
+                // call after Dispose threw ObjectDisposedException.
+                try { _space!.Wait(_cts.Token); }
+                catch (OperationCanceledException) when (Volatile.Read(ref _disposed) == 1)
+                {
+                    throw new ObjectDisposedException(GetType().Name);
+                }
                 lock (_gate)
                 {
                     if (_completed == 1)

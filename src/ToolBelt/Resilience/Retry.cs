@@ -129,7 +129,10 @@ namespace ToolBelt.Resilience
                 {
                     if (!policy.ShouldRetry(ex)) throw;
                     var delay = policy.DelayForAttempt(attempt);
-                    await policy.DelayAsync(delay, cancellationToken).ConfigureAwait(false);
+                    // A custom delay returning null threw NullReferenceException here, and the operation's exception was lost.
+                    Task wait = policy.DelayAsync(delay, cancellationToken)
+                        ?? throw new InvalidOperationException("RetryPolicy.DelayAsync returned null instead of a task.", ex);
+                    await wait.ConfigureAwait(false);
                 }
             }
         }

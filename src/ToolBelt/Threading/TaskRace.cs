@@ -56,38 +56,60 @@ namespace ToolBelt.Threading
                 int started = 1;
                 // One timer per hedge, started with the attempt before it: a failure in between used to restart it.
                 Task? timer = null;
-                while (true)
+                // Its own source, so a timer dropped when an attempt failed is cancelled: left scheduled, one per failure
+                // piled up until the call ended (200000 failed attempts held 200000 timers).
+                CancellationTokenSource? timerCts = null;
+                void DropTimer()
                 {
-                    var waitFor = new List<Task>(running);
-                    if (started < maxAttempts && hedges)
+                    timer = null;
+                    if (timerCts is null) return;
+                    timerCts.Cancel();
+                    timerCts.Dispose();
+                    timerCts = null;
+                }
+                try
+                {
+                    while (true)
                     {
-                        timer ??= Task.Delay(hedgeDelay, cts.Token);
-                        waitFor.Add(timer);
-                    }
-                    if (waitFor.Count == 0) throw new AggregateException("Every attempt failed.", failures);
-                    Task done = await Task.WhenAny(waitFor).ConfigureAwait(false);
-                    if (done == timer)
-                    {
+                        var waitFor = new List<Task>(running);
+                        if (started < maxAttempts && hedges)
+                        {
+                            if (timer is null)
+                            {
+                                timerCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+                                timer = Task.Delay(hedgeDelay, timerCts.Token);
+                            }
+                            waitFor.Add(timer);
+                        }
+                        if (waitFor.Count == 0) throw new AggregateException("Every attempt failed.", failures);
+                        Task done = await Task.WhenAny(waitFor).ConfigureAwait(false);
+                        if (done == timer)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            DropTimer();
+                            int n = started++;
+                            running.Add(Start(() => attempt(n, cts.Token)));
+                            continue;
+                        }
+                        var finished = (Task<T>)done;
+                        running.Remove(finished);
+                        if (finished.Status == TaskStatus.RanToCompletion) return finished.Result;
+                        // Read before the cancellation check: removed from running, the finally no longer observed it, so a
+                        // fault that met a cancel went unobserved.
+                        Exception failure = Unwrap(finished);
                         cancellationToken.ThrowIfCancellationRequested();
-                        timer = null;
-                        int n = started++;
-                        running.Add(Start(() => attempt(n, cts.Token)));
-                        continue;
-                    }
-                    var finished = (Task<T>)done;
-                    running.Remove(finished);
-                    if (finished.Status == TaskStatus.RanToCompletion) return finished.Result;
-                    cancellationToken.ThrowIfCancellationRequested();
-                    failures.Add(Unwrap(finished));
-                    if (running.Count == 0 && started >= maxAttempts) throw new AggregateException("Every attempt failed.", failures);
-                    if (running.Count == 0)
-                    {
-                        // Nothing in flight: start the next hedge immediately rather than waiting out the delay.
-                        timer = null;
-                        int n = started++;
-                        running.Add(Start(() => attempt(n, cts.Token)));
+                        failures.Add(failure);
+                        if (running.Count == 0 && started >= maxAttempts) throw new AggregateException("Every attempt failed.", failures);
+                        if (running.Count == 0)
+                        {
+                            // Nothing in flight: start the next hedge immediately rather than waiting out the delay.
+                            DropTimer();
+                            int n = started++;
+                            running.Add(Start(() => attempt(n, cts.Token)));
+                        }
                     }
                 }
+                finally { DropTimer(); }
             }
             finally
             {

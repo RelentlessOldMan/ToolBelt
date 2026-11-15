@@ -67,8 +67,8 @@ namespace ToolBelt.Tests.Threading
             object state = Activator.CreateInstance(stateType, nonPublic: true)!;
             stateType.GetField("Done")!.SetValue(state, 1);
             var output = (StringBuilder)stateType.GetField("Output")!.GetValue(state)!;
-            MethodInfo onLine = runner.GetMethod("OnLine", BindingFlags.NonPublic | BindingFlags.Static)!;
-            for (int i = 0; i < 100; i++) onLine.Invoke(null, new object?[] { state, "late output", output, null });
+            MethodInfo capture = runner.GetMethod("Capture", BindingFlags.NonPublic | BindingFlags.Static)!;
+            for (int i = 0; i < 100; i++) capture.Invoke(null, new object?[] { state, output, "late output" });
             Check.Equal(0, output.Length, "lines read after the run returned were kept");
         }
 

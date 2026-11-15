@@ -10,7 +10,7 @@ namespace ToolBelt.Resilience
         None,
         /// <summary>Full jitter: a uniform random delay in <c>[0, delay)</c> (AWS "full jitter").</summary>
         Full,
-        /// <summary>Equal jitter: half the delay plus a uniform random part of the other half, so in <c>[delay/2, delay)</c>.</summary>
+        /// <summary>Equal jitter: half the delay plus a uniform random part of the other half, so in <c>[delay/2, delay)</c> (a one-tick delay, with no whole tick in that range, is returned unchanged).</summary>
         Equal,
     }
 
@@ -37,7 +37,8 @@ namespace ToolBelt.Resilience
                 throw new ArgumentOutOfRangeException(nameof(random), r, "Random source must return a value in [0, 1).");
 
             long ticks = delay.Ticks;
-            long half = ticks / 2;
+            // Rounded up: rounded down, an odd tick count fell below delay/2 (3 ticks gave 1).
+            long half = ticks - ticks / 2;
             long result = mode switch
             {
                 JitterMode.Full => (long)(ticks * r),

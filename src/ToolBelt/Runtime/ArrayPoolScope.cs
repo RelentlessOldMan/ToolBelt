@@ -38,6 +38,9 @@ namespace ToolBelt.Runtime
     {
         private T[]? _array;
         private readonly bool _clearOnReturn;
+#if !NETSTANDARD2_0
+        private const int MaxPooledLength = 1 << 30; // ArrayPool<T>.Shared's largest bucket on .NET 6 and later
+#endif
 
         internal ArrayPoolScope(int length, bool clearOnReturn)
         {
@@ -49,7 +52,8 @@ namespace ToolBelt.Runtime
             IsPooled = false;
 #else
             _array = length == 0 ? System.Array.Empty<T>() : ArrayPool<T>.Shared.Rent(length);
-            IsPooled = length != 0;
+            // Past the shared pool's largest bucket Rent just allocates, and Return drops the array (without clearing it).
+            IsPooled = length != 0 && length <= MaxPooledLength;
 #endif
         }
 
@@ -104,10 +108,12 @@ namespace ToolBelt.Runtime
             if (_clearOnReturn)
                 System.Array.Clear(array, 0, array.Length);
 #else
-            if (IsPooled)
-                ArrayPool<T>.Shared.Return(array, _clearOnReturn);
-            else if (_clearOnReturn)
+            // Cleared here, not by Return(clearArray): the pool skipped the clear for an array it doesn't keep (longer than
+            // its largest bucket), leaving the data in place after Dispose.
+            if (_clearOnReturn)
                 System.Array.Clear(array, 0, array.Length);
+            if (IsPooled)
+                ArrayPool<T>.Shared.Return(array);
 #endif
         }
     }

@@ -40,6 +40,8 @@ namespace ToolBelt.Threading
         /// </summary>
         public async Task InvokeSequentialAsync(TArgs args, CancellationToken cancellationToken = default)
         {
+            // As InvokeParallelAsync: with no handlers, an already-cancelled token reported success here and threw there.
+            cancellationToken.ThrowIfCancellationRequested();
             var exceptions = new List<Exception>();
             bool canceled = false;
             foreach (var handler in Snapshot())
@@ -60,30 +62,51 @@ namespace ToolBelt.Threading
             if (exceptions.Count > 0) throw new AggregateException(exceptions);
         }
 
-        /// <summary>Invokes all handlers concurrently and waits for them all.</summary>
+        /// <summary>
+        /// Invokes all handlers concurrently and waits for them all. Failures are thrown together as an
+        /// <see cref="AggregateException"/>; handlers that stopped for the caller's cancellation count as the cancellation,
+        /// thrown alone as an <see cref="OperationCanceledException"/> or added once to the failures, as by
+        /// <see cref="InvokeSequentialAsync"/>.
+        /// </summary>
         public async Task InvokeParallelAsync(TArgs args, CancellationToken cancellationToken = default)
         {
             // As InvokeSequentialAsync: an already-cancelled token ran every handler and reported success.
             cancellationToken.ThrowIfCancellationRequested();
             var handlers = Snapshot();
-            var tasks = new List<Task>(handlers.Count);
+            var tasks = new List<Task<Exception?>>(handlers.Count);
             foreach (var handler in handlers)
                 tasks.Add(RunGuarded(handler, args, cancellationToken));
-
-            try { await Task.WhenAll(tasks).ConfigureAwait(false); }
-            catch { /* individual faults are collected from the tasks below */ }
+            await Task.WhenAll(tasks).ConfigureAwait(false); // RunGuarded never throws
 
             var exceptions = new List<Exception>();
+            bool canceled = false;
             foreach (var t in tasks)
-                // The handler's own exception, as InvokeSequentialAsync reports it (RunGuarded is async: exactly one inner).
-                // GetBaseException also unwrapped an AggregateException the handler threw itself.
-                if (t.Exception != null) exceptions.Add(t.Exception.InnerException!);
-                else if (t.IsCanceled) exceptions.Add(new TaskCanceledException(t)); // as InvokeSequentialAsync reports it
+            {
+                Exception? ex = t.Result;
+                // A handler that honoured the caller's cancellation is the stop, not a failure: a cancel surfaced as an
+                // AggregateException of TaskCanceledExceptions, where InvokeSequentialAsync threw OperationCanceledException.
+                if (ex is OperationCanceledException && cancellationToken.IsCancellationRequested) canceled = true;
+                else if (ex != null) exceptions.Add(ex);
+            }
+            if (canceled)
+            {
+                if (exceptions.Count == 0) throw new OperationCanceledException(cancellationToken);
+                exceptions.Add(new OperationCanceledException(cancellationToken));
+            }
             if (exceptions.Count > 0) throw new AggregateException(exceptions);
         }
 
-        private static async Task RunGuarded(Func<TArgs, CancellationToken, Task> handler, TArgs args, CancellationToken ct)
-            => await handler(args, ct).ConfigureAwait(false);
+        // The handler's own exception, as InvokeSequentialAsync catches it. Left to fault the task, an
+        // OperationCanceledException made it Canceled and was replaced by a new TaskCanceledException.
+        private static async Task<Exception?> RunGuarded(Func<TArgs, CancellationToken, Task> handler, TArgs args, CancellationToken ct)
+        {
+            try
+            {
+                await handler(args, ct).ConfigureAwait(false);
+                return null;
+            }
+            catch (Exception ex) { return ex; }
+        }
 
         private List<Func<TArgs, CancellationToken, Task>> Snapshot()
         {

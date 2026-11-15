@@ -118,6 +118,8 @@ namespace ToolBelt.Threading
                 if (task is null) throw new ArgumentException("Tasks must not be null.", nameof(tasks));
                 _ = task.ContinueWith(t =>
                 {
+                    // Read even when another task got there first: a later fault went unobserved (an UnobservedTaskException).
+                    if (t.IsFaulted) _ = t.Exception;
                     if (t.IsFaulted || t.IsCanceled) first.TrySetResult(t);
                     else if (Interlocked.Decrement(ref remaining) == 0) first.TrySetResult(null);
                 }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);

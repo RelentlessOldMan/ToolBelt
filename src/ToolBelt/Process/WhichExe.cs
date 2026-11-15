@@ -57,7 +57,7 @@ namespace ToolBelt.Process
             if (tryAsIs && File.Exists(path)) return path;
             if (windows)
             {
-                string pathext = Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT;.COM";
+                string pathext = Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD"; // cmd's own default order
                 foreach (string ext in pathext.Split(';'))
                     if (ext.Length > 0 && File.Exists(path + ext)) return path + ext;
             }
