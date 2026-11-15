@@ -166,7 +166,7 @@ namespace ToolBelt.Windows.Tests
         private static string GateName(string appId)
         {
             using var identity = WindowsIdentity.GetCurrent();
-            return @"Local\ToolBelt.SingleInstance." + appId + "." + identity.User!.Value;
+            return @"Local\ToolBelt.SingleInstance." + appId.ToUpperInvariant() + "." + identity.User!.Value;
         }
 
         public void SingleInstanceApp_ForwardsAMessageWithinThePrimarysBudget()

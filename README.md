@@ -584,7 +584,7 @@ src/
   ToolBelt.Windows/         Windows platform satellite (net8.0-windows) — Win32 / registry utilities
     PowerStatus.cs          AC line / battery charge / saver mode via GetSystemPowerStatus
     SingleInstance.cs       single-instance gate over a named mutex (abandoned-owner safe, not tied to the calling thread)
-    SingleInstanceApp.cs    second launch forwards args + cwd to the primary (per-user pipe) + foreground handoff
+    SingleInstanceApp.cs    second launch forwards args + cwd to the primary (per-user pipe) + foreground handoff; app ids ignore case; at most 100 launches wait
     DriveAndVolumeInfo.cs   fixed-drive enumeration + free space for any path
     StorageDeviceInfo.cs    bus type (USB/NVMe/SATA/SD…), removable, SSD vs HDD, vendor/serial; mapped drive -> UNC path
     MonitorInfo.cs          attached monitors: bounds / work area / primary in physical pixels (EnumDisplayMonitors)
@@ -593,7 +593,7 @@ src/
     JobObject.cs            job object grouping child processes (kill-on-close; memory / process-count / CPU-rate caps; accounting; start suspended inside the job)
     WindowUtils.cs          enumerate top-level windows / foreground / find by title
     FileAssociation.cs      per-extension opener / friendly name / command / ProgID
-    ShortcutUtils.cs        create & read .lnk shortcuts via COM IShellLink (fields up to the shell's 260-char limit)
+    ShortcutUtils.cs        create & read .lnk shortcuts via COM IShellLink (fields up to the shell's 260-char limit; no NULs; a corrupt .lnk is InvalidDataException)
     ClipboardUtils.cs       clipboard text, Explorer file lists (CF_HDROP) and images (CF_DIB) via raw Win32 on an STA thread; DecodeDropFiles/DecodeDib parse untrusted blocks within bounds
     ScreenCapture.cs        capture screen/region to a raw BGRA buffer via GDI BitBlt, physical pixels (no System.Drawing)
     ResourceSampler.cs      per-process CPU% (core-normalised, at most 100) + working-set / private memory; IDisposable; Measure takes a CancellationToken
@@ -603,8 +603,8 @@ src/
     IdleTime.cs             time since last user input (GetLastInputInfo)
     PrivilegeScope.cs       enable a token privilege (SeBackup, SeShutdown…) for a scope, restore on dispose
     PowerScheme.cs          active/installed power plans, switch, Use() scope that restores the previous plan
-    DpiInfo.cs              per-monitor DPI/scale, system DPI, thread DPI-awareness scope (physical-pixel capture)
-    EventLogWriter.cs       Windows Event Log via ReportEvent (no package); source registration helpers
+    DpiInfo.cs              per-monitor DPI/scale, system DPI, thread DPI-awareness scope (physical-pixel capture); Scale throws for dpi < 1
+    EventLogWriter.cs       Windows Event Log via ReportEvent (no package); source registration helpers; a NUL in a message is written as U+2400
   ToolBelt.Wpf/             WPF UI satellite (net8.0-windows) — MVVM building blocks
     ObservableObject.cs     INotifyPropertyChanged base with SetProperty
     RelayCommand.cs         ICommand over delegates (+ generic RelayCommand<T>)
@@ -1049,6 +1049,7 @@ tests/
     WindowsReview2Tests.cs  (second-pass regressions: gate thread affinity, forward timeouts and takeover, registry conversion, impersonation)
     WindowsReview3Tests.cs  (third-pass regressions: hive-root delete guard, stalled-primary forward, real DPI for unaware callers, unsigned registry writes)
     WindowsReview4Tests.cs  (fourth-pass regressions: bounded CF_HDROP parsing, lone surrogates forwarded, namespace prefixes, long and file paths for GetSpace, registry flags and leading backslashes, cancellable Measure)
+    WindowsReview79Tests.cs (fifth pass: case-insensitive app ids, bounded launch queue, synchronous forward, NUL and empty names rejected, corrupt shortcuts, clipboard text bound)
     FlakeRootCauseTests.cs  (round 46: JobObject.Start keeps grandchildren in the job, refuses over the limit before running)
     DriveAndVolumeInfoTests.cs
     MonitorInfoTests.cs

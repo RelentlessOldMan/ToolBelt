@@ -40,6 +40,8 @@ namespace ToolBelt.Windows
     /// </code>
     /// <see cref="SecondInstanceStarted"/> is raised on a thread-pool thread, one launch at a time, in arrival order;
     /// marshal to the UI thread. An exception thrown by a handler is dropped (it cannot reach the launch that caused it).
+    /// At most 100 launches wait at a time (before anyone subscribes, or behind a slow handler); a launch past that is
+    /// refused, so the secondary sees <see cref="ForwardedToPrimary"/> false.
     /// The instance name and the pipe are per user, so another account cannot receive this user's launches (though, since
     /// pipe names are machine-wide, one that creates the pipe first can keep them from being forwarded). The pipe accepts
     /// only clients owned by the same account; an elevated and a non-elevated launch of one user can count as
@@ -99,7 +101,8 @@ namespace ToolBelt.Windows
         /// to the instance that already holds it (waiting up to <paramref name="forwardTimeout"/>, default 5 s, for a
         /// primary that is still starting up; <see cref="Timeout.InfiniteTimeSpan"/> or <see cref="TimeSpan.MaxValue"/>
         /// waits without limit). If the forward fails because the primary exited meanwhile, this launch becomes the
-        /// primary instead (<see cref="IsPrimary"/> true), so it handles its own arguments.
+        /// primary instead (<see cref="IsPrimary"/> true), so it handles its own arguments. App ids compare without
+        /// regard to case ("Contoso.Viewer" and "contoso.viewer" are one instance).
         /// </summary>
         public static SingleInstanceApp Start(string appId, IReadOnlyList<string> args, TimeSpan? forwardTimeout = null)
         {
@@ -124,7 +127,9 @@ namespace ToolBelt.Windows
                 session = self.SessionId;
             // ".2": the wire format (UTF-16 strings) changed, so a launch never talks to an older primary's listener.
             string pipe = "ToolBelt.SingleInstance.2." + appId + "." + session + "." + user;
-            string gateName = @"Local\ToolBelt.SingleInstance." + appId + "." + user;
+            // Pipe names ignore case but mutex names don't: "App" and "app" shared a pipe yet both became primary, and the
+            // second's launches went to the first. The gate now ignores case too, so the two ids are one instance.
+            string gateName = @"Local\ToolBelt.SingleInstance." + appId.ToUpperInvariant() + "." + user;
             var gate = SingleInstance.TryAcquire(gateName);
             if (gate.IsOwned) return new SingleInstanceApp(gate, pipe, primary: true, forwarded: false);
             bool forwarded = Forward(pipe, args, timeout);
@@ -173,17 +178,18 @@ namespace ToolBelt.Windows
                 {
                     using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.CurrentUserOnly | PipeOptions.Asynchronous);
                     client.Connect((int)Math.Max(1, Math.Min(RemainingMs(), 1000)));
-                    // Pipes don't support ReadTimeout; bound the reads with a token so a hung primary can't hang this launch,
-                    // and by what is left of the forward timeout, which a stalled primary otherwise stretched to 5 s more.
-                    using var replyTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(Math.Max(1, Math.Min(RemainingMs(), 5000))));
-                    int primaryPid = ReadInt32Async(client, replyTimeout.Token).GetAwaiter().GetResult();
-                    AllowSetForegroundWindow(primaryPid);                             // let the primary come to the front
-                    // Bounded by the token too: a synchronous write (and Flush, which waits for the reader) to a primary that
-                    // took the connection and then stopped reading hung this launch for good.
+                    // Pipes don't support ReadTimeout. Past the deadline (5 s, or what is left of the forward timeout, which a
+                    // stalled primary otherwise stretched) a timer cancels the pipe's I/O, so a primary that took the
+                    // connection and then stopped reading or writing can't hang this launch. It repeats every 50 ms: a cancel
+                    // that lands between two calls has nothing to cancel. (Blocking on the async calls was sync-over-async.)
+                    using var cancelIo = new Timer(CancelPipeIo, client, Math.Max(1, Math.Min(RemainingMs(), 5000)), 50);
+                    var pid = new byte[4];
+                    client.ReadExactly(pid);
+                    AllowSetForegroundWindow(BitConverter.ToInt32(pid, 0));           // let the primary come to the front
                     sent = true;
-                    client.WriteAsync(message.GetBuffer(), 0, (int)message.Length, replyTimeout.Token).GetAwaiter().GetResult();
+                    client.Write(message.GetBuffer(), 0, (int)message.Length);
                     var ack = new byte[1];
-                    client.ReadExactlyAsync(ack, replyTimeout.Token).AsTask().GetAwaiter().GetResult();
+                    client.ReadExactly(ack);
                     return ack[0] == 1;
                 }
                 catch (UnauthorizedAccessException)
@@ -199,6 +205,14 @@ namespace ToolBelt.Windows
                     Thread.Sleep((int)Math.Min(50, RemainingMs()));
                 }
             }
+        }
+
+        // A synchronous read or write on the pipe then fails with ERROR_OPERATION_ABORTED (an IOException or
+        // OperationCanceledException). Once the pipe is closed there is nothing to cancel.
+        private static void CancelPipeIo(object? state)
+        {
+            try { CancelIoEx(((NamedPipeClientStream)state!).SafePipeHandle, IntPtr.Zero); }
+            catch (Exception) { /* closed meanwhile */ }
         }
 
         // UTF-16 on the wire: the byte limits are twice the UTF-8 ones, so the same text fits as before.
@@ -261,7 +275,8 @@ namespace ToolBelt.Windows
 
         private bool CanAccept()
         {
-            lock (_deliveryGate) return Volatile.Read(ref _disposed) == 0 && (_handlers != null || _queued.Count < MaxQueued);
+            // Behind a slow handler the delivery queue had no cap: 300 launches of up to 2 MB each held 515 MB.
+            lock (_deliveryGate) return Volatile.Read(ref _disposed) == 0 && (_handlers != null ? _pending.Count < MaxQueued : _queued.Count < MaxQueued);
         }
 
         private void Deliver(SecondInstanceEventArgs e)
@@ -361,5 +376,6 @@ namespace ToolBelt.Windows
         [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
         [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, int cmd);
         [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
+        [DllImport("kernel32.dll")] private static extern bool CancelIoEx(Microsoft.Win32.SafeHandles.SafePipeHandle handle, IntPtr overlapped);
     }
 }

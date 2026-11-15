@@ -59,14 +59,31 @@ namespace ToolBelt.Windows
                 {
                     // Bounded by the block: text placed without a terminating NUL must not read past it.
                     long chars = (long)GlobalSize(handle).ToUInt64() / 2;
-                    if (chars > int.MaxValue) throw new InvalidOperationException("The clipboard text is too large.");
-                    string text = Marshal.PtrToStringUni(ptr, (int)chars);
-                    int nul = text.IndexOf('\0');
-                    return nul >= 0 ? text.Substring(0, nul) : text;
+                    long length = TextLength(ptr, chars);
+                    // A string holds at most 0x3FFFFFDF characters: past that (not int.MaxValue) the read threw OutOfMemoryException.
+                    if (length > MaxStringLength) throw new InvalidOperationException("The clipboard text is too large.");
+                    return Marshal.PtrToStringUni(ptr, (int)length);
                 }
                 finally { GlobalUnlock(handle); }
             }
             finally { CloseClipboard(); }
+        }
+
+        internal const int MaxStringLength = 0x3FFFFFDF;
+
+        // Characters before the first NUL in a block of `chars` UTF-16 units (all of them when it has none).
+        internal static long TextLength(IntPtr ptr, long chars)
+        {
+            var buffer = new char[(int)Math.Min(chars, 1 << 16)];
+            for (long done = 0; done < chars;)
+            {
+                int n = (int)Math.Min(buffer.Length, chars - done);
+                Marshal.Copy((IntPtr)((nint)ptr + (nint)(done * 2)), buffer, 0, n);
+                int nul = Array.IndexOf(buffer, '\0', 0, n);
+                if (nul >= 0) return done + nul;
+                done += n;
+            }
+            return chars;
         }
 
         private static void SetTextCore(string text)

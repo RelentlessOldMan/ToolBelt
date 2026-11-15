@@ -30,6 +30,8 @@ namespace ToolBelt.Windows
         {
             if (extension is null) throw new ArgumentNullException(nameof(extension));
             if (extension.Length == 0) throw new ArgumentException("Extension must not be empty.", nameof(extension));
+            // The API ends the text at a NUL: .txt + NUL + "x" answered for .txt.
+            if (extension.IndexOf('\0') >= 0) throw new ArgumentException("Extension must not contain a NUL character.", nameof(extension));
             string assoc = extension[0] == '.' ? extension : "." + extension;
 
             uint length = 0;

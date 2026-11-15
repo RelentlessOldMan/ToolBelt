@@ -35,7 +35,7 @@ namespace ToolBelt.Windows.Tests
             return identity.User!.Value;
         }
 
-        private static string GateName(string appId) => @"Local\ToolBelt.SingleInstance." + appId + "." + Sid();
+        private static string GateName(string appId) => @"Local\ToolBelt.SingleInstance." + appId.ToUpperInvariant() + "." + Sid();   // the gate ignores case (round 79)
 
         private static string PipeName(string appId)
         {

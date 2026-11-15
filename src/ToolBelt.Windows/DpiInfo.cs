@@ -48,7 +48,9 @@ namespace ToolBelt.Windows
         public int Width { get; }
         public int Height { get; }
 
-        public override string ToString() => $"{DeviceName}: {DpiX} dpi ({Scale:P0}){(IsPrimary ? " primary" : "")}";
+        // Invariant: the current culture printed "%200" under tr-TR.
+        public override string ToString() => string.Format(System.Globalization.CultureInfo.InvariantCulture,
+            "{0}: {1} dpi ({2:P0}){3}", DeviceName, DpiX, Scale, IsPrimary ? " primary" : "");
     }
 
     /// <summary>
@@ -116,10 +118,13 @@ namespace ToolBelt.Windows
 
         /// <summary>
         /// Pixels at <paramref name="dpi"/> for a length given in 96-dpi device-independent units. Throws
-        /// <see cref="OverflowException"/> if the result does not fit an <c>int</c>.
+        /// <see cref="OverflowException"/> if the result does not fit an <c>int</c>, and
+        /// <see cref="ArgumentOutOfRangeException"/> for a <paramref name="dpi"/> below 1.
         /// </summary>
         public static int Scale(int logicalPixels, int dpi)
         {
+            // GetDpiForWindow returns 0 on failure; that scaled every length to 0 without a word.
+            if (dpi < 1) throw new ArgumentOutOfRangeException(nameof(dpi), dpi, "DPI must be positive.");
             // In double from the start: logicalPixels * dpi in int overflowed (and went negative) past about 9 million pixels at 240 dpi.
             double scaled = Math.Round((double)logicalPixels * dpi / 96.0, MidpointRounding.AwayFromZero);
             if (scaled > int.MaxValue || scaled < int.MinValue) throw new OverflowException("The scaled length does not fit an int.");

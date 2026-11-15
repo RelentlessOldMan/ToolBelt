@@ -47,6 +47,7 @@ namespace ToolBelt.Windows
     {
         private readonly SystemProcess _process;
         private bool _ownsProcess;
+        private volatile bool _disposed;
         private readonly int _cores;
         private TimeSpan _lastCpu;
         private long _lastTicks;
@@ -73,16 +74,21 @@ namespace ToolBelt.Windows
         /// <summary>Releases the process object if this sampler opened it (<see cref="ForCurrentProcess"/>).</summary>
         public void Dispose()
         {
+            if (_disposed) return;
+            _disposed = true;
             if (_ownsProcess) _process.Dispose();
         }
 
         /// <summary>
         /// Returns a reading covering the span since the previous <see cref="Sample"/> (or construction) and
         /// resets the baseline. If no measurable time has elapsed, <see cref="ResourceSample.CpuPercent"/> is 0.
-        /// Throws if the target process has exited (its processor-time/memory counters are no longer available).
+        /// Throws if the target process has exited (its processor-time/memory counters are no longer available), and
+        /// <see cref="ObjectDisposedException"/> after <see cref="Dispose"/>.
         /// </summary>
         public ResourceSample Sample()
         {
+            // After Dispose this threw the "process has exited" InvalidOperationException, or kept sampling a caller's process.
+            if (_disposed) throw new ObjectDisposedException(nameof(ResourceSampler));
             _process.Refresh();
             long nowTicks = Stopwatch.GetTimestamp();
             TimeSpan nowCpu = _process.TotalProcessorTime;

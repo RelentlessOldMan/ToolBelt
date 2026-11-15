@@ -15,7 +15,9 @@ namespace ToolBelt.Windows
         /// <summary>Wraps a BGRA top-down buffer of exactly <c>width * height * 4</c> bytes.</summary>
         public ScreenImage(int width, int height, byte[] pixels)
         {
-            if (width < 1 || height < 1) throw new ArgumentOutOfRangeException(nameof(width), "Size must be positive.");
+            // A bad height was reported as ParamName "width".
+            if (width < 1) throw new ArgumentOutOfRangeException(nameof(width), "Size must be positive.");
+            if (height < 1) throw new ArgumentOutOfRangeException(nameof(height), "Size must be positive.");
             if (pixels is null) throw new ArgumentNullException(nameof(pixels));
             if (pixels.Length != (long)width * height * 4) throw new ArgumentException("Buffer length must be width * height * 4.", nameof(pixels));
             Width = width;

@@ -129,6 +129,8 @@ namespace ToolBelt.Windows
 
         private static LUID Lookup(string privilegeName)
         {
+            // The API ends the name at a NUL: SeShutdownPrivilege + NUL + "x" was held, and Enable turned the real one on.
+            if (privilegeName.IndexOf('\0') >= 0) throw new ArgumentException("Privilege name must not contain a NUL character.", nameof(privilegeName));
             if (!LookupPrivilegeValue(null, privilegeName, out LUID luid))
                 throw new ArgumentException($"Unknown privilege '{privilegeName}'.", nameof(privilegeName), new Win32Exception(Marshal.GetLastWin32Error()));
             return luid;

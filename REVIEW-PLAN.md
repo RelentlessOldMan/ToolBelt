@@ -55,7 +55,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 5 | 19 / 116 | re-queue (19 bugs, none severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 4 | 16 / 88 | re-queue (16 bugs, none severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 5 | 29 / 138 | re-queue (29 bugs, 1 severe) |
-| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 4 | 25 / 99 | re-queue (25 bugs, 1 severe) |
+| 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 5 | 15 / 114 | re-queue (15 bugs, none severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 4 | 24 / 82 | re-queue (24 bugs, 1 severe) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 4 | 22 / 76 | re-queue (22 bugs, none severe) |
 
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); **next: 15**, then 5, 10, 16, 1, 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); **next: 5**, then 10, 16, 1, 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -152,11 +152,46 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.13.19 | 76 | Documents & config, fifth pass | 24 | (see tag) |
 | v2026.11.13.20 | 77 | Objects, functional, grids, graphs, intervals, fifth pass | 29 | (see tag) |
 | v2026.11.13.21 | 78 | Logging, diagnostics, CLI, fifth pass | 19 | (see tag) |
+| v2026.11.14.0 | 79 | Windows satellite, fifth pass | 15 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 79: Windows satellite, fifth pass (v2026.11.14.0)
+
+Two fresh reviewers (correctness, robustness): 14 distinct findings, all real, plus one from a reviewer's unprobed
+note that was checked and confirmed (the clipboard text bound), so **15 bugs, none severe**. Section 15 stays
+re-queued. The regression tests are in `WindowsReview79Tests` (17 tests). Each failed on the old code, run by name
+under a 60 s timeout; the stalled-primary test is a guard for the synchronous forward and fails at HEAD only because
+the old gate name was case-sensitive. Three older tests built the gate name by hand and now upper-case the app id.
+
+- **SingleInstanceApp:** the gate mutex name kept the app id's case while the pipe name ignores it, so "App" and "app"
+  both became primary and the second's launches went to the first; the gate name now upper-cases the id. Launches
+  queued behind a slow handler had no bound (only the before-subscribe queue did), so a stuck handler held every
+  acknowledged launch; at most 100 wait, and the rest are refused (ForwardedToPrimary false). The synchronous forward
+  blocked on async pipe reads and writes (GetAwaiter().GetResult()); it now uses synchronous I/O cancelled by a timer
+  (CancelIoEx) at the deadline.
+- **SingleInstance:** a bare namespace prefix (`Global\`) threw IOException and a session that does not exist threw
+  DirectoryNotFoundException; both are ArgumentException naming the name.
+- **ScreenCapture, DpiInfo:** ScreenImage named width for a bad height. DpiInfo.Scale with a DPI of 0 or less returned
+  0 or a negative size; it throws. MonitorDpi.ToString used the current culture (tr-TR printed "%200").
+- **ResourceSampler:** Sample after Dispose kept sampling a caller's process (and an owned one threw the
+  process-exited error); it throws ObjectDisposedException, and Dispose is idempotent.
+- **DriveAndVolumeInfo:** GetSpace passed a NUL to the API, which ended the path there (C:\ + NUL + junk reported C:),
+  and an empty or blank path; both throw ArgumentException. A long `\\.\` device path was rewritten to the UNC form and
+  failed.
+- **EventLogWriter:** a NUL in a source or log name opened the name before it (Application + NUL + junk was reported
+  registered); names with a NUL or backslash are rejected, and null is ArgumentNullException, as elsewhere in the
+  satellite. A NUL in a message cut the event text short; it is written as U+2400.
+- **ShortcutUtils:** a NUL in any path or field cut it short (writing a shortcut at the cut path), an empty target wrote
+  a shortcut to nothing and an empty path threw DirectoryNotFoundException; all are ArgumentException. A corrupt .lnk
+  threw a bare COMException (E_FAIL); it is InvalidDataException.
+- **PrivilegeScope, FileAssociation:** a NUL in a privilege name or extension answered for the name before it.
+- **ClipboardUtils:** clipboard text was bounded by int.MaxValue characters, not the string limit (0x3FFFFFDF), so a
+  2.1-4.3 GB block threw OutOfMemoryException; the text's length is found first (up to the NUL) and bounded by the
+  real limit.
+
 ### Round 78: Logging, diagnostics, CLI, fifth pass (v2026.11.13.21)
 
 Two fresh reviewers (correctness, robustness): 19 distinct findings (two found by both), all real, so **19 bugs, none

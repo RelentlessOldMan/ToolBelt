@@ -58,19 +58,24 @@ namespace ToolBelt.Windows
     {
         /// <summary>
         /// Returns free-space figures for the volume that contains <paramref name="path"/> (which may be any
-        /// directory or file, not just a drive root, and longer than 260 characters). Throws <see cref="Win32Exception"/>
-        /// if the path is invalid.
+        /// directory or file, not just a drive root, and longer than 260 characters). Throws <see cref="ArgumentException"/>
+        /// for an empty or blank path or one containing a NUL, and <see cref="Win32Exception"/> if the path is otherwise invalid.
         /// </summary>
         public static DiskSpace GetSpace(string path)
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
+            // As StorageDeviceInfo does. The API ended the path at a NUL, so C:\ + NUL + "no such dir" reported C:'s figures.
+            if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path is required.", nameof(path));
+            if (path.IndexOf('\0') >= 0) throw new ArgumentException("Path must not contain a NUL character.", nameof(path));
             string query = path;
             if (File.Exists(query)) query = Path.GetDirectoryName(Path.GetFullPath(query)) ?? query;   // the API wants a directory
             if (query.Length >= 248 && !query.StartsWith(@"\\?\", StringComparison.Ordinal))
             {
                 // A long path needs the extended-length form, which takes a full path with a trailing backslash.
                 string full = Path.GetFullPath(query);
-                query = full.StartsWith(@"\\", StringComparison.Ordinal) ? @"\\?\UNC\" + full.Substring(2) : @"\\?\" + full;
+                // A \\.\ device path is local, not UNC: \\?\UNC\.\C:\... failed where \\?\C:\... works.
+                if (full.StartsWith(@"\\.\", StringComparison.Ordinal)) query = @"\\?\" + full.Substring(4);
+                else query = full.StartsWith(@"\\", StringComparison.Ordinal) ? @"\\?\UNC\" + full.Substring(2) : @"\\?\" + full;
                 if (!query.EndsWith(@"\", StringComparison.Ordinal)) query += @"\";
             }
             if (!GetDiskFreeSpaceEx(query, out ulong available, out ulong total, out ulong free))

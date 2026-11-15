@@ -63,8 +63,11 @@ namespace ToolBelt.Windows
             // The kernel ends the name at a NUL, so names that differ only after one would share a gate.
             if (name.IndexOf('\0') >= 0) throw new ArgumentException("Name must not contain a NUL character.", nameof(name));
             // Any other backslash names a kernel directory that doesn't exist (DirectoryNotFoundException from the mutex).
-            if (StripNamespace(name).IndexOf('\\') >= 0)
+            string bare = StripNamespace(name);
+            if (bare.IndexOf('\\') >= 0)
                 throw new ArgumentException(@"A backslash may only follow a Local\, Global\ or Session\<n>\ prefix.", nameof(name));
+            // A bare prefix (Global\) left an empty name, and the mutex threw IOException.
+            if (bare.Length == 0) throw new ArgumentException("Name must not be empty after its namespace prefix.", nameof(name));
 
             var release = new ManualResetEventSlim();
             using var ready = new ManualResetEventSlim();
@@ -80,6 +83,11 @@ namespace ToolBelt.Windows
                     catch (WaitHandleCannotBeOpenedException) { return; }          // the name is some other kind of object
                     try { owned = mutex.WaitOne(TimeSpan.Zero, exitContext: false); }
                     catch (AbandonedMutexException) { owned = true; }              // the previous owner exited without releasing
+                }
+                // A session that does not exist (Session\99999999999999\x) has no kernel directory: a bad name, as documented.
+                catch (System.IO.DirectoryNotFoundException ex)
+                {
+                    error = ExceptionDispatchInfo.Capture(new ArgumentException("The name's session does not exist.", nameof(name), ex));
                 }
                 catch (Exception ex) { error = ExceptionDispatchInfo.Capture(ex); }
                 finally

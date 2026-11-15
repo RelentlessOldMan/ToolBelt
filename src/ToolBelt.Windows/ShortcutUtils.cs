@@ -34,13 +34,25 @@ namespace ToolBelt.Windows
     /// interface — no WScript / third-party dependency. <see cref="Create"/> writes a shortcut file;
     /// <see cref="Read"/> parses one back into a <see cref="ShortcutInfo"/>. The shell stores at most 259 characters
     /// of target path and 260 of each other field (longer values come back truncated or garbled), so
-    /// <see cref="Create"/> rejects anything longer.
+    /// <see cref="Create"/> rejects anything longer. Paths must not be empty, and no value may contain a NUL (the shell
+    /// ends each one there).
     /// </summary>
     public static class ShortcutUtils
     {
         private const int MaxPath = 260;                // the shell's per-field limit (a target must also leave room for its NUL)
         private const int ReadBuffer = 1024;
         private const uint SlgpRawPath = 0x4;
+
+        private static void CheckPath(string path, string paramName)
+        {
+            if (path.Length == 0) throw new ArgumentException("The path must not be empty.", paramName);
+            CheckNoNul(path, paramName);
+        }
+
+        private static void CheckNoNul(string? value, string paramName)
+        {
+            if (value != null && value.IndexOf('\0') >= 0) throw new ArgumentException("The value must not contain a NUL character.", paramName);
+        }
 
         /// <summary>Creates (or overwrites) a shortcut at <paramref name="shortcutPath"/> pointing at <paramref name="targetPath"/>.</summary>
         public static void Create(
@@ -50,6 +62,14 @@ namespace ToolBelt.Windows
         {
             if (shortcutPath is null) throw new ArgumentNullException(nameof(shortcutPath));
             if (targetPath is null) throw new ArgumentNullException(nameof(targetPath));
+            // An empty target wrote a shortcut to nothing; an empty path threw DirectoryNotFoundException; a NUL cut any value
+            // short (a shortcut path with one wrote the file named by its first part).
+            CheckPath(shortcutPath, nameof(shortcutPath));
+            CheckPath(targetPath, nameof(targetPath));
+            CheckNoNul(arguments, nameof(arguments));
+            CheckNoNul(workingDirectory, nameof(workingDirectory));
+            CheckNoNul(description, nameof(description));
+            CheckNoNul(iconPath, nameof(iconPath));
             if (targetPath.Length >= MaxPath) throw TooLong(nameof(targetPath), MaxPath - 1);
             if (arguments?.Length > MaxPath) throw TooLong(nameof(arguments), MaxPath);
             if (workingDirectory?.Length > MaxPath) throw TooLong(nameof(workingDirectory), MaxPath);
@@ -70,15 +90,24 @@ namespace ToolBelt.Windows
             finally { Marshal.FinalReleaseComObject(link); }
         }
 
-        /// <summary>Reads the shortcut at <paramref name="shortcutPath"/> into a <see cref="ShortcutInfo"/>.</summary>
+        /// <summary>
+        /// Reads the shortcut at <paramref name="shortcutPath"/> into a <see cref="ShortcutInfo"/>. Throws
+        /// <see cref="System.IO.InvalidDataException"/> if the file is not a readable shortcut.
+        /// </summary>
         public static ShortcutInfo Read(string shortcutPath)
         {
             if (shortcutPath is null) throw new ArgumentNullException(nameof(shortcutPath));
+            CheckPath(shortcutPath, nameof(shortcutPath));
 
             IShellLinkW link = NewShellLink();
             try
             {
-                ((IPersistFile)link).Load(shortcutPath, 0 /* STGM_READ */);
+                // A corrupt file came out as a bare COMException (E_FAIL).
+                try { ((IPersistFile)link).Load(shortcutPath, 0 /* STGM_READ */); }
+                catch (COMException ex) when (ex.HResult == unchecked((int)0x80004005))
+                {
+                    throw new System.IO.InvalidDataException("The file is not a readable shortcut.", ex);
+                }
 
                 // Buffers larger than the stored limit: a MAX_PATH buffer silently cut a 260-character field short.
                 var buffer = new StringBuilder(ReadBuffer);

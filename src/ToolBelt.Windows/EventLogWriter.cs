@@ -19,7 +19,8 @@ namespace ToolBelt.Windows
     /// System.Diagnostics.EventLog package required. A source must be registered once (an admin operation, typically in
     /// the installer: <see cref="RegisterSource"/>) for Event Viewer to show messages cleanly; unregistered sources still
     /// write, but the viewer prefixes the text with "The description for Event ID … cannot be found". Messages longer
-    /// than the API's 31 839-character limit are truncated with a marker. Thread-safe.
+    /// than the API's 31 839-character limit are truncated with a marker; a NUL in a message is written as U+2400 (the
+    /// API ends the text at a NUL). Source and log names must not contain a NUL or a backslash. Thread-safe.
     /// </summary>
     public sealed class EventLogWriter : IDisposable
     {
@@ -37,7 +38,7 @@ namespace ToolBelt.Windows
 
         public EventLogWriter(string source)
         {
-            if (string.IsNullOrWhiteSpace(source)) throw new ArgumentException("Source is required.", nameof(source));
+            CheckName(source, nameof(source));
             Source = source;
             _handle = RegisterEventSourceW(null, source);
             if (_handle == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), $"Could not open event source '{source}'.");
@@ -53,13 +54,7 @@ namespace ToolBelt.Windows
                 throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown entry kind.");
             // A negative category became 65535 and up (and overflowed in a checked build).
             if (category < 0) throw new ArgumentOutOfRangeException(nameof(category), category, "Category must not be negative.");
-            string text = message;
-            if (message.Length > MaxMessageLength)
-            {
-                int cut = MaxMessageLength - 14;
-                if (char.IsHighSurrogate(message[cut - 1])) cut--;               // don't split a surrogate pair
-                text = message.Substring(0, cut) + " …[truncated]";
-            }
+            string text = EventText(message);
             lock (_gate)
             {
                 if (_handle == IntPtr.Zero) throw new ObjectDisposedException(nameof(EventLogWriter));
@@ -69,6 +64,20 @@ namespace ToolBelt.Windows
                 // writer was otherwise unreachable.
                 GC.KeepAlive(this);
             }
+        }
+
+        // What ReportEvent is given for a message.
+        internal static string EventText(string message)
+        {
+            // The API ends the text at a NUL, so everything after one was lost without a word.
+            string text = message.IndexOf('\0') >= 0 ? message.Replace('\0', (char)0x2400) : message;
+            if (text.Length > MaxMessageLength)
+            {
+                int cut = MaxMessageLength - 14;
+                if (char.IsHighSurrogate(text[cut - 1])) cut--;                  // don't split a surrogate pair
+                text = text.Substring(0, cut) + " …[truncated]";
+            }
+            return text;
         }
 
         public void Error(string message, int eventId = 1000) => Write(message, EventLogEntryKind.Error, eventId);
@@ -106,11 +115,18 @@ namespace ToolBelt.Windows
         // (UnregisterSource("Application", log: "") deleted the whole Application log).
         private static string SourceKey(string source, string log)
         {
-            if (string.IsNullOrWhiteSpace(source) || source.IndexOf('\\') >= 0)
-                throw new ArgumentException("Source is required and may not contain a backslash.", nameof(source));
-            if (string.IsNullOrWhiteSpace(log) || log.IndexOf('\\') >= 0)
-                throw new ArgumentException("Log is required and may not contain a backslash.", nameof(log));
+            CheckName(source, nameof(source));
+            CheckName(log, nameof(log));
             return $@"SYSTEM\CurrentControlSet\Services\EventLog\{log}\{source}";
+        }
+
+        // A null threw ArgumentException rather than ArgumentNullException. The registry and the event API end a name at a
+        // NUL: Application + NUL + "junk" opened the Application source, and UnregisterSource would delete a real one.
+        private static void CheckName(string name, string paramName)
+        {
+            if (name is null) throw new ArgumentNullException(paramName);
+            if (string.IsNullOrWhiteSpace(name) || name.IndexOf('\\') >= 0 || name.IndexOf('\0') >= 0)
+                throw new ArgumentException("A name is required and may not contain a backslash or a NUL.", paramName);
         }
 
         private const int MaxKeyNameLength = 255;   // a registry key name's limit
