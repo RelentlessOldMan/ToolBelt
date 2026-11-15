@@ -14,7 +14,9 @@ namespace ToolBelt.Control
     {
         public SchmittTrigger(double lowThreshold, double highThreshold, bool initialState = false)
         {
-            if (double.IsNaN(lowThreshold) || double.IsNaN(highThreshold) || !(lowThreshold <= highThreshold))
+            if (double.IsNaN(lowThreshold)) throw new ArgumentException("The low threshold must not be NaN.", nameof(lowThreshold));
+            if (double.IsNaN(highThreshold)) throw new ArgumentException("The high threshold must not be NaN.", nameof(highThreshold));
+            if (!(lowThreshold <= highThreshold))
                 throw new ArgumentException("The low threshold must not exceed the high threshold.", nameof(lowThreshold));
             Low = lowThreshold;
             High = highThreshold;

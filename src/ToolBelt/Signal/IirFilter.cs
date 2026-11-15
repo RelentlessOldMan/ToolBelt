@@ -110,12 +110,28 @@ namespace ToolBelt.Signal
         public double GroupDelay(double frequency, double sampleRate)
         {
             CheckResponseArguments(frequency, sampleRate);
-            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * (frequency / sampleRate));
-            Complex z2 = z1 * z1;
-            // For P(ω) = Σ c_k e^(−jωk): −d arg P / dω = Re(Σ k·c_k e^(−jωk) / P).
-            double num = ((B1 * z1 + 2 * B2 * z2) / (B0 + B1 * z1 + B2 * z2)).Real;
-            double den = ((A1 * z1 + 2 * A2 * z2) / (1 + A1 * z1 + A2 * z2)).Real;
-            return num - den;
+            double x = frequency / sampleRate;
+            return PolynomialDelay(B0, B1, B2, x) - PolynomialDelay(1, A1, A2, x);
+        }
+
+        // −d arg P / dω for P = c0 + c1·z⁻¹ + c2·z⁻² at ω = 2πx: Re(Σ k·c_k e^(−jωk) / P). Next to a root on the unit circle
+        // both sums cancel (a high-pass's delay near DC came out as −8e15 samples), so there it is summed per root:
+        // P = c0·(1 − r1·z⁻¹)(1 − r2·z⁻¹), each factor contributing Re(−r / (e^(jω) − r)), with e^(jω) − r taken exactly.
+        private static double PolynomialDelay(double c0, double c1, double c2, double x)
+        {
+            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * x), z2 = z1 * z1;
+            Complex p = c0 + c1 * z1 + c2 * z2;
+            double direct = ((c1 * z1 + 2 * c2 * z2) / p).Real;
+            double size = Math.Abs(c0) + Math.Abs(c1) + Math.Abs(c2);
+            if (!(p.Magnitude <= 1e-6 * size) || c0 == 0) return direct;
+            Complex disc = Complex.Sqrt(new Complex(c1 * c1 - 4 * c0 * c2, 0));
+            if (disc.Real * c1 < 0) disc = -disc;
+            Complex q = -(c1 + disc) / 2;
+            if (!IsFinite(q.Real) || !IsFinite(q.Imaginary) || q == Complex.Zero) return direct;
+            Complex r1 = q / c0, r2 = c2 / q;
+            // The sign of x only conjugates both terms (a real root, or swaps a conjugate pair), so the real part holds.
+            double factored = (-r1 / OffsetOnCircle(x, r1)).Real + (-r2 / OffsetOnCircle(x, r2)).Real;
+            return IsFinite(factored) ? factored : direct;
         }
 
         public override string ToString() => FormattableString.Invariant($"b=[{B0}, {B1}, {B2}] a=[1, {A1}, {A2}]");
@@ -148,6 +164,13 @@ namespace ToolBelt.Signal
         // for 40 zeros).
         private static double DistanceOnCircle(double x, Complex r)
         {
+            Complex d = OffsetOnCircle(x, r);
+            return Hypot(d.Real, d.Imaginary);
+        }
+
+        // e^(j2π|x|) − r, with the point taken exactly as in DistanceOnCircle.
+        private static Complex OffsetOnCircle(double x, Complex r)
+        {
             double a = Math.Abs(x - Math.Round(x));                 // in [0, 0.5], exact
             double re, im;
             if (a <= 0.25)
@@ -162,7 +185,7 @@ namespace ToolBelt.Signal
                 re = -(1 + r.Real) + 2 * s * s;
                 im = Math.Sin(2 * Math.PI * b) - r.Imaginary;
             }
-            return Hypot(re, im);
+            return new Complex(re, im);
         }
 
         private static double Hypot(double a, double b)
@@ -295,7 +318,14 @@ namespace ToolBelt.Signal
     {
         private readonly Biquad[] _sections;
         private readonly double[] _z1, _z2;
+        private readonly double[] _o1, _o2;    // the state before the current sample, to retry it rescaled
         private double _peak;           // the largest |input| since the last reset, for the subnormal flush
+        // The streaming state is held in units of 2^_shift (inputs scaled by _down = 2^-_shift, outputs by _up): a finite
+        // input whose state would overflow (a constant 1e308 through a low-pass, where A1·y passes double.MaxValue) left
+        // the state infinite or NaN for good. It grows by 64 at a time when that happens; Reset() returns it to 0.
+        private int _shift;
+        private double _down = 1, _up = 1;
+        private const int ShiftStep = 64, MaxShift = 960;
 
         // A subnormal state is flushed to 0 once the signal reaches this size, where the change (under 2.3e-308 per sample)
         // is far below one rounding of the signal: a decaying tail in subnormal arithmetic ran 20 times slower. A signal
@@ -310,36 +340,64 @@ namespace ToolBelt.Signal
             if (_sections.Any(s => s is null)) throw new ArgumentException("Sections must not be null.", nameof(sections));
             _z1 = new double[_sections.Length];
             _z2 = new double[_sections.Length];
+            _o1 = new double[_sections.Length];
+            _o2 = new double[_sections.Length];
         }
 
         public IirFilter(params Biquad[] sections) : this((IEnumerable<Biquad>)sections) { }
 
         public IReadOnlyList<Biquad> Sections => Array.AsReadOnly(_sections);
 
-        /// <summary>Filters one sample, carrying state from the previous call (direct form II transposed). A NaN input stays in
-        /// the state (every later output is NaN) until <see cref="Reset()"/>, as with any recursive filter.</summary>
+        /// <summary>Filters one sample, carrying state from the previous call (direct form II transposed). A NaN or infinite
+        /// input stays in the state (every later output is NaN) until <see cref="Reset()"/>, as with any recursive filter. A
+        /// finite input never overflows the state (it is rescaled by a power of two when it would); an output whose true
+        /// value is past double.MaxValue comes out infinite.</summary>
         public double Process(double sample)
         {
-            double x = sample;
-            if (Math.Abs(x) > _peak) _peak = Math.Abs(x);
-            bool flush = _peak >= FlushAbove;
-            for (int s = 0; s < _sections.Length; s++)
+            if (Math.Abs(sample) > _peak) _peak = Math.Abs(sample);
+            while (true)
             {
-                var q = _sections[s];
-                double y = q.B0 * x + _z1[s];
-                if (flush && Math.Abs(y) < MinNormal) y = 0;
-                double a = q.B1 * x - q.A1 * y + _z2[s], b = q.B2 * x - q.A2 * y;
-                if (flush)
+                double x = sample * _down;
+                bool flush = _peak * _down >= FlushAbove;
+                int s = 0;
+                for (; s < _sections.Length; s++)
                 {
-                    if (Math.Abs(a) < MinNormal) a = 0;
-                    if (Math.Abs(b) < MinNormal) b = 0;
+                    var q = _sections[s];
+                    double y = q.B0 * x + _z1[s];
+                    if (flush && Math.Abs(y) < MinNormal) y = 0;
+                    double a = q.B1 * x - q.A1 * y + _z2[s], b = q.B2 * x - q.A2 * y;
+                    if (flush)
+                    {
+                        if (Math.Abs(a) < MinNormal) a = 0;
+                        if (Math.Abs(b) < MinNormal) b = 0;
+                    }
+                    // A finite sample whose state overflows here: undo this sample, rescale and run it again.
+                    if (!(Biquad.IsFinite(y) && Biquad.IsFinite(a) && Biquad.IsFinite(b)) && Biquad.IsFinite(x) && _shift < MaxShift
+                        && Biquad.IsFinite(_z1[s]) && Biquad.IsFinite(_z2[s]))
+                        break;
+                    _o1[s] = _z1[s];
+                    _o2[s] = _z2[s];
+                    _z1[s] = a;
+                    _z2[s] = b;
+                    x = y;
                 }
-                _z1[s] = a;
-                _z2[s] = b;
-                x = y;
+                if (s == _sections.Length) return x * _up;
+                for (int r = 0; r < s; r++) { _z1[r] = _o1[r]; _z2[r] = _o2[r]; }
+                SetShift(_shift + ShiftStep);
             }
-            return x;
         }
+
+        // Moves the streaming state to units of 2^shift (an exact power-of-two rescale, but for subnormal parts).
+        private void SetShift(int shift)
+        {
+            double factor = Pow2(_shift - shift);
+            for (int s = 0; s < _sections.Length; s++) { _z1[s] *= factor; _z2[s] *= factor; }
+            _shift = shift;
+            _down = Pow2(-shift);
+            _up = Pow2(shift);
+        }
+
+        private static double Pow2(int e) => BitConverter.Int64BitsToDouble((long)(1023 + e) << 52);   // |e| ≤ 1022
 
         /// <summary>Clears the streaming state (as if no samples had been seen).</summary>
         public void Reset()
@@ -347,6 +405,8 @@ namespace ToolBelt.Signal
             Array.Clear(_z1, 0, _z1.Length);
             Array.Clear(_z2, 0, _z2.Length);
             _peak = 0;
+            _shift = 0;
+            _down = _up = 1;
         }
 
         /// <summary>
@@ -357,7 +417,24 @@ namespace ToolBelt.Signal
         {
             if (!Biquad.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value), value, "Value must be finite.");
             var (z1, z2) = SteadyState();
-            for (int s = 0; s < _sections.Length; s++) { _z1[s] = z1[s] * value; _z2[s] = z2[s] * value; }
+            for (int shift = 0; ; shift += ShiftStep)
+            {
+                double v = value * Pow2(-shift);
+                bool finite = true;
+                for (int s = 0; s < _sections.Length; s++)
+                {
+                    _z1[s] = z1[s] * v;
+                    _z2[s] = z2[s] * v;
+                    finite &= Biquad.IsFinite(_z1[s]) && Biquad.IsFinite(_z2[s]);
+                }
+                if (finite || shift >= MaxShift)
+                {
+                    _shift = shift;
+                    _down = Pow2(-shift);
+                    _up = Pow2(shift);
+                    break;
+                }
+            }
             _peak = Math.Abs(value);
         }
 
@@ -365,10 +442,38 @@ namespace ToolBelt.Signal
         public double[] Filter(IReadOnlyList<double> samples)
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
-            var output = new double[samples.Count];
-            for (int i = 0; i < output.Length; i++) output[i] = samples[i];
-            Run(output, new double[_sections.Length], new double[_sections.Length]);
-            return output;
+            return Rescaled(samples, scale =>
+            {
+                var output = new double[samples.Count];
+                for (int i = 0; i < output.Length; i++) output[i] = samples[i] * scale;
+                Run(output, new double[_sections.Length], new double[_sections.Length]);
+                return output;
+            });
+        }
+
+        // Runs a linear pass at scale 1 and, when finite samples gave a non-finite result (an intermediate value, the
+        // state or FiltFilt's extension past double.MaxValue), again at 2^-64, 2^-128, ... with the result scaled back:
+        // an output whose true value is past double.MaxValue then comes out infinite, and the rest exact.
+        private static double[] Rescaled(IReadOnlyList<double> samples, Func<double, double[]> pass)
+        {
+            double[] result = pass(1);
+            if (AllFinite(result) || !AllFinite(samples)) return result;
+            for (int shift = ShiftStep; ; shift += ShiftStep)
+            {
+                result = pass(Pow2(-shift));
+                if (AllFinite(result) || shift >= MaxShift)
+                {
+                    double up = Pow2(shift);
+                    for (int i = 0; i < result.Length; i++) result[i] *= up;
+                    return result;
+                }
+            }
+        }
+
+        private static bool AllFinite(IReadOnlyList<double> values)
+        {
+            for (int i = 0; i < values.Count; i++) if (!Biquad.IsFinite(values[i])) return false;
+            return true;
         }
 
         /// <summary>
@@ -390,21 +495,26 @@ namespace ToolBelt.Signal
             // n + 2·pad wrapped in int (an OverflowException in the checked build) for a long signal with a long pad.
             if ((long)n + 2L * pad > 0x7FFFFFC7)
                 throw new ArgumentOutOfRangeException(nameof(padLength), pad, "The padded signal (length + 2 × pad) is longer than the largest array.");
-            var ext = new double[n + 2 * pad];
-            // x0 + (x0 − x[k]), not 2·x0 − x[k]: 2·x0 overflowed for samples near double.MaxValue (a constant 1e308 gave NaN).
-            for (int i = 0; i < pad; i++) ext[i] = samples[0] + (samples[0] - samples[pad - i]);
-            for (int i = 0; i < n; i++) ext[pad + i] = samples[i];
-            for (int i = 0; i < pad; i++) ext[pad + n + i] = samples[n - 1] + (samples[n - 1] - samples[n - 2 - i]);
-
             var (zi1, zi2) = SteadyState();
-            Run(ext, Scaled(zi1, ext[0]), Scaled(zi2, ext[0]));
-            Array.Reverse(ext);
-            Run(ext, Scaled(zi1, ext[0]), Scaled(zi2, ext[0]));
-            Array.Reverse(ext);
+            // Rescaled: the extension x0 + (x0 − x[k]) still overflowed for a swing of ±1e308, and so could the state.
+            return Rescaled(samples, scale =>
+            {
+                var ext = new double[n + 2 * pad];
+                // x0 + (x0 − x[k]), not 2·x0 − x[k]: 2·x0 overflowed for samples near double.MaxValue (a constant 1e308 gave NaN).
+                double first = samples[0] * scale, last = samples[n - 1] * scale;
+                for (int i = 0; i < pad; i++) ext[i] = first + (first - samples[pad - i] * scale);
+                for (int i = 0; i < n; i++) ext[pad + i] = samples[i] * scale;
+                for (int i = 0; i < pad; i++) ext[pad + n + i] = last + (last - samples[n - 2 - i] * scale);
 
-            var result = new double[n];
-            Array.Copy(ext, pad, result, 0, n);
-            return result;
+                Run(ext, Scaled(zi1, ext[0]), Scaled(zi2, ext[0]));
+                Array.Reverse(ext);
+                Run(ext, Scaled(zi1, ext[0]), Scaled(zi2, ext[0]));
+                Array.Reverse(ext);
+
+                var result = new double[n];
+                Array.Copy(ext, pad, result, 0, n);
+                return result;
+            });
         }
 
         /// <summary>The complex frequency response of the whole cascade at <paramref name="frequency"/> Hz.</summary>
@@ -771,9 +881,11 @@ namespace ToolBelt.Signal
 
         private void Run(double[] data, double[] z1, double[] z2)
         {
-            double peak = 0;
-            foreach (double v in data) peak = Math.Max(peak, Math.Abs(v));
-            bool flush = peak >= FlushAbove;                // see FlushAbove; a NaN peak leaves it off
+            // See FlushAbove. The flush starts at the first sample that reaches it, as in Process: the peak of the whole
+            // buffer turned it on from sample 0, so a large sample later changed the outputs before it (not causal).
+            // A NaN never reaches it.
+            int flushFrom = data.Length;
+            for (int i = 0; i < data.Length; i++) if (Math.Abs(data[i]) >= FlushAbove) { flushFrom = i; break; }
             for (int s = 0; s < _sections.Length; s++)
             {
                 var q = _sections[s];
@@ -781,6 +893,7 @@ namespace ToolBelt.Signal
                 for (int i = 0; i < data.Length; i++)
                 {
                     double x = data[i];
+                    bool flush = i >= flushFrom;
                     double y = q.B0 * x + a;
                     if (flush && Math.Abs(y) < MinNormal) y = 0;
                     a = q.B1 * x - q.A1 * y + b;
@@ -820,7 +933,8 @@ namespace ToolBelt.Signal
         private int DefaultPadLength()
         {
             int b2Zeros = _sections.Count(s => s.B2 == 0), a2Zeros = _sections.Count(s => s.A2 == 0);
-            return 3 * (2 * _sections.Length + 1 - Math.Min(b2Zeros, a2Zeros));
+            // In long: past about 358 million sections 3·(2S + 1) went negative, blamed on a padLength never passed.
+            return (int)Math.Min(int.MaxValue, 3L * (2L * _sections.Length + 1 - Math.Min(b2Zeros, a2Zeros)));
         }
 
         private static double[] Scaled(double[] v, double k)
@@ -1405,9 +1519,22 @@ namespace ToolBelt.Signal
         {
             int n = sections.Length;
             if (n < 2) return null;
-            var grid = new double[513 + 257];
-            for (int i = 0; i < 513; i++) grid[i] = Math.PI * i / 512;
-            for (int i = 0; i < 257; i++) grid[513 + i] = Math.PI * Math.Pow(10, -12.0 * i / 256);     // down to 1e-12·π
+            var points = new List<double>(513 + 257 + 257 + 9 * n);
+            for (int i = 0; i < 513; i++) points.Add(Math.PI * i / 512);
+            for (int i = 0; i < 257; i++) points.Add(Math.PI * Math.Pow(10, -12.0 * i / 256));     // down to 1e-12·π
+            // and up to π − 1e-12·π, and around each resonance: a narrow peak (a Chebyshev high-pass with its edge near
+            // Nyquist) fell between the fixed points, leaving a partial product 24 dB above the output there.
+            for (int i = 0; i < 257; i++) points.Add(Math.PI - Math.PI * Math.Pow(10, -12.0 * i / 256));
+            foreach (var sec in sections)
+            {
+                double r2 = sec.A2, c = r2 > 0 ? -sec.A1 / (2 * Math.Sqrt(r2)) : 2;
+                if (!(c > -1 && c < 1)) continue;                    // real poles: no resonance off 0 and π
+                double theta = Math.Acos(c), width = Math.Max(1 - Math.Sqrt(r2), 1e-12);
+                foreach (double k in new[] { 0, 0.25, 0.5, 1, 2 })
+                    foreach (double w in new[] { theta - k * width, theta + k * width })
+                        if (w > 0 && w < Math.PI) points.Add(w);
+            }
+            var grid = points.ToArray();
             int m = grid.Length;
             var lm = new double[n][];
             var total = new double[m];
@@ -1455,7 +1582,10 @@ namespace ToolBelt.Signal
                 int j = order[idx];
                 double partialPeak = double.NegativeInfinity;
                 for (int g = 0; g < m; g++) { partial[g] += lm[j][g]; if (partial[g] > partialPeak) partialPeak = partial[g]; }
-                double lg = idx < n - 1 ? peak - partialPeak : logGain.Real - applied;
+                // The final peak is peak + log|K|; aiming the partial products at the unscaled peak left every
+                // intermediate signal about 1/|K| times the output (1e140 for a 40th-order low-pass at 1e-4·fs), so a
+                // large input overflowed between sections.
+                double lg = idx < n - 1 ? peak + logGain.Real - partialPeak : logGain.Real - applied;
                 if (idx < n - 1) for (int g = 0; g < m; g++) partial[g] += lg;
                 applied += lg;
                 double gain = Math.Exp(lg);

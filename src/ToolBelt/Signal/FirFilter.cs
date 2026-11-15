@@ -62,8 +62,58 @@ namespace ToolBelt.Signal
                 sum += _taps[k] * _history[idx];
                 idx = idx == 0 ? _history.Length - 1 : idx - 1;
             }
+            // The running sum of finite terms can pass double.MaxValue while the output fits (a constant 1.7e308 through
+            // a low-pass whose positive taps sum to 1.15): summed again in units of a power of two.
+            if (!IsFinite(sum) && IsFinite(sample))
+            {
+                bool finite = true;
+                foreach (double h in _history) finite &= IsFinite(h);
+                if (finite)
+                    for (int shift = ShiftStep; shift <= MaxShift; shift += ShiftStep)
+                    {
+                        double down = Pow2(-shift), scaled = 0;
+                        idx = _head;
+                        for (int k = 0; k < _taps.Length; k++)
+                        {
+                            scaled += _taps[k] * (_history[idx] * down);
+                            idx = idx == 0 ? _history.Length - 1 : idx - 1;
+                        }
+                        sum = scaled * Pow2(shift);
+                        if (IsFinite(scaled)) break;
+                    }
+            }
             _head = _head + 1 == _history.Length ? 0 : _head + 1;
             return sum;
+        }
+
+        private const int ShiftStep = 64, MaxShift = 960;
+
+        private static double Pow2(int e) => BitConverter.Int64BitsToDouble((long)(1023 + e) << 52);   // |e| ≤ 1022
+
+        private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        // Runs a pass at scale 1 and, when finite samples gave a non-finite result, again at 2^-64, 2^-128, ... with the
+        // result scaled back, so only an output whose true value is past double.MaxValue comes out infinite.
+        private static double[] Rescaled(IReadOnlyList<double> samples, Func<double, double[]> pass)
+        {
+            double[] result = pass(1);
+            if (AllFinite(result) || !AllFinite(samples)) return result;
+            for (int shift = ShiftStep; ; shift += ShiftStep)
+            {
+                result = pass(Pow2(-shift));
+                if (AllFinite(result) || shift >= MaxShift)
+                {
+                    double up = Pow2(shift);
+                    for (int i = 0; i < result.Length; i++) result[i] *= up;
+                    return result;
+                }
+            }
+        }
+
+        private static bool AllFinite(IReadOnlyList<double> values)
+        {
+            for (int i = 0; i < values.Count; i++) if (!IsFinite(values[i])) return false;
+            return true;
         }
 
         public void Reset()
@@ -76,15 +126,18 @@ namespace ToolBelt.Signal
         public double[] Filter(IReadOnlyList<double> samples)
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
-            var output = new double[samples.Count];
-            for (int i = 0; i < output.Length; i++)
+            return Rescaled(samples, scale =>
             {
-                double sum = 0;
-                int kMax = Math.Min(i, _taps.Length - 1);
-                for (int k = 0; k <= kMax; k++) sum += _taps[k] * samples[i - k];
-                output[i] = sum;
-            }
-            return output;
+                var output = new double[samples.Count];
+                for (int i = 0; i < output.Length; i++)
+                {
+                    double sum = 0;
+                    int kMax = Math.Min(i, _taps.Length - 1);
+                    for (int k = 0; k <= kMax; k++) sum += _taps[k] * (samples[i - k] * scale);
+                    output[i] = sum;
+                }
+                return output;
+            });
         }
 
         /// <summary>
@@ -96,16 +149,19 @@ namespace ToolBelt.Signal
             if (samples is null) throw new ArgumentNullException(nameof(samples));
             if (_taps.Length % 2 == 0) throw new InvalidOperationException("Aligned filtering needs an odd number of taps (an even count delays by a half sample).");
             int n = samples.Count, delay = _taps.Length / 2;
-            var output = new double[n];
-            for (int i = 0; i < n; i++)
+            return Rescaled(samples, scale =>
             {
-                double sum = 0;
-                int centre = i + delay;
-                int kLo = Math.Max(0, centre - (n - 1)), kHi = Math.Min(_taps.Length - 1, centre);
-                for (int k = kLo; k <= kHi; k++) sum += _taps[k] * samples[centre - k];
-                output[i] = sum;
-            }
-            return output;
+                var output = new double[n];
+                for (int i = 0; i < n; i++)
+                {
+                    double sum = 0;
+                    long centre = (long)i + delay;          // i + delay wrapped in int past int.MaxValue
+                    int kLo = (int)Math.Max(0, centre - (n - 1)), kHi = (int)Math.Min(_taps.Length - 1, centre);
+                    for (int k = kLo; k <= kHi; k++) sum += _taps[k] * (samples[(int)(centre - k)] * scale);
+                    output[i] = sum;
+                }
+                return output;
+            });
         }
 
         public Complex Response(double frequency, double sampleRate)

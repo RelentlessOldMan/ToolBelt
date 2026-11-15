@@ -41,7 +41,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 
 | #  | Section | Scope (src) | ~Lines | Prior | Passes | Bugs (last / total) | Status |
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
-| 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 4 | 14 / 59 | re-queue (14 bugs, 1 severe) |
+| 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 5 | 14 / 73 | re-queue (14 bugs, none severe) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 4 | 23 / 83 | re-queue (23 bugs) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 4 | 23 / 109 | re-queue (23 bugs, none severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 4 | 24 / 119 | re-queue (24 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); **next: 1**, then 6, 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); **next: 6**, then 4, 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -156,11 +156,43 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.14.1 | 80 | Charts, fifth pass | 21 | (see tag) |
 | v2026.11.14.2 | 81 | Concurrency, fifth pass | 15 | (see tag) |
 | v2026.11.14.3 | 82 | WPF satellite, fifth pass | 20 | (see tag) |
+| v2026.11.15.0 | 83 | Filters & control, fifth pass | 14 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 83: Filters & control, fifth pass (v2026.11.15.0)
+
+Two fresh reviewers (correctness, robustness): 13 findings with no overlap, and one more found while testing a fix (the
+section-scaling grid missed narrow resonances), so **14 bugs, none severe**. Section 1 stays re-queued (14 bugs). The
+regression tests are in `FiltersControlReview83Tests` (12 tests: 11 failed on the old code, run by name under a 60 s
+timeout; one guards the corrected doc, an infinite sample staying in the streaming state). Two findings were suspected
+from reading the code (int overflow in FilterAligned's centre index and in DefaultPadLength, both needing arrays or
+section counts too large to test); both are fixed by widening to long.
+
+- **IirFilter section scaling:** every partial product of the cascade was aimed at the unscaled peak, so intermediate
+  signals sat about 1/|K| times the output (1e140 for a 40th-order low-pass at 1e-4·fs) and a large input overflowed
+  between sections. The peak grid also missed narrow resonances (a Chebyshev high-pass at 0.49·fs left a partial product
+  24 dB above the output); it now adds points up to Nyquist and around each section's pole angle.
+- **IirFilter overflow near double.MaxValue:** a finite input whose state would overflow (a constant 1e308 through a
+  low-pass) left Process NaN for good; the streaming state is now held in units of a power of two and rescaled when that
+  happens, and Filter and FiltFilt rerun at a smaller scale. FiltFilt's odd extension overflowed for full-scale swings.
+  The Process doc now says an infinite or NaN sample stays in the state until Reset.
+- **IirFilter.GroupDelay** next to zeros on the unit circle cancelled to nonsense (a high-pass near DC gave −8e15
+  samples); there it is summed per root. **Filter and FiltFilt** flushed subnormal states from sample 0 when any later
+  sample was large, so they were not causal; the flush starts at the first large sample, as in Process.
+- **FirFilter:** the running sum passed double.MaxValue though the output fits (a constant 1.7e308 through a low-pass
+  whose positive taps sum to 1.15); it reruns at a smaller scale.
+- **PidController:** with P and D overflowing to opposite infinities the tentative output was NaN, neither windup test
+  fired and the integral took the whole step past the limit.
+- **Deadband and DeadbandFilter:** a distance that rounded to exactly the half-width read as inside (−1 about 1e17 is
+  1e17 + 1 away); a tie is decided on the exact difference. **FirstOrderLag.FromCutoff** past about 2.9e307 gave a
+  pass-through (2π·cutoff overflowed). **SchmittTrigger** blamed lowThreshold for a NaN highThreshold.
+- **Test fix (WPF):** `NotifyTaskCompletion_ThrowingHandlerDoesNotStopTheRest` pumped the dispatcher twice, but since
+  round 82 the task is awaited off the dispatcher and the raise posted back, so under load the post arrived later and
+  the test failed in the full verify. It pumps until `Completion` (passed 30 runs in a row).
+
 ### Round 82: WPF satellite, fifth pass (v2026.11.14.3)
 
 Two fresh reviewers (correctness, robustness): 21 findings, one pair overlapping, so **20 bugs, none severe**. Section

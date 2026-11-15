@@ -68,6 +68,9 @@ namespace ToolBelt.Control
             // error·ki·dt past the limit never moved).
             double integral = _integral + error * dt;
             double tentative = proportional + _ki * integral + derivative;
+            // P and D overflowing with opposite signs made this NaN, so neither windup test fired and the integral took
+            // the whole step past the limit.
+            if (double.IsNaN(tentative)) tentative = ScaledOutput(measurement, dt, integral);
             double push = _ki * error;
             bool windupHigh = tentative > _max && push > 0;
             bool windupLow = tentative < _min && push < 0;
@@ -89,7 +92,7 @@ namespace ToolBelt.Control
             // again in units of 2^-600, where finite inputs and gains below about 1e180 can't overflow.
             if (double.IsNaN(output) || double.IsInfinity(output))
             {
-                double scaled = ScaledOutput(measurement, dt);
+                double scaled = ScaledOutput(measurement, dt, _integral);
                 if (!double.IsNaN(scaled)) output = scaled;
             }
 
@@ -111,7 +114,7 @@ namespace ToolBelt.Control
             _hasLast = false;
         }
 
-        private double ScaledOutput(double measurement, double dt)
+        private double ScaledOutput(double measurement, double dt, double integral)
         {
             const double S = 2.4099198651028841e-181;                           // 2^-600
             double p = _kp == 0 ? 0 : _kp * (Setpoint * S - measurement * S);
@@ -120,7 +123,7 @@ namespace ToolBelt.Control
                 d = _derivativeOnMeasurement
                     ? -_kd * (measurement * S - _lastMeasurement * S) / dt
                     : _kd * ((Setpoint * S - measurement * S) - (_lastSetpoint * S - _lastMeasurement * S)) / dt;
-            double sum = p + _ki * S * _integral + d;
+            double sum = p + _ki * S * integral + d;
             return sum / S;
         }
 

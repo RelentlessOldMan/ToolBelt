@@ -21,7 +21,7 @@ namespace ToolBelt.Control
         public static FirstOrderLag FromCutoff(double cutoffHz)
         {
             if (!(cutoffHz > 0) || double.IsInfinity(cutoffHz)) throw new ArgumentOutOfRangeException(nameof(cutoffHz), cutoffHz, "Cutoff must be positive and finite.");
-            double tau = 1 / (2 * Math.PI * cutoffHz);
+            double tau = 1 / (2 * Math.PI) / cutoffHz;      // 2π·cutoff overflowed past 2.9e307, giving a pass-through
             if (double.IsInfinity(tau)) throw new ArgumentOutOfRangeException(nameof(cutoffHz), cutoffHz, "Cutoff is too small to represent.");
             return new FirstOrderLag(tau);
         }

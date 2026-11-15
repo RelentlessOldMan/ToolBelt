@@ -20,11 +20,30 @@ namespace ToolBelt.Control
             if (!(halfWidth >= 0) || double.IsInfinity(halfWidth)) throw new ArgumentOutOfRangeException(nameof(halfWidth), halfWidth, "Half-width must be non-negative and finite.");
             double offset = value - center;
             if (double.IsNaN(offset)) return double.NaN;
-            if (Math.Abs(offset) <= halfWidth) return center;
+            if (Within(value, center, offset, halfWidth)) return center;
             if (!continuous) return value;
             // Shift the value itself: center + offset overflowed when offset did (1.5e308 about −1.5e308) and cancelled
             // when the centre dwarfed the value (3 about 1e17 gave 1, not 4). Rounding can't carry it past the centre.
             return offset > 0 ? Math.Max(center, value - halfWidth) : Math.Min(center, value + halfWidth);
+        }
+
+        // |value − center| ≤ limit for the exact difference. The rounded one keeps the order, so only a tie with the limit
+        // needs the rounding error (TwoSum) to tell which side the true value is on: −1 about 1e17 rounded to a distance of
+        // exactly 1e17, inside a half-width of 1e17.
+        internal static bool Within(double value, double center, double offset, double limit)
+        {
+            double size = Math.Abs(offset);
+            if (size != limit) return size < limit;
+            if (double.IsInfinity(offset)) return false;
+            double error = TwoSumError(value, -center, offset);
+            return offset > 0 ? error <= 0 : error >= 0;
+        }
+
+        // The rounding error of s = a + b (Knuth's TwoSum): a + b = s + error exactly.
+        private static double TwoSumError(double a, double b, double s)
+        {
+            double bv = s - a, av = s - bv;
+            return (a - av) + (b - bv);
         }
     }
 
@@ -52,7 +71,8 @@ namespace ToolBelt.Control
         public bool Update(double input)
         {
             if (double.IsNaN(input)) return false;
-            if (HasValue && (input == Value || Math.Abs(input - Value) <= Threshold)) return false;     // == : ∞ − ∞ is NaN
+            // == : ∞ − ∞ is NaN. Within: a change of 1e17 + 1 rounded to exactly the threshold 1e17 and was missed.
+            if (HasValue && (input == Value || Deadband.Within(input, Value, input - Value, Threshold))) return false;
             Value = input;
             HasValue = true;
             return true;

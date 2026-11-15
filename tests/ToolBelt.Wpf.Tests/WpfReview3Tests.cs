@@ -346,7 +346,10 @@ namespace ToolBelt.Wpf.Tests
                 ntc.PropertyChanged += (_, e) => { seen.Add(e.PropertyName); if (e.PropertyName == "Status") throw new InvalidOperationException("handler"); };
                 ntc.PropertyChanged += (_, __) => second++;
                 tcs.SetResult(5);
-                Pump();
+                // The task is awaited off the dispatcher and Raise posted back (round 82), so the post can arrive after
+                // any fixed number of pumps: two pumps failed under load. Pump until Completion, with a deadline.
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                while (!ntc.Completion.IsCompleted && clock.Elapsed < TimeSpan.FromSeconds(20)) { Pump(); Thread.Sleep(1); }
                 Pump();
                 Check.Equal(10, seen.Count);                   // only "Status"
                 Check.Equal(10, second);
