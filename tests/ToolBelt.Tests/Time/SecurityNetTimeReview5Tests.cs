@@ -112,6 +112,20 @@ namespace ToolBelt.Tests.Time
             Check.True(job.NextRun.HasValue);
         }
 
+        public void Scheduler_JitterBackAroundAnAddKeepsADueRun()
+        {
+            DateTimeOffset now = new DateTimeOffset(2026, 1, 1, 10, 1, 0, 10, TimeSpan.Zero);
+            using var s = Scheduler(() => now, out Parked loop);
+            loop.Start();
+            Check.Equal(0, s.RunDue());
+            now = new DateTimeOffset(2026, 1, 1, 10, 0, 59, 990, TimeSpan.Zero);
+            ScheduledJob job = s.Add("minutely", "* * * * *", () => { });
+            Check.Equal(new DateTimeOffset(2026, 1, 1, 10, 1, 0, TimeSpan.Zero), job.NextRun);
+            now = new DateTimeOffset(2026, 1, 1, 10, 1, 0, 5, TimeSpan.Zero);   // back 5 ms from the last pass
+            Check.Equal(1, Tick(s, job));
+            Check.Equal(new DateTimeOffset(2026, 1, 1, 10, 2, 0, TimeSpan.Zero), job.NextRun);
+        }
+
         // ---- CronSchedule: schedules that recur less often than every 8 years ----
 
         // Midnight on day dom of month mon whose weekday is in the */step set, found a day at a time.

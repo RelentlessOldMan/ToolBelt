@@ -195,7 +195,10 @@ namespace ToolBelt.Time
                 _lastNow = now;
                 foreach (var job in _jobs)
                 {
-                    if (back || job.Pending)
+                    // A job already due keeps its run: worked out again from now, a few milliseconds of jitter back around
+                    // an Add moved it past the run it was due for.
+                    bool dueNow = job.NextRun is DateTimeOffset at && at <= now;
+                    if (job.Pending || (back && !dueNow))
                     {
                         job.Pending = false;
                         DateTimeOffset from = job.LastRun is DateTimeOffset ran && ran > now && ran - now < TimeSpan.FromHours(3) ? ran : now;

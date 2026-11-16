@@ -155,7 +155,8 @@ namespace ToolBelt.Net
                     if (_skipLf)
                     {
                         _skipLf = false;
-                        if (c == '\n') continue;
+                        // Bad bytes between the CR and the LF: the LF ends that bad line (skipped, it marked the next one).
+                        if (c == '\n' && !_lineBad) continue;
                     }
                     if (c == '\n' || c == '\r')
                     {
