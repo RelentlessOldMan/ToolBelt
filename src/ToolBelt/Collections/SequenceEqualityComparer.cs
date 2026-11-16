@@ -17,11 +17,70 @@ namespace ToolBelt.Collections
     /// </summary>
     public sealed class SequenceEqualityComparer<T> : IEqualityComparer<IEnumerable<T>>
     {
+        // .NET Framework hashes a double or float NaN by its bits and a decimal by its scale, so equal keys (NaNs with
+        // other payloads, 1.0m and 1.00m) fell into separate buckets: one key counted twice. Keys of those types hash
+        // by value; everything else uses the default comparer.
+        private static class ValueKeys
+        {
+            public static IEqualityComparer<TK> For<TK>()
+            {
+#if NETSTANDARD2_0
+                object? c = typeof(TK) == typeof(double) ? DoubleKeys.Instance
+                    : typeof(TK) == typeof(float) ? SingleKeys.Instance
+                    : typeof(TK) == typeof(decimal) ? DecimalKeys.Instance
+                    : typeof(TK) == typeof(double?) ? new NullableKeys<double>(DoubleKeys.Instance)
+                    : typeof(TK) == typeof(float?) ? new NullableKeys<float>(SingleKeys.Instance)
+                    : typeof(TK) == typeof(decimal?) ? new NullableKeys<decimal>(DecimalKeys.Instance)
+                    : (object?)null;
+                if (c is not null) return (IEqualityComparer<TK>)c;
+#endif
+                return EqualityComparer<TK>.Default;
+            }
+#if NETSTANDARD2_0
+
+            private sealed class DoubleKeys : IEqualityComparer<double>
+            {
+                public static readonly DoubleKeys Instance = new DoubleKeys();
+                public bool Equals(double x, double y) => x.Equals(y);
+                public int GetHashCode(double v) => double.IsNaN(v) ? -1 : v.GetHashCode();
+            }
+
+            private sealed class SingleKeys : IEqualityComparer<float>
+            {
+                public static readonly SingleKeys Instance = new SingleKeys();
+                public bool Equals(float x, float y) => x.Equals(y);
+                public int GetHashCode(float v) => float.IsNaN(v) ? -1 : v.GetHashCode();
+            }
+
+            private sealed class DecimalKeys : IEqualityComparer<decimal>
+            {
+                public static readonly DecimalKeys Instance = new DecimalKeys();
+                public bool Equals(decimal x, decimal y) => x == y;
+                // Not through double: the conversion can round 1.0m and 1.00m-style pairs apart (the Framework's own bug).
+                // Dividing by one drops trailing zeros, so equal nonzero decimals have one representation.
+                public int GetHashCode(decimal v)
+                {
+                    if (v == 0) return 0;   // 0m and -0m
+                    int[] b = decimal.GetBits(v / 1.000000000000000000000000000000000m);
+                    return unchecked(b[0] ^ (b[1] * 31) ^ (b[2] * 961) ^ b[3]);
+                }
+            }
+
+            private sealed class NullableKeys<TV> : IEqualityComparer<TV?> where TV : struct
+            {
+                private readonly IEqualityComparer<TV> _inner;
+                public NullableKeys(IEqualityComparer<TV> inner) => _inner = inner;
+                public bool Equals(TV? x, TV? y) => x.HasValue ? y.HasValue && _inner.Equals(x.Value, y.Value) : !y.HasValue;
+                public int GetHashCode(TV? v) => v.HasValue ? _inner.GetHashCode(v.Value) : 0;
+            }
+#endif
+        }
+
         private readonly IEqualityComparer<T> _elementComparer;
 
         /// <summary>Creates a comparer using the given element comparer (defaults to <see cref="EqualityComparer{T}.Default"/>).</summary>
         public SequenceEqualityComparer(IEqualityComparer<T>? elementComparer = null)
-            => _elementComparer = elementComparer ?? EqualityComparer<T>.Default;
+            => _elementComparer = elementComparer ?? ValueKeys.For<T>();
 
         /// <summary>A shared instance using the default element comparer.</summary>
         public static SequenceEqualityComparer<T> Default { get; } = new SequenceEqualityComparer<T>();
@@ -52,12 +111,37 @@ namespace ToolBelt.Collections
         public int GetHashCode(IEnumerable<T> obj)
         {
             if (obj is null) throw new ArgumentNullException(nameof(obj));
+            uint hash = 0x9747B28C;
+            uint count = 0;
+            foreach (T item in obj)
+            {
+                hash = Step(hash, item is null ? 0 : _elementComparer.GetHashCode(item));
+                unchecked { count++; }
+            }
+            return unchecked((int)Finish(hash ^ count));
+        }
+
+        // Murmur3's element step and finalizer. Plain hash*31 + h let crafted sequences collide by construction:
+        // every [i, -31i] had one hash (40,000 keys in a HashSet took 30 s).
+        internal static uint Step(uint hash, int h)
+        {
             unchecked
             {
-                int hash = 17;
-                foreach (T item in obj)
-                    hash = hash * 31 + (item is null ? 0 : _elementComparer.GetHashCode(item));
-                return hash;
+                uint k = (uint)h * 0xCC9E2D51;
+                k = (k << 15) | (k >> 17);
+                hash ^= k * 0x1B873593;
+                hash = (hash << 13) | (hash >> 19);
+                return hash * 5 + 0xE6546B64;
+            }
+        }
+
+        internal static uint Finish(uint h)
+        {
+            unchecked
+            {
+                h ^= h >> 16; h *= 0x85EBCA6B;
+                h ^= h >> 13; h *= 0xC2B2AE35;
+                return h ^ (h >> 16);
             }
         }
 
@@ -81,11 +165,70 @@ namespace ToolBelt.Collections
     /// </summary>
     public sealed class MultisetEqualityComparer<T> : IEqualityComparer<IEnumerable<T>>
     {
+        // .NET Framework hashes a double or float NaN by its bits and a decimal by its scale, so equal keys (NaNs with
+        // other payloads, 1.0m and 1.00m) fell into separate buckets: one key counted twice. Keys of those types hash
+        // by value; everything else uses the default comparer.
+        private static class ValueKeys
+        {
+            public static IEqualityComparer<TK> For<TK>()
+            {
+#if NETSTANDARD2_0
+                object? c = typeof(TK) == typeof(double) ? DoubleKeys.Instance
+                    : typeof(TK) == typeof(float) ? SingleKeys.Instance
+                    : typeof(TK) == typeof(decimal) ? DecimalKeys.Instance
+                    : typeof(TK) == typeof(double?) ? new NullableKeys<double>(DoubleKeys.Instance)
+                    : typeof(TK) == typeof(float?) ? new NullableKeys<float>(SingleKeys.Instance)
+                    : typeof(TK) == typeof(decimal?) ? new NullableKeys<decimal>(DecimalKeys.Instance)
+                    : (object?)null;
+                if (c is not null) return (IEqualityComparer<TK>)c;
+#endif
+                return EqualityComparer<TK>.Default;
+            }
+#if NETSTANDARD2_0
+
+            private sealed class DoubleKeys : IEqualityComparer<double>
+            {
+                public static readonly DoubleKeys Instance = new DoubleKeys();
+                public bool Equals(double x, double y) => x.Equals(y);
+                public int GetHashCode(double v) => double.IsNaN(v) ? -1 : v.GetHashCode();
+            }
+
+            private sealed class SingleKeys : IEqualityComparer<float>
+            {
+                public static readonly SingleKeys Instance = new SingleKeys();
+                public bool Equals(float x, float y) => x.Equals(y);
+                public int GetHashCode(float v) => float.IsNaN(v) ? -1 : v.GetHashCode();
+            }
+
+            private sealed class DecimalKeys : IEqualityComparer<decimal>
+            {
+                public static readonly DecimalKeys Instance = new DecimalKeys();
+                public bool Equals(decimal x, decimal y) => x == y;
+                // Not through double: the conversion can round 1.0m and 1.00m-style pairs apart (the Framework's own bug).
+                // Dividing by one drops trailing zeros, so equal nonzero decimals have one representation.
+                public int GetHashCode(decimal v)
+                {
+                    if (v == 0) return 0;   // 0m and -0m
+                    int[] b = decimal.GetBits(v / 1.000000000000000000000000000000000m);
+                    return unchecked(b[0] ^ (b[1] * 31) ^ (b[2] * 961) ^ b[3]);
+                }
+            }
+
+            private sealed class NullableKeys<TV> : IEqualityComparer<TV?> where TV : struct
+            {
+                private readonly IEqualityComparer<TV> _inner;
+                public NullableKeys(IEqualityComparer<TV> inner) => _inner = inner;
+                public bool Equals(TV? x, TV? y) => x.HasValue ? y.HasValue && _inner.Equals(x.Value, y.Value) : !y.HasValue;
+                public int GetHashCode(TV? v) => v.HasValue ? _inner.GetHashCode(v.Value) : 0;
+            }
+#endif
+        }
+
         private readonly IEqualityComparer<T> _elementComparer;
 
         /// <summary>Creates a comparer using the given element comparer (defaults to <see cref="EqualityComparer{T}.Default"/>).</summary>
         public MultisetEqualityComparer(IEqualityComparer<T>? elementComparer = null)
-            => _elementComparer = elementComparer ?? EqualityComparer<T>.Default;
+            => _elementComparer = elementComparer ?? ValueKeys.For<T>();
 
         /// <summary>A shared instance using the default element comparer.</summary>
         public static MultisetEqualityComparer<T> Default { get; } = new MultisetEqualityComparer<T>();
@@ -94,6 +237,7 @@ namespace ToolBelt.Collections
         {
             if (ReferenceEquals(x, y)) return true;
             if (x is null || y is null) return false;
+            if (TryGetCount(x, out int xCount) && TryGetCount(y, out int yCount) && xCount != yCount) return false;
 
             // Null elements are tallied in nullCount, never inserted, so the notnull-key constraint is honored
             // at run time even when T is a nullable reference type — hence the local suppression.
@@ -129,16 +273,25 @@ namespace ToolBelt.Collections
             if (obj is null) throw new ArgumentNullException(nameof(obj));
             unchecked
             {
-                // Order-insensitive: a commutative combine (sum) so permutations hash alike.
-                int hash = 0;
-                int count = 0;
+                // Order-insensitive: a commutative combine (sum) of mixed element hashes, so permutations hash alike.
+                // The raw hashes were summed, so every int multiset with one sum and size collided (the 280,840
+                // 3-subsets of 0..119 had 352 hashes, and a HashSet of them took 29 s).
+                uint sum = 0, count = 0;
                 foreach (T item in obj)
                 {
-                    hash += item is null ? 0 : _elementComparer.GetHashCode(item);
+                    sum += SequenceEqualityComparer<T>.Finish((uint)(item is null ? 0 : _elementComparer.GetHashCode(item)) + 0x9E3779B9);
                     count++;
                 }
-                return hash * 31 + count;
+                return (int)SequenceEqualityComparer<T>.Finish(sum ^ (count * 0x85EBCA6B));
             }
+        }
+
+        private static bool TryGetCount(IEnumerable<T> seq, out int count)
+        {
+            if (seq is IReadOnlyCollection<T> roc) { count = roc.Count; return true; }
+            if (seq is ICollection<T> c) { count = c.Count; return true; }
+            count = 0;
+            return false;
         }
     }
 

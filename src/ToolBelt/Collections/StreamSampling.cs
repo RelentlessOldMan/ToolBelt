@@ -86,6 +86,65 @@ namespace ToolBelt.Collections
     /// <summary>Weighted and stratified sampling without replacement.</summary>
     public static class SamplingPlans
     {
+        // .NET Framework hashes a double or float NaN by its bits and a decimal by its scale, so equal keys (NaNs with
+        // other payloads, 1.0m and 1.00m) fell into separate buckets: one key counted twice. Keys of those types hash
+        // by value; everything else uses the default comparer.
+        private static class ValueKeys
+        {
+            public static IEqualityComparer<TK> For<TK>()
+            {
+#if NETSTANDARD2_0
+                object? c = typeof(TK) == typeof(double) ? DoubleKeys.Instance
+                    : typeof(TK) == typeof(float) ? SingleKeys.Instance
+                    : typeof(TK) == typeof(decimal) ? DecimalKeys.Instance
+                    : typeof(TK) == typeof(double?) ? new NullableKeys<double>(DoubleKeys.Instance)
+                    : typeof(TK) == typeof(float?) ? new NullableKeys<float>(SingleKeys.Instance)
+                    : typeof(TK) == typeof(decimal?) ? new NullableKeys<decimal>(DecimalKeys.Instance)
+                    : (object?)null;
+                if (c is not null) return (IEqualityComparer<TK>)c;
+#endif
+                return EqualityComparer<TK>.Default;
+            }
+#if NETSTANDARD2_0
+
+            private sealed class DoubleKeys : IEqualityComparer<double>
+            {
+                public static readonly DoubleKeys Instance = new DoubleKeys();
+                public bool Equals(double x, double y) => x.Equals(y);
+                public int GetHashCode(double v) => double.IsNaN(v) ? -1 : v.GetHashCode();
+            }
+
+            private sealed class SingleKeys : IEqualityComparer<float>
+            {
+                public static readonly SingleKeys Instance = new SingleKeys();
+                public bool Equals(float x, float y) => x.Equals(y);
+                public int GetHashCode(float v) => float.IsNaN(v) ? -1 : v.GetHashCode();
+            }
+
+            private sealed class DecimalKeys : IEqualityComparer<decimal>
+            {
+                public static readonly DecimalKeys Instance = new DecimalKeys();
+                public bool Equals(decimal x, decimal y) => x == y;
+                // Not through double: the conversion can round 1.0m and 1.00m-style pairs apart (the Framework's own bug).
+                // Dividing by one drops trailing zeros, so equal nonzero decimals have one representation.
+                public int GetHashCode(decimal v)
+                {
+                    if (v == 0) return 0;   // 0m and -0m
+                    int[] b = decimal.GetBits(v / 1.000000000000000000000000000000000m);
+                    return unchecked(b[0] ^ (b[1] * 31) ^ (b[2] * 961) ^ b[3]);
+                }
+            }
+
+            private sealed class NullableKeys<TV> : IEqualityComparer<TV?> where TV : struct
+            {
+                private readonly IEqualityComparer<TV> _inner;
+                public NullableKeys(IEqualityComparer<TV> inner) => _inner = inner;
+                public bool Equals(TV? x, TV? y) => x.HasValue ? y.HasValue && _inner.Equals(x.Value, y.Value) : !y.HasValue;
+                public int GetHashCode(TV? v) => v.HasValue ? _inner.GetHashCode(v.Value) : 0;
+            }
+#endif
+        }
+
         /// <summary>
         /// <paramref name="count"/> distinct items, each draw proportional to weight among the items not yet drawn
         /// (Efraimidis–Spirakis A-ES: key = ln(u)/w, keep the largest keys) — the "weighted lottery without putting tickets
@@ -155,11 +214,12 @@ namespace ToolBelt.Collections
             if (stratum is null) throw new ArgumentNullException(nameof(stratum));
             if (random is null) throw new ArgumentNullException(nameof(random));
             if (badArg != null) throw new ArgumentOutOfRangeException(badArg);
-            var groups = new Dictionary<TKey, List<T>>();
+            var groups = new Dictionary<TKey, List<T>>(ValueKeys.For<TKey>());
             var order = new List<TKey>();
             foreach (T item in items)
             {
                 TKey key = stratum(item);
+                if (key is null) throw new ArgumentException("stratum returned null for an item.", nameof(stratum));   // the dictionary threw ArgumentNullException("key")
                 if (!groups.TryGetValue(key, out var list)) { groups[key] = list = new List<T>(); order.Add(key); }
                 list.Add(item);
             }

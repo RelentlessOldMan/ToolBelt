@@ -30,6 +30,65 @@ namespace ToolBelt.Collections
     /// </summary>
     public static class Aggregation
     {
+        // .NET Framework hashes a double or float NaN by its bits and a decimal by its scale, so equal keys (NaNs with
+        // other payloads, 1.0m and 1.00m) fell into separate buckets: one key counted twice. Keys of those types hash
+        // by value; everything else uses the default comparer.
+        private static class ValueKeys
+        {
+            public static IEqualityComparer<TK> For<TK>()
+            {
+#if NETSTANDARD2_0
+                object? c = typeof(TK) == typeof(double) ? DoubleKeys.Instance
+                    : typeof(TK) == typeof(float) ? SingleKeys.Instance
+                    : typeof(TK) == typeof(decimal) ? DecimalKeys.Instance
+                    : typeof(TK) == typeof(double?) ? new NullableKeys<double>(DoubleKeys.Instance)
+                    : typeof(TK) == typeof(float?) ? new NullableKeys<float>(SingleKeys.Instance)
+                    : typeof(TK) == typeof(decimal?) ? new NullableKeys<decimal>(DecimalKeys.Instance)
+                    : (object?)null;
+                if (c is not null) return (IEqualityComparer<TK>)c;
+#endif
+                return EqualityComparer<TK>.Default;
+            }
+#if NETSTANDARD2_0
+
+            private sealed class DoubleKeys : IEqualityComparer<double>
+            {
+                public static readonly DoubleKeys Instance = new DoubleKeys();
+                public bool Equals(double x, double y) => x.Equals(y);
+                public int GetHashCode(double v) => double.IsNaN(v) ? -1 : v.GetHashCode();
+            }
+
+            private sealed class SingleKeys : IEqualityComparer<float>
+            {
+                public static readonly SingleKeys Instance = new SingleKeys();
+                public bool Equals(float x, float y) => x.Equals(y);
+                public int GetHashCode(float v) => float.IsNaN(v) ? -1 : v.GetHashCode();
+            }
+
+            private sealed class DecimalKeys : IEqualityComparer<decimal>
+            {
+                public static readonly DecimalKeys Instance = new DecimalKeys();
+                public bool Equals(decimal x, decimal y) => x == y;
+                // Not through double: the conversion can round 1.0m and 1.00m-style pairs apart (the Framework's own bug).
+                // Dividing by one drops trailing zeros, so equal nonzero decimals have one representation.
+                public int GetHashCode(decimal v)
+                {
+                    if (v == 0) return 0;   // 0m and -0m
+                    int[] b = decimal.GetBits(v / 1.000000000000000000000000000000000m);
+                    return unchecked(b[0] ^ (b[1] * 31) ^ (b[2] * 961) ^ b[3]);
+                }
+            }
+
+            private sealed class NullableKeys<TV> : IEqualityComparer<TV?> where TV : struct
+            {
+                private readonly IEqualityComparer<TV> _inner;
+                public NullableKeys(IEqualityComparer<TV> inner) => _inner = inner;
+                public bool Equals(TV? x, TV? y) => x.HasValue ? y.HasValue && _inner.Equals(x.Value, y.Value) : !y.HasValue;
+                public int GetHashCode(TV? v) => v.HasValue ? _inner.GetHashCode(v.Value) : 0;
+            }
+#endif
+        }
+
         public static IReadOnlyList<GroupSummary<TKey>> Summarize<TItem, TKey>(
             IEnumerable<TItem> items, Func<TItem, TKey> keySelector, Func<TItem, double> valueSelector,
             IEqualityComparer<TKey>? comparer = null)
@@ -39,68 +98,101 @@ namespace ToolBelt.Collections
             if (keySelector is null) throw new ArgumentNullException(nameof(keySelector));
             if (valueSelector is null) throw new ArgumentNullException(nameof(valueSelector));
 
+            // One running accumulator per group: every value of every group was kept (20 million items held 384 MB).
             var order = new List<TKey>();
-            var values = new Dictionary<TKey, List<double>>(comparer ?? EqualityComparer<TKey>.Default);
+            var groups = new Dictionary<TKey, Running>(comparer ?? ValueKeys.For<TKey>());
             foreach (TItem item in items)
             {
                 TKey key = keySelector(item);
-                if (!values.TryGetValue(key, out var list))
+                if (key is null) throw new ArgumentException("keySelector returned null for an item.", nameof(keySelector));   // the dictionary threw ArgumentNullException("key")
+                if (!groups.TryGetValue(key, out var acc))
                 {
-                    list = new List<double>();
-                    values[key] = list;
+                    acc = new Running();
+                    groups[key] = acc;
                     order.Add(key);
                 }
-                list.Add(valueSelector(item));
+                acc.Add(valueSelector(item));
             }
 
             var result = new List<GroupSummary<TKey>>(order.Count);
             foreach (TKey key in order)
+                result.Add(groups[key].Summary(key));
+            return result;
+        }
+
+        // Count, sum, min and max as plain running values, and Welford's mean and squared deviations on the values scaled
+        // by 2^-k, where 2^k is near the largest |v| so far (rescaled, exactly, by a power of two when a larger one
+        // comes). Scaled values stay near 1, so finite values whose sum or squared deviations overflow (1e308 + 1e308)
+        // or underflow (1e-200 and 2e-200 had a deviation of 0) keep their spread.
+        private sealed class Running
+        {
+            private long _count;
+            private double _sum, _min = double.PositiveInfinity, _max = double.NegativeInfinity;
+            private bool _nonFinite;
+            private int _k = int.MinValue;   // no nonzero finite value yet
+            private double _scaledSum, _scaledMean, _scaledM2;
+            private long _scaledCount;
+
+            public void Add(double v)
             {
-                List<double> group = values[key];
-                double sum = 0, min = double.PositiveInfinity, max = double.NegativeInfinity;
-                foreach (double v in group)
-                {
-                    sum += v;
-                    if (double.IsNaN(v)) { min = max = double.NaN; continue; }
-                    if (v < min) min = v; // a NaN min/max stays NaN: comparisons with NaN are false
-                    if (v > max) max = v;
-                }
-                double mean = sum / group.Count;
-                double variance = 0;
-                if (group.Count > 1)
-                {
-                    foreach (double v in group) { double d = v - mean; variance += d * d; }
-                    variance /= group.Count - 1;
-                }
-                double stdDev = Math.Sqrt(variance);
-                // Finite values whose sum or squared deviations overflow (1e308 + 1e308), or whose squared deviations
-                // underflow (1e-200 and 2e-200 had a deviation of 0): redo them on values scaled by a power of two near
-                // 1/max|v|, which is exact. The scale is applied in two halves, since 2^±k alone can pass the range.
-                double peak = Math.Max(Math.Abs(min), Math.Abs(max));
-                if ((double.IsInfinity(sum) || double.IsInfinity(variance) || (peak > 0 && peak < 3.8725919148493183e-121))   // 2^-400
-                    && !double.IsNaN(min) && !double.IsInfinity(min) && !double.IsInfinity(max))
+                if (_count == int.MaxValue) throw new OverflowException("A group has more than int.MaxValue items.");
+                _count++;
+                _sum += v;
+                if (double.IsNaN(v)) { _min = _max = double.NaN; _nonFinite = true; return; }
+                if (v < _min) _min = v; // a NaN min/max stays NaN: comparisons with NaN are false
+                if (v > _max) _max = v;
+                if (double.IsInfinity(v)) { _nonFinite = true; return; }
+                if (v != 0)
                 {
                     // Log2 of a value near double.MaxValue rounds to 1024, and 2^1024 is ∞; 2^1023 still scales exactly.
-                    int k = Math.Min(1023, (int)Math.Floor(Math.Log(peak, 2)));
-                    double downHalf = Math.Pow(2, -(k / 2)), downRest = Math.Pow(2, -(k - k / 2));
-                    double upHalf = Math.Pow(2, k / 2), upRest = Math.Pow(2, k - k / 2);
-                    double scaledSum = 0;
-                    foreach (double v in group) scaledSum += v * downHalf * downRest;
-                    double scaledMean = scaledSum / group.Count;
-                    // The sum too: it was left at the overflowed ∞ when the true sum ([1e308, 1e308, −1e308]) is finite.
-                    sum = scaledSum * upHalf * upRest;
-                    mean = scaledMean * upHalf * upRest;
-                    double scaledVariance = 0;
-                    if (group.Count > 1)
+                    int e = Math.Min(1023, (int)Math.Floor(Math.Log(Math.Abs(v), 2)));
+                    if (_k == int.MinValue) _k = e;
+                    else if (e > _k)
                     {
-                        foreach (double v in group) { double d = v * downHalf * downRest - scaledMean; scaledVariance += d * d; }
-                        scaledVariance /= group.Count - 1;
+                        _scaledSum = Scale(_scaledSum, _k - e);
+                        _scaledMean = Scale(_scaledMean, _k - e);
+                        _scaledM2 = Scale(Scale(_scaledM2, _k - e), _k - e);
+                        _k = e;
                     }
-                    stdDev = Math.Sqrt(scaledVariance) * upHalf * upRest;
                 }
-                result.Add(new GroupSummary<TKey>(key, group.Count, sum, mean, min, max, stdDev));
+                double x = _k == int.MinValue ? 0 : Scale(v, -_k);
+                _scaledCount++;
+                _scaledSum += x;
+                double d = x - _scaledMean;
+                _scaledMean += d / _scaledCount;
+                _scaledM2 += d * (x - _scaledMean);
             }
-            return result;
+
+            public GroupSummary<TKey> Summary<TKey>(TKey key)
+            {
+                int n = (int)_count;
+                double sum = _sum, mean = _sum / n, stdDev;
+                if (_nonFinite)
+                {
+                    stdDev = n > 1 ? double.NaN : 0;   // ∞ − ∞ (or a NaN) in the deviations
+                }
+                else
+                {
+                    int k = _k == int.MinValue ? 0 : _k;
+                    stdDev = n > 1 ? Scale(Math.Sqrt(_scaledM2 / (n - 1)), k) : 0;
+                    double peak = Math.Max(Math.Abs(_min), Math.Abs(_max));
+                    if (double.IsInfinity(sum) || (peak > 0 && peak < 3.8725919148493183e-121))   // 2^-400
+                    {
+                        // The sum too: it was left at the overflowed ∞ when the true sum ([1e308, 1e308, −1e308]) is finite.
+                        sum = Scale(_scaledSum, k);
+                        mean = Scale(_scaledSum / n, k);
+                    }
+                }
+                return new GroupSummary<TKey>(key, n, sum, mean, _min, _max, stdDev);
+            }
+
+            // x·2^e, in steps that each stay in range (2^±k alone can pass it).
+            private static double Scale(double x, int e)
+            {
+                while (e > 1000) { x *= Math.Pow(2, 1000); e -= 1000; }
+                while (e < -1000) { x *= Math.Pow(2, -1000); e += 1000; }
+                return x * Math.Pow(2, e);
+            }
         }
 
         public static Dictionary<TRow, Dictionary<TCol, double>> Pivot<TItem, TRow, TCol>(
@@ -116,14 +208,16 @@ namespace ToolBelt.Collections
             if (valueSelector is null) throw new ArgumentNullException(nameof(valueSelector));
             if (aggregator is null) throw new ArgumentNullException(nameof(aggregator));
 
-            var cells = new Dictionary<TRow, Dictionary<TCol, List<double>>>();
+            var cells = new Dictionary<TRow, Dictionary<TCol, List<double>>>(ValueKeys.For<TRow>());
             foreach (TItem item in items)
             {
                 TRow row = rowSelector(item);
+                if (row is null) throw new ArgumentException("rowSelector returned null for an item.", nameof(rowSelector));   // the dictionary threw ArgumentNullException("key")
                 TCol col = colSelector(item);
+                if (col is null) throw new ArgumentException("colSelector returned null for an item.", nameof(colSelector));   // the dictionary threw ArgumentNullException("key")
                 if (!cells.TryGetValue(row, out var cols))
                 {
-                    cols = new Dictionary<TCol, List<double>>();
+                    cols = new Dictionary<TCol, List<double>>(ValueKeys.For<TCol>());
                     cells[row] = cols;
                 }
                 if (!cols.TryGetValue(col, out var list))
@@ -134,10 +228,10 @@ namespace ToolBelt.Collections
                 list.Add(valueSelector(item));
             }
 
-            var result = new Dictionary<TRow, Dictionary<TCol, double>>();
+            var result = new Dictionary<TRow, Dictionary<TCol, double>>(ValueKeys.For<TRow>());
             foreach (var rowEntry in cells)
             {
-                var aggregated = new Dictionary<TCol, double>();
+                var aggregated = new Dictionary<TCol, double>(ValueKeys.For<TCol>());
                 foreach (var colEntry in rowEntry.Value)
                     aggregated[colEntry.Key] = aggregator(colEntry.Value);
                 result[rowEntry.Key] = aggregated;

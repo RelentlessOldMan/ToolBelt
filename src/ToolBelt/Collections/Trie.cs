@@ -12,10 +12,44 @@ namespace ToolBelt.Collections
     /// </summary>
     public sealed class Trie
     {
+        // A node keeps one child inline and makes a dictionary only at its second: a dictionary per node held about
+        // 250 bytes per character (one 2,000,000-character key retained 476 MB).
         private sealed class Node
         {
-            public readonly Dictionary<char, Node> Children = new Dictionary<char, Node>();
+            private char _onlyKey;
+            private Node? _only;
+            private Dictionary<char, Node>? _many;
             public bool IsWord;
+
+            public int Count => _many is not null ? _many.Count : _only is null ? 0 : 1;
+
+            public bool TryGetValue(char c, out Node next)
+            {
+                if (_many is not null) return _many.TryGetValue(c, out next!);
+                next = _only!;
+                return _only is not null && _onlyKey == c;
+            }
+
+            public void Add(char c, Node child)
+            {
+                if (_many is not null) { _many.Add(c, child); return; }
+                if (_only is null) { _onlyKey = c; _only = child; return; }
+                var many = new Dictionary<char, Node> { [_onlyKey] = _only, [c] = child };   // built before it replaces the inline child
+                _many = many;
+                _only = null;
+            }
+
+            public void Remove(char c)
+            {
+                if (_many is not null) _many.Remove(c);
+                else if (_only is not null && _onlyKey == c) _only = null;
+            }
+
+            public void CopyKeysTo(char[] keys)
+            {
+                if (_many is not null) _many.Keys.CopyTo(keys, 0);
+                else if (_only is not null) keys[0] = _onlyKey;
+            }
         }
 
         // One level of the explicit depth-first stack in Collect.
@@ -28,8 +62,8 @@ namespace ToolBelt.Collections
             public Frame(Node node)
             {
                 Node = node;
-                Keys = new char[node.Children.Count];
-                node.Children.Keys.CopyTo(Keys, 0);
+                Keys = new char[node.Count];
+                node.CopyKeysTo(Keys);
                 Array.Sort(Keys); // ordinal
             }
         }
@@ -46,21 +80,30 @@ namespace ToolBelt.Collections
                 throw new ArgumentNullException(nameof(key));
 
             var node = _root;
-            foreach (char c in key)
-            {
-                if (!node.Children.TryGetValue(c, out var next))
-                {
-                    next = new Node();
-                    node.Children[c] = next;
-                }
+            int i = 0;
+            for (; i < key.Length && node.TryGetValue(key[i], out var next); i++)
                 node = next;
+            if (i == key.Length)
+            {
+                if (!node.IsWord)
+                {
+                    node.IsWord = true;
+                    Count++;
+                }
+                return;
             }
 
-            if (!node.IsWord)
+            // Build the new branch from its end and link it last, so an Add that runs out of memory part way leaves
+            // nothing reachable (StartsWith answered true for prefixes of a key never stored).
+            var tail = new Node { IsWord = true };
+            for (int j = key.Length - 1; j > i; j--)
             {
-                node.IsWord = true;
-                Count++;
+                var parent = new Node();
+                parent.Add(key[j], tail);
+                tail = parent;
             }
+            node.Add(key[i], tail);
+            Count++;
         }
 
         /// <summary>Whether <paramref name="key"/> is stored exactly.</summary>
@@ -79,7 +122,7 @@ namespace ToolBelt.Collections
                 throw new ArgumentNullException(nameof(prefix));
             var node = Walk(prefix);
             // A pruned trie never keeps empty non-word nodes, so "has a word below" reduces to this.
-            return node is not null && (node.IsWord || node.Children.Count > 0);
+            return node is not null && (node.IsWord || node.Count > 0);
         }
 
         /// <summary>All stored keys beginning with <paramref name="prefix"/>, in ascending ordinal order.</summary>
@@ -104,7 +147,7 @@ namespace ToolBelt.Collections
             // Walk first without allocating: an absent 1e8-character key allocated an 800 MB path.
             var probe = _root;
             for (int i = 0; i < key.Length; i++)
-                if (!probe.Children.TryGetValue(key[i], out probe))
+                if (!probe.TryGetValue(key[i], out probe))
                     return false;
             if (!probe.IsWord)
                 return false;
@@ -115,7 +158,7 @@ namespace ToolBelt.Collections
             path[0] = _root;
             for (int i = 0; i < key.Length; i++)
             {
-                if (!path[i].Children.TryGetValue(key[i], out var next))
+                if (!path[i].TryGetValue(key[i], out var next))
                     return false;
                 path[i + 1] = next;
             }
@@ -129,9 +172,9 @@ namespace ToolBelt.Collections
             for (int d = key.Length; d > 0; d--)
             {
                 var node = path[d];
-                if (node.IsWord || node.Children.Count > 0)
+                if (node.IsWord || node.Count > 0)
                     break;
-                path[d - 1].Children.Remove(key[d - 1]); // prune dead branch
+                path[d - 1].Remove(key[d - 1]); // prune dead branch
             }
             return true;
         }
@@ -141,7 +184,7 @@ namespace ToolBelt.Collections
             var node = _root;
             foreach (char c in s)
             {
-                if (!node.Children.TryGetValue(c, out var next))
+                if (!node.TryGetValue(c, out var next))
                     return null;
                 node = next;
             }
@@ -168,7 +211,7 @@ namespace ToolBelt.Collections
                 }
 
                 char c = top.Keys[top.Next++];
-                var child = top.Node.Children[c];
+                top.Node.TryGetValue(c, out var child);
                 path.Append(c);
                 if (child.IsWord)
                     results.Add(path.ToString());

@@ -113,10 +113,24 @@ namespace ToolBelt.Collections
         }
 
         /// <summary>Enumerates the indices of set bits in ascending order. Modifying the set while enumerating throws
-        /// InvalidOperationException, as the BCL collections do (it silently mixed old and new bits).</summary>
-        public IEnumerable<int> EnumerateSetBits()
+        /// InvalidOperationException, as the BCL collections do (it silently mixed old and new bits). The check starts
+        /// when the enumerator is made, not at its first MoveNext.</summary>
+        public IEnumerable<int> EnumerateSetBits() => new SetBits(this);
+
+        private sealed class SetBits : IEnumerable<int>
         {
-            int version = _version;
+            private readonly BitSet _owner;
+
+            public SetBits(BitSet owner) => _owner = owner;
+
+            public IEnumerator<int> GetEnumerator() => _owner.Enumerate(_owner._version);   // version taken now
+
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        }
+
+        private IEnumerator<int> Enumerate(int version)
+        {
+            if (version != _version) throw new InvalidOperationException("The bit set was modified during enumeration.");
             for (int w = 0; w < _words.Length; w++)
             {
                 ulong bits = _words[w];

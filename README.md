@@ -687,6 +687,7 @@ tests/
       CollectionsReview2Tests.cs (second-pass regressions: pool return race, throwing comparers, overflow-safe sums and counts)
       CollectionsReview3Tests.cs (third-pass regressions: Bloom hash mixing, sums at double.MaxValue, throwing hashes, enumerator checks, argument names)
       CollectionsReview4Tests.cs (fourth-pass regressions: Bloom probe mixing and lone surrogates, tiny-value spread, long counts, size caps, ordinal table sorts)
+      CollectionsReview90Tests.cs (round 90 review regressions: mixed sequence/multiset hashes, value-hashed keys, TTL expiry, trie memory, streaming Summarize)
       CounterTests.cs
       CountMinSketchTests.cs
       DataTableLiteTests.cs

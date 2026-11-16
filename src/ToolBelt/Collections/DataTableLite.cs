@@ -16,6 +16,7 @@ namespace ToolBelt.Collections
     public sealed class DataTableLite
     {
         private readonly string[] _columns;
+        private readonly IReadOnlyList<string> _columnsView;   // Columns handed out the array, so a cast could rename a column
         private readonly Dictionary<string, int> _index; // column name -> ordinal (ordinal, case-sensitive)
         private readonly List<object?[]> _rows;
 
@@ -34,6 +35,7 @@ namespace ToolBelt.Collections
             }
             if (list.Count == 0) throw new ArgumentException("A table needs at least one column.", nameof(columns));
             _columns = list.ToArray();
+            _columnsView = Array.AsReadOnly(_columns);
             _index = index;
             _rows = new List<object?[]>();
         }
@@ -41,12 +43,13 @@ namespace ToolBelt.Collections
         private DataTableLite(string[] columns, Dictionary<string, int> index, List<object?[]> rows)
         {
             _columns = columns;
+            _columnsView = Array.AsReadOnly(_columns);
             _index = index;
             _rows = rows;
         }
 
         /// <summary>The column names in order.</summary>
-        public IReadOnlyList<string> Columns => _columns;
+        public IReadOnlyList<string> Columns => _columnsView;
 
         /// <summary>Number of columns.</summary>
         public int ColumnCount => _columns.Length;
@@ -226,7 +229,7 @@ namespace ToolBelt.Collections
             if (c < 0) throw new ArgumentException($"No column named '{column}'.", nameof(column));
 
             var order = new List<object?>();
-            var groups = new Dictionary<object, DataTableLite>();
+            var groups = new Dictionary<object, DataTableLite>(CellEquality.Instance);
             DataTableLite? nullGroup = null;
 
             foreach (var row in _rows)
@@ -281,7 +284,7 @@ namespace ToolBelt.Collections
             }
 
             // Index the right side by join key (skip null keys — they never match).
-            var rightByKey = new Dictionary<object, List<object?[]>>();
+            var rightByKey = new Dictionary<object, List<object?[]>>(CellEquality.Instance);
             foreach (var rrow in other._rows)
             {
                 object? key = rrow[rc];
@@ -317,7 +320,11 @@ namespace ToolBelt.Collections
                 cells[r] = new string[_columns.Length];
                 for (int c = 0; c < _columns.Length; c++)
                 {
-                    string s = Convert.ToString(_rows[r][c], CultureInfo.InvariantCulture) ?? "";
+                    object? cell = _rows[r][c];
+                    // "R": .NET Framework's default wrote 15 digits, so 0.30000000000000004 showed as 0.3.
+                    string s = cell is double d ? d.ToString("R", CultureInfo.InvariantCulture)
+                        : cell is float f ? f.ToString("R", CultureInfo.InvariantCulture)
+                        : Convert.ToString(cell, CultureInfo.InvariantCulture) ?? "";
                     cells[r][c] = s;
                     if (s.Length > widths[c]) widths[c] = s.Length;
                 }
@@ -450,12 +457,51 @@ namespace ToolBelt.Collections
 
             public int GetHashCode(object?[] row)
             {
+                // Murmur3's element step and finalizer: hash*31 + h let crafted rows collide by construction (40,000
+                // rows of (i, -31i) took 8 s in Distinct).
                 unchecked
                 {
-                    int hash = 17;
+                    uint hash = 0x9747B28C;
                     foreach (object? cell in row)
-                        hash = hash * 31 + (cell?.GetHashCode() ?? 0);
-                    return hash;
+                    {
+                        uint k = (uint)CellEquality.Hash(cell) * 0xCC9E2D51;
+                        k = (k << 15) | (k >> 17);
+                        hash ^= k * 0x1B873593;
+                        hash = (hash << 13) | (hash >> 19);
+                        hash = hash * 5 + 0xE6546B64;
+                    }
+                    hash ^= (uint)row.Length;
+                    hash ^= hash >> 16; hash *= 0x85EBCA6B;
+                    hash ^= hash >> 13; hash *= 0xC2B2AE35;
+                    return (int)(hash ^ (hash >> 16));
+                }
+            }
+        }
+
+        // Cells compare with Equals, and hash by value: .NET Framework hashes a NaN by its bits and a decimal by its
+        // scale, so NaNs with other payloads, or 1.0m and 1.00m, fell into separate groups and rows.
+        private sealed class CellEquality : IEqualityComparer<object>
+        {
+            public static readonly CellEquality Instance = new CellEquality();
+
+            public new bool Equals(object? a, object? b) => a is null ? b is null : a.Equals(b);
+
+            public int GetHashCode(object cell) => Hash(cell);
+
+            public static int Hash(object? cell)
+            {
+                switch (cell)
+                {
+                    case null: return 0;
+                    case double d: return double.IsNaN(d) ? -1 : d.GetHashCode();
+                    case float f: return float.IsNaN(f) ? -1 : f.GetHashCode();
+                    case decimal m:
+                        // Not through double, which can round equal decimals with different scales apart. Dividing by
+                        // one drops trailing zeros, so equal nonzero decimals have one representation.
+                        if (m == 0) return 0;   // 0m and -0m
+                        int[] b = decimal.GetBits(m / 1.000000000000000000000000000000000m);
+                        return unchecked(b[0] ^ (b[1] * 31) ^ (b[2] * 961) ^ b[3]);
+                    default: return cell.GetHashCode();
                 }
             }
         }

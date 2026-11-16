@@ -49,7 +49,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 5 | 10 / 67 | re-queue (10 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 5 | 24 / 117 | re-queue (24 bugs, none severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 5 | 24 / 149 | re-queue (24 bugs, 1 severe) |
-| 9  | Collections | `Collections/*` | 3,400 | ~1 | 4 | 19 / 71 | re-queue (19 bugs) |
+| 9  | Collections | `Collections/*` | 3,400 | ~1 | 5 | 16 / 87 | re-queue (16 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 5 | 15 / 114 | re-queue (15 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 5 | 15 / 90 | re-queue (15 bugs, 1 severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 5 | 19 / 116 | re-queue (19 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); **next: 9**, then 9, 13 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); **next: 13** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -163,11 +163,46 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.3 | 87 | Statistics, fifth pass | 13 | (see tag) |
 | v2026.11.16.4 | 88 | WinForms + tooling + docs, fifth pass | 17 | (see tag) |
 | v2026.11.16.5 | 89 | Text & small types, fifth pass | 15 | (see tag) |
+| v2026.11.16.6 | 90 | Collections, fifth pass | 16 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 90: Collections, fifth pass (v2026.11.16.6)
+
+Two fresh reviewers (correctness, robustness): 16 bugs, 1 severe (multiset hash collisions). Section 9 stays
+re-queued. The regression tests are in `CollectionsReview90Tests` (16); every regression fails on the old code, run
+by name under a 60 s timeout (the NaN/decimal keys and the ToString digits only on .NET Framework 4.8, proven with
+net48.sh). `Summarize_MatchesANaiveReference` is a differential guard for the new streaming Summarize.
+
+- **MultisetEqualityComparer (severe)** summed the raw element hashes, so int multisets with one sum collided
+  (280,840 3-subsets gave 352 hashes; a HashSet of them took 29 s). Each element hash is finalised (Murmur3 fmix)
+  before the sum, and the count is mixed in. Equals checks lengths first when both are collections.
+- **SequenceEqualityComparer** was `hash*31 + h`, so every `[i, -31i]` collided; **DataTableLite.Distinct** had
+  the same row hash (40,000 rows took 8 s). Both use Murmur3 steps.
+- **.NET Framework keys:** equal decimals with different scales and NaNs with other payloads hashed apart, so one key
+  counted twice in DataTableLite GroupBy/Distinct/InnerJoin, Counter, OrderedSet, OrderedDictionary, BiMap, caches,
+  Aggregation, sampling strata and the sequence comparers. Those key types now hash by value (a decimal after
+  dropping its trailing zeros, not through double, whose conversion rounds some equal decimals apart).
+- **DataTableLite.Columns** returned the internal array (cast back and written, it desynced the name index); it is
+  a read-only view. **ToString** printed doubles with 15 digits on .NET Framework; it round-trips.
+- **CountMinSketch:** a depth past Array.MaxLength threw OutOfMemoryException; it is an argument error (`depth`).
+- **BitSet.EnumerateSetBits** took its version at the first MoveNext, missing a change made after GetEnumerator.
+- **TtlCache:** Remove returned true for an expired, unpruned entry; expiry saturated to "never" when the local
+  (offset) time was near year 9999 though the UTC expiry fit; the prune threshold never came down after Clear,
+  Remove or a prune, so write-once keys piled up to the old peak.
+- **Null keys:** Summarize, Pivot and Stratified threw ArgumentNullException("key") when a selector returned null;
+  they throw ArgumentException naming the selector.
+- **OrderedDictionary / LruCache:** an update replaced the stored key instance; the first is kept, as Dictionary does.
+- **Trie** kept a dictionary per node (about 250 bytes a character); nodes keep one child inline until a second.
+  An Add that ran out of memory left a partial branch, so StartsWith answered true for prefixes never stored; the
+  branch is built first and linked last.
+- **Aggregation.Summarize** kept every value of every group (20 million items held 384 MB) and could not pass 2^31
+  values in a group. It streams: Welford's mean and deviations on values scaled by a running power of two, so the
+  overflow and underflow cases of earlier rounds keep their spread; a group past int.MaxValue throws
+  OverflowException.
+
 ### Round 89: Text & small types, fifth pass (v2026.11.16.5)
 
 Two fresh reviewers (correctness, robustness): 15 bugs, 1 severe (n-gram hash collisions). Section 11 stays
