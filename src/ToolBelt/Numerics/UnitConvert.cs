@@ -60,7 +60,10 @@ namespace ToolBelt.Numerics
 
             // Ratio first: value · factor overflowed for 1e308 km. The table's factors are short decimals, so their ratio
             // is taken in decimal: in doubles 0.3048 / 0.0254 is 12.000000000000002 and 0.001 / 1e-6 is 999.9999999999999.
-            // Angles carry π and stay in doubles.
+            // Angles carry π and stay in doubles, unless neither side is radians: then the ratio is a fraction of whole
+            // numbers (degrees, gradians and turns per turn), and π/180 over π/200 made 90 deg 99.99999999999999 grad.
+            if (from.Category == "angle" && fromUnit != "rad" && toUnit != "rad")
+                return ExactRatio(value, PerTurn(toUnit), PerTurn(fromUnit));
             double ratio = from.Category == "angle"
                 ? from.ToBase / to.ToBase
                 : (double)((decimal)from.ToBase / (decimal)to.ToBase);
@@ -81,8 +84,10 @@ namespace ToolBelt.Numerics
                 i++;
 
             string numberPart = s.Substring(0, i);
-            if (!double.TryParse(numberPart, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
-                return false;
+            // A finite number only: net8.0 parses an overflowing "1e400" as infinity where .NET Framework fails, and the
+            // scanner above cannot spell "Infinity", so an infinite value is always an overflow.
+            if (!double.TryParse(numberPart, NumberStyles.Float, CultureInfo.InvariantCulture, out value) || double.IsInfinity(value))
+            { value = 0; return false; }
             // "5 bananas" and "3,5 kg" (unit ",5 kg") used to succeed and fail later in Convert.
             string rest = s.Substring(i).Trim();
             if (!Units.ContainsKey(rest)) { value = 0; return false; }
@@ -114,6 +119,29 @@ namespace ToolBelt.Numerics
 
         // value·num/den, multiplying first (as before, for ordinary values) unless that overflows: 9e307 °C is 1.62e308 °F,
         // but came back as ∞ through 8.1e308.
+        private static double PerTurn(string unit) => unit == "deg" ? 360 : unit == "grad" ? 400 : 1;
+
+        // value·num/den rounded once (num and den small whole numbers): the product is kept exactly as a pair (Dekker's
+        // two-product, so no FMA is needed on netstandard2.0) and the quotient corrected by its remainder. Outside the
+        // range where the split is exact it falls back to Ratio.
+        private static double ExactRatio(double value, double num, double den)
+        {
+            double a = Math.Abs(value);
+            if (!(a > 1e-290 && a < 1e290)) return Ratio(value, num, den);
+            var (p, pe) = TwoProduct(value, num);
+            double q = p / den;
+            var (t, te) = TwoProduct(q, den);
+            return q + (((p - t) - te) + pe) / den;
+        }
+
+        private static (double Product, double Error) TwoProduct(double a, double b)
+        {
+            double p = a * b;
+            double ca = 134217729.0 * a, ah = ca - (ca - a), al = a - ah;
+            double cb = 134217729.0 * b, bh = cb - (cb - b), bl = b - bh;
+            return (p, ((ah * bh - p) + ah * bl + al * bh) + al * bl);
+        }
+
         private static double Ratio(double value, double num, double den)
         {
             double r = value * num / den;

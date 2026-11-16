@@ -19,6 +19,8 @@ namespace ToolBelt.Numerics
         private double _sum;
         private double _compensation; // Neumaier running error term
         private int _nan, _posInf, _negInf; // non-finite samples in the window (kept out of the sum)
+        private int _huge;        // finite samples of magnitude 2⁹⁶⁰ or more in the window: only these can overflow the sum
+        private const double Huge = 9.7453140114e288; // 2⁹⁶⁰, roughly: below it 2³¹ samples sum to under 2⁹⁹¹
         private bool _scaled;     // the sum holds v·2⁻³² because the plain sum overflowed (huge finite samples)
         private bool _overflowed; // set by Accumulate; the next consistent point rebuilds in scaled mode
         private const double Down = 1.0 / 4294967296.0, Up = 4294967296.0; // 2⁻³², 2³²: exact, and room for 2³¹ samples
@@ -71,7 +73,8 @@ namespace ToolBelt.Numerics
             _next = (_next + 1) % _buffer.Length;
             // Rebuild only here, where the buffer and count agree: once per lap (unscaled if it fits), or at once when
             // the sum just overflowed.
-            if (_next == 0 && IsFull) Rebuild(scaled: false);
+            // Scaled mode ends once the huge samples have left: kept to the lap, tiny samples after them were flushed to 0.
+            if ((_next == 0 && IsFull) || (_scaled && _huge == 0)) Rebuild(scaled: false);
             else if (_overflowed) Rebuild(scaled: true);
             return Average;
         }
@@ -83,7 +86,7 @@ namespace ToolBelt.Numerics
             _count = 0;
             _sum = 0;
             _compensation = 0;
-            _nan = _posInf = _negInf = 0;
+            _nan = _posInf = _negInf = _huge = 0;
             _scaled = _overflowed = false;
         }
 
@@ -92,7 +95,11 @@ namespace ToolBelt.Numerics
             if (double.IsNaN(v)) _nan += sign;
             else if (double.IsPositiveInfinity(v)) _posInf += sign;
             else if (double.IsNegativeInfinity(v)) _negInf += sign;
-            else Accumulate(sign * v);
+            else
+            {
+                if (Math.Abs(v) >= Huge) _huge += sign;
+                Accumulate(sign * v);
+            }
         }
 
         private void Accumulate(double v)
@@ -111,7 +118,7 @@ namespace ToolBelt.Numerics
             _overflowed = false;
             _sum = 0;
             _compensation = 0;
-            _nan = _posInf = _negInf = 0;
+            _nan = _posInf = _negInf = _huge = 0;
             for (int i = 0; i < _count; i++) Include(_buffer[i], +1);
             if (_overflowed && !scaled) Rebuild(scaled: true);
         }

@@ -13,7 +13,8 @@ namespace ToolBelt.Numerics
     /// </summary>
     public sealed class MonotoneCubic
     {
-        private readonly double[] _x;
+        private readonly double[] _x;  // as given: segments are found and t is formed on these
+        private readonly double[] _h;  // the segment widths times _sx (0 where that underflows; see Width)
         private readonly double[] _y;
         private readonly double[] _m; // tangents
         private readonly double _sx, _sy; // the stored x and y are the inputs times these (see RangeScale)
@@ -41,14 +42,18 @@ namespace ToolBelt.Numerics
             _yIn = (double[])_y.Clone();
             _sx = RangeScale(_x);
             _sy = RangeScale(_y);
-            for (int i = 0; i < n; i++) { _x[i] *= _sx; _y[i] *= _sy; }
+            for (int i = 0; i < n; i++) _y[i] *= _sy;
+            // x is not scaled itself: a width as wide as ±double.MaxValue next to one of 1e-310 is beyond any one scale,
+            // and scaled x collapsed ({0, 1e-310, 1e308} became {0, 0, 2^499}, a NaN curve that missed the middle knot).
+            _h = new double[n - 1];
+            for (int i = 0; i < n - 1; i++) _h[i] = Width(_x[i], _x[i + 1], _sx);
 
             // Secant slopes between points.
             var delta = new double[n - 1];
             // A rise over a tiny step ({0, 1e-300, 1}) overflowed to ∞ and the tangents became NaN: a secant beyond 2¹⁰¹⁶
             // is held there. The curve still passes through every point and stays monotone; it is just flatter at the
             // knots of such a step.
-            for (int i = 0; i < n - 1; i++) delta[i] = CapSlope((_y[i + 1] - _y[i]) / (_x[i + 1] - _x[i]));
+            for (int i = 0; i < n - 1; i++) delta[i] = Slope(_y[i + 1] - _y[i], _h[i]);
 
             // Initial tangents: endpoints use the adjacent secant, interior uses the average.
             _m = new double[n];
@@ -100,7 +105,7 @@ namespace ToolBelt.Numerics
         public double Interpolate(double x)
         {
             int n = _x.Length;
-            x *= _sx;
+            if (double.IsNaN(x)) return double.NaN;
             if (x <= _x[0]) return _yIn[0];
             if (x >= _x[n - 1]) return _yIn[n - 1];
 
@@ -113,15 +118,17 @@ namespace ToolBelt.Numerics
             }
 
             if (x == _x[lo]) return _yIn[lo];
-            double h = _x[lo + 1] - _x[lo];
-            double t = (x - _x[lo]) / h;
+            double h = _h[lo];
+            double t = Fraction(x, _x[lo], _x[lo + 1]);
             double t2 = t * t, t3 = t2 * t;
-            // Cubic Hermite basis functions.
-            double h00 = 2 * t3 - 3 * t2 + 1;
+            // Cubic Hermite basis functions, in difference form: h00·y0 + h01·y1 rounded off a flat segment (0.1 came back
+            // 0.10000000000000002), and the result is held between the segment's ends, as the monotone curve is.
             double h10 = t3 - 2 * t2 + t;
             double h01 = -2 * t3 + 3 * t2;
             double h11 = t3 - t2;
-            return (h00 * _y[lo] + h10 * h * _m[lo] + h01 * _y[lo + 1] + h11 * h * _m[lo + 1]) / _sy;
+            double v = (_y[lo] + h01 * (_y[lo + 1] - _y[lo]) + h * (h10 * _m[lo] + h11 * _m[lo + 1])) / _sy;
+            double a = _yIn[lo], b = _yIn[lo + 1];
+            return Math.Min(Math.Max(v, Math.Min(a, b)), Math.Max(a, b));
         }
 
         // Coordinates beyond 2⁵⁰⁰ are stored scaled down by a power of two (so exactly) to just under 2⁵⁰⁰, and all-tiny ones
@@ -138,6 +145,25 @@ namespace ToolBelt.Numerics
             if (max < Pow2(-500) && max > 0) return Pow2(-e);
             return 1.0;
         }
+
+        // (b − a)·scale for a < b, without overflowing the difference (halves when it would). It can underflow to 0, for a
+        // width far below the widest one; such a segment's slope is then held at MaxSlope.
+        private static double Width(double a, double b, double scale)
+        {
+            double d = b - a;
+            return double.IsInfinity(d) ? (0.5 * b - 0.5 * a) * (2 * scale) : d * scale;
+        }
+
+        // Where x lies in [a, b], from 0 to 1.
+        private static double Fraction(double x, double a, double b)
+        {
+            double d = b - a;
+            double t = double.IsInfinity(d) ? (0.5 * x - 0.5 * a) / (0.5 * b - 0.5 * a) : (x - a) / d;
+            return Math.Min(Math.Max(t, 0), 1);
+        }
+
+        private static double Slope(double rise, double width)
+            => rise == 0 ? 0 : width == 0 ? Math.Sign(rise) * MaxSlope : CapSlope(rise / width);
 
         private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
 

@@ -8,7 +8,7 @@ namespace ToolBelt.Numerics
     /// Min-max feature scaling: linearly rescales values so the data's minimum maps to a target low and
     /// its maximum to a target high. Constant data (min == max) maps entirely to the target low, avoiding
     /// a divide-by-zero. Unlike <see cref="Interpolation.Remap"/>, the input range is derived from the
-    /// data itself. Data must be finite; ranges as wide as ±<see cref="double.MaxValue"/> scale without overflow.
+    /// data itself. Data and the target bounds must be finite; ranges as wide as ±<see cref="double.MaxValue"/> scale without overflow.
     /// </summary>
     public static class MinMaxScaler
     {
@@ -20,6 +20,7 @@ namespace ToolBelt.Numerics
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
             if (data.Count == 0) throw new ArgumentException("Data must not be empty.", nameof(data));
+            CheckBounds(newMin, newMax);
 
             double dataMin = data[0], dataMax = data[0];
             for (int i = 0; i < data.Count; i++)
@@ -40,6 +41,7 @@ namespace ToolBelt.Numerics
         /// <summary>Scales one value from [<paramref name="dataMin"/>, <paramref name="dataMax"/>] to the target range.</summary>
         public static double Scale(double value, double dataMin, double dataMax, double newMin, double newMax)
         {
+            CheckBounds(newMin, newMax);
             if (dataMax == dataMin)
                 return newMin; // constant input: no spread to preserve
             double num = value - dataMin, den = dataMax - dataMin;
@@ -47,8 +49,23 @@ namespace ToolBelt.Numerics
             double t = double.IsInfinity(num) || double.IsInfinity(den)
                 ? (0.5 * value - 0.5 * dataMin) / (0.5 * dataMax - 0.5 * dataMin)
                 : num / den;
+            // The ends land exactly on the bounds, and values inside the data range inside the target range: newMin + 1·span
+            // does not round back to newMax ([0.6, 1.61] mapped the maximum to 1.6100000000000003).
+            if (value == dataMax) return newMax;
+            if (value == dataMin) return newMin;
             double span = newMax - newMin;
-            return double.IsInfinity(span) ? (1 - t) * newMin + t * newMax : newMin + t * span;
+            double r = double.IsInfinity(span) ? (1 - t) * newMin + t * newMax : newMin + t * span;
+            if (t >= 0 && t <= 1) r = Math.Min(Math.Max(r, Math.Min(newMin, newMax)), Math.Max(newMin, newMax));
+            return r;
+        }
+
+        // An infinite or NaN bound gave NaN for the end it should hit exactly (0 to ∞ mapped the minimum to NaN).
+        private static void CheckBounds(double newMin, double newMax)
+        {
+            if (double.IsNaN(newMin) || double.IsInfinity(newMin))
+                throw new ArgumentOutOfRangeException(nameof(newMin), newMin, "Target bound must be finite.");
+            if (double.IsNaN(newMax) || double.IsInfinity(newMax))
+                throw new ArgumentOutOfRangeException(nameof(newMax), newMax, "Target bound must be finite.");
         }
     }
 }

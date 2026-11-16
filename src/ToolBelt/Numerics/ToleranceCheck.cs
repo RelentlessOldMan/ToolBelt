@@ -22,7 +22,8 @@ namespace ToolBelt.Numerics
         public int FirstViolationIndex { get; }
         /// <summary>Index of the sample furthest outside the limits, or -1 if none.</summary>
         public int WorstViolationIndex { get; }
-        /// <summary>How far the worst sample was outside its limit (0 if all pass).</summary>
+        /// <summary>How far the worst sample was outside its limit (0 if all pass). Infinite for a NaN or infinite sample,
+        /// and for a distance past double.MaxValue (the worst index is still the furthest sample).</summary>
         public double WorstDeviation { get; }
     }
 
@@ -42,7 +43,7 @@ namespace ToolBelt.Numerics
             if (lowerLimit > upperLimit) throw new ArgumentException("lowerLimit must not exceed upperLimit.", nameof(lowerLimit));
 
             int count = 0, first = -1, worstIndex = -1;
-            double worstDeviation = 0;
+            double worstDeviation = 0, worstHalf = 0;
             for (int i = 0; i < series.Count; i++)
             {
                 double v = series[i];
@@ -52,7 +53,11 @@ namespace ToolBelt.Numerics
                 {
                     count++;
                     if (first < 0) first = i;
-                    if (deviation > worstDeviation) { worstDeviation = deviation; worstIndex = i; }
+                    // Distances past double.MaxValue overflow to ∞ and tied with the first one; halves decide those.
+                    double half = double.IsNaN(v) ? double.PositiveInfinity
+                        : v < lowerLimit ? 0.5 * lowerLimit - 0.5 * v : 0.5 * v - 0.5 * upperLimit;
+                    if (deviation > worstDeviation || (double.IsInfinity(deviation) && half > worstHalf))
+                    { worstDeviation = deviation; worstHalf = half; worstIndex = i; }
                 }
             }
             return new ToleranceResult(count == 0, count, first, worstIndex, worstDeviation);

@@ -30,8 +30,10 @@ namespace ToolBelt.Numerics
             // 2·dx overflowed for dx past MaxValue/2 and gave a quiet 0 the redo below never saw: halve after dividing there.
             double w = 2 * dx;
             bool wide = double.IsInfinity(w);
-            d[0] = Half(-3 * y[0] + 4 * y[1] - y[2], dx, w, wide);                 // 2nd-order forward
-            d[n - 1] = Half(3 * y[n - 1] - 4 * y[n - 2] + y[n - 3], dx, w, wide);  // 2nd-order backward
+            // The one-sided formulas in difference form, −3y0 + 4y1 − y2 = 4(y1 − y0) − (y2 − y0), so constant data gives
+            // exactly 0 (a flat 1e8 + 0.1 gave ±1.5e-7 at the ends).
+            d[0] = Half(4 * (y[1] - y[0]) - (y[2] - y[0]), dx, w, wide);                         // 2nd-order forward
+            d[n - 1] = Half(4 * (y[n - 1] - y[n - 2]) - (y[n - 1] - y[n - 3]), dx, w, wide);     // 2nd-order backward
             for (int i = 1; i < n - 1; i++)
                 d[i] = Half(y[i + 1] - y[i - 1], dx, w, wide);                      // 2nd-order central
             // Samples near ±double.MaxValue overflowed the differences (NaN or ∞): redo those from eighths.
@@ -147,6 +149,20 @@ namespace ToolBelt.Numerics
         private static double QuadraticDerivative(double at, double x0, double x1, double x2,
             double f0, double f1, double f2)
         {
+            // Newton's divided differences first: f[x0,x1] + f[x0,x1,x2]·((at − x0) + (at − x1)) is exactly 0 for constant
+            // data, where the Lagrange weights left round-off (a flat 0.1 gave −4e-16). The forms below handle overflow.
+            // Points spread past double.MaxValue ({−1e308, 0, 1e308}) overflowed every spacing and gave NaN at the ends: the
+            // derivative in x is half the one in x/2, and halving such positions is exact.
+            double spread = Math.Max(Math.Max(x0, x1), x2) - Math.Min(Math.Min(x0, x1), x2);
+            if (double.IsInfinity(spread))
+                return 0.5 * QuadraticDerivative(0.5 * at, 0.5 * x0, 0.5 * x1, 0.5 * x2, f0, f1, f2);
+            {
+                double s01 = (f1 - f0) / (x1 - x0), s12 = (f2 - f1) / (x2 - x1);
+                // The positions as fractions of x2 − x0 first: divided last, the curvature term underflowed for wide grids.
+                double span = x2 - x0;
+                double newton = s01 + (s12 - s01) * ((at - x0) / span + (at - x1) / span);
+                if (!double.IsNaN(newton) && !double.IsInfinity(newton)) return newton;
+            }
             double q0 = (x0 - x1) * (x0 - x2), q1 = (x1 - x0) * (x1 - x2), q2 = (x2 - x0) * (x2 - x1);
             if (Normal(q0) && Normal(q1) && Normal(q2))
             {

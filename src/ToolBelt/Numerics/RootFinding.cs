@@ -34,6 +34,7 @@ namespace ToolBelt.Numerics
         /// <summary>Bisection on a sign-changing bracket [a, b]. Converges if bracketed and f is continuous.</summary>
         public static RootResult Bisection(Func<double, double> f, double a, double b, double tolerance = 1e-12, int maxIterations = 200)
         {
+            if (maxIterations < 1) throw new ArgumentOutOfRangeException(nameof(maxIterations), maxIterations, "Need at least one iteration.");
             if (f is null) throw new ArgumentNullException(nameof(f));
             RequireTolerance(tolerance);
             if (a > b) (a, b) = (b, a); // a reversed bracket made (b − a)/2 negative, so it "converged" at once
@@ -58,12 +59,13 @@ namespace ToolBelt.Numerics
                 if ((fm < 0) == (fa < 0)) { a = m; fa = fm; }
                 else { b = m; fb = fm; }
             }
-            return Failure((a + b) / 2, maxIterations, "Maximum iterations reached without meeting the tolerance.");
+            return Failure(0.5 * a + 0.5 * b, maxIterations, "Maximum iterations reached without meeting the tolerance.");
         }
 
         /// <summary>Brent's method on a sign-changing bracket [a, b] — combines bisection, secant and inverse quadratic.</summary>
         public static RootResult Brent(Func<double, double> f, double a, double b, double tolerance = 1e-12, int maxIterations = 200)
         {
+            if (maxIterations < 1) throw new ArgumentOutOfRangeException(nameof(maxIterations), maxIterations, "Need at least one iteration.");
             if (f is null) throw new ArgumentNullException(nameof(f));
             RequireTolerance(tolerance);
             // An infinite end made the midpoint equal it, which passed for an adjacent-doubles bracket: Bisection(x => x, −∞, 1)
@@ -128,6 +130,7 @@ namespace ToolBelt.Numerics
         public static RootResult Newton(Func<double, double> f, double x0, Func<double, double>? derivative = null,
             double tolerance = 1e-12, int maxIterations = 100)
         {
+            if (maxIterations < 1) throw new ArgumentOutOfRangeException(nameof(maxIterations), maxIterations, "Need at least one iteration.");
             if (f is null) throw new ArgumentNullException(nameof(f));
             RequireTolerance(tolerance);
             double x = x0;
@@ -171,6 +174,7 @@ namespace ToolBelt.Numerics
         public static RootResult Secant(Func<double, double> f, double x0, double x1,
             double tolerance = 1e-12, int maxIterations = 100)
         {
+            if (maxIterations < 1) throw new ArgumentOutOfRangeException(nameof(maxIterations), maxIterations, "Need at least one iteration.");
             if (f is null) throw new ArgumentNullException(nameof(f));
             RequireTolerance(tolerance);
             double f0 = f(x0), f1 = f(x1);

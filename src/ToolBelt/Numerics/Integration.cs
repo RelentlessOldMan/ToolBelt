@@ -92,7 +92,9 @@ namespace ToolBelt.Numerics
         /// Adaptive Simpson integration of <paramref name="f"/> over [a, b] to the given absolute tolerance (or to
         /// round-off, relative to the integral, when that is coarser). Throws <see cref="InvalidOperationException"/>
         /// if f returns NaN or infinity (e.g. an endpoint singularity) or the tolerance is not met within
-        /// <paramref name="maxEvaluations"/> function evaluations.
+        /// <paramref name="maxEvaluations"/> function evaluations. The range is always split into at least 32 pieces
+        /// (65 samples) before a piece may be accepted; a feature narrower than that grid that falls between its samples
+        /// can still be missed.
         /// </summary>
         public static double AdaptiveSimpson(Func<double, double> f, double a, double b, double tolerance = 1e-10,
             int maxEvaluations = 10_000_000)
@@ -110,6 +112,10 @@ namespace ToolBelt.Numerics
             double whole = SimpsonPiece(a, b, fa, fb, fm);
             return Recurse(f, a, b, fa, fb, fm, whole, tolerance, 50, ref budget);
         }
+
+        // Splits forced before the first acceptance: five samples alone could agree by aliasing (sin²(πx) is 0 at all of
+        // them on [0, 4], so the integral came out 3e-31, not 2), and were accepted as converged.
+        private const int MinimumSplits = 50 - 4;
 
         /// <summary>Running integral of uniformly spaced samples (length matches input; first element is 0).</summary>
         public static double[] CumulativeTrapezoid(IReadOnlyList<double> y, double dx)
@@ -170,7 +176,7 @@ namespace ToolBelt.Numerics
             // so it split until the budget ran out).
             if (double.IsInfinity(combined)) return combined;
             double diff = Math.Abs(combined - whole);
-            if (depth <= 0 || diff <= 15 * tol || diff <= 1e-14 * Math.Abs(combined))
+            if (depth <= 0 || depth <= MinimumSplits && (diff <= 15 * tol || diff <= 1e-14 * Math.Abs(combined)))
             {
                 double corrected = combined + (combined - whole) / 15.0; // Richardson correction
                 return IsFinite(corrected) ? corrected : combined + (combined / 15.0 - whole / 15.0);

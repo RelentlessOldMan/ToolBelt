@@ -23,6 +23,7 @@ namespace ToolBelt.Numerics
         public static double[,] Transpose(double[,] a)
         {
             if (a is null) throw new ArgumentNullException(nameof(a));
+            RequireZeroBased(a, nameof(a));
             int rows = a.GetLength(0), cols = a.GetLength(1);
             var t = new double[cols, rows];
             for (int i = 0; i < rows; i++)
@@ -35,6 +36,8 @@ namespace ToolBelt.Numerics
         {
             if (a is null) throw new ArgumentNullException(nameof(a));
             if (b is null) throw new ArgumentNullException(nameof(b));
+            RequireZeroBased(a, nameof(a));
+            RequireZeroBased(b, nameof(b));
             int ar = a.GetLength(0), ac = a.GetLength(1), br = b.GetLength(0), bc = b.GetLength(1);
             if (ac != br) throw new ArgumentException($"Cannot multiply {ar}x{ac} by {br}x{bc}.", nameof(b));
             var result = new double[ar, bc];
@@ -52,6 +55,7 @@ namespace ToolBelt.Numerics
         {
             if (a is null) throw new ArgumentNullException(nameof(a));
             if (x is null) throw new ArgumentNullException(nameof(x));
+            RequireZeroBased(a, nameof(a));
             int rows = a.GetLength(0), cols = a.GetLength(1);
             if (cols != x.Length) throw new ArgumentException($"Cannot multiply {rows}x{cols} matrix by length-{x.Length} vector.", nameof(x));
             var result = new double[rows];
@@ -244,8 +248,17 @@ namespace ToolBelt.Numerics
 
         private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
 
+        // An array made with Array.CreateInstance and non-zero lower bounds was indexed from 0 and threw
+        // IndexOutOfRangeException.
+        private static void RequireZeroBased(double[,] a, string paramName)
+        {
+            if (a.GetLowerBound(0) != 0 || a.GetLowerBound(1) != 0)
+                throw new ArgumentException("Matrix must be indexed from 0.", paramName);
+        }
+
         private static int RequireSquare(double[,] a)
         {
+            RequireZeroBased(a, nameof(a));
             int rows = a.GetLength(0), cols = a.GetLength(1);
             if (rows != cols || rows == 0) throw new ArgumentException("Matrix must be square and non-empty.", nameof(a));
             return rows;

@@ -18,6 +18,9 @@ namespace ToolBelt.Numerics
             double power = 2, int? nearest = null, double? radius = null)
         {
             Validate(samples, power, nearest, radius);
+            // A NaN or infinite point came back NaN, which here means "no samples within the radius".
+            RequireFinite(x, nameof(x));
+            RequireFinite(y, nameof(y));
             return Evaluate(samples, x, y, power, nearest, radius, new List<(double, double)>());
         }
 
@@ -33,6 +36,10 @@ namespace ToolBelt.Numerics
             Validate(samples, power, nearest, radius);
             if (columns < 1) throw new ArgumentOutOfRangeException(nameof(columns), columns, "The grid needs at least one column.");
             if (rows < 1) throw new ArgumentOutOfRangeException(nameof(rows), rows, "The grid needs at least one row.");
+            RequireFinite(xMin, nameof(xMin));
+            RequireFinite(xMax, nameof(xMax));
+            RequireFinite(yMin, nameof(yMin));
+            RequireFinite(yMax, nameof(yMax));
             if ((long)rows * columns > 0x7FFFFFC7) // Array.MaxLength: past it the allocation threw OutOfMemoryException
                 throw new ArgumentOutOfRangeException(nameof(rows), rows, $"A {rows} × {columns} grid exceeds Array.MaxLength (0x7FFFFFC7) cells.");
             var grid = new double[rows, columns];
@@ -145,6 +152,11 @@ namespace ToolBelt.Numerics
             if (a == 0 || double.IsInfinity(a)) return a;
             double r = b / a;
             return a * Math.Sqrt(1 + r * r);
+        }
+
+        private static void RequireFinite(double v, string paramName)
+        {
+            if (double.IsNaN(v) || double.IsInfinity(v)) throw new ArgumentOutOfRangeException(paramName, v, "Must be finite.");
         }
 
         private static void Validate(IReadOnlyList<(double X, double Y, double Value)> samples, double power, int? nearest, double? radius)

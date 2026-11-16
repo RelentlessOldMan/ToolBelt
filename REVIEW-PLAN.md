@@ -44,7 +44,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 5 | 14 / 73 | re-queue (14 bugs, none severe) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 4 | 23 / 83 | re-queue (23 bugs) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 4 | 23 / 109 | re-queue (23 bugs, none severe) |
-| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 4 | 24 / 119 | re-queue (24 bugs, none severe) |
+| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 5 | 23 / 142 | re-queue (23 bugs, 1 severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 5 | 21 / 127 | re-queue (21 bugs, none severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 5 | 10 / 67 | re-queue (10 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 5 | 24 / 117 | re-queue (24 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); **next: 4**, then 2, 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); **next: 2**, then 3, 17, 11, 9, 13 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -158,11 +158,49 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.14.3 | 82 | WPF satellite, fifth pass | 20 | (see tag) |
 | v2026.11.15.0 | 83 | Filters & control, fifth pass | 14 | (see tag) |
 | v2026.11.16.0 | 84 | Binary formats & images, fifth pass | 10 | (see tag) |
+| v2026.11.16.1 | 85 | Numerics core, fifth pass | 23 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 85: Numerics core, fifth pass (v2026.11.16.1)
+
+Two fresh reviewers (correctness, robustness): 24 findings, two of them the same bug from both sides (TryParse of an
+overflowing number, Normalized of a NaN vector), plus one found while testing a fix (the derivative over a span past
+double.MaxValue), so **23 bugs, 1 severe** (C1). Section 4 stays re-queued. The regression tests are in
+`NumericsCoreReview85Tests` (24 tests, every one failing on the old code, run by name under a 60 s timeout; the overflowing
+parse failed only on .NET 8, where it gave infinity, and the exponent-form uncertainty text failed on both frameworks,
+differently).
+
+- **Severe: Polynomial.RealRoots** lost a double root of an exact integer cubic ((x−15)²(x−19) gave 19 twice): the Newton
+  polish at a double root jumped to the other root. Polish now stops on any step larger than 1e-5 of the root. RealRoots
+  throws InvalidOperationException on NaN or infinite coefficients (it threw ArithmeticException from Math.Sign or
+  returned −∞), and Fit takes distinct subnormal x (the halved scale was 0) without turning 0·∞ into NaN.
+- **Integration.AdaptiveSimpson** trusted the first five samples, so an integrand that aliased them (sin²(πx) on [0, 4])
+  came back as 3e-31. It now always splits into at least 32 pieces (65 samples) before accepting an estimate.
+- **MonotoneCubic and AkimaSpline** scaled x to keep a huge coordinate in range and flushed tiny ones to 0 beside it (NaN
+  curve, wrong knot values); x is no longer scaled, widths are scaled per segment, and evaluation is in difference form,
+  so flat segments come back exactly (they overshot by an ulp, against the no-overshoot guarantee); MonotoneCubic also
+  clamps each segment to its knots' range.
+- **Means.Arithmetic** could land outside [min, max] ({0.1, 0.1, 0.1} gave 0.10000000000000002); it is clamped.
+  **MinMaxScaler** maps the data extremes exactly onto the target bounds and stays inside them, and refuses infinite or
+  NaN target bounds.
+- **UnitConvert:** degree, gradian and turn conversions are exact (90 deg was 99.99999999999999 grad); TryParse refuses
+  a number that overflows to infinity on every framework.
+- **Uncertainty:** Format's exponent form printed 17 or more digits with "F" (zeros after 15 on .NET Framework, binary
+  noise on .NET 8); it now rounds the shortest round-trip digits in decimal. Round read the lead digits through a +1e-9
+  fudge that moved values just under a PDG boundary into the wrong rule; it reads them exactly.
+- **Differentiation** gave a nonzero derivative of constant data, and NaN at the ends of points spread past
+  double.MaxValue; it uses difference forms and Newton divided differences, and halves such positions.
+- **RootFinding:** Bisection's failure result (a+b)/2 overflowed near double.MaxValue; all four methods refuse
+  maxIterations below 1 (ArgumentOutOfRangeException).
+- **MovingAverage** stayed scaled by 2⁻³² after huge samples left the window, flushing tiny ones to 0. **ToleranceCheck**
+  reported the first sample past double.MaxValue as the worst, not the furthest. **Vector2:** ApproximatelyEquals was
+  false for identical infinite vectors; Normalized of a vector with a NaN component gave (1, 0), not NaN.
+  **LinearAlgebra** threw IndexOutOfRangeException for arrays not indexed from zero (ArgumentException now).
+  **ScatteredInterpolation** accepted non-finite query points and grid bounds.
+
 ### Round 84: Binary formats & images, fifth pass (v2026.11.16.0)
 
 Two fresh reviewers (correctness, robustness): 10 findings with no overlap, so **10 bugs, 1 severe** (R1). Section 6

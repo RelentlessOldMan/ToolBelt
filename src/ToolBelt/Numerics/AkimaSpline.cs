@@ -15,7 +15,8 @@ namespace ToolBelt.Numerics
     /// </summary>
     public sealed class AkimaSpline
     {
-        private readonly double[] _x, _y, _t;
+        private readonly double[] _x, _y, _t; // x as given: segments are found and s is formed on these
+        private readonly double[] _h;          // the segment widths times _sx (0 where that underflows; see Width)
         private readonly double _sx, _sy; // the stored x and y are the inputs times these (see RangeScale)
         private readonly double[] _yIn;   // the y given, returned exactly at the knots (scaling can flush a tiny y to 0)
         private readonly int _slopeExp;   // a stored slope is the true one times 2^−_slopeExp (_sx/_sy, as an exponent)
@@ -42,14 +43,18 @@ namespace ToolBelt.Numerics
             _sx = RangeScale(_x);
             _sy = RangeScale(_y);
             _slopeExp = Exponent(_sx) - Exponent(_sy);
-            for (int i = 0; i < n; i++) { _x[i] *= _sx; _y[i] *= _sy; }
+            for (int i = 0; i < n; i++) _y[i] *= _sy;
+            // x is not scaled itself: a width as wide as ±double.MaxValue next to one of 1e-310 is beyond any one scale,
+            // and scaled x collapsed ({0, 1e-310, 1e308, 1.5e308} lost the second knot and gave a NaN curve).
+            _h = new double[n - 1];
+            for (int i = 0; i < n - 1; i++) _h[i] = Width(_x[i], _x[i + 1], _sx);
 
             // Segment slopes m[0..n−2], stored with two extrapolated slopes on each side (offset 2).
             var m = new double[n + 3];
             // A rise over a tiny step ({0, 1e-300, 1, 2}) overflowed to ∞ and the curve became NaN: a slope beyond 2¹⁰¹⁶ is
             // held there (small enough that the extrapolated slopes and weights below cannot overflow). The curve still
             // passes through every point; it is just flatter at the knots of such a step.
-            for (int i = 0; i < n - 1; i++) m[i + 2] = CapSlope((_y[i + 1] - _y[i]) / (_x[i + 1] - _x[i]));
+            for (int i = 0; i < n - 1; i++) m[i + 2] = Slope(_y[i + 1] - _y[i], _h[i]);
             if (n == 2)
             {
                 m[0] = m[1] = m[3] = m[4] = m[2];
@@ -83,27 +88,29 @@ namespace ToolBelt.Numerics
         /// <summary>The interpolated value (clamped to the end values outside the data range).</summary>
         public double Interpolate(double x)
         {
-            x *= _sx;
+            if (double.IsNaN(x)) return double.NaN;
             if (x <= _x[0]) return _yIn[0];
             if (x >= _x[_x.Length - 1]) return _yIn[_yIn.Length - 1];
             int i = Segment(x);
             if (x == _x[i]) return _yIn[i];
-            double h = _x[i + 1] - _x[i], s = (x - _x[i]) / h;
-            double h00 = (1 + 2 * s) * (1 - s) * (1 - s), h10 = s * (1 - s) * (1 - s);
+            double h = _h[i], s = Fraction(x, _x[i], _x[i + 1]);
+            double h10 = s * (1 - s) * (1 - s);
             double h01 = s * s * (3 - 2 * s), h11 = s * s * (s - 1);
-            return (h00 * _y[i] + h10 * h * _t[i] + h01 * _y[i + 1] + h11 * h * _t[i + 1]) / _sy;
+            // Difference form: h00·y0 + h01·y1 rounded off a flat segment (constant 0.1 came back 0.10000000000000003).
+            return (_y[i] + h01 * (_y[i + 1] - _y[i]) + h * (h10 * _t[i] + h11 * _t[i + 1])) / _sy;
         }
 
         /// <summary>The first derivative (0 outside the data range, matching the clamped values).</summary>
         public double Derivative(double x)
         {
-            x *= _sx;
+            if (double.IsNaN(x)) return double.NaN;
             if (x < _x[0] || x > _x[_x.Length - 1]) return 0;
             if (x == _x[_x.Length - 1]) return Unscale(_t[_t.Length - 1]);
             int i = Segment(x);
-            double h = _x[i + 1] - _x[i], s = (x - _x[i]) / h;
-            double d00 = 6 * s * s - 6 * s, d10 = 3 * s * s - 4 * s + 1, d01 = -6 * s * s + 6 * s, d11 = 3 * s * s - 2 * s;
-            return Unscale((d00 * _y[i] + d01 * _y[i + 1]) / h + d10 * _t[i] + d11 * _t[i + 1]);
+            double s = Fraction(x, _x[i], _x[i + 1]);
+            double d01 = -6 * s * s + 6 * s, d10 = 3 * s * s - 4 * s + 1, d11 = 3 * s * s - 2 * s;
+            // d00 = −d01, so the rise term is d01·(y1 − y0)/h, which is a capped slope times d01 (h can be 0, see Width).
+            return Unscale(d01 * Slope(_y[i + 1] - _y[i], _h[i]) + d10 * _t[i] + d11 * _t[i + 1]);
         }
 
         /// <summary>The slope the spline uses at each data point.</summary>
@@ -132,6 +139,25 @@ namespace ToolBelt.Numerics
             if (max < Pow2(-500) && max > 0) return Pow2(-e);
             return 1.0;
         }
+
+        // (b − a)·scale for a < b, without overflowing the difference (halves when it would). It can underflow to 0, for a
+        // width far below the widest one; such a segment's slope is then held at MaxSlope.
+        private static double Width(double a, double b, double scale)
+        {
+            double d = b - a;
+            return double.IsInfinity(d) ? (0.5 * b - 0.5 * a) * (2 * scale) : d * scale;
+        }
+
+        // Where x lies in [a, b], from 0 to 1.
+        private static double Fraction(double x, double a, double b)
+        {
+            double d = b - a;
+            double t = double.IsInfinity(d) ? (0.5 * x - 0.5 * a) / (0.5 * b - 0.5 * a) : (x - a) / d;
+            return Math.Min(Math.Max(t, 0), 1);
+        }
+
+        private static double Slope(double rise, double width)
+            => rise == 0 ? 0 : width == 0 ? Math.Sign(rise) * MaxSlope : CapSlope(rise / width);
 
         private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
 

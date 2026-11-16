@@ -66,6 +66,7 @@ namespace ToolBelt.Numerics
         /// </summary>
         public Vector2 Normalized()
         {
+            if (double.IsNaN(X) || double.IsNaN(Y)) return new Vector2(double.NaN, double.NaN);   // (∞, NaN) gave (1, 0)
             if (double.IsInfinity(X) || double.IsInfinity(Y))
                 return new Vector2(double.IsInfinity(X) ? Math.Sign(X) : 0, double.IsInfinity(Y) ? Math.Sign(Y) : 0).Normalized();
             // Scale first: dividing by an overflowed length gave (0, 0), and by an underflowed one threw.
@@ -96,7 +97,10 @@ namespace ToolBelt.Numerics
         }
 
         public bool ApproximatelyEquals(Vector2 other, double tolerance = 1e-9)
-            => Math.Abs(X - other.X) <= tolerance && Math.Abs(Y - other.Y) <= tolerance;
+            => Near(X, other.X, tolerance) && Near(Y, other.Y, tolerance);
+
+        // Equal components count as near: ∞ − ∞ is NaN, so a vector with an infinite part was not near itself.
+        private static bool Near(double a, double b, double tolerance) => a.Equals(b) || Math.Abs(a - b) <= tolerance;
 
         public bool Equals(Vector2 other) => X.Equals(other.X) && Y.Equals(other.Y);
         public override bool Equals(object? obj) => obj is Vector2 v && Equals(v);

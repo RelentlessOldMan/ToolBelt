@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Globalization;
+using System.Numerics;
 
 namespace ToolBelt.Numerics
 {
@@ -47,11 +48,12 @@ namespace ToolBelt.Numerics
             if (uncertainty < Math.Abs(value) * 1e-17)
                 throw new ArgumentOutOfRangeException(nameof(uncertainty), uncertainty, "Uncertainty is below the value's own precision (10^-17 of it).");
 
-            // Leading three digits of the uncertainty (100 ≤ lead < 1000) and its decimal exponent.
-            int exponent = (int)Math.Floor(Math.Log10(uncertainty));
-            int lead = (int)Math.Floor(Shift10(uncertainty, 2 - exponent) + 1e-9); // 10^(exponent−2) is 0 for subnormals
-            if (lead >= 1000) { lead /= 10; exponent++; }                     // log10 rounded down a hair
-            if (lead < 100) { lead *= 10; exponent--; }                        // ...or up
+            // Leading three digits of the uncertainty (100 ≤ lead < 1000) and its decimal exponent, read exactly from its
+            // shortest round-trip decimal: a +1e-9 fudge on the shifted double made 0.0354999999999 lead 355 (one digit).
+            var (sd, sq) = Shortest(uncertainty);
+            int length = sd.ToString(CultureInfo.InvariantCulture).Length;
+            int exponent = sq + length - 1;
+            int lead = (int)(length >= 3 ? sd / BigInteger.Pow(10, length - 3) : sd * BigInteger.Pow(10, 3 - length));
 
             int digits = rule switch
             {
@@ -86,7 +88,9 @@ namespace ToolBelt.Numerics
 
         /// <summary>
         /// The value and its uncertainty as text, rounded per <paramref name="rule"/>. Plain notation is used when the shared
-        /// decimal place is between 10⁻⁶ and 10⁶ and the value is below 10⁷; otherwise both share an exponent.
+        /// decimal place is between 10⁻⁶ and 10⁶ and the value is below 10⁷; otherwise both share an exponent. Each number is
+        /// rounded as its shortest round-trip decimal (1.7e308 is 1.7·10³⁰⁸, not the binary 1.6999999999999999734·10³⁰⁸), so
+        /// the text is the same on every framework however many digits it shows.
         /// </summary>
         public static string Format(double value, double uncertainty, UncertaintyStyle style = UncertaintyStyle.PlusMinus,
             UncertaintyRule rule = UncertaintyRule.ParticleDataGroup)
@@ -97,7 +101,68 @@ namespace ToolBelt.Numerics
 
             int e = (int)Math.Floor(Math.Log10(Math.Max(Math.Abs(v), u)));
             int d = Math.Max(decimals + e, 0);
-            return Compose(RoundTo(Shift10(v, -e), d), RoundTo(Shift10(u, -e), d), d, style, e);
+            // The mantissas can need 17 or more digits, past what "F" gives the same on every framework (.NET Framework
+            // pads zeros after 15, so 1/3 ± 3e-17 came out 10 uncertainties off; .NET 8 showed binary noise). So they are
+            // rounded in decimal, from each double's shortest round-trip digits.
+            int place = e - d;
+            string vs = Fixed(value, place, d), us = Fixed(u, place, d);
+            string es = e.ToString(CultureInfo.InvariantCulture);
+            if (style == UncertaintyStyle.Parenthetical)
+                return vs + "(" + RoundAt(u, place).ToString(CultureInfo.InvariantCulture) + ")e" + es;
+            return "(" + vs + " ± " + us + ")e" + es;
+        }
+
+        // x / 10^(place + decimals) written with `decimals` decimals, x rounded half away from zero at 10^place.
+        private static string Fixed(double x, int place, int decimals)
+        {
+            BigInteger n = RoundAt(x, place);
+            string digits = BigInteger.Abs(n).ToString(CultureInfo.InvariantCulture);
+            if (decimals > 0)
+            {
+                if (digits.Length <= decimals) digits = new string('0', decimals - digits.Length + 1) + digits;
+                digits = digits.Substring(0, digits.Length - decimals) + "." + digits.Substring(digits.Length - decimals);
+            }
+            return n.Sign < 0 ? "-" + digits : digits;
+        }
+
+        // x / 10^place rounded half away from zero, taking x as its shortest round-trip decimal.
+        private static BigInteger RoundAt(double x, int place)
+        {
+            if (x == 0) return BigInteger.Zero;
+            var (digits, q) = Shortest(Math.Abs(x));
+            BigInteger n = q >= place ? digits * BigInteger.Pow(10, q - place) : DivideRounded(digits, BigInteger.Pow(10, place - q));
+            return x < 0 ? -n : n;
+        }
+
+        private static BigInteger DivideRounded(BigInteger num, BigInteger den) => (2 * num + den) / (2 * den);
+
+        // The shortest decimal digits·10^exponent that reads back as x (positive and finite), found exactly with
+        // BigInteger so every framework agrees.
+        private static (BigInteger Digits, int Exponent) Shortest(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int be = (int)((bits >> 52) & 0x7FF);
+            long m = bits & 0xFFFFFFFFFFFFFL;
+            if (be == 0) be = 1; else m |= 1L << 52;
+            int k = be - 1075;                                         // x = m·2^k
+            bool tight = m == 1L << 52 && be > 1;                      // the gap below a power of two is half the one above
+            int top = (int)Math.Floor(Math.Log10(x));
+            for (int n = 1; n <= 18; n++)
+            {
+                int q = top - n + 1;                                   // the place of the last digit
+                // Everything times A = 10^max(−q, 0)·2^max(2 − k, 0), so all terms are integers.
+                BigInteger ten = BigInteger.Pow(10, Math.Max(-q, 0)), tenUp = BigInteger.Pow(10, Math.Max(q, 0));
+                BigInteger xs = (BigInteger)m * BigInteger.Pow(2, Math.Max(k, 2)) * ten;
+                BigInteger num = (BigInteger)m * BigInteger.Pow(2, Math.Max(k, 0)) * ten;
+                BigInteger den = BigInteger.Pow(2, Math.Max(-k, 0)) * tenUp;
+                BigInteger digits = DivideRounded(num, den);
+                BigInteger lhs = digits * tenUp * BigInteger.Pow(2, Math.Max(2 - k, 0));
+                BigInteger gap = lhs >= xs ? BigInteger.Pow(2, Math.Max(k - 1, 1)) * ten
+                    : BigInteger.Pow(2, tight ? Math.Max(k - 2, 0) : Math.Max(k - 1, 1)) * ten;
+                BigInteger diff = BigInteger.Abs(lhs - xs);
+                if (diff < gap || (diff == gap && (m & 1) == 0)) return (digits, q);
+            }
+            throw new InvalidOperationException("Unreachable: 18 digits always read back.");
         }
 
         private static string Compose(double v, double u, int decimals, UncertaintyStyle style, int? exponent)

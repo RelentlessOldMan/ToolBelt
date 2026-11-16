@@ -86,6 +86,8 @@ namespace ToolBelt.Numerics
             }
             // u = (x − shift) / scale lies in [-1, 1]. Halves first, so a range near ±double.MaxValue cannot overflow.
             double shift = 0.5 * lo + 0.5 * hi, scale = 0.5 * hi - 0.5 * lo;
+            // Distinct subnormal x can halve to the same value ({0, 4.9e-324} gave scale 0): their difference is exact.
+            if (scale == 0 && hi > lo) scale = hi - lo;
             if (scale == 0) scale = 1; // all x equal: only degree 0 is determined, and the rank check reports the rest
 
             // y is scaled by a power of two (exactly) so its largest magnitude is in [1, 2): the reflections' dot products
@@ -142,22 +144,30 @@ namespace ToolBelt.Numerics
                 cu[j] = sum / diag[j];
             }
 
-            // Expand Σ cu_j·((x − shift)/scale)^j into powers of x: Horner with the linear factor p0 + p1·x.
+            // Expand Σ cu_j·((x − shift)/scale)^j into powers of x: Horner with the linear factor p0 + p1·x. A subnormal
+            // scale makes p1 infinite, so a zero coefficient times it is taken as 0, not NaN (a flat fit stays flat).
             var coeffs = new double[m];
             double p0 = -shift / scale, p1 = 1 / scale;
             coeffs[0] = cu[m - 1];
             for (int j = m - 2, len = 1; j >= 0; j--, len++)
             {
-                for (int k = len; k >= 1; k--) coeffs[k] = coeffs[k] * p0 + coeffs[k - 1] * p1;
-                coeffs[0] = coeffs[0] * p0 + cu[j];
+                for (int k = len; k >= 1; k--) coeffs[k] = Times(coeffs[k], p0) + Times(coeffs[k - 1], p1);
+                coeffs[0] = Times(coeffs[0], p0) + cu[j];
             }
             for (int j = 0; j < m; j++) coeffs[j] = ScaleB(coeffs[j], ey);
             return new Polynomial(coeffs);
         }
 
-        /// <summary>The real roots, for degree 1 to 3. Degree 0 has none; degree ≥ 4 is not supported.</summary>
+        private static double Times(double a, double b) => a == 0 || b == 0 ? 0 : a * b;
+
+        /// <summary>The real roots, for degree 1 to 3. Degree 0 has none; degree ≥ 4 is not supported. Throws
+        /// <see cref="InvalidOperationException"/> when a coefficient is NaN or infinite.</summary>
         public double[] RealRoots()
         {
+            // A NaN leading coefficient threw ArithmeticException from Math.Sign, and an infinite one gave −∞ as a root.
+            foreach (double c in _coefficients)
+                if (double.IsNaN(c) || double.IsInfinity(c))
+                    throw new InvalidOperationException("Real roots need finite coefficients.");
             switch (Degree)
             {
                 case 0:
@@ -370,7 +380,9 @@ namespace ToolBelt.Numerics
             roots.Add(Polish(z2, b, c, d));
         }
 
-        // Newton on the monic cubic, keeping a step only if it shrinks the residual; skipped where x³ overflows.
+        // Newton on the monic cubic, keeping a step only if it shrinks the residual and is small next to x; skipped where x³
+        // overflows. The estimates are good to about 1e-8 of x, so a longer step is a jump to another root: at a double
+        // root f' is about 0 and one step went from 15 to the simple root 19 of (x − 15)²(x − 19), losing 15.
         private static double Polish(double x, double b, double c, double d)
         {
             for (int it = 0; it < 3; it++)
@@ -378,7 +390,9 @@ namespace ToolBelt.Numerics
                 double f = ((x + b) * x + c) * x + d;
                 double df = (3 * x + 2 * b) * x + c;
                 if (f == 0 || df == 0 || double.IsNaN(f) || double.IsInfinity(f) || double.IsNaN(df) || double.IsInfinity(df)) break;
-                double next = x - f / df;
+                double step = f / df;
+                if (!(Math.Abs(step) <= 1e-5 * Math.Abs(x))) break;
+                double next = x - step;
                 double fn = ((next + b) * next + c) * next + d;
                 if (!(Math.Abs(fn) < Math.Abs(f))) break;
                 x = next;
@@ -412,7 +426,7 @@ namespace ToolBelt.Numerics
             return a * Math.Sqrt(1 + r * r);
         }
 
-        private static double Cbrt(double x) => Math.Sign(x) * Math.Pow(Math.Abs(x), 1.0 / 3.0); // netstandard2.0 lacks Math.Cbrt
+        private static double Cbrt(double x) => x < 0 ? -Math.Pow(-x, 1.0 / 3.0) : Math.Pow(x, 1.0 / 3.0); // netstandard2.0 lacks Math.Cbrt
         private static double Clamp(double v, double lo, double hi) => v < lo ? lo : (v > hi ? hi : v);
     }
 }

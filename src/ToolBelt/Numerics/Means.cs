@@ -17,7 +17,7 @@ namespace ToolBelt.Numerics
         public static double Arithmetic(IReadOnlyList<double> values)
         {
             Require(values);
-            double sum = 0;
+            double sum = 0, min = double.PositiveInfinity, max = double.NegativeInfinity;
             bool nan = false, posInf = false, negInf = false;
             for (int i = 0; i < values.Count; i++)
             {
@@ -25,7 +25,7 @@ namespace ToolBelt.Numerics
                 if (double.IsNaN(v)) nan = true;
                 else if (double.IsPositiveInfinity(v)) posInf = true;
                 else if (double.IsNegativeInfinity(v)) negInf = true;
-                else sum += v;
+                else { sum += v; min = Math.Min(min, v); max = Math.Max(max, v); }
             }
             // Infinities decide the mean by themselves: summed in, an overflowed finite part (1e308 + 1e308) met −∞ as NaN.
             if (nan || (posInf && negInf)) return double.NaN;
@@ -36,9 +36,10 @@ namespace ToolBelt.Numerics
                 // The sum of finite values overflowed (two 1e308s); Σ(x/n) cannot.
                 sum = 0;
                 for (int i = 0; i < values.Count; i++) sum += values[i] / values.Count;
-                return sum;
+                return Math.Min(Math.Max(sum, min), max);
             }
-            return sum / values.Count;
+            // Held in [min, max] as the other means are: sum / n rounds twice, so {0.1, 0.1, 0.1} gave 0.10000000000000002.
+            return Math.Min(Math.Max(sum / values.Count, min), max);
         }
 
         /// <summary>Geometric mean (n-th root of the product), computed in log space. Requires positive values.</summary>
