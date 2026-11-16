@@ -247,7 +247,10 @@ namespace ToolBelt.Documents
                     foreach (string line in Lines(headers[c] ?? "")) w = Math.Max(w, Measure(line, size, true));
                     foreach (var cells in data)
                         foreach (string line in Lines(cells[c])) w = Math.Max(w, Measure(line, size, false));
+                    // Wrapping takes the padding off again, and (w + 2·pad) − 2·pad can land one ulp below w: a word that
+                    // fit was split ('flq' in Helvetica 15.6 printed as "fl", "q"). The column grows until it gives back w.
                     widths[c] = w + 2 * pad;
+                    while (widths[c] - 2 * pad < w) widths[c] = NextUp(widths[c]);
                 }
                 double total = 0;
                 foreach (double w in widths) total += w;
@@ -625,6 +628,8 @@ namespace ToolBelt.Documents
             for (int c = 0; c < cells.Length; c++) maxLines = Math.Max(maxLines, CellLines(cells[c], widths[c], size, pad, bold).Count);
             return maxLines * lead + 2 * pad;
         }
+
+        private static double NextUp(double x) => x == 0 ? double.Epsilon : BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1);
 
         private List<string> CellLines(string text, double width, double size, double pad, bool bold)
         {

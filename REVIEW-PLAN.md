@@ -47,7 +47,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 6 | 8 / 150 | re-queue (8 bugs, none severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 5 | 21 / 127 | re-queue (21 bugs, none severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 6 | 3 / 70 | re-queue (3 bugs, 1 severe) |
-| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 5 | 24 / 117 | re-queue (24 bugs, none severe) |
+| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 6 | 10 / 127 | re-queue (10 bugs, 2 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 6 | 4 / 153 | re-queue (4 bugs, 1 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 6 | 6 / 93 | re-queue (6 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 6 | 3 / 117 | re-queue (3 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); **next: 7**, then 5, 16, 12, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); **next: 5**, then 16, 12, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -173,11 +173,44 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.13 | 97 | Concurrency, sixth pass | 3 | (see tag) |
 | v2026.11.16.14 | 98 | Text & small types, sixth pass | 4 | (see tag) |
 | v2026.11.16.15 | 99 | Binary formats & images, sixth pass | 3 | (see tag) |
+| v2026.11.16.16 | 100 | Documents & config, sixth pass | 10 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 100: Documents & config, sixth pass (v2026.11.16.16)
+
+Two fresh reviewers (correctness, robustness): 10 bugs, 2 severe, so section 7 stays re-queued. The regression tests
+are in `DocumentsConfigReview100Tests` (12); each fails on the old code, run by name under a 60 s timeout.
+
+- **Severe: SettingsStore** with a get-only `ReadOnlyCollection<T>` or `ReadOnlyDictionary<K,V>` saved fine, then every
+  `LoadFrom` threw NotSupportedException (the refill setter made System.Text.Json read a type it can't build). Such a
+  property is now skipped on load and keeps its default, as documented.
+- **Severe (security): SettingsStore**'s save moved a temp file over the settings file, so the file's own ACL was
+  replaced by the folder's inherited one (an owner-only file gained SYSTEM and Administrators). It now uses
+  `File.Replace` on Windows, and copies the Unix mode elsewhere.
+- **SettingsStore** saved a value no load could read back (an interface-typed property holding an object), and every
+  launch after it crashed in `LoadFrom`. The save now reads its JSON back first and throws NotSupportedException
+  without touching the file.
+- **SettingsStore** wrote a `char` (or `List<char>`, `char[]`) holding a lone surrogate as U+FFFD silently; strings
+  were already refused. A strict char converter refuses it too.
+- **PdfWriter** sized an automatic table column to its text, but `(w + 2·pad) − 2·pad` can land one ulp below `w`, so
+  about 7% of one-word cells split mid-word ('flq' at Helvetica 15.6). The column grows until it gives `w` back.
+- **ConfigBinder** passed a null list item to conversion: "cannot convert ''" for an int list, a null entry in a string
+  list. A null item is unset, as a null key is (a later item past it is a gap).
+- **ConfigBinder** skipped an empty index ("Hosts:"), dropping its value without a word. It is reported.
+- **ConfigBinder** was quadratic on a self-containing type (every section scanned every key once per property: 8,000
+  keys took 29 s). Each section now scans only the keys under it.
+- **ConfigBinder and ConfigLayers** kept one of "Port" and "PORT" by enumeration order, silently. With different
+  values the binder reports it and `ConfigLayers.Add` throws ArgumentException; the same value twice is fine.
+- **EnvironmentVariables.Get("X\0junk")** returned X's value (the OS stops at NUL). A name with NUL, or with '=' past
+  its first character, throws ArgumentException.
+
+Still suspected (BUGLIST R100-1..5): GitHub slugs for a final sigma and U+0130; "infinity" and near-MaxValue floats on
+.NET Framework; several instances saving one settings file at once; SettingsStore's rollback when restoring attributes
+fails after the move; stale-temp cleanup on a share with a skewed clock.
+
 ### Round 99: Binary formats & images, sixth pass (v2026.11.16.15)
 
 Two fresh reviewers (correctness, robustness): 3 bugs, 1 severe, so section 6 stays re-queued. The regression tests

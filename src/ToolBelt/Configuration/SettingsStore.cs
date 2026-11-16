@@ -27,7 +27,10 @@ namespace ToolBelt.Configuration
     /// property with a private setter loads through that setter. A stack keeps its order. Only public properties are
     /// stored, not fields. A type System.Text.Json cannot load at all (an abstract property type, a
     /// <c>ConcurrentBag</c>) makes <see cref="LoadFrom"/> throw rather than move a good file aside. A string holding a lone
-    /// surrogate (which JSON cannot store) makes a save throw <see cref="ArgumentException"/> rather than write U+FFFD.
+    /// surrogate, or a <see cref="char"/> that is one (which JSON cannot store), makes a save throw
+    /// <see cref="ArgumentException"/> rather than write U+FFFD, and a value no load could read back (an interface-typed
+    /// property holding an object) makes it throw <see cref="NotSupportedException"/>. A save keeps the file's ACL (and on
+    /// Unix its mode).
     /// A settings path that is a symbolic link is written through to its target; a save keeps the file's Hidden and System
     /// attributes, fails at once on a read-only file, waits about half a second for another reader of the file to let go,
     /// and removes temp files that a crashed save left behind more than an hour ago.
@@ -178,19 +181,38 @@ namespace ToolBelt.Configuration
                     throw new UnauthorizedAccessException($"The settings file '{target}' is read-only.");
                 keep = old & (FileAttributes.Hidden | FileAttributes.System);
             }
+            byte[] json = JsonSerializer.SerializeToUtf8Bytes(value, Options);
+            // A value no load could read back (an interface-typed property, say) was saved, and from then on every
+            // LoadFrom threw: the program failed at each launch after its first save. It fails at the save instead.
+            try { JsonSerializer.Deserialize<T>(json, Options); }
+            catch (Exception ex) when ((ex is NotSupportedException || ex is InvalidOperationException) && IsSerializerFault(ex))
+            {
+                throw new NotSupportedException($"These settings could not be loaded back ({ex.Message}), so they were not saved.", ex);
+            }
+            catch (Exception ex) when (!(ex is OutOfMemoryException || ex is StackOverflowException)) { }
             try
             {
                 using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
-                    JsonSerializer.Serialize(fs, value, Options);
+                    fs.Write(json, 0, json.Length);
                     fs.Flush(flushToDisk: true);
                 }
+                // A Unix file's mode (0600 for one holding a token) became the umask default.
+                if (!OperatingSystem.IsWindows() && File.Exists(target))
+                    File.SetUnixFileMode(temp, File.GetUnixFileMode(target));
                 // Another reader holding the file (an editor, a scanner, another instance loading it) made the move fail at
                 // once; it gets about half a second to let go.
                 using (var never = new System.Threading.ManualResetEventSlim(false))
                     for (int attempt = 0; ; attempt++)
                     {
-                        try { File.Move(temp, target, overwrite: true); break; }
+                        // Replace keeps the file's own ACL: the move gave it the folder's inherited one, so an owner-only file
+                        // became readable by everyone the folder admits.
+                        try
+                        {
+                            if (OperatingSystem.IsWindows() && File.Exists(target)) File.Replace(temp, target, null);
+                            else File.Move(temp, target, overwrite: true);
+                            break;
+                        }
                         catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < 10 && File.Exists(target))
                         {
                             never.Wait(50);
@@ -294,6 +316,7 @@ namespace ToolBelt.Configuration
             };
             o.Converters.Add(new JsonStringEnumConverter());
             o.Converters.Add(new StrictStringConverter());
+            o.Converters.Add(new StrictCharConverter());
             o.Converters.Add(new StackConverterFactory());
             // System.Text.Json saves get-only properties but skips them when loading, so `List<string> Recent { get; }`
             // would come back empty and the next save would erase it.
@@ -325,7 +348,7 @@ namespace ToolBelt.Configuration
                 }
                 if (p.Set != null || p.Get == null || p.PropertyType.IsValueType || p.PropertyType == typeof(string)) continue;
                 Func<object, object?> get = p.Get;
-                if (IsCollection(p.PropertyType))
+                if (IsCollection(p.PropertyType) && CanRead(p.PropertyType))
                     p.Set = (owner, value) => { if (get(owner) is object target && value != null) Refill(target, value); };
                 else if (!p.PropertyType.IsAbstract && !typeof(System.Collections.IEnumerable).IsAssignableFrom(p.PropertyType)
                          && p.CustomConverter is null && PlainResolver.GetTypeInfo(p.PropertyType, Plain).Kind == JsonTypeInfoKind.Object)
@@ -350,6 +373,19 @@ namespace ToolBelt.Configuration
                 return kind == JsonTypeInfoKind.Enumerable || kind == JsonTypeInfoKind.Dictionary;
             }
             catch (NotSupportedException) { return false; }
+        }
+
+        // A ReadOnlyCollection or ReadOnlyDictionary can't be read at all (no constructor System.Text.Json can use): with a
+        // setter installed, every load of a saved file threw. Without one the property is skipped and keeps its default.
+        private static bool CanRead(Type type)
+        {
+            try
+            {
+                JsonSerializer.Deserialize(PlainResolver.GetTypeInfo(type, Plain).Kind == JsonTypeInfoKind.Dictionary ? "{}" : "[]", type, Plain);
+                return true;
+            }
+            catch (NotSupportedException) { return false; }
+            catch (InvalidOperationException) { return false; }
         }
 
         // Replace semantics for a get-only collection, like a settable property: clear it, then add the loaded items. The
@@ -447,6 +483,34 @@ namespace ToolBelt.Configuration
                     if (char.IsSurrogate(c))
                         throw new ArgumentException($"A setting holds a lone surrogate (U+{(int)c:X4} at index {i}), which JSON cannot store.");
                 }
+            }
+        }
+
+        // A char that is half a surrogate pair was written as U+FFFD too (a char, char[] or List<char> setting), silently.
+        private sealed class StrictCharConverter : JsonConverter<char>
+        {
+            public override char Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+                JsonMetadataServices.CharConverter.Read(ref reader, typeToConvert, options);
+
+            public override void Write(Utf8JsonWriter writer, char value, JsonSerializerOptions options)
+            {
+                Check(value);
+                JsonMetadataServices.CharConverter.Write(writer, value, options);
+            }
+
+            public override char ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+                JsonMetadataServices.CharConverter.ReadAsPropertyName(ref reader, typeToConvert, options);
+
+            public override void WriteAsPropertyName(Utf8JsonWriter writer, char value, JsonSerializerOptions options)
+            {
+                Check(value);
+                JsonMetadataServices.CharConverter.WriteAsPropertyName(writer, value, options);
+            }
+
+            private static void Check(char c)
+            {
+                if (char.IsSurrogate(c))
+                    throw new ArgumentException($"A setting holds a lone surrogate (U+{(int)c:X4}), which JSON cannot store.");
             }
         }
 

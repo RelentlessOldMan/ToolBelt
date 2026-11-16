@@ -35,7 +35,8 @@ namespace ToolBelt.Configuration
     /// <item>A configured key is never dropped silently: a type the binder doesn't handle (a dictionary, a list of
     /// objects, <see cref="Uri"/>), a read-only property (one without a public setter), a list given one value
     /// ("Hosts=a,b", also alongside its indexed keys) or a non-numeric index, a section given a value of its own
-    /// ("Server=localhost" beside "Server:Port"), or a setter that throws is reported as an error.</item>
+    /// ("Server=localhost" beside "Server:Port"), a key given twice in different casing with different values ("Port",
+    /// "PORT"), or a setter that throws is reported as an error.</item>
     /// <item>A key whose value is null is unset: the property keeps its default.</item>
     /// <item>A class may contain its own type (a fallback <c>Opts</c> inside <c>Opts</c>): each configured level is bound,
     /// down to <see cref="MaxDepth"/> sections; a key nested deeper is reported as an error.</item>
@@ -57,17 +58,27 @@ namespace ToolBelt.Configuration
             var errors = new List<string>();
             // Normalize to case-insensitive lookup so "Server:Port" and "server:port" resolve alike.
             var lookup = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-            foreach (var kv in values) lookup[kv.Key] = kv.Value;
+            var spelled = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in values)
+            {
+                // "Port=1" beside "PORT=2" kept whichever came last, without a word. The same value twice is no conflict.
+                if (spelled.TryGetValue(kv.Key, out string? first) && lookup[kv.Key] != kv.Value)
+                    errors.Add($"'{first}' and '{kv.Key}' are the same key in different casing, with different values.");
+                else spelled[kv.Key] = kv.Key;
+                lookup[kv.Key] = kv.Value;
+            }
 
             var result = new T();
             object boxed = result!;
-            BindInto(boxed, typeof(T), lookup, "", separator, errors, 0);
+            BindInto(boxed, typeof(T), lookup, new List<string>(lookup.Keys), "", separator, errors, 0);
             if (errors.Count > 0) throw new ConfigBindingException(errors);
             return (T)boxed;
         }
 
-        private static void BindInto(object obj, Type type, Dictionary<string, string?> values, string prefix, string sep,
-            List<string> errors, int depth)
+        // scope holds the keys under prefix: every key a property of this section can see. Scanning all keys for each
+        // property of each section made a self-containing type quadratic (8,000 keys took 29 s).
+        private static void BindInto(object obj, Type type, Dictionary<string, string?> values, List<string> scope, string prefix,
+            string sep, List<string> errors, int depth)
         {
             foreach (PropertyInfo prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
@@ -86,12 +97,12 @@ namespace ToolBelt.Configuration
                         else errors.Add($"'{key}': cannot convert '{raw}' to {FriendlyName(pt)}.");
                     }
                     // "Port:0=5" on an int was dropped without a word.
-                    if (HasSection(values, key + sep))
+                    if (HasSection(scope, key + sep))
                         errors.Add($"'{key}': {FriendlyName(pt)} is a single value, so nested keys ('{key}{sep}...') cannot be bound.");
                 }
                 else if (TryGetElementType(pt, out Type elementType))
                 {
-                    object? sequence = BindSequence(pt, elementType, values, key, sep, errors);
+                    object? sequence = BindSequence(pt, elementType, values, scope, key, sep, errors);
                     // "Hosts=a,b": a list is not split from one value (EnvironmentVariables.GetList does that). Beside indexed
                     // keys too: there the value was dropped without a word.
                     if (values.TryGetValue(key, out string? whole) && !string.IsNullOrEmpty(whole))
@@ -117,10 +128,10 @@ namespace ToolBelt.Configuration
                 {
                     // Configured but of a type the binder doesn't handle (Uri, a struct, a dictionary, a list of objects):
                     // say so rather than drop the values.
-                    if (IsConfigured(values, key, sep))
+                    if (IsConfigured(values, scope, key, sep))
                         errors.Add($"'{key}': {FriendlyName(pt)} is not a supported setting type (scalars, lists of scalars and classes are).");
                 }
-                else if (HasSection(values, key + sep))
+                else if (Under(scope, key + sep) is { Count: > 0 } section)
                 {
                     // "Server=localhost" beside "Server:Port=5": the section's own value was dropped without a word.
                     if (values.TryGetValue(key, out string? own) && !string.IsNullOrEmpty(own))
@@ -151,7 +162,7 @@ namespace ToolBelt.Configuration
                         try { target = Activator.CreateInstance(pt)!; }
                         catch (TargetInvocationException ex) { errors.Add($"'{key}': {(ex.InnerException ?? ex).Message}"); continue; }
                     }
-                    BindInto(target, pt, values, key, sep, errors, depth + 1);
+                    BindInto(target, pt, values, section, key, sep, errors, depth + 1);
                     if (CanSet(prop)) TrySet(prop, obj, target, key, errors);
                 }
                 else if (values.TryGetValue(key, out string? whole) && !string.IsNullOrEmpty(whole))
@@ -183,24 +194,34 @@ namespace ToolBelt.Configuration
         // A public setter only: a private one (a value the type keeps out of outside hands) was set from configuration.
         private static bool CanSet(PropertyInfo prop) => prop.GetSetMethod() != null;
 
-        private static bool IsConfigured(Dictionary<string, string?> values, string key, string sep)
-            => (values.TryGetValue(key, out string? v) && !string.IsNullOrEmpty(v)) || HasSection(values, key + sep);
+        private static bool IsConfigured(Dictionary<string, string?> values, List<string> scope, string key, string sep)
+            => (values.TryGetValue(key, out string? v) && !string.IsNullOrEmpty(v)) || HasSection(scope, key + sep);
 
-        private static bool HasSection(Dictionary<string, string?> values, string sectionPrefix)
+        private static bool HasSection(List<string> scope, string sectionPrefix)
         {
-            foreach (string k in values.Keys)
+            foreach (string k in scope)
                 if (k.StartsWith(sectionPrefix, StringComparison.OrdinalIgnoreCase)) return true;
             return false;
         }
 
+        private static List<string> Under(List<string> scope, string sectionPrefix)
+        {
+            var keys = new List<string>();
+            foreach (string k in scope)
+                if (k.StartsWith(sectionPrefix, StringComparison.OrdinalIgnoreCase)) keys.Add(k);
+            return keys;
+        }
+
         private static object? BindSequence(Type sequenceType, Type elementType,
-            Dictionary<string, string?> values, string key, string sep, List<string> errors)
+            Dictionary<string, string?> values, List<string> scope, string key, string sep, List<string> errors)
         {
             var items = new List<object?>();
             int contiguous = 0;
             for (int i = 0; ; i++)
             {
-                if (!values.TryGetValue(key + sep + i.ToString(CultureInfo.InvariantCulture), out string? raw)) break;
+                // A null item is unset, as a null key is: converted, it failed for value types ("cannot convert ''") and
+                // put a null into a list of strings.
+                if (!values.TryGetValue(key + sep + i.ToString(CultureInfo.InvariantCulture), out string? raw) || raw is null) break;
                 // Counted even when it fails to convert: "Ports:0=x, Ports:1=2" also reported a gap at the valid ':1'.
                 contiguous++;
                 if (TryConvertScalar(raw, elementType, out object? value)) items.Add(value);
@@ -209,11 +230,12 @@ namespace ToolBelt.Configuration
 
             // An index past a gap (":0", ":2") would otherwise be dropped silently, along with everything after it.
             string itemPrefix = key + sep;
-            foreach (string k in values.Keys)
+            foreach (string k in scope)
             {
-                if (!k.StartsWith(itemPrefix, StringComparison.OrdinalIgnoreCase) || k.Length == itemPrefix.Length) continue;
+                // An empty index ("Hosts:") was skipped here, so its value was dropped without a word.
+                if (!k.StartsWith(itemPrefix, StringComparison.OrdinalIgnoreCase) || values[k] is null) continue;
                 string index = k.Substring(itemPrefix.Length);
-                bool digits = true;
+                bool digits = index.Length > 0;
                 foreach (char ch in index) if (ch < '0' || ch > '9') { digits = false; break; }
                 int nested = index.IndexOf(sep, StringComparison.Ordinal);
                 string first = nested < 0 ? index : index.Substring(0, nested);

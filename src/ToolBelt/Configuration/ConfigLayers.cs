@@ -9,7 +9,8 @@ namespace ToolBelt.Configuration
     /// then command-line overrides, for example) into one flat key space, and records which source supplied
     /// each final value. Sources added later win. That provenance report is the part everyone wishes they
     /// had while debugging a deployment. Keys are compared case-insensitively. The caller supplies each
-    /// source explicitly — nothing is read from the environment implicitly. Each source is copied when added, so later
+    /// source explicitly — nothing is read from the environment implicitly. A source holding one key in two casings with
+    /// different values is refused (<see cref="ArgumentException"/>). Each source is copied when added, so later
     /// changes to the dictionary are not seen; a lookup costs O(layers).
     /// </summary>
     public sealed class ConfigLayers
@@ -22,9 +23,18 @@ namespace ToolBelt.Configuration
         {
             if (sourceName is null) throw new ArgumentNullException(nameof(sourceName));
             if (values is null) throw new ArgumentNullException(nameof(values));
-            // A case-insensitive copy: when the source holds a key in two casings, the last enumerated wins, as it did.
+            // A case-insensitive copy. A key in two casings kept whichever was enumerated last, silently, so which value
+            // won depended on the dictionary's order; with different values it is refused (the same value twice is fine).
             var copy = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-            foreach (var kv in values) copy[kv.Key] = kv.Value;
+            var spelled = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in values)
+            {
+                if (kv.Key is null) throw new ArgumentException("A source holds a null key.", nameof(values));
+                if (spelled.TryGetValue(kv.Key, out string? first) && copy[kv.Key] != kv.Value)
+                    throw new ArgumentException($"Source '{sourceName}' holds '{first}' and '{kv.Key}', the same key in different casing, with different values.", nameof(values));
+                spelled[kv.Key] = kv.Key;
+                copy[kv.Key] = kv.Value;
+            }
             _layers.Add((sourceName, copy));
             return this;
         }

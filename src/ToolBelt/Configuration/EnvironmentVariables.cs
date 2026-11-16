@@ -39,6 +39,10 @@ namespace ToolBelt.Configuration
         {
             if (name is null) throw new ArgumentNullException(nameof(name));
             if (name.Length == 0) throw new ArgumentException("Name is required.", nameof(name));
+            // The OS reads a name only up to a NUL, so "X\0junk" returned X's value. '=' ends a name too (one may start
+            // with it on Windows: "=C:").
+            if (name.IndexOf('\0') >= 0 || name.IndexOf('=', 1) >= 0)
+                throw new ArgumentException("A variable name cannot contain NUL or '=' (other than a leading '=').", nameof(name));
             string? v = _get(name);
             return string.IsNullOrEmpty(v) ? null : v;
         }
