@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 
 namespace ToolBelt.Configuration
 {
@@ -283,6 +284,10 @@ namespace ToolBelt.Configuration
                 || t == typeof(TimeSpan) || t == typeof(DateTime) || t == typeof(DateTimeOffset) || t == typeof(Guid);
         }
 
+        // Not optimized: on .NET 8.0.3, tier-1 PGO code for this method evaluated the char branch's "nullable and empty"
+        // test as false for char? and "" with both operands true (seen by logging them), so an empty char? setting failed
+        // to bind in about one run in four; rewriting the test did not help. Binding is not a hot path.
+        [MethodImpl(MethodImplOptions.NoOptimization)]
         private static bool TryConvertScalar(string? raw, Type targetType, out object? value)
         {
             Type t = Unwrap(targetType);

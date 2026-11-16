@@ -379,7 +379,8 @@ namespace ToolBelt.Tests.Signal
             var s = Enumerable.Range(0, 20000).Select(_ => rng.NextDouble()).ToArray();
             var sw = Stopwatch.StartNew();
             Hampel.Filter(s, 10000);
-            Check.True(sw.Elapsed.TotalSeconds < 3, $"{sw.Elapsed.TotalSeconds} s");
+            // About 2 s alone (O(n·w)); the old code took 30 s. 3 s failed under the full verify's load (round 103).
+            Check.True(sw.Elapsed.TotalSeconds < 10, $"{sw.Elapsed.TotalSeconds} s");
         }
 
         public void TimeDelay_PeakValueDoesNotOverflowForOppositeScales()

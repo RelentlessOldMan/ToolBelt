@@ -576,7 +576,7 @@ src/
       LogSinks.cs           DelegateSink / TextWriterSink (console) / RollingMemorySink
       FileSink.cs           file sink with size-based rotation + retention
       SyslogSink.cs         RFC 5424 syslog over UDP or TCP (octet counting, connect timeout + back-off); failures counted, never thrown (Emit after Dispose throws ObjectDisposedException)
-      AsyncLogSink.cs       off-thread bounded-queue sink (built on ConcurrentPipeline)
+      AsyncLogSink.cs       off-thread bounded-queue sink (built on ConcurrentPipeline; optional Dispose drain timeout)
       LogDecorators.cs      FilterSink / RouterSink / RateLimitedSink (composable sink wrappers; Emit after Dispose throws ObjectDisposedException)
       LogFormatters.cs      plain / compact / single-line-JSON line formatters
       StructuredTextFormatter.cs  configurable field order / delimiter / timestamp (delimited preset)
@@ -1062,6 +1062,7 @@ tests/
       LoggingReview3Tests.cs (third-pass regressions: async sink self-dispose, clock steps, wrapped exit codes, counter saturation, delimiter overlap)
       LoggingReview4Tests.cs (fourth-pass regressions: rate-limiter deadlock, syslog IPv6 and stalled collectors, null events, metrics sample cap, health status, ANSI resets, column-aware spinner, progress floor)
       LoggingDiagnosticsCliReview78Tests.cs (fifth pass: out-of-order scopes, linear scope and delimiter costs, throwing Messages, disposed decorators, bounded signatures, emoji widths)
+      LoggingReview103Tests.cs (sixth pass: cross-consumer re-entry, concurrent health checks, summary order, later SGR resets, scopes disposed elsewhere, disposed sinks, unencodable lines, one-line spinner, undefined enums)
   ToolBelt.Windows.Tests/   Windows-only integration tests for the platform satellite (net8.0-windows)
     PowerStatusTests.cs
     SingleInstanceTests.cs

@@ -62,6 +62,8 @@ namespace ToolBelt.Logging
             if (sink is null) throw new ArgumentNullException(nameof(sink));
             lock (_gate)
             {
+                // A route added after Dispose was accepted and its owned sink never disposed.
+                if (_disposed) throw new ObjectDisposedException(nameof(RouterSink));
                 var routes = new (Func<LogEvent, bool>, ILogSink)[_routes.Length + 1];
                 Array.Copy(_routes, routes, _routes.Length);
                 routes[_routes.Length] = (predicate, sink);
@@ -97,10 +99,15 @@ namespace ToolBelt.Logging
 
         public void Dispose()
         {
-            if (_disposed) return;
-            _disposed = true;
+            (Func<LogEvent, bool> Predicate, ILogSink Sink)[] routes;
+            lock (_gate)   // with AddRoute, so a route is either refused or disposed here
+            {
+                if (_disposed) return;
+                _disposed = true;
+                routes = _routes;
+            }
             if (!_ownsSinks) return;
-            foreach (var route in System.Threading.Volatile.Read(ref _routes))
+            foreach (var route in routes)
             {
                 try { route.Sink.Dispose(); } catch { /* best-effort */ }
             }
@@ -131,6 +138,12 @@ namespace ToolBelt.Logging
         private long _suppressed;   // an int wrapped negative after 2^31 repeats and the summary vanished
         private LogEvent? _lastSuppressed;
         private bool _disposed;
+        // Each forwarded event starts a run, written outside the lock. A run's "(repeated N times)" summary taken while
+        // that first write is still in flight is handed to its writer, which writes it after: under concurrency the
+        // summary was written before the event it summarized. Keyed by run, with the summaries handed over.
+        private long _run;
+        private readonly Dictionary<long, List<LogEvent>?> _inFlight = new Dictionary<long, List<LogEvent>?>();
+        private bool _disposeDeferred;
 
         public RateLimitedSink(ILogSink inner, TimeSpan window, Func<DateTimeOffset>? clock = null, bool ownsInner = false)
         {
@@ -146,6 +159,7 @@ namespace ToolBelt.Logging
             if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
             DateTimeOffset now = _clock();
             LogEvent? summary;
+            long run;
             // The inner sink is called outside the lock: a blocking AsyncLogSink inside, whose consumer logged back
             // through this sink, deadlocked (the consumer waited for the lock, the lock's holder for queue space).
             lock (_gate)
@@ -162,7 +176,9 @@ namespace ToolBelt.Logging
                     _lastSuppressed = logEvent;
                     return;
                 }
-                summary = TakeSummary();
+                summary = HandOver(TakeSummary());
+                run = ++_run;
+                _inFlight[run] = null;
                 // The window starts before the write: an inner sink that threw left it unstarted, so a flood of a message
                 // that failed to write was never suppressed.
                 _hasCurrent = true;
@@ -173,15 +189,45 @@ namespace ToolBelt.Logging
                 _suppressed = 0;
                 _lastSuppressed = null;
             }
-            Exception? summaryError = null;
+            var errors = new List<Exception>();
             if (summary != null)
             {
                 try { _inner.Emit(summary); }
-                catch (Exception ex) { summaryError = ex; }                         // still write the new event
+                catch (Exception ex) { errors.Add(ex); }                            // still write the new event
             }
             try { _inner.Emit(logEvent); }
-            catch (Exception ex) when (summaryError != null) { throw new AggregateException(summaryError, ex); }   // both, not just one
-            if (summaryError != null) ExceptionDispatchInfo.Capture(summaryError).Throw();
+            catch (Exception ex) { errors.Add(ex); }
+            List<LogEvent>? handed;
+            bool dispose;
+            lock (_gate)
+            {
+                _inFlight.TryGetValue(run, out handed);
+                _inFlight.Remove(run);
+                dispose = _disposeDeferred && _inFlight.Count == 0;
+                if (dispose) _disposeDeferred = false;
+            }
+            if (handed != null)
+                foreach (LogEvent s in handed)
+                {
+                    try { _inner.Emit(s); }
+                    catch (Exception ex) { errors.Add(ex); }
+                }
+            if (dispose)
+            {
+                try { _inner.Dispose(); }
+                catch (Exception ex) { errors.Add(ex); }
+            }
+            if (errors.Count == 1) ExceptionDispatchInfo.Capture(errors[0]).Throw();
+            if (errors.Count > 1) throw new AggregateException(errors);   // all of them, not just one
+        }
+
+        // The summary, or null once handed to the current run's writer while its first write is still in flight.
+        private LogEvent? HandOver(LogEvent? summary)
+        {
+            if (summary == null || !_inFlight.TryGetValue(_run, out var handed)) return summary;
+            if (handed == null) _inFlight[_run] = handed = new List<LogEvent>();
+            handed.Add(summary);
+            return null;
         }
 
         private LogEvent? TakeSummary()
@@ -202,14 +248,18 @@ namespace ToolBelt.Logging
         public void Dispose()
         {
             LogEvent? summary;
+            bool disposeNow;
             lock (_gate)
             {
                 if (_disposed) return;
                 _disposed = true;
-                summary = TakeSummary();
+                summary = HandOver(TakeSummary());
+                // An owned sink still being written is disposed by the last of those writes, after any summary handed to it.
+                disposeNow = _ownsInner && _inFlight.Count == 0;
+                if (_ownsInner && !disposeNow) _disposeDeferred = true;
             }
             try { if (summary != null) _inner.Emit(summary); }
-            finally { if (_ownsInner) _inner.Dispose(); } // a throwing summary left the owned sink open
+            finally { if (disposeNow) _inner.Dispose(); } // a throwing summary left the owned sink open
         }
     }
 }

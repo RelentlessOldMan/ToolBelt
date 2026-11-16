@@ -52,7 +52,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 6 | 6 / 93 | re-queue (6 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 6 | 3 / 117 | re-queue (3 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 6 | 4 / 94 | re-queue (4 bugs) |
-| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 5 | 19 / 116 | re-queue (19 bugs, none severe) |
+| 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 6 | 14 / 130 | re-queue (14 bugs, none severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 6 | 3 / 102 | re-queue (3 bugs, none severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 6 | 3 / 141 | re-queue (3 bugs, none severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 5 | 15 / 114 | re-queue (15 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); **next: 12**, then 2, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); **next: 2**, then 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -176,11 +176,66 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.16 | 100 | Documents & config, sixth pass | 10 | (see tag) |
 | v2026.11.16.17 | 101 | Charts, sixth pass | 9 | (see tag) |
 | v2026.11.16.18 | 102 | WPF satellite, sixth pass | 13 | (see tag) |
+| v2026.11.16.19 | 103 | Logging, diagnostics, CLI, sixth pass | 15 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 103: Logging, diagnostics, CLI, sixth pass (v2026.11.16.19)
+
+Two fresh reviewers (correctness, robustness): 13 bugs, none severe, plus the open R69-1, so section 12 stays
+re-queued (14). The gates also turned up a section 7 bug (below). The regression tests are in `LoggingReview103Tests`
+(15); each fails on the old code, run by name under a 60 s timeout.
+
+- **AsyncLogSink.Dispose** waited for the drain without limit, so an inner sink that hung hung Dispose (R69-1, open
+  since round 29). A `drainTimeout` argument bounds the wait: past it, Dispose returns and the inner sink is closed when
+  the drain ends. Null (the default) still waits until drained.
+
+- **AsyncLogSink** wrote an event from another sink's consumer straight to its inner sink with no depth count, so two
+  blocking sinks whose inner sinks log their own failures into the same logger recursed until the stack overflowed.
+  The straight-through path is bounded per sink as the sink's own consumer is (a second nesting is dropped and counted).
+- **AsyncLogSink**'s straight-through path skipped the Dispose check, so an event reached an inner sink already
+  released; it throws ObjectDisposedException as the queued path does.
+- **HealthCheck**: two checks at once reported a healthy probe as "previous run has not returned" when the other run's
+  start was merely queued. Only an abandoned run (its token cancelled by a timeout or the check's cancellation) holds
+  later checks off.
+- **RateLimitedSink** could write a run's "(repeated N times)" summary before the run's first event, when that write
+  was still in flight on another thread (or at Dispose). The summary is handed to that writer, which writes it after;
+  an owned inner sink is disposed after the last write in flight.
+- **AnsiStyle** looked only at an SGR sequence's first parameter for a reset, so ESC[1;0m ended the outer style early.
+  Any 0 or empty parameter counts (colour arguments such as 38;5;0 do not). The round-69 test pinned ESC[10;0m as not
+  a reset; it is one.
+- **ScopedContext**: a scope disposed on another flow stayed current (and a push nested under it); Current and Push
+  skip disposed scopes at the top.
+- **ScopedContext** cached the full path on every node read, so logging in each of 10,000 nested scopes held 200 MB;
+  only a short path is cached.
+- **TextWriterSink**, **DelegateSink** and **RollingMemorySink** took events after Dispose; they throw
+  ObjectDisposedException (RollingMemorySink's Snapshot still works).
+- **FileSink**: one event its encoding refused (a lone surrogate with a throwing encoder) stayed in the StreamWriter,
+  so every later write failed and Dispose threw. Lines are encoded before writing, a failed write drops the stream for
+  the next event to reopen, and Dispose never throws.
+- **ConsoleSpinner** drew a message's line breaks, so each frame scrolled a new line; tabs and other control characters
+  broke the padding. They are drawn as spaces.
+- **RouterSink.AddRoute** after Dispose was accepted and an owned sink leaked; it throws ObjectDisposedException.
+- **SyslogSink** took an undefined transport (and used TCP); it throws naming "transport".
+- **StructuredTextFormatter** took an undefined field (an empty column); it throws naming "fields".
+
+Section 7, found by the gates: **ConfigBinder** failed to bind an empty `char?` setting in about one run in four of the
+Config tests (R101-7, first seen on the checked build only). Logging the operands showed both sides of the char
+branch's "nullable and empty" test true while the test was false: tier-1 PGO code on the .NET 8.0.3 runtime. Rewriting
+the test did not help; the converter is marked NoOptimization (binding is not a hot path). The regression test is the
+existing `Binder_ACharKeepsWhitespace` under the Config filter: 13 failures in 45 runs before, 0 in 15 with PGO off,
+0 in 40 after. A one-test stress loop did not reproduce it (the profile needs the whole Config mix).
+
+Test fix: `Hampel_WideWindowIsNotQuadratic` timed out at 3.26 s under the full verify's load (about 2 s alone; the old
+code took 30 s); its limit is 10 s.
+
+Still suspected (BUGLIST R103-1..7, beside R69-2..5): Benchmark at a 0 ns mean; spinner widths for VS16 emoji and after
+a window shrink; a child logger's AddSink after the parent's Dispose; FileSink failing a delivered line when the reopen
+after a rotation fails; ConsoleSpinner's constructor with a writer throwing other exceptions; HealthCheck's disposed
+token source under an abandoned probe; DiskSpace with GetDrives throwing.
+
 ### Round 102: WPF satellite, sixth pass (v2026.11.16.18)
 
 Two fresh reviewers (correctness, robustness): 13 bugs, none severe, so section 16 stays re-queued. The regression

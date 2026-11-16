@@ -21,7 +21,6 @@ namespace ToolBelt.Logging
         private readonly Encoding _encoding;
         private readonly object _gate = new object();
         private FileStream? _stream;
-        private StreamWriter? _writer;
         private bool _disposed;
 
         /// <summary>
@@ -53,13 +52,24 @@ namespace ToolBelt.Logging
         {
             if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
             string line = _formatter(logEvent);
+            // Encoded before anything is written: a StreamWriter kept a line its encoding refused (a lone surrogate with a
+            // throwing encoder) and failed it again on every later write, and on Dispose.
+            byte[] bytes = _encoding.GetBytes(line + Environment.NewLine);
             lock (_gate)
             {
                 if (_disposed) throw new ObjectDisposedException(nameof(FileSink));
-                if (_writer == null) Open(); // an earlier reopen failed; try again
-                _writer!.WriteLine(line);
-                _writer.Flush();
-                if (_maxBytes > 0 && _stream!.Length >= _maxBytes) Rotate();
+                if (_stream == null) Open(); // an earlier reopen or write failed; try again
+                try
+                {
+                    _stream!.Write(bytes, 0, bytes.Length);
+                    _stream.Flush();
+                }
+                catch
+                {
+                    Drop();   // a failed write (a full disk) is not retried from the buffer; the next event reopens
+                    throw;
+                }
+                if (_maxBytes > 0 && _stream.Length >= _maxBytes) Rotate();
             }
         }
 
@@ -69,27 +79,42 @@ namespace ToolBelt.Logging
             {
                 if (_disposed) return;
                 _disposed = true;
-                if (_writer == null) return;
-                try { _writer.Flush(); } catch { /* best-effort */ }
-                _writer.Dispose(); // also disposes the underlying stream
-                _writer = null;
-                _stream = null;
+                Drop();   // never throws: a failed final flush threw out of Dispose
             }
+        }
+
+        private void Drop()
+        {
+            FileStream? stream = _stream;
+            _stream = null;
+            try { stream?.Dispose(); } catch { /* best-effort: what it still held is lost */ }
         }
 
         private void Open()
         {
             string? dir = Path.GetDirectoryName(Path.GetFullPath(_path));
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            _stream = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read);
-            _writer = new StreamWriter(_stream, _encoding);
+            var stream = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read);
+            try
+            {
+                // A new file gets the encoding's preamble, as a StreamWriter wrote it.
+                if (stream.Position == 0)
+                {
+                    byte[] preamble = _encoding.GetPreamble();
+                    if (preamble.Length > 0) stream.Write(preamble, 0, preamble.Length);
+                }
+            }
+            catch
+            {
+                stream.Dispose();
+                throw;
+            }
+            _stream = stream;
         }
 
         private void Rotate()
         {
-            _writer!.Flush();
-            _writer.Dispose();
-            _writer = null;
+            _stream!.Dispose();
             _stream = null;
 
             string Rotated(int n) => _path + "." + n;

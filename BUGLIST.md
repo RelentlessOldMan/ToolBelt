@@ -9,7 +9,6 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 
 | ID | Pri | Section | Status | Summary | Found by |
 |----|-----|---------|--------|---------|----------|
-| R69-1 | P2 | 12 | confirmed | `AsyncLogSink.Dispose` has no drain timeout: an inner sink that hangs hangs Dispose (open since round 29). | review r29, r69 |
 | R69-2 | P2 | 12 | suspected | `DiskSpace` reads `IsReady` on every drive before matching the path, so an offline drive could stall the call. | review r69 |
 | R69-3 | P2 | 12 | suspected | After Ctrl+C, `Prompt` silently takes the default (`ReadLine()` returns null on Windows). | review r69 |
 | R69-4 | P2 | 12 | suspected | A `Logger` clock that throws escapes `Log`. | review r69 |
@@ -46,10 +45,16 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R101-4 | P3 | 5 | suspected | SvgChart bar width: BarSpacing uses every finite x, but on a log x axis non-positive x are not drawn, so the width may come from points that are not shown. | review r101 |
 | R101-5 | P3 | 5 | suspected | `AxisTicks.Linear(99, 101, maxTicks: 2, loose: true)` gives [0, 200]: the data fills 1% of the axis (follows the tick-count guarantee, but poor). | review r101 |
 | R101-6 | P3 | 5 | suspected | A 1 × 1 colorbar is black horizontally (low end) and white vertically (high end): the degenerate size picks different ends. | review r101 |
-| R101-7 | P3 | 7 | suspected | Checked build only, about 1 run in 40 of the Config tests: `Binder_ACharKeepsWhitespace` fails because `TryConvertScalar("", typeof(char?))` returns false (a second call at the failure point also returned false). 0 failures in 35 runs with `DOTNET_TieredPGO=0` and 25 unchecked. Suspected tier-1 PGO miscompile on .NET 8.0.3; recheck on a current 8.0.x runtime, and restructure the char branch if it persists. | gates r101 |
 | R102-1 | P3 | 16 | suspected | IncrementalCollection: a CollectionChanged handler that calls ResetAsync during ResetAsync's clear (one handler only) loads a page that the outer reset then overwrites (HasMoreItems, IsLoading). Not reproduced. | review r102 |
 | R102-2 | P3 | 16 | suspected | CountToVisibilityConverter.HasAny: an IEnumerable whose GetEnumerator returns null throws NullReferenceException; a one-shot sequence loses its first element to the check. | review r102 |
 | R102-3 | P3 | 16 | suspected | GlobalHotkeys.Register with a null callback for a gesture this instance already holds throws InvalidOperationException, not ArgumentNullException (Holds is checked first). | review r102 |
 | R102-4 | P3 | 16 | suspected | RecordingDialogService records the caller's mutable FileDialogOptions and string[] rather than snapshots, and Calls is the live list. | review r102 |
 | R102-5 | P3 | 16 | suspected | ThemeManager on an STA thread that never pumps: with FollowSystem on, queued BeginInvoke operations pile up (the non-STA fix's symptom). | review r102 |
 | R102-6 | P3 | 16 | suspected | NumericRangeValidationRule: a NaN Minimum or Maximum silently turns that bound's check off (other range types refuse NaN bounds). | review r102 |
+| R103-1 | P3 | 12 | suspected | Benchmark: an operation whose mean measures 0 ns reports 0 ops/s ("never completes"); RelativeToBaseline treats 0 ns as infinitely fast. Not reproduced (an empty iteration measured 21 us). | review r103 |
+| R103-2 | P3 | 12 | suspected | ConsoleSpinner: a text-default symbol with VS16 (U+2764 U+FE0F) counts one column though terminals draw two; after the window narrows, the pad to the last width wraps the line. | review r103 |
+| R103-3 | P3 | 12 | suspected | Logger: after the parent's Dispose, a child from ForCategory can still AddSink; the sink gets events and is never disposed. | review r103 |
+| R103-4 | P3 | 12 | suspected | FileSink: when the reopen after a rotation fails, Emit throws though its line was written and flushed. | review r103 |
+| R103-5 | P3 | 12 | suspected | ConsoleSpinner: the constructor's first draw ignores only IOException and ObjectDisposedException; any other writer exception escapes after the token source and loop are set up, leaking both. | review r103 |
+| R103-6 | P3 | 12 | suspected | HealthCheck: an abandoned probe's token source is disposed when its check returns; a probe reading token.WaitHandle later gets ObjectDisposedException. | review r103 |
+| R103-7 | P3 | 12 | suspected | DiskSpace: DriveInfo.GetDrives exceptions (an unreadable mount table off Windows) are not caught. | review r103 |

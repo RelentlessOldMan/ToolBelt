@@ -18,7 +18,15 @@ namespace ToolBelt.Logging
         private static readonly AsyncLocal<Node?> Ambient = new AsyncLocal<Node?>();
 
         /// <summary>The current combined scope, or null if none is active.</summary>
-        public static string? Current => Ambient.Value?.Text;
+        public static string? Current
+        {
+            get
+            {
+                // A scope disposed on another flow (a token handed to a task) stayed current here: the shared Disposed flag
+                // was only consulted on a pop. The live scope nearest the top is current.
+                return Live(Ambient.Value)?.Text;
+            }
+        }
 
         /// <summary>
         /// Pushes a scope for the lifetime of the returned token; disposing restores the previous scope. An empty
@@ -30,14 +38,23 @@ namespace ToolBelt.Logging
         {
             if (scope is null) throw new ArgumentNullException(nameof(scope));
             if (scope.Length == 0) return new Popper(null);
-            var node = new Node(scope, Ambient.Value);
+            var node = new Node(scope, Live(Ambient.Value));   // not under a scope already disposed elsewhere
             Ambient.Value = node;
             return new Popper(node);
         }
 
+        private static Node? Live(Node? n)
+        {
+            while (n != null && n.Disposed) n = n.Parent;
+            return n;
+        }
+
         // One pushed scope. Disposed is shared by every flow that inherited the node. Each push stored the whole combined
         // text, so 20,000 nested pushes held 1.9 GB; the text is now built on first read, from the nearest ancestor that
-        // has one, without recursion.
+        // has one, without recursion. Only a short text is kept: reading Current at every level (logging in each scope)
+        // cached a full path on every node, quadratic again (10,000 scopes held 191 MB).
+        private const int CachedTextLimit = 1024;
+
         private sealed class Node
         {
             private readonly string _scope;
@@ -68,7 +85,9 @@ namespace ToolBelt.Logging
                         if (sb.Length > 0) sb.Append('/');
                         sb.Append(chain[i]._scope);
                     }
-                    return _text = sb.ToString();
+                    text = sb.ToString();
+                    if (text.Length <= CachedTextLimit) _text = text;
+                    return text;
                 }
             }
         }

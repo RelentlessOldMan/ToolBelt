@@ -84,8 +84,9 @@ namespace ToolBelt.Cli
             if (text is null) throw new ArgumentNullException(nameof(text));
             if (!Enabled || text.Length == 0) return text;
             // Re-apply our style after any reset inside the text, so nesting styles doesn't cut the outer one short. A
-            // reset is any SGR sequence whose first parameter is 0 or empty: ESC[m, ESC[0m, and compounds like ESC[0;1m
-            // (only the plain two were matched, so ESC[0;1m ended the outer colour early).
+            // reset is any SGR sequence with a parameter that is 0 or empty: ESC[m, ESC[0m, and compounds like ESC[0;1m
+            // (only the plain two were matched, so ESC[0;1m ended the outer colour early) or ESC[1;0m (only the first
+            // parameter was looked at, but parameters apply in order, so this one ends every style too).
             string open = "\u001b[" + code + "m";
             var sb = new StringBuilder(open);
             int i = 0;
@@ -97,26 +98,47 @@ namespace ToolBelt.Cli
                 while (j < text.Length && ((text[j] >= '0' && text[j] <= '9') || text[j] == ';' || text[j] == ':')) j++;
                 if (j < text.Length && text[j] == 'm')
                 {
-                    bool reset = true;
-                    int k = esc + 2;
-                    for (; k < j && text[k] != ';' && text[k] != ':'; k++)
-                        if (text[k] != '0') { reset = false; break; }
-                    if (reset && k < j && text[k] == ';')
+                    int k = LastReset(text, esc + 2, j);
+                    sb.Append(text, i, esc - i);
+                    if (k < 0) sb.Append(text, esc, j + 1 - esc);
+                    else if (k == j) sb.Append(text, esc, j + 1 - esc).Append(open);
+                    else
                     {
                         // ESC[0;32m: reset, our style, then the rest, so the text's own colour still wins (our style
                         // was appended after the whole sequence and overrode its 32).
-                        sb.Append(text, i, esc - i).Append(Reset).Append(open).Append("\u001b[").Append(text, k + 1, j + 1 - (k + 1));
-                    }
-                    else
-                    {
-                        sb.Append(text, i, j + 1 - i);
-                        if (reset) sb.Append(open);
+                        string head = text.Substring(esc + 2, k - (esc + 2));
+                        sb.Append(head.IndexOf(';') < 0 ? Reset : "\u001b[" + head + "m").Append(open)
+                          .Append("\u001b[").Append(text, k + 1, j + 1 - (k + 1));
                     }
                     i = j + 1;
                 }
                 else { sb.Append(text, i, esc + 2 - i); i = esc + 2; }
             }
             return sb.Append(Reset).ToString();
+        }
+
+        // Where the last reset parameter (0 or empty) of the SGR parameters in [start, end) ends: the ';' after it, or end.
+        // -1 if there is none. The arguments of 38, 48 and 58 (5;n and 2;r;g;b) are not parameters: 38;5;0 is a colour.
+        private static int LastReset(string text, int start, int end)
+        {
+            int last = -1, skip = 0;
+            bool selector = false;
+            for (int p = start; ; )
+            {
+                int q = p;
+                while (q < end && text[q] != ';') q++;
+                string param = text.Substring(p, q - p);
+                if (skip > 0) skip--;
+                else if (selector)
+                {
+                    selector = false;
+                    skip = param == "5" ? 1 : param == "2" ? 3 : 0;
+                }
+                else if (param.Length == 0 || param.Trim('0').Length == 0) last = q;
+                else if (param == "38" || param == "48" || param == "58") selector = true;
+                if (q >= end) return last;
+                p = q + 1;
+            }
         }
 
         // An undefined colour made a code that is not a colour (99 gave 181; −1 as a background gave 39, the default

@@ -35,6 +35,10 @@ namespace ToolBelt.Logging
             if (fields is null) throw new ArgumentNullException(nameof(fields));
             if (fields.Count == 0) throw new ArgumentException("At least one field is required.", nameof(fields));
             _fields = new List<LogField>(fields); // a copy: clearing the caller's list later emptied every line
+            // An undefined field printed an empty column without complaint.
+            foreach (LogField f in _fields)
+                if (f < LogField.Timestamp || f > LogField.Exception)
+                    throw new ArgumentOutOfRangeException(nameof(fields), f, "Unknown log field.");
             _delimiter = delimiter ?? throw new ArgumentNullException(nameof(delimiter));
             _timestampFormat = timestampFormat ?? throw new ArgumentNullException(nameof(timestampFormat));
             try { new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero).ToString(timestampFormat, CultureInfo.InvariantCulture); }

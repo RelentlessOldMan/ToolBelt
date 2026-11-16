@@ -9,9 +9,18 @@ namespace ToolBelt.Logging
     public sealed class DelegateSink : ILogSink
     {
         private readonly Action<LogEvent> _onEmit;
+        private volatile bool _disposed;
         public DelegateSink(Action<LogEvent> onEmit) => _onEmit = onEmit ?? throw new ArgumentNullException(nameof(onEmit));
-        public void Emit(LogEvent logEvent) => _onEmit(logEvent ?? throw new ArgumentNullException(nameof(logEvent)));
-        public void Dispose() { }
+
+        public void Emit(LogEvent logEvent)
+        {
+            if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));
+            // Every other sink refuses an event after Dispose; this one kept calling back.
+            if (_disposed) throw new ObjectDisposedException(nameof(DelegateSink));
+            _onEmit(logEvent);
+        }
+
+        public void Dispose() => _disposed = true;
     }
 
     /// <summary>
@@ -24,6 +33,7 @@ namespace ToolBelt.Logging
         private readonly Func<LogEvent, string> _formatter;
         private readonly bool _ownsWriter;
         private readonly object _gate = new object();
+        private bool _disposed;
 
         public TextWriterSink(TextWriter writer, Func<LogEvent, string>? formatter = null, bool ownsWriter = false)
         {
@@ -40,13 +50,20 @@ namespace ToolBelt.Logging
         {
             if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
             string line = _formatter(logEvent);
-            lock (_gate) _writer.WriteLine(line);
+            lock (_gate)
+            {
+                // A writer the sink doesn't own (the console) was still written after Dispose.
+                if (_disposed) throw new ObjectDisposedException(nameof(TextWriterSink));
+                _writer.WriteLine(line);
+            }
         }
 
         public void Dispose()
         {
             lock (_gate)
             {
+                if (_disposed) return;
+                _disposed = true;
                 try { _writer.Flush(); } catch { /* best-effort */ }
                 if (_ownsWriter) _writer.Dispose();
             }
@@ -62,6 +79,7 @@ namespace ToolBelt.Logging
         private readonly int _capacity;
         private readonly Queue<LogEvent> _events;
         private readonly object _gate = new object();
+        private bool _disposed;
 
         public RollingMemorySink(int capacity)
         {
@@ -75,17 +93,21 @@ namespace ToolBelt.Logging
             if (logEvent is null) throw new ArgumentNullException(nameof(logEvent));   // every sink does the same
             lock (_gate)
             {
+                if (_disposed) throw new ObjectDisposedException(nameof(RollingMemorySink));   // was kept after Dispose
                 if (_events.Count == _capacity) _events.Dequeue();
                 _events.Enqueue(logEvent);
             }
         }
 
-        /// <summary>The buffered events, oldest first.</summary>
+        /// <summary>The buffered events, oldest first (still readable after Dispose).</summary>
         public IReadOnlyList<LogEvent> Snapshot()
         {
             lock (_gate) return new List<LogEvent>(_events);
         }
 
-        public void Dispose() { }
+        public void Dispose()
+        {
+            lock (_gate) _disposed = true;
+        }
     }
 }

@@ -404,9 +404,10 @@ namespace ToolBelt.Tests.Logging
                 string s = style.Foreground("a" + reset + "b", AnsiColor.Red);
                 Check.Equal("\u001b[31ma" + expected + "b\u001b[0m", s, reset.Replace("\u001b", "ESC"));
             }
-            // Not resets: these leave the outer style alone.
-            string bold = style.Foreground("a\u001b[1mb\u001b[10;0mc", AnsiColor.Red);
-            Check.Equal("\u001b[31ma\u001b[1mb\u001b[10;0mc\u001b[0m", bold);
+            // Not a reset: this leaves the outer style alone. (ESC[10;0m was pinned here as one too, but its 0 is a reset:
+            // parameters apply in order. Round 103.)
+            string bold = style.Foreground("a\u001b[1mb", AnsiColor.Red);
+            Check.Equal("\u001b[31ma\u001b[1mb\u001b[0m", bold);
         }
 
         public void Sparkline_BadExplicitBounds_AreRefused()

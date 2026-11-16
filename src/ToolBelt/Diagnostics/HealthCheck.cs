@@ -171,16 +171,17 @@ namespace ToolBelt.Diagnostics
             HealthStatus failureStatus = HealthStatus.Unhealthy)
         {
             if (probe is null) throw new ArgumentNullException(nameof(probe));
-            // One run at a time: a probe that hangs took one more pool thread on every check, without limit. While the
-            // last run is still going, the probe reports its failure status at once.
-            Task<ProbeResult>? last = null;
-            return Add(name, _ =>
+            // A probe that hangs took one more pool thread on every check, without limit. While the last run is abandoned
+            // (its token cancelled: timed out, or its check cancelled) and still going, the probe reports its failure status
+            // at once. Only then: two checks at once reported a healthy probe failed, its other run merely queued.
+            Tuple<Task<ProbeResult>, CancellationToken>? last = null;
+            return Add(name, token =>
             {
-                Task<ProbeResult>? previous = Volatile.Read(ref last);
-                if (previous != null && !previous.IsCompleted)
+                var previous = Volatile.Read(ref last);
+                if (previous != null && !previous.Item1.IsCompleted && previous.Item2.IsCancellationRequested)
                     return Task.FromResult(new ProbeResult(failureStatus, "The previous run of this probe has not returned."));
                 Task<ProbeResult> run = Task.Run(probe);
-                Volatile.Write(ref last, run);
+                Volatile.Write(ref last, Tuple.Create(run, token));
                 return run;
             }, timeout, failureStatus);
         }
@@ -233,15 +234,16 @@ namespace ToolBelt.Diagnostics
                 // Started on the thread pool: an "async" probe that blocks before its first await would otherwise run on this
                 // thread, defeating the timeout race and holding up every probe after it. While the last start has not
                 // returned (the probe is still blocked before its first await), no new one starts, as for a synchronous
-                // probe: each check took one more pool thread, without limit.
-                Task<Task<ProbeResult>>? previous = Volatile.Read(ref reg.Starting);
-                if (previous != null && !previous.IsCompleted)
+                // probe: each check took one more pool thread, without limit. Only an abandoned start (its token
+                // cancelled) counts: two checks at once reported the other's start, merely queued, as hung.
+                var previous = Volatile.Read(ref reg.Starting);
+                if (previous != null && !previous.Item1.IsCompleted && previous.Item2.IsCancellationRequested)
                     return new ProbeReport(reg.Name, reg.FailureStatus, "The previous run of this probe has not returned.", watch.Elapsed, false, null);
                 CancellationToken probeToken = probeCts.Token;
                 Task<Task<ProbeResult>> start = Task.Factory.StartNew(
                     () => reg.Probe(probeToken) ?? throw new InvalidOperationException("The probe returned a null task."),
                     CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
-                Volatile.Write(ref reg.Starting, start);
+                Volatile.Write(ref reg.Starting, Tuple.Create(start, probeToken));
                 probeTask = start.Unwrap();
             }
             catch (Exception ex) when (!(ex is OperationCanceledException && outer.IsCancellationRequested))
@@ -327,8 +329,8 @@ namespace ToolBelt.Diagnostics
             public TimeSpan Timeout { get; }
             public HealthStatus FailureStatus { get; }
 
-            // The last start of the probe: the call that returns its task.
-            public Task<Task<ProbeResult>>? Starting;
+            // The last start of the probe (the call that returns its task) and its run's token.
+            public Tuple<Task<Task<ProbeResult>>, CancellationToken>? Starting;
         }
     }
 }

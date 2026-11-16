@@ -139,7 +139,9 @@ namespace ToolBelt.Cli
 
         private void Draw()
         {
-            string line = _frames[_frame] + " " + _message;
+            // One line: a line break in the message ('\r' returns only to the start of the last line) scrolled a new
+            // line on every frame, and tabs threw the padding out.
+            string line = OneLine(_frames[_frame] + " " + _message);
             if (_isConsole)
             {
                 int width;
@@ -151,6 +153,18 @@ namespace ToolBelt.Cli
             _writer.Write("\r" + line + new string(' ', pad));
             _writer.Flush();
             _lastWidth = columns;
+        }
+
+        internal static string OneLine(string s)
+        {
+            char[]? chars = null;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (char.IsControl(c) || c == '\u2028' || c == '\u2029')
+                    (chars ??= s.ToCharArray())[i] = ' ';
+            }
+            return chars == null ? s : new string(chars);
         }
 
         // The line cut to a number of screen columns. It was cut in UTF-16 units: a cut inside a surrogate pair left half

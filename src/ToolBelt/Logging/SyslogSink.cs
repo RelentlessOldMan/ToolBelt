@@ -68,6 +68,9 @@ namespace ToolBelt.Logging
             _host = string.IsNullOrWhiteSpace(host) ? throw new ArgumentException("Host is required.", nameof(host)) : host;
             if (port < 1 || port > 65535) throw new ArgumentOutOfRangeException(nameof(port), port, "Port must be 1–65535.");
             _port = port;
+            // An undefined value was sent over TCP (anything not Udp was).
+            if (transport != SyslogTransport.Udp && transport != SyslogTransport.Tcp)
+                throw new ArgumentOutOfRangeException(nameof(transport), transport, "Unknown transport.");
             _transport = transport;
             _facility = CheckFacility(facility, nameof(facility));
             _hostName = Token(Environment.MachineName, 255);
