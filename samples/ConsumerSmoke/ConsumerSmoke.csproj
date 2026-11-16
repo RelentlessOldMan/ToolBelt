@@ -2,10 +2,13 @@
 
   <!-- A fresh, minimal EXTERNAL consumer of ToolBelt. It references only the shipped assembly and uses
        the public API surface — no access to internals or the test framework. Exercises the "pit of
-       success" path plus deliberate misuse to confirm failures are clear. Not part of ToolBelt.sln. -->
+       success" path plus deliberate misuse to confirm failures are clear. Not part of ToolBelt.sln. Built for net8.0,
+       for net48 (the netstandard2.0 build on .NET Framework) and, on Windows, for net8.0-windows with the three
+       satellites too; scripts/verify.sh builds and runs all three. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFrameworks>net8.0;net48</TargetFrameworks>
+    <TargetFrameworks Condition="'$(OS)' == 'Windows_NT'">$(TargetFrameworks);net8.0-windows</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
@@ -15,6 +18,17 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ToolBelt\ToolBelt.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <DefineConstants>$(DefineConstants);WINDOWS_SATELLITES</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <ProjectReference Include="..\..\src\ToolBelt.Windows\ToolBelt.Windows.csproj" />
+    <ProjectReference Include="..\..\src\ToolBelt.Wpf\ToolBelt.Wpf.csproj" />
+    <ProjectReference Include="..\..\src\ToolBelt.WinForms\ToolBelt.WinForms.csproj" />
   </ItemGroup>
 
 </Project>

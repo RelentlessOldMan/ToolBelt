@@ -27,7 +27,7 @@ using ToolBelt.Time;
 using System.Collections.Generic;
 using System.Net;
 
-internal static class Program
+internal static partial class Program
 {
     private static int _failures;
 
@@ -198,6 +198,10 @@ internal static class Program
         ExpectThrows<ArgumentException>("UnitConvert cross-category", () => UnitConvert.Convert(1, "kg", "m"));
         ExpectThrows<ConfigBindingException>("ConfigBinder reports errors",
             () => ConfigBinder.Bind<SmokeOptions>(new Dictionary<string, string?> { ["Port"] = "notanumber" }));
+
+#if WINDOWS_SATELLITES
+        Satellites();
+#endif
 
         Console.WriteLine();
         if (_failures == 0)

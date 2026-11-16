@@ -15,8 +15,9 @@ namespace ToolBelt.WinForms
     /// Parses and formats menu shortcuts such as <c>"Ctrl+Shift+S"</c> or <c>"F5"</c>. Accepts what a menu item's
     /// <see cref="ToolStripMenuItem.ShortcutKeys"/> accepts (<see cref="ToolStripManager.IsValidShortcut"/>) — a key with
     /// Ctrl or Alt, or a function key, Insert or Delete on its own or with any modifiers — except mouse buttons
-    /// (LButton, RButton, MButton, XButton1/2) and the members that are no key at all (the KeyCode mask, Packet, NoName,
-    /// ProcessKey), which WinForms takes but no keyboard can press.
+    /// (LButton, RButton, MButton, XButton1/2), the left/right modifier keys (LShiftKey, RShiftKey, LControlKey,
+    /// RControlKey, LMenu, RMenu: pressing one is a modifier, never the shortcut's key) and the members that are no key at
+    /// all (the KeyCode mask, Packet, NoName, ProcessKey), which WinForms takes but no keyboard can press.
     /// </summary>
     public static class MenuShortcut
     {
@@ -95,9 +96,12 @@ namespace ToolBelt.WinForms
 
         // Defined Keys members no keystroke produces: the mask of every key code, and codes Windows uses internally.
         private static bool NotAKey(Keys key)
-            => key == Keys.KeyCode || key == Keys.Packet || key == Keys.NoName || key == Keys.ProcessKey;
+            => key == Keys.KeyCode || key == Keys.Packet || key == Keys.NoName || key == Keys.ProcessKey
+            // The sided modifiers: Windows reports them as Shift/Control/Menu with the modifier flag, so "Ctrl+LShiftKey" never fires.
+            || key == Keys.LShiftKey || key == Keys.RShiftKey || key == Keys.LControlKey || key == Keys.RControlKey
+            || key == Keys.LMenu || key == Keys.RMenu;
 
-        /// <summary>"Ctrl+Shift+S" style text for display.</summary>
+        /// <summary>"Ctrl+Shift+S" style text for display; the modifiers alone ("Ctrl+Shift") when there is no key code, and "" for <see cref="Keys.None"/>.</summary>
         public static string Format(Keys keys)
         {
             var parts = new List<string>();
@@ -105,6 +109,7 @@ namespace ToolBelt.WinForms
             if ((keys & Keys.Alt) != 0) parts.Add("Alt");
             if ((keys & Keys.Shift) != 0) parts.Add("Shift");
             Keys key = keys & Keys.KeyCode;
+            if (key == Keys.None) return string.Join("+", parts); // was "None" and "Ctrl+None"
             string? text = null;
             foreach (var (fk, name) in Friendly)
                 if (fk == key) { text = name; break; }
@@ -148,6 +153,7 @@ namespace ToolBelt.WinForms
         /// </summary>
         public MenuItemsBuilder Item(string text, ICommand command, string? shortcut = null, Image? image = null, string? name = null, object? parameter = null)
         {
+            if (command is null) throw new ArgumentNullException(nameof(command)); // before an item is made and left undisposed
             var item = Create(text, shortcut, image, name);
             CommandBinding.Bind(item, command, parameter);
             _items.Add(item);
@@ -228,12 +234,23 @@ namespace ToolBelt.WinForms
         public void ApplyTo(MenuStrip strip)
         {
             if (strip is null) throw new ArgumentNullException(nameof(strip));
-            foreach (var (text, items, name) in _menus)
+            // All or nothing: a throwing items callback (a bad shortcut) once left the earlier menus on the strip.
+            var tops = new List<ToolStripMenuItem>(_menus.Count);
+            try
             {
-                var top = new ToolStripMenuItem(text) { Name = name ?? PlainText(text) };
-                items(new MenuItemsBuilder(top.DropDownItems));
-                strip.Items.Add(top);
+                foreach (var (text, items, name) in _menus)
+                {
+                    var top = new ToolStripMenuItem(text) { Name = name ?? PlainText(text) };
+                    tops.Add(top);
+                    items(new MenuItemsBuilder(top.DropDownItems));
+                }
             }
+            catch
+            {
+                foreach (var top in tops) top.Dispose();
+                throw;
+            }
+            strip.Items.AddRange(tops.ToArray());
         }
 
         /// <summary>
@@ -369,7 +386,15 @@ namespace ToolBelt.WinForms
         {
             if (strip is null) throw new ArgumentNullException(nameof(strip));
             var created = new ToolStripItem[_items.Count];
-            for (int i = 0; i < created.Length; i++) created[i] = _items[i]();
+            try
+            {
+                for (int i = 0; i < created.Length; i++) created[i] = _items[i]();
+            }
+            catch
+            {
+                foreach (var item in created) item?.Dispose(); // nothing is added, and nothing made is left undisposed
+                throw;
+            }
             strip.Items.AddRange(created);
         }
 
@@ -415,11 +440,14 @@ namespace ToolBelt.WinForms
                 context = new WindowsFormsSynchronizationContext();
             var sync = new WeakSync(item, target, command, context);
             List<WeakSync> list = Subscriptions.GetValue(command, _ => new List<WeakSync>());
+            var dead = new List<WeakSync>();
             lock (list)
             {
-                list.RemoveAll(s => { if (s.IsAlive) return false; command.CanExecuteChanged -= s.Handler; return true; });
+                list.RemoveAll(s => { if (s.IsAlive) return false; dead.Add(s); return true; });
                 list.Add(sync);
             }
+            // Outside the lock: the command's remove accessor is its own code and may take its own lock, or raise.
+            foreach (WeakSync s in dead) command.CanExecuteChanged -= s.Handler;
             command.CanExecuteChanged += sync.Handler;
             item.Disposed += (_, __) => Unsubscribe(command, sync);
         }

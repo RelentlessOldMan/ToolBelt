@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Full verify: builds ToolBelt.sln (Release), runs the four test suites, then the Math.NET / mpmath cross-checks
-# (tests/ToolBelt.MathChecks, outside the solution). Prints one summary line per suite; each suite's full output goes
+# (tests/ToolBelt.MathChecks, outside the solution) and the external-consumer smoke (samples/ConsumerSmoke, outside it
+# too) on net8.0, net48 and net8.0-windows with the satellites. Prints one summary line per suite; each suite's full output goes
 # to <log dir>/verify-<suite>.log (default: $TMPDIR or /tmp; a relative path is from where you run it). Exits non-zero if the build or any suite fails.
 # Run from Git Bash on Windows (the satellites target net8.0-windows). Each suite, MathChecks included, is capped at
 # 15 minutes so a hang shows up as a failure instead of a stalled run.
@@ -27,4 +28,13 @@ done
 
 timeout 900 dotnet run --project tests/ToolBelt.MathChecks -c Release -p:UseSharedCompilation=false < /dev/null > "$LOG/verify-MathChecks.log" 2>&1 || rc=1
 echo "MathChecks: $(tail -1 "$LOG/verify-MathChecks.log")"
+
+if dotnet build samples/ConsumerSmoke -c Release --nologo -p:UseSharedCompilation=false > "$LOG/verify-ConsumerSmoke-build.log" 2>&1; then
+  for t in net8.0 net48 net8.0-windows; do
+    timeout 300 samples/ConsumerSmoke/bin/Release/$t/ConsumerSmoke.exe < /dev/null > "$LOG/verify-ConsumerSmoke-$t.log" 2>&1 || rc=1
+    echo "ConsumerSmoke $t: $(tail -1 "$LOG/verify-ConsumerSmoke-$t.log")"
+  done
+else
+  rc=1; echo "ConsumerSmoke: build failed; see $LOG/verify-ConsumerSmoke-build.log"
+fi
 exit $rc

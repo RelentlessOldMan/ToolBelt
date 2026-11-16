@@ -3,7 +3,7 @@
   <!-- Shared by every project in the repo. The version is YYYY.M.D.N, set by scripts/bump-version.ps1 once per release
        (see CLAUDE.md, "Git and releases"); never edit it by hand. -->
   <PropertyGroup>
-    <Version>2026.11.16.3</Version>
+    <Version>2026.11.16.4</Version>
     <Authors>RelentlessOldMan</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/RelentlessOldMan/ToolBelt</RepositoryUrl>
@@ -12,9 +12,10 @@
   </PropertyGroup>
 
   <!-- A Release build records source and PDB paths relative to the repo (/_/src/...), not the folder it was built in,
-       which every packaged DLL otherwise carried. -->
+       which every packaged DLL otherwise carried. The compiler splits the map at ',' and '=', so those are doubled
+       (a ';' in the clone's path still cannot be mapped: MSBuild splits the property there first). -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
-    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)'))=/_/</PathMap>
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)').Replace(',', ',,').Replace('=', '=='))=/_/</PathMap>
   </PropertyGroup>
 
 </Project>

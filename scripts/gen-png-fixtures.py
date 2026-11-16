@@ -162,8 +162,10 @@ def main():
     for name, w, h, png, exp in fixtures:
         lines.append(f'            ("{name}", {w}, {h}, "{png}", "{exp}"),')
     lines += ["        };", "    }", "}", ""]
-    with open(OUT, "w", encoding="utf-8", newline="\n") as f:
+    # Through a temp file, so an interrupted run never leaves a half-written file behind.
+    with open(OUT + ".tmp", "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(lines))
+    os.replace(OUT + ".tmp", OUT)
     print(f"{len(fixtures)} fixtures -> {OUT}")
 
 

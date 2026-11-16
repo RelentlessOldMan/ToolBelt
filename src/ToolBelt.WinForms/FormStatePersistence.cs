@@ -113,12 +113,20 @@ namespace ToolBelt.WinForms
         /// which can move the reachable part of the caption off-screen.) Otherwise the window
         /// is relocated onto the working area it overlaps most (or, if it overlaps none, the one nearest its
         /// centre; ties go to the earliest, so pass the primary first), shrunk to fit if it is larger than that
-        /// area, and clamped inside it. With no working areas the bounds are returned unchanged.
+        /// area, and clamped inside it. With no working areas the bounds are returned unchanged. Empty areas, and areas
+        /// whose right or bottom edge would pass <see cref="int.MaxValue"/>, are ignored.
         /// </summary>
         public static Rectangle EnsureOnScreen(Rectangle bounds, IReadOnlyList<Rectangle> workingAreas, int minimumVisible = 50)
         {
             if (workingAreas is null) throw new ArgumentNullException(nameof(workingAreas));
             if (minimumVisible < 1) throw new ArgumentOutOfRangeException(nameof(minimumVisible), minimumVisible, "Must be positive.");
+            // An empty area once won the "nearest" pick and the window came back 0×0 (or −100 wide); an area with an
+            // overflowing Right clamped the window past it.
+            var usable = new List<Rectangle>(workingAreas.Count);
+            foreach (Rectangle area in workingAreas)
+                if (area.Width > 0 && area.Height > 0 && (long)area.X + area.Width <= int.MaxValue && (long)area.Y + area.Height <= int.MaxValue)
+                    usable.Add(area);
+            workingAreas = usable;
             if (workingAreas.Count == 0 || bounds.Width <= 0 || bounds.Height <= 0)
                 return bounds;
 

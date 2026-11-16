@@ -11,11 +11,16 @@ function Get-NextVersion([string]$current) {
     $today = Get-Date
     # Year, Month and Day are always Gregorian; ToString('yyyyMMdd') used the culture's calendar (th-TH gave 2569...).
     $todayKey = $today.Year * 10000 + $today.Month * 100 + $today.Day
+    # Spaces or a newline around the value (an indented <Version>) once failed the match and reset N to 0, reusing a version.
+    $current = $current.Trim()
     if ($current -match '^(\d+)\.(\d+)\.(\d+)\.(\d+)$') {
         $y, $m, $d, $n = [int]$Matches[1], [int]$Matches[2], [int]$Matches[3], [int]$Matches[4]
         if ($y * 10000 + $m * 100 + $d -ge $todayKey) {      # same day (or a later date): bump N
             return "$y.$m.$d.$($n + 1)"
         }
+    }
+    elseif ($current -notmatch '^0\.\d+\.0$') {             # neither a date version nor an old-style 0.N.0
+        throw "Unrecognised <Version> '$current'; expected YYYY.M.D.N"
     }
     return "$($today.Year).$($today.Month).$($today.Day).0"   # first build today (or an old-style version)
 }

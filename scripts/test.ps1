@@ -6,6 +6,7 @@
 # argument to -Configuration by position or to its own -Verbose/-Debug switches.
 # Each runner exits 3 when a filter matches none of its tests; that is fine for one suite (the filter names tests in
 # another), but a filter that matches nothing in any suite fails the run, so a typo does not pass as green.
+# Each runner gets 20 minutes; a hung one is killed and the run fails with exit 124, as verify.sh's timeout does.
 $Configuration = "Debug"
 $RunnerArgs = @()
 for ($i = 0; $i -lt $args.Count; $i++) {
@@ -19,14 +20,31 @@ $env:DOTNET_CLI_USE_MSBUILD_SERVER = "0"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $testProj = "$repoRoot\tests\ToolBelt.Tests\ToolBelt.Tests.csproj"
 
+# Runs a test exe in this console and returns its exit code, or 124 after killing it at the time limit (a hung test
+# once held the shell forever). Each argument is quoted for the command line, so a filter with a space stays one.
+function Invoke-Runner([string]$exe, [string[]]$runnerArgs) {
+    $quoted = @($runnerArgs | ForEach-Object { '"' + (($_ -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"' })
+    $psi = New-Object System.Diagnostics.ProcessStartInfo($exe, ($quoted -join ' '))
+    $psi.UseShellExecute = $false
+    $p = [System.Diagnostics.Process]::Start($psi)
+    try {
+        if (-not $p.WaitForExit(20 * 60 * 1000)) {
+            try { $p.Kill() } catch { }
+            Write-Host "$exe timed out after 20 minutes" -ForegroundColor Red
+            return 124
+        }
+        $p.WaitForExit()
+        return $p.ExitCode
+    } finally { $p.Dispose() }
+}
+
 Write-Host "Building test suite ($Configuration)..." -ForegroundColor Cyan
 dotnet build $testProj -c $Configuration --nologo -p:UseSharedCompilation=false
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $exe = "$repoRoot\tests\ToolBelt.Tests\bin\$Configuration\net8.0\ToolBelt.Tests.exe"
 Write-Host "Running $exe" -ForegroundColor Cyan
-& $exe @RunnerArgs
-$mainExit = $LASTEXITCODE
+$mainExit = Invoke-Runner $exe $RunnerArgs
 $matched = $mainExit -ne 3
 if ($mainExit -eq 3) { $mainExit = 0 }
 
@@ -41,10 +59,10 @@ if ($IsWindows -or $env:OS -eq "Windows_NT") {
 
         $exe = "$repoRoot\tests\$name\bin\$Configuration\net8.0-windows\$name.exe"
         Write-Host "Running $exe" -ForegroundColor Cyan
-        & $exe @RunnerArgs
-        if ($LASTEXITCODE -eq 3) { continue }
+        $rc = Invoke-Runner $exe $RunnerArgs
+        if ($rc -eq 3) { continue }
         $matched = $true
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        if ($rc -ne 0) { exit $rc }
     }
 }
 

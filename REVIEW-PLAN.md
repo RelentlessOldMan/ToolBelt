@@ -57,13 +57,13 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 5 | 29 / 138 | re-queue (29 bugs, 1 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 5 | 15 / 114 | re-queue (15 bugs, none severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 5 | 20 / 102 | re-queue (20 bugs, none severe) |
-| 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 4 | 22 / 76 | re-queue (22 bugs, none severe) |
+| 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 5 | 17 / 93 | re-queue (17 bugs, none severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); **next: 17**, then 11, 9, 13 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); **next: 11**, then 9, 13 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -161,11 +161,49 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.1 | 85 | Numerics core, fifth pass | 23 | (see tag) |
 | v2026.11.16.2 | 86 | Signal analysis, fifth pass | 17 | (see tag) |
 | v2026.11.16.3 | 87 | Statistics, fifth pass | 13 | (see tag) |
+| v2026.11.16.4 | 88 | WinForms + tooling + docs, fifth pass | 17 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 88: WinForms + tooling + docs, fifth pass (v2026.11.16.4)
+
+Two fresh reviewers (correctness, robustness): 17 bugs, none severe, after merging the one both raised (README's
+scripts list lacked bump-version.ps1). Section 17 stays re-queued. The WinForms regression tests are in
+`WinFormsReview88Tests` (10 tests, every one failing on the old code, run by name under a 60 s timeout). The tooling
+fixes were probed by hand, each against the old script too: bump-version on padded, legacy and unknown values; a
+build in a folder named `pm a,b=c` (CS8101 before, `/_/` paths after); the checked-build and net48 locks refusing a
+second run; test.ps1's runner call with spaces, quotes and trailing backslashes in arguments.
+
+- **bump-version.ps1** didn't trim the stored value, so `<Version> 2026.11.16.3 </Version>` failed the match and reset
+  the counter to `.0`, reusing a version. It trims, and an unrecognised value (neither `YYYY.M.D.N` nor the old
+  `0.N.0`) is an error instead of a silent reset.
+- **MenuShortcut:** TryParse accepted LShiftKey, RShiftKey, LControlKey, RControlKey, LMenu and RMenu as the key,
+  which Windows never delivers as one. Format wrote "None" for Keys.None and "Ctrl+None" for a bare modifier; it
+  writes "" and "Ctrl".
+- **MenuBuilder / ToolStripBuilder:** an ICommand item with a null command was made (and left undisposed) before the
+  check, so a bad shortcut hid the ArgumentNullException. MenuBuilder.ApplyTo left the earlier menus on the strip when
+  a later one threw; ToolStripBuilder.ApplyTo left the items it had made undisposed and still subscribed to their
+  commands. Both are all or nothing now. CommandBinding unsubscribed dead items inside its lock, so a command whose
+  remove accessor waited on another binding thread deadlocked; it unsubscribes after the lock.
+- **AutoSizeColumns** in ColumnHeader mode with the headers hidden threw InvalidOperationException and applied no cap;
+  it applies just the cap. **BindEnum** threw ArgumentException on a combo with a DataSource; it clears it first.
+- **FormStatePersistence.EnsureOnScreen** used empty and inverted working areas, so a lost window came back 0×0 (or
+  −100 wide) on one, and an area whose Right passed int.MaxValue wrapped. Such areas are ignored.
+- **PlotPictureBox** kept its drag start when capture was taken away (Alt+Tab mid-drag), so a later move with the
+  button down jumped the view; losing capture ends the drag.
+- **Directory.Build.props:** a clone path with ',' or '=' broke every Release build (CS8101); PathMap doubles them
+  (a ';' still can't be mapped, which the comment says).
+- **Scripts:** checked-build.sh and net48.sh shared one fixed scratch folder with no lock, so two runs rebuilt it
+  under each other; both take a lock folder now. checked-build.sh ignored a failed copy and didn't carry uncommitted
+  root build files (Directory.Build.props). net48.sh wrote folder names into the csproj unescaped. test.ps1 ran each
+  suite with no time limit; it kills one after 20 minutes and exits 124. Four reference generators wrote their output
+  in place, so an interrupted run left half a file; they write a temp file and rename it.
+- **ConsumerSmoke** built only for net8.0 against the core. It builds for net48 (the netstandard2.0 build on .NET
+  Framework) and net8.0-windows with the three satellites (Satellites.cs), and verify.sh runs all three.
+- **README:** the scripts list lacked bump-version.ps1, and gen-distribution-references.py needs scipy as well as mpmath.
+
 ### Round 87: Statistics, fifth pass (v2026.11.16.3)
 
 Two fresh reviewers (correctness, robustness): 15 findings. One bug was reported from both sides (the independence

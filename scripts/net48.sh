@@ -4,14 +4,16 @@
 # Usage: bash scripts/net48.sh <test folder>... [-- <runner args>]
 #   e.g. bash scripts/net48.sh Text Identifiers Enums Guards
 # Folders are under tests/ToolBelt.Tests. A test file that uses net8-only APIs won't compile here; leave its folder
-# out or run the others. The test project lives in a scratch folder ($TMPDIR/toolbelt-net48).
+# out or run the others. The test project lives in a scratch folder ($TMPDIR/toolbelt-net48); a second run while one is
+# using it is refused (the lock is $TMPDIR/toolbelt-net48.lock; remove it by hand if a killed run left it).
 set -o pipefail
 cd "$(dirname "$0")/.."
 REPO=$(cygpath -m "$(pwd)" 2>/dev/null || pwd)
-# The path goes into the csproj: escape MSBuild's special characters (% first), then XML's.
-REPO=$(printf '%s' "$REPO" | sed -e 's/%/%25/g' -e 's/;/%3B/g' -e 's/\$/%24/g' -e 's/@/%40/g' -e "s/'/%27/g"   -e 's/\*/%2A/g' -e 's/?/%3F/g' -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g')
+# Paths go into the csproj: escape MSBuild's special characters (% first), then XML's.
+esc() { printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/;/%3B/g' -e 's/\$/%24/g' -e 's/@/%40/g' -e "s/'/%27/g"   -e 's/\*/%2A/g' -e 's/?/%3F/g' -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'; }
+REPO=$(esc "$REPO")
 DIR=${TMPDIR:-/tmp}/toolbelt-net48
-mkdir -p "$DIR"
+LOCK="$DIR.lock"
 export DOTNET_CLI_USE_MSBUILD_SERVER=0
 
 folders=()
@@ -21,6 +23,10 @@ while [ $# -gt 0 ] && [ "$1" != "--" ]; do folders+=("$1"); shift; done
 for f in "${folders[@]}"; do
   [ -d "tests/ToolBelt.Tests/$f" ] || { echo "no test folder tests/ToolBelt.Tests/$f"; exit 2; }
 done
+# Two runs sharing the folder overwrote each other's csproj and binaries mid-build.
+mkdir "$LOCK" 2>/dev/null || { echo "another net48 run is using $DIR ($LOCK exists; remove it if none is running)"; exit 2; }
+trap 'rmdir "$LOCK"' EXIT
+mkdir -p "$DIR"
 
 {
   echo '<Project Sdk="Microsoft.NET.Sdk">'
@@ -33,7 +39,8 @@ done
   echo '  <ItemGroup>'
   echo "    <Compile Include=\"$REPO/tests/ToolBelt.Tests/Program.cs\" />"
   echo "    <Compile Include=\"$REPO/tests/ToolBelt.Tests/Framework/*.cs\" />"
-  for f in "${folders[@]}"; do echo "    <Compile Include=\"$REPO/tests/ToolBelt.Tests/$f/**/*.cs\" />"; done
+  # A folder name is escaped too: one with an '&' or a ';' broke the csproj, or became two items.
+  for f in "${folders[@]}"; do echo "    <Compile Include=\"$REPO/tests/ToolBelt.Tests/$(esc "$f")/**/*.cs\" />"; done
   echo "    <ProjectReference Include=\"$REPO/src/ToolBelt/ToolBelt.csproj\" />"
   # Framework assemblies the tests use as references (zip readers, HttpClient, dynamic for the Word automation test); built into net8.0.
   echo '    <Reference Include="System.IO.Compression" /><Reference Include="System.IO.Compression.FileSystem" /><Reference Include="System.Net.Http" /><Reference Include="Microsoft.CSharp" />'

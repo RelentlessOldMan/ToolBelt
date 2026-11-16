@@ -165,5 +165,9 @@ for fn, a, b, x, val in rows:
 out.append("        };")
 out.append("    }")
 out.append("}")
-open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests/ToolBelt.Tests/Numerics/DistributionReferenceData.cs"), "w", encoding="utf-8", newline="\n").write("\n".join(out) + "\n")
+path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests/ToolBelt.Tests/Numerics/DistributionReferenceData.cs")
+# Through a temp file, so an interrupted run never leaves a half-written file behind.
+with open(path + ".tmp", "w", encoding="utf-8", newline="\n") as fh:
+    fh.write("\n".join(out) + "\n")
+os.replace(path + ".tmp", path)
 print(len(rows), "reference rows written")

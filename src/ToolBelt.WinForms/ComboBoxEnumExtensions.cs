@@ -13,10 +13,12 @@ namespace ToolBelt.WinForms
     /// </summary>
     public static class ComboBoxEnumExtensions
     {
-        /// <summary>Clears the combo and adds every value of <typeparamref name="TEnum"/> as an item.</summary>
+        /// <summary>Clears the combo (and its <see cref="ListControl.DataSource"/>, if set) and adds every value of <typeparamref name="TEnum"/> as an item.</summary>
         public static void BindEnum<TEnum>(this ComboBox comboBox) where TEnum : struct, Enum
         {
             if (comboBox is null) throw new ArgumentNullException(nameof(comboBox));
+            // Items can't be changed while a DataSource is set (WinForms threw ArgumentException with no parameter name).
+            if (comboBox.DataSource != null) comboBox.DataSource = null;
             comboBox.Items.Clear();
             foreach (TEnum value in Enum.GetValues<TEnum>().Distinct())
                 comboBox.Items.Add(value);

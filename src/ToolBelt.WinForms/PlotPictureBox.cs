@@ -317,6 +317,14 @@ namespace ToolBelt.WinForms
             Capture = false;
         }
 
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            base.OnMouseCaptureChanged(e);
+            // Capture taken away mid-drag (Alt+Tab, a dialog) means no MouseUp comes; a later move with the button held
+            // would pan from the stale start point.
+            _dragFrom = null;
+        }
+
         protected override void OnMouseDoubleClick(MouseEventArgs e)
         {
             base.OnMouseDoubleClick(e);

@@ -1115,6 +1115,7 @@ tests/
     WinFormsReview2Tests.cs (round 34 review regressions: CSV truncation, deep-zoom painting, handle-less marshalling, shortcuts, empty filters)
     WinFormsReview3Tests.cs (round 51 review regressions: zoom overflow, worker-raised CanExecuteChanged, atomic SaveCsv, formula escaping)
     WinFormsReview4Tests.cs (round 60 review regressions: shortcut keys, reusable ToolStripBuilder, command leaks, image cells, deep-zoom pans, disposed posts)
+    WinFormsReview88Tests.cs (round 88: sided modifier keys, formatting no key, header sizing with hidden headers, empty working areas, bound combos, lost capture, all-or-nothing builders)
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
                             fits, root-finding, statistics)
@@ -1126,19 +1127,21 @@ tests/
     Data/incomplete-*.tsv   50-digit mpmath references with condition numbers (from scripts/gen-incomplete-references.py)
 scripts/
   build.ps1                 build wrapper (disables the persistent build server)
-  test.ps1                  build once + launch the test exe directly (-Configuration X; other args go to the runner)
-  verify.sh                 full verify (Git Bash): sln build, the four suites, MathChecks; one line per suite
+  test.ps1                  build once + launch the test exe directly (-Configuration X; other args go to the runner; 20 min cap per suite)
+  bump-version.ps1          works out the next YYYY.M.D.N release version, writes it to Directory.Build.props, prints it
+  verify.sh                 full verify (Git Bash): sln build, the four suites, MathChecks, ConsumerSmoke; one line per suite
   checked-build.sh          core suite against an overflow-checked library build, in a scratch worktree
   net48.sh                  chosen core test folders (at least one) on .NET Framework 4.8 against the netstandard2.0 build
   coverage.ps1              line/branch coverage of the core via the coverlet.console global tool (+ HTML report)
-  gen-distribution-references.py  regenerates the distribution reference table (20 digits, computed at 40) (needs mpmath)
+  gen-distribution-references.py  regenerates the distribution reference table (20 digits, computed at 40) (needs mpmath + scipy)
   gen-png-fixtures.py     regenerates the PNG decoder fixtures (needs Pillow, used as a cross-check)
   gen-filter-references.py  regenerates the IIR/FIR filter references from SciPy (butter, cheby1/2, ellip, bessel, group delay, sosfiltfilt, firwin)
   gen-gauge-references.py   regenerates the gauge R&R references (least-squares ANOVA + scipy F tails)
   gen-incomplete-references.py  regenerates the incomplete beta/gamma references for MathChecks (mpmath; hours)
 samples/
   ConsumerSmoke/            a fresh EXTERNAL consumer (public API only); doubles as a usage example
-                            and a misuse smoke test. Build + run its exe; exit 0 == all good.
+                            and a misuse smoke test. Built for net8.0, net48 and net8.0-windows (Satellites.cs:
+                            the three satellites); verify.sh runs all three; exit 0 == all good.
   Benchmarks/               runs the Benchmark harness against hot-path utilities (run -c Release)
 ```
 

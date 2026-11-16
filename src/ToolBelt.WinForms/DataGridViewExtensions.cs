@@ -46,7 +46,8 @@ namespace ToolBelt.WinForms
         /// each at <paramref name="maxWidth"/> pixels if given (or at the column's <see cref="DataGridViewColumn.MinimumWidth"/>
         /// if that is larger: WinForms never sets a width below it). A capped column stops auto-sizing (its
         /// <see cref="DataGridViewColumn.AutoSizeMode"/> becomes None), so the grid's own continuous auto-size mode cannot
-        /// undo the cap.
+        /// undo the cap. With the column headers hidden, <see cref="DataGridViewAutoSizeColumnsMode.ColumnHeader"/> has
+        /// nothing to size to, so only the cap is applied.
         /// </summary>
         public static void AutoSizeColumns(this DataGridView grid, int? maxWidth = null,
             DataGridViewAutoSizeColumnsMode mode = DataGridViewAutoSizeColumnsMode.AllCells)
@@ -55,7 +56,9 @@ namespace ToolBelt.WinForms
             if (maxWidth.HasValue && maxWidth.Value < 1) throw new ArgumentOutOfRangeException(nameof(maxWidth), maxWidth, "Must be positive.");
             if (!Enum.IsDefined(mode) || mode == DataGridViewAutoSizeColumnsMode.None || mode == DataGridViewAutoSizeColumnsMode.Fill)
                 throw new ArgumentOutOfRangeException(nameof(mode), mode, "Must be a content-based mode.");
-            grid.AutoResizeColumns(mode);
+            // WinForms throws InvalidOperationException for header sizing with the headers invisible, and nothing was capped.
+            if (mode != DataGridViewAutoSizeColumnsMode.ColumnHeader || grid.ColumnHeadersVisible)
+                grid.AutoResizeColumns(mode);
             if (maxWidth is int cap)
                 foreach (DataGridViewColumn c in grid.Columns)
                     if (c.Width > cap)

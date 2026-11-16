@@ -207,6 +207,8 @@ out.append("    }")
 out.append("}")
 
 path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests/ToolBelt.Tests/Signal/FilterReferenceData.cs")  # independent of the cwd
-with open(path, "w", encoding="utf-8", newline="\n") as fh:
+# Through a temp file, so an interrupted run never leaves a half-written file behind.
+with open(path + ".tmp", "w", encoding="utf-8", newline="\n") as fh:
     fh.write("\n".join(out) + "\n")
+os.replace(path + ".tmp", path)
 print(f"wrote {path}: {len(iir_rows)} response rows, {len(iir_out)} output rows, {len(fir_rows)} FIR designs")

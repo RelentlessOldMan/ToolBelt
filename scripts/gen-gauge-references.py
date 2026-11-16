@@ -99,7 +99,9 @@ for data, alpha, res in cases:
     out.append("            },")
 out += ["        };", "    }", "}"]
 path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests/ToolBelt.Tests/Quality/GaugeRRReferenceData.cs")  # independent of the cwd
-with open(path, "w", encoding="utf-8", newline="\n") as fh:
+# Through a temp file, so an interrupted run never leaves a half-written file behind.
+with open(path + ".tmp", "w", encoding="utf-8", newline="\n") as fh:
     fh.write("\n".join(out) + "\n")
+os.replace(path + ".tmp", path)
 for _, alpha, res in cases:
     print(f"removed={res['removed']} p_int={res['p_int']:.4g} ndc={res['ndc']}")

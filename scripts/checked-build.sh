@@ -8,7 +8,9 @@
 # as it stands (a staged rename is a delete plus an add, so the old name goes). The reset discards everything in that folder, so the script only reuses a folder holding the
 # .toolbelt-checked-wt marker it writes when it creates one; any other existing folder is refused. Building
 # in place doesn't work (duplicate assembly attributes), and --no-incremental is needed or MSBuild skips the
-# recompile. Prints the summary and every FAIL line; exits non-zero unless the suite ran to an ALL GREEN summary
+# recompile. A second run on the same folder while one is active is refused (the lock is the folder's path plus .lock;
+# remove it by hand if a killed run left it). Uncommitted changes to the root build files (Directory.Build.props and
+# .targets, global.json) are copied too. Prints the summary and every FAIL line; exits non-zero unless the suite ran to an ALL GREEN summary
 # (a crash, a stack overflow or the 20-minute timeout fails it too).
 set -o pipefail
 WT=${1:-${TMPDIR:-/tmp}/toolbelt-checked-wt}
@@ -17,6 +19,10 @@ cd "$(dirname "$0")/.."
 REPO=$(pwd)
 MARK=.toolbelt-checked-wt
 export DOTNET_CLI_USE_MSBUILD_SERVER=0
+# Two runs on the default folder reset and rebuilt it under each other.
+LOCK="$WT.lock"
+mkdir "$LOCK" 2>/dev/null || { echo "another checked build is using $WT ($LOCK exists; remove it if none is running)"; exit 2; }
+trap 'rmdir "$LOCK"' EXIT
 
 git worktree prune   # forget a scratch worktree whose folder a temp cleanup removed
 if [ -e "$WT" ]; then
@@ -27,10 +33,12 @@ else
 fi
 git -C "$WT" checkout -q -f --detach "$(git rev-parse HEAD)" || exit 1
 git -C "$WT" clean -fdq -- src tests
-{ git diff -z --name-only --no-renames HEAD -- src tests; git ls-files -z --others --exclude-standard -- src tests; } |
+PATHS=(src tests Directory.Build.props Directory.Build.targets global.json)
+# A failed copy (a full disk, a locked file) once went unnoticed and the old file was checked.
+{ git diff -z --name-only --no-renames HEAD -- "${PATHS[@]}"; git ls-files -z --others --exclude-standard -- "${PATHS[@]}"; } |
 while IFS= read -r -d '' f; do
-  if [ -f "$f" ]; then mkdir -p "$(dirname "$WT/$f")"; cp "$f" "$WT/$f"; else rm -f "$WT/$f"; fi
-done
+  if [ -f "$f" ]; then mkdir -p "$(dirname "$WT/$f")" && cp "$f" "$WT/$f" || exit 1; else rm -f "$WT/$f" || exit 1; fi
+done || { echo "could not copy the working tree's changes into $WT"; exit 1; }
 
 cd "$WT"
 sed -i 's#<LangVersion>latest</LangVersion>#<LangVersion>latest</LangVersion>\n    <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>#' src/ToolBelt/ToolBelt.csproj
