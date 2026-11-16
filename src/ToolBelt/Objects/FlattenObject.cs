@@ -41,13 +41,8 @@ namespace ToolBelt.Objects
             while (work.Count > 0)
             {
                 var (path, value, trail) = work.Pop();
-                // Each key spells its whole path, so a deep chain's keys grow with the square of its depth: a lazily built
-                // endless chain filled memory before the object budget was reached.
-                keyChars += path.Length;
-                if (keyChars > MaxKeyChars)
-                    throw new InvalidOperationException($"The flattened keys would hold more than {MaxKeyChars.ToString("N0", CultureInfo.InvariantCulture)} characters (the graph is too deep, or built lazily without end).");
                 children.Clear();
-                Walk(path, value, trail, result, separator, includeFields, visited, children);
+                Walk(path, value, trail, result, separator, includeFields, visited, children, ref keyChars);
                 // Push in reverse so the children are handled in order, as a recursive walk would.
                 for (int i = children.Count - 1; i >= 0; i--) work.Push(children[i]);
             }
@@ -56,7 +51,8 @@ namespace ToolBelt.Objects
 
         // Records a leaf, or lists the children to walk next.
         private static void Walk(string path, object? value, ObjectMembers.Trail trail, Dictionary<string, object?> result,
-            string sep, bool includeFields, HashSet<object> visited, List<(string, object?, ObjectMembers.Trail)> children)
+            string sep, bool includeFields, HashSet<object> visited, List<(string, object?, ObjectMembers.Trail)> children,
+            ref long keyChars)
         {
             if (value is null || trail.TooDeep)
             {
@@ -92,19 +88,19 @@ namespace ToolBelt.Objects
             if (value is IDictionary dict)
             {
                 foreach (DictionaryEntry entry in dict)
-                    children.Add((Index(path, ObjectMembers.KeyText(entry.Key)), entry.Value,
+                    children.Add((Counted(Index(path, ObjectMembers.KeyText(entry.Key)), ref keyChars), entry.Value,
                         trail.Step(entry.Value, ObjectMembers.Origin.Stable)));
             }
             else if (value is IEnumerable enumerable)
             {
                 List<object?> items = ObjectMembers.Items(enumerable, out ObjectMembers.Origin origin);
                 for (int i = 0; i < items.Count; i++)
-                    children.Add((Index(path, i.ToString(CultureInfo.InvariantCulture)), items[i], trail.Step(items[i], origin)));
+                    children.Add((Counted(Index(path, i.ToString(CultureInfo.InvariantCulture)), ref keyChars), items[i], trail.Step(items[i], origin)));
             }
             else
             {
                 foreach (var (name, memberValue, origin) in ObjectMembers.Read(value, includeFields))
-                    children.Add((path.Length == 0 ? name : path + sep + name, memberValue, trail.Step(memberValue, origin)));
+                    children.Add((Counted(path.Length == 0 ? name : path + sep + name, ref keyChars), memberValue, trail.Step(memberValue, origin)));
             }
             // An empty collection, or an object with no members to descend into, is recorded as-is, so Unflatten keeps it.
             if (children.Count == before) Record(result, path, shown);
@@ -121,6 +117,18 @@ namespace ToolBelt.Objects
         internal const long MaxKeyChars = 1L << 29;
 
         private static string Index(string path, string token) => $"{path}[{token}]";
+
+        // Each key spells its whole path, so a deep chain's keys grow with the square of its depth (a lazily built endless
+        // chain filled memory before the object budget was reached), and a long path above a big collection is copied
+        // into every child's key. Counted as each child's path is made: counted only when walked, a 4,000-character key
+        // above a million items took 8 GB before the limit was noticed.
+        private static string Counted(string childPath, ref long keyChars)
+        {
+            keyChars += childPath.Length;
+            if (keyChars > MaxKeyChars)
+                throw new InvalidOperationException($"The flattened keys would hold more than {MaxKeyChars.ToString("N0", CultureInfo.InvariantCulture)} characters (the graph is too deep, or built lazily without end).");
+            return childPath;
+        }
 
         private sealed class ReferenceEqualityComparer : IEqualityComparer<object>
         {

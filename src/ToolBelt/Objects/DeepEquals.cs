@@ -8,7 +8,9 @@ namespace ToolBelt.Objects
     /// <summary>Options controlling structural equality and diffing.</summary>
     public sealed class ObjectComparisonOptions
     {
-        /// <summary>Absolute tolerance for comparing <see cref="double"/>/<see cref="float"/> values. Default 0 (exact).</summary>
+        /// <summary>Absolute tolerance for comparing two <see cref="double"/> or two <see cref="float"/> values. Default 0
+        /// (exact). Values of different types are never equal (a double and a float included), and decimals compare
+        /// exactly.</summary>
         public double FloatTolerance { get; set; }
 
         /// <summary>Also compare public instance fields, not just properties. Default false.</summary>

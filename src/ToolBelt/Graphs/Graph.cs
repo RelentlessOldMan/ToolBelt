@@ -33,12 +33,14 @@ namespace ToolBelt.Graphs
     {
         private readonly Dictionary<T, List<(T To, double Weight)>> _adjacency;
         private readonly List<Edge<T>> _edges = new List<Edge<T>>();
+        private readonly System.Collections.ObjectModel.ReadOnlyCollection<Edge<T>> _edgesView;
 
         public Graph(bool directed = true, IEqualityComparer<T>? comparer = null)
         {
             IsDirected = directed;
             Comparer = comparer ?? EqualityComparer<T>.Default;
             _adjacency = new Dictionary<T, List<(T, double)>>(Comparer);
+            _edgesView = _edges.AsReadOnly();
         }
 
         public bool IsDirected { get; }
@@ -47,7 +49,9 @@ namespace ToolBelt.Graphs
         public int VertexCount => _adjacency.Count;
         public int EdgeCount => _edges.Count;
         public IEnumerable<T> Vertices => _adjacency.Keys;
-        public IReadOnlyList<Edge<T>> Edges => _edges;
+        // Read-only views: the lists themselves could be cast back and changed, putting Edges, EdgeCount and the
+        // adjacency lists out of step.
+        public IReadOnlyList<Edge<T>> Edges => _edgesView;
 
         /// <summary>Adds an isolated vertex. Returns false if it was already present.</summary>
         public bool AddVertex(T vertex)
@@ -100,7 +104,7 @@ namespace ToolBelt.Graphs
             if (vertex is null) throw new ArgumentNullException(nameof(vertex));
             if (!_adjacency.TryGetValue(vertex, out var list))
                 throw new KeyNotFoundException($"Vertex '{vertex}' is not in the graph.");
-            return list;
+            return list.AsReadOnly();
         }
 
         public int OutDegree(T vertex)

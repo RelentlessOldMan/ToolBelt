@@ -54,7 +54,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 5 | 15 / 90 | re-queue (15 bugs, 1 severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 5 | 19 / 116 | re-queue (19 bugs, none severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 6 | 3 / 102 | re-queue (3 bugs, none severe) |
-| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 5 | 29 / 138 | re-queue (29 bugs, 1 severe) |
+| 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 6 | 3 / 141 | re-queue (3 bugs, none severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 5 | 15 / 114 | re-queue (15 bugs, none severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 5 | 20 / 102 | re-queue (20 bugs, none severe) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 5 | 17 / 93 | re-queue (17 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); **next: 14**, then 8, 4, 9, 10, 11, 6, 7, 5, 16, 12, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); **next: 8**, then 4, 9, 10, 11, 6, 7, 5, 16, 12, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -166,11 +166,34 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.6 | 90 | Collections, fifth pass | 16 | (see tag) |
 | v2026.11.16.7 | 91 | Security, net, time, fifth pass | 11 | (see tag) |
 | v2026.11.16.8 | 92 | Security, net, time, sixth pass | 3 | (see tag) |
+| v2026.11.16.9 | 93 | Objects, functional, grids, graphs, intervals, sixth pass | 3 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 93: Objects, functional, grids, graphs, intervals, sixth pass (v2026.11.16.9)
+
+Two fresh reviewers (correctness, robustness): 3 bugs, none severe, so section 14 stays re-queued. RangeMap,
+RangeSet and IntervalTree against naive references, the grid searches and ShortestPath against Bellman-Ford, and the
+walks' stacks and rollbacks held up. The regression tests are in `ObjectsGraphsReview93Tests` (6); the two code
+regressions fail on the old code, run by name under a 60 s timeout, and the other four are guards for documented
+behaviour.
+
+- **FlattenObject** counted its 2^29-character key budget when a child was walked, after every child's full path had
+  been built: one 2,000-character key above a million-item array allocated 4 GB before the documented
+  InvalidOperationException (more items or a longer key ran out of memory first). Each child's path is counted as
+  it is made.
+- **Graph.Edges** and **Neighbors** returned the graph's own lists, so a caller that cast and changed one put
+  `Edges`, `EdgeCount` and the adjacency lists out of step. They return read-only views (which still follow edges
+  added later).
+- **UnflattenObject** documented that indexed children become a list, but the root is always a dictionary: a
+  flattened root list comes back keyed "0", "1". Documented. (`FloatTolerance` now also says that values of
+  different types are never equal and decimals compare exactly; that was the behaviour, not a bug.)
+
+Still suspected (BUGLIST R93-3): A*'s relative 1e-12 tie window. A* steps cost 1 or √2, so distinct f-values differ
+by at least about 1/(3n) for paths of n steps, far wider than the window at any grid that fits in memory.
+
 ### Round 92: Security, net, time, sixth pass (v2026.11.16.8)
 
 Two fresh reviewers (correctness, robustness) on the round 91 code: 3 bugs, none severe, so section 13 stays

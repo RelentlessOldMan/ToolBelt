@@ -11,7 +11,8 @@ namespace ToolBelt.Objects
     /// The inverse of <c>FlattenObject.Flatten</c>: rebuilds a nested tree from path keys such as
     /// <c>user.name</c>, <c>user.roles[0]</c>, <c>limits[max]</c>. Objects become <see cref="Dictionary{TKey,TValue}"/>
     /// (string → object?) in first-seen key order; a node whose children are all bracketed indices 0…n−1 becomes a
-    /// <see cref="List{T}"/> of object?; any other bracketed key is a dictionary key. The result is shaped for JSON
+    /// <see cref="List{T}"/> of object?; any other bracketed key is a dictionary key. The root is always a dictionary, so
+    /// a flattened root list (<c>[0]</c>, <c>[1]</c>) comes back as the keys "0", "1". The result is shaped for JSON
     /// serialization or a config binder. Conflicting paths (<c>a = 1</c> and <c>a.b = 2</c>) throw, naming both.
     /// Keys containing the separator or brackets cannot be represented — the same limit Flatten has.
     /// </summary>
