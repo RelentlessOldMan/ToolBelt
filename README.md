@@ -982,6 +982,7 @@ tests/
       SecurityNetTimeReview2Tests.cs (second-pass regressions: cron make-up at the gap edge, octal CIDR, TCP BOM and overlong lines, forged digests, scheduler errors)
       SecurityNetTimeReview3Tests.cs (third-pass regressions: lone-surrogate passwords, checked-build casts, IPv6 connects, cron at MinValue, scheduler dispose)
       SecurityNetTimeReview4Tests.cs (fourth-pass regressions: TCP decode errors, ACLs kept on save, torn scheduler reads, Unix time at the calendar ends)
+      SecurityNetTimeReview5Tests.cs (round 91 review regressions: scheduler clock corrections, IPv4-mapped CIDR matches, strict TCP decoding, download overruns, malformed secrets, rare cron schedules)
       TimeOfDayRangeTests.cs
       UnixTimeTests.cs
     Visualization/

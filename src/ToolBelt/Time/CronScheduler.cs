@@ -33,6 +33,9 @@ namespace ToolBelt.Time
         /// <summary>When the last run started.</summary>
         public DateTimeOffset? LastRun { get { lock (_sync) return _lastRun; } internal set { lock (_sync) _lastRun = value; } }
 
+        // Added after Start while the clock threw: its next time is worked out on the next pass. Under the scheduler's gate.
+        internal bool Pending { get; set; }
+
         /// <summary>Number of completed runs (successful or not).</summary>
         public int RunCount { get { lock (_sync) return _runCount; } internal set { lock (_sync) _runCount = value; } }
 
@@ -59,6 +62,7 @@ namespace ToolBelt.Time
         private static readonly AsyncLocal<ScheduledJob?> CurrentJob = new AsyncLocal<ScheduledJob?>();   // the job this flow is running, if any
         private readonly object _gate = new object();
         private readonly Func<DateTimeOffset> _now;
+        private DateTimeOffset? _lastNow;   // the clock at the last RunDue, to see it go back; under _gate
         private readonly Func<TimeSpan, CancellationToken, Task> _delay;
         private readonly Action<ScheduledJob?, Exception>? _onError;
         private static readonly TimeSpan RetryAfterFailure = TimeSpan.FromSeconds(1);
@@ -98,18 +102,28 @@ namespace ToolBelt.Time
             if (name is null) throw new ArgumentNullException(nameof(name));
             if (action is null) throw new ArgumentNullException(nameof(action));
             var job = new ScheduledJob(name, new CronSchedule(cronExpression), action);
-            Exception? failure = null;
+            Exception? failure = null, clockFailure = null;
             lock (_gate)
             {
                 ThrowIfDisposed();
                 if (_loop != null)
                 {
-                    try { job.NextRun = job.Schedule.GetNextOccurrence(_now(), _zone); }
-                    catch (Exception ex) { failure = ex; }
+                    // A clock that throws is the scheduler's failure, retried on the next pass; it was the job's, whose
+                    // next time then stayed null for good.
+                    DateTimeOffset now = default;
+                    try { now = _now(); }
+                    catch (Exception ex) { clockFailure = ex; job.Pending = true; }
+                    if (clockFailure is null)
+                    {
+                        if (_lastNow is not DateTimeOffset seen || now > seen) _lastNow = now;
+                        try { job.NextRun = job.Schedule.GetNextOccurrence(now, _zone); }
+                        catch (Exception ex) { failure = ex; }
+                    }
                 }
                 _jobs.Add(job);
             }
-            if (failure != null) Report(job, failure);   // outside the lock
+            if (clockFailure != null) Report(null, clockFailure);   // outside the lock
+            if (failure != null) Report(job, failure);
             return job;
         }
 
@@ -142,6 +156,7 @@ namespace ToolBelt.Time
                 ThrowIfDisposed();
                 if (_loop != null) throw new InvalidOperationException("The scheduler has already been started.");
                 DateTimeOffset now = _now();
+                _lastNow = now;   // the times below come from this reading: RunDue sees a later correction against it
                 foreach (var job in _jobs)
                 {
                     // One schedule with no occurrence (Feb 30) must not keep the others from running.
@@ -172,8 +187,26 @@ namespace ToolBelt.Time
             {
                 if (_cts.IsCancellationRequested) return 0;          // disposing: start nothing new
                 DateTimeOffset now = _now();
+                // The clock went back (a correction after it ran fast): the stored times came from the later clock, so
+                // every job waited out the jump (a year, for a clock a year fast). Each is worked out again from now, and a
+                // job lost to a reading past its last occurrence (a glitch near 9999) gets another try. As cron does, a
+                // step back of under three hours doesn't repeat a run already made: it counts from that run instead.
+                bool back = _lastNow is DateTimeOffset last && now < last;
+                _lastNow = now;
                 foreach (var job in _jobs)
                 {
+                    if (back || job.Pending)
+                    {
+                        job.Pending = false;
+                        DateTimeOffset from = job.LastRun is DateTimeOffset ran && ran > now && ran - now < TimeSpan.FromHours(3) ? ran : now;
+                        try { job.NextRun = job.Schedule.GetNextOccurrence(from, _zone); }
+                        catch (Exception ex)
+                        {
+                            job.NextRun = null;
+                            (failures ??= new List<(ScheduledJob, Exception)>()).Add((job, ex));
+                        }
+                        continue;   // the next time is after now
+                    }
                     if (job.NextRun is not DateTimeOffset due || due > now) continue;
                     try { job.NextRun = job.Schedule.GetNextOccurrence(now, _zone); }
                     catch (Exception ex)

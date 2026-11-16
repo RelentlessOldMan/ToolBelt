@@ -53,7 +53,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 5 | 15 / 114 | re-queue (15 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 5 | 15 / 90 | re-queue (15 bugs, 1 severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 5 | 19 / 116 | re-queue (19 bugs, none severe) |
-| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 4 | 16 / 88 | re-queue (16 bugs, none severe) |
+| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 5 | 11 / 99 | re-queue (11 bugs, 4 severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 5 | 29 / 138 | re-queue (29 bugs, 1 severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 5 | 15 / 114 | re-queue (15 bugs, none severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 5 | 20 / 102 | re-queue (20 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); **next: 13** (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): **next: 13**, then 14, 8, 4, 9, 10, 11, 6, 7, 5, 16, 12, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -164,11 +164,43 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.4 | 88 | WinForms + tooling + docs, fifth pass | 17 | (see tag) |
 | v2026.11.16.5 | 89 | Text & small types, fifth pass | 15 | (see tag) |
 | v2026.11.16.6 | 90 | Collections, fifth pass | 16 | (see tag) |
+| v2026.11.16.7 | 91 | Security, net, time, fifth pass | 11 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 91: Security, net, time, fifth pass (v2026.11.16.7)
+
+Two fresh reviewers (correctness, robustness): 11 bugs (two found by both), 4 severe. Section 13 stays re-queued,
+and the fifth pass is complete. The regression tests are in `SecurityNetTimeReview5Tests` (17); every regression
+fails on the old code, run by name under a 60 s timeout. `Scheduler_AShortStepBackDoesNotRepeatARun`,
+`Cron_AnImpossibleScheduleStillThrowsQuickly` and `Secrets_TheHandBuiltFormatLoads` are guards for the new behaviour.
+
+- **CronScheduler, clock corrected back (severe):** the stored next times came from the fast clock, so after a
+  correction no job ran until real time caught up (a year, for a clock a year fast). RunDue notices the clock going
+  back (against its last reading, or Start's) and works each job's next time out again; a step back under three
+  hours counts from the last run, so a run already made is not repeated. A clock that threw during Add after Start,
+  or a reading past the last occurrence (a glitch to 9999), left the job's next time null for good; the first is
+  reported as the scheduler's and retried on the next pass, the second is recovered when the clock comes back.
+- **CidrRange.Contains (severe):** an IPv4-mapped IPv6 address (how a dual-mode socket reports an IPv4 peer) never
+  matched an IPv4 block, so IPv4 deny lists let those peers through. It is tested as its IPv4 address, as IpUtils
+  does. `Parse(null)` threw FormatException; it throws ArgumentNullException.
+- **TcpLineClient, strict encodings (2 severe):** after a bad byte the decoder was reset and the bytes decoded again
+  one at a time, which lost a valid character split across reads, assumed UTF-8 when skipping (one lone UTF-16
+  surrogate misaligned every later line) and threw once per bad byte. A copy of the encoding counts bad bytes
+  instead of throwing and keeps its own carry and alignment; the line holding them throws once, at its end, and an
+  overlong line with bad bytes is reported once, as too long.
+- **HttpDownload** wrote a body longer than its declared total to disk without limit, then retried (and kept it
+  under Resume). Nothing past the total is written: the partial file is deleted and HttpDownloadException thrown.
+- **SecretsFile.FromBytes:** contents that authenticate but are malformed (another tool sharing the passphrase)
+  threw ArgumentOutOfRangeException or FormatException, and empty or duplicate keys were taken. They throw the
+  documented CryptographicException, and invalid UTF-8 is no longer replaced silently.
+- **CronSchedule** searched only 8 years, so valid schedules such as Feb 29 on a weekend (`0 0 29 2 */6`, up to 16
+  years apart) or on a Sunday (28 or more) threw "no occurrence". It searches the 400-year Gregorian cycle, jumping
+  over days that cannot match, so it is no slower for frequent schedules and an impossible one still fails fast.
+- **Iso8601Duration** rejected ISO's decimal comma (`PT1,5S`); the seconds fraction takes a comma or a point.
+
 ### Round 90: Collections, fifth pass (v2026.11.16.6)
 
 Two fresh reviewers (correctness, robustness): 16 bugs, 1 severe (multiset hash collisions). Section 9 stays

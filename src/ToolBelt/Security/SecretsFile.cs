@@ -102,7 +102,8 @@ namespace ToolBelt.Security
             return header.Concat(tag).Concat(cipher).ToArray();
         }
 
-        /// <summary>Decrypts; a wrong passphrase, truncation or tampering throws <see cref="CryptographicException"/>.</summary>
+        /// <summary>Decrypts; a wrong passphrase, truncation, tampering or malformed contents throw
+        /// <see cref="CryptographicException"/>.</summary>
         public static SecretsFile FromBytes(byte[] data, string passphrase)
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
@@ -128,12 +129,26 @@ namespace ToolBelt.Security
                 using var aes = new AesGcm(key, TagSize);
                 try { aes.Decrypt(nonce, cipher, tag, plaintext, header); }
                 catch (CryptographicException ex) { throw new CryptographicException("Wrong passphrase, or the secrets file has been modified.", ex); }
+                // Contents that authenticate can still be malformed (another tool or version sharing the passphrase):
+                // a line with no '=' threw ArgumentOutOfRangeException and a bad value FormatException, not the
+                // documented CryptographicException, and empty or duplicate keys were taken.
+                var strict = new UTF8Encoding(false, true);
                 var result = new SecretsFile();
-                foreach (string line in Encoding.UTF8.GetString(plaintext).Split('\n'))
+                try
                 {
-                    if (line.Length == 0) continue;
-                    int eq = line.IndexOf('=');
-                    result._values[line.Substring(0, eq)] = Encoding.UTF8.GetString(Convert.FromBase64String(line.Substring(eq + 1)));
+                    foreach (string line in strict.GetString(plaintext).Split('\n'))
+                    {
+                        if (line.Length == 0) continue;
+                        int eq = line.IndexOf('=');
+                        if (eq <= 0) throw new CryptographicException("The secrets file's contents are malformed (a line without a key).");
+                        string name = line.Substring(0, eq);
+                        if (result._values.ContainsKey(name)) throw new CryptographicException("The secrets file's contents are malformed (a duplicate key).");
+                        result._values[name] = strict.GetString(Convert.FromBase64String(line.Substring(eq + 1)));
+                    }
+                }
+                catch (Exception ex) when (ex is FormatException || ex is DecoderFallbackException)
+                {
+                    throw new CryptographicException("The secrets file's contents are malformed.", ex);
                 }
                 return result;
             }

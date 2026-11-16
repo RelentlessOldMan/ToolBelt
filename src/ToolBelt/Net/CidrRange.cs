@@ -40,6 +40,7 @@ namespace ToolBelt.Net
 
         public static CidrRange Parse(string text)
         {
+            if (text is null) throw new ArgumentNullException(nameof(text));   // a caller bug, not bad text (it was FormatException)
             if (!TryParse(text, out CidrRange range))
                 throw new FormatException($"'{text}' is not valid CIDR notation.");
             return range;
@@ -67,10 +68,14 @@ namespace ToolBelt.Net
             return true;
         }
 
-        /// <summary>True if <paramref name="address"/> is in this block (same family and same masked network).</summary>
+        /// <summary>True if <paramref name="address"/> is in this block (same family and same masked network). An
+        /// IPv4-mapped IPv6 address (<c>::ffff:a.b.c.d</c>, how a dual-mode socket reports an IPv4 peer) is tested as
+        /// its IPv4 address against an IPv4 block, as IpUtils does; an IPv6 block still sees it as IPv6.</summary>
         public bool Contains(IPAddress address)
         {
             if (address is null) throw new ArgumentNullException(nameof(address));
+            // It never matched, so a deny list of IPv4 blocks let every dual-mode peer through.
+            if (Family == AddressFamily.InterNetwork && address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
             if (address.AddressFamily != Family) return false;
             byte[] masked = Mask(address.GetAddressBytes(), PrefixLength);
             byte[] network = Network.GetAddressBytes();

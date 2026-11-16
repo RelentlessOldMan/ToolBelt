@@ -222,6 +222,7 @@ namespace ToolBelt.Net
                 throw new HttpDownloadException($"Server returned {status} ({response.ReasonPhrase}) for {url}.");
 
             long downloaded = existing;
+            bool overrun = false;
             Progress(options, downloaded, total);
 
             using (var idle = CancellationTokenSource.CreateLinkedTokenSource(ct))
@@ -246,6 +247,9 @@ namespace ToolBelt.Net
                         // Only the wait for the server is timed: a slow disk or progress callback is not a stalled body.
                         idle.CancelAfter(Timeout.InfiniteTimeSpan);
                         if (read == 0) break;
+                        // A body longer than its declared total was written to disk without limit, then retried (and kept
+                        // under Resume); nothing past the total is written.
+                        if (total.HasValue && read > total.Value - downloaded) { overrun = true; break; }
                         try { await output.WriteAsync(buffer, 0, read, ct).ConfigureAwait(false); }
                         catch (IOException ex) { throw new LocalFailure(ex); }
                         downloaded += read;
@@ -266,6 +270,11 @@ namespace ToolBelt.Net
                 }
             }
 
+            if (overrun)
+            {
+                TryDelete(partial);   // what is there may not be the start of this file either
+                throw new HttpDownloadException($"The response from {url} was longer than its declared {total!.Value} bytes; the partial file was deleted.");
+            }
             if (total.HasValue && downloaded != total.Value)
                 throw new IOException($"The response from {url} ended after {downloaded} of {total.Value} bytes.");
             return Local(() => Finish(destination, partial, options, downloaded, total ?? -1, resumed));

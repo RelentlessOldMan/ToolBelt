@@ -17,9 +17,10 @@ namespace ToolBelt.Time
     {
         // Order matters: weeks/days before an optional T section of hours/minutes/(fractional)seconds. ASCII digits only
         // ([0-9], not \d, which also matches other scripts' digits), a T must be followed by at least one component, and
-        // \z (not $, which also matches before a final newline) ends the input.
+        // \z (not $, which also matches before a final newline) ends the input. The seconds fraction takes ISO's decimal
+        // comma as well as a point (PT1,5S was rejected).
         private static readonly Regex Pattern = new Regex(
-            @"^(?<neg>-)?P(?=[0-9T])(?:(?<w>[0-9]+)W)?(?:(?<d>[0-9]+)D)?(?:T(?=[0-9])(?:(?<h>[0-9]+)H)?(?:(?<m>[0-9]+)M)?(?:(?<s>[0-9]+(?:\.[0-9]+)?)S)?)?\z",
+            @"^(?<neg>-)?P(?=[0-9T])(?:(?<w>[0-9]+)W)?(?:(?<d>[0-9]+)D)?(?:T(?=[0-9])(?:(?<h>[0-9]+)H)?(?:(?<m>[0-9]+)M)?(?:(?<s>[0-9]+(?:[.,][0-9]+)?)S)?)?\z",
             RegexOptions.CultureInvariant);
 
         /// <summary>Parses an ISO 8601 duration. Throws <see cref="FormatException"/> on invalid input.</summary>
@@ -50,7 +51,7 @@ namespace ToolBelt.Time
                 if (m.Groups["d"].Success) { ticks = checked(ticks + long.Parse(m.Groups["d"].Value, CultureInfo.InvariantCulture) * TimeSpan.TicksPerDay); any = true; }
                 if (m.Groups["h"].Success) { ticks = checked(ticks + long.Parse(m.Groups["h"].Value, CultureInfo.InvariantCulture) * TimeSpan.TicksPerHour); any = true; }
                 if (m.Groups["m"].Success) { ticks = checked(ticks + long.Parse(m.Groups["m"].Value, CultureInfo.InvariantCulture) * TimeSpan.TicksPerMinute); any = true; }
-                if (m.Groups["s"].Success) { ticks = checked(ticks + ParseSecondsToTicks(m.Groups["s"].Value)); any = true; }
+                if (m.Groups["s"].Success) { ticks = checked(ticks + ParseSecondsToTicks(m.Groups["s"].Value.Replace(',', '.'))); any = true; }
 
                 if (!any)
                     return false; // "P" / "PT" with no components

@@ -16,14 +16,3 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R69-5 | P2 | 12 | suspected | `Benchmark` with `int.MaxValue` iterations throws OutOfMemoryException, not an argument error. | review r69 |
 | R81-1 | P2 | 10 | suspected | `ProcessRunner.KillTree` reports the kill as done when `Kill` threw (access denied, say) with the child still running. | review r81 |
 | R81-2 | P2 | 10 | suspected | After a timeout, a grandchild holding the inherited pipes keeps both reader threads blocked until it exits (a thread pair per run, worst on netstandard2.0 with no tree kill). | review r81 |
-| R91-1 | P1 | 13 | confirmed | `CronScheduler`: after the clock goes back (a correction after running fast), no job runs until real time reaches the old `NextRun` (a year, for a clock a year fast). Severe. | review r91 |
-| R91-2 | P1 | 13 | confirmed | `CidrRange.Contains` never matches an IPv4-mapped IPv6 address (`::ffff:a.b.c.d`, how dual-mode sockets report IPv4 peers) against an IPv4 block: IPv4 deny lists are bypassed. Severe. | review r91 |
-| R91-3 | P1 | 13 | confirmed | `TcpLineClient`: a valid character split across reads is lost when a bad byte follows later in the same read (the slow pass resets the decoder's carry). Severe. | review r91 |
-| R91-4 | P1 | 13 | confirmed | `TcpLineClient`: the skip rule after a bad byte assumes UTF-8; with UTF-16 one lone surrogate misaligns every later line. Severe. | review r91 |
-| R91-5 | P2 | 13 | confirmed | `TcpLineClient`: a line with N bad bytes throws N DecoderFallbackExceptions, not one; MaxLineLength doesn't bound them. | review r91 |
-| R91-6 | P2 | 13 | confirmed | `CronScheduler`: a clock that throws once during Add after Start, or one reading past the last occurrence, leaves the job's NextRun null for good. | review r91 |
-| R91-7 | P2 | 13 | confirmed | `HttpDownload` writes a body longer than its declared total to disk without limit, then retries (and keeps it under Resume). | review r91 |
-| R91-8 | P2 | 13 | confirmed | `SecretsFile.FromBytes`: authenticated but malformed contents throw ArgumentOutOfRangeException/FormatException, not CryptographicException; empty and duplicate keys are taken. | review r91 |
-| R91-9 | P2 | 13 | confirmed | `CidrRange.Parse(null)` throws FormatException, not ArgumentNullException. | review r91 |
-| R91-10 | P2 | 13 | confirmed | `CronSchedule` searches only 8 years: valid `0 0 29 2 */6` (16 years apart) and `*/7` (28) throw "no occurrence". | review r91 |
-| R91-11 | P2 | 13 | confirmed | `Iso8601Duration.Parse` rejects the ISO decimal comma (`PT1,5S`). | review r91 |

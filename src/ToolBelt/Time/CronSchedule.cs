@@ -32,9 +32,13 @@ namespace ToolBelt.Time
         private readonly bool _dowRestricted;
         private readonly bool _frequent;       // minute or hour field starts with '*': no DST make-up or de-duplication
 
-        // A valid schedule recurs within 8 years (Feb 29 across a non-leap century year such as 2100).
-        private const long SearchTicks = 8 * 366 * TimeSpan.TicksPerDay;
-        private const string NotFound = "No occurrence found within 8 years (or before the end of the calendar); the expression may be unsatisfiable.";
+        // The Gregorian calendar repeats every 400 years (146,097 days, a whole number of weeks), so a schedule that can
+        // match at all matches within one cycle. The window was 8 years, which rejected valid schedules such as Feb 29 on
+        // a weekend (`0 0 29 2 */6`, up to 16 years apart) or on a Sunday (28 or more). Days that cannot match are jumped
+        // over whole (NextMatchingDay), so the longer window costs nothing for a schedule that matches often.
+        private const int SearchDays = 146097 + 2;
+        private const long SearchTicks = SearchDays * TimeSpan.TicksPerDay;
+        private const string NotFound = "No occurrence found within 400 years (or before the end of the calendar); the expression is unsatisfiable.";
 
         public CronSchedule(string expression)
         {
@@ -57,7 +61,7 @@ namespace ToolBelt.Time
         /// <summary>
         /// The first scheduled time strictly after <paramref name="after"/> (seconds are ignored), reading the fields
         /// against the wall clock of <paramref name="after"/>'s fixed offset. Throws <see cref="InvalidOperationException"/>
-        /// if there is none within 8 years (an impossible expression such as Feb 30) or before the calendar ends.
+        /// if there is none within 400 years (an impossible expression such as Feb 30) or before the calendar ends.
         /// </summary>
         public DateTimeOffset GetNextOccurrence(DateTimeOffset after)
         {
@@ -68,7 +72,13 @@ namespace ToolBelt.Time
             for (long t = first; t < limit;)
             {
                 var wall = new DateTime(t);
-                if (!_months[wall.Month] || !DayMatches(wall) || !_hours[wall.Hour])
+                if (!_months[wall.Month] || !DayMatches(wall))
+                {
+                    long day = NextMatchingDay(wall);   // nothing on this day can match
+                    if (day < 0) break;
+                    t = day;
+                }
+                else if (!_hours[wall.Hour])
                     t += (60 - wall.Minute) * TimeSpan.TicksPerMinute;   // nothing in this hour can match
                 else if (!_minutes[wall.Minute])
                     t += TimeSpan.TicksPerMinute;
@@ -82,7 +92,7 @@ namespace ToolBelt.Time
         /// The first scheduled time strictly after <paramref name="after"/> (seconds are ignored), reading the fields
         /// against the wall clock of <paramref name="timeZone"/> and returning it with the zone's offset at that instant.
         /// Daylight-saving transitions follow the rules in the class remarks. Throws <see cref="InvalidOperationException"/>
-        /// if there is no occurrence within 8 years or before the calendar ends.
+        /// if there is no occurrence within 400 years or before the calendar ends.
         /// </summary>
         public DateTimeOffset GetNextOccurrence(DateTimeOffset after, TimeZoneInfo timeZone)
         {
@@ -116,6 +126,22 @@ namespace ToolBelt.Time
                     if (_frequent || !IsRepeat(timeZone, hit)) return hit;
                 }
 
+                // Jump to two days before the next day that can match: offsets differ by under 48 hours, so the walk still
+                // reaches that day's offset changes (and a spring-forward gap on it) minute by minute.
+                if (!_months[wall.Month] || !DayMatches(wall))
+                {
+                    long day = NextMatchingDay(wall);
+                    if (day < 0) break;
+                    long jump = day - 2 * TimeSpan.TicksPerDay - offset.Ticks;
+                    if (jump > t)
+                    {
+                        if (jump >= limit) break;
+                        t = jump;
+                        offset = OffsetAt(timeZone, t);
+                        continue;
+                    }
+                }
+
                 // Skip the rest of a wall-clock hour that cannot match, but cross an offset change one minute at a time.
                 long step = TimeSpan.TicksPerMinute;
                 if (!_months[wall.Month] || !DayMatches(wall) || !_hours[wall.Hour])
@@ -147,6 +173,20 @@ namespace ToolBelt.Time
             for (long g = lastWall + TimeSpan.TicksPerMinute; g < end; g += TimeSpan.TicksPerMinute)
                 if (Matches(new DateTime(g))) return true;
             return false;
+        }
+
+        // The midnight (wall ticks) of the first day after wall's whose month and day can match, or -1 if there is none in
+        // the search window or before the calendar ends.
+        private long NextMatchingDay(DateTime wall)
+        {
+            DateTime d = wall.Date;
+            long last = DateTime.MaxValue.Date.Ticks;
+            for (int i = 0; i < SearchDays && d.Ticks < last; i++)
+            {
+                d = d.AddDays(1);
+                if (_months[d.Month] && DayMatches(d)) return d.Ticks;
+            }
+            return -1;
         }
 
         private bool Matches(DateTime wall)
