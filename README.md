@@ -656,6 +656,7 @@ tests/
       BinaryImagesReview3Tests.cs (third-pass regressions: atomic SVG elements, exact far-line clipping, strict PNG chunk layout, streamed PNG encode/decode, canonical Base32/Base64url)
       BinaryImagesReview4Tests.cs (fourth-pass regressions: tall-narrow PNG speed, bounded drain and stream reads, exact SVG number rounding, zero-width text, canonical Crockford/Base85, Base58 encode speed)
       BinaryImagesReview84Tests.cs (round 84: exact line clipping, flag widths, fixed Unicode tables, PNG stream checks and memory, PNG/BMP palette rules, encoder length limits, Base58 speed)
+      BinaryImagesReview99Tests.cs (round 99: streamed PNG transparency, oversized PNG chunks refused at the header, SVG size message)
       BitsTests.cs
       Crc16Tests.cs
       Crc32Tests.cs

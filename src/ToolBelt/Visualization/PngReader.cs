@@ -38,8 +38,10 @@ namespace ToolBelt.Visualization
 
         /// <summary>
         /// Decodes a PNG read from <paramref name="stream"/>, which is read chunk by chunk up to IEND. Each chunk is checked
-        /// as it arrives; ancillary chunks are checked and skipped rather than kept, up to <see cref="MaxAncillaryBytes"/>
-        /// in all, and the image data is refused once it passes twice the size the header implies (plus 1 MiB).
+        /// as it arrives; ancillary chunks other than tRNS are checked and skipped rather than kept, up to
+        /// <see cref="MaxAncillaryBytes"/> in all; IHDR, PLTE, tRNS and IEND are refused at their header when longer than
+        /// they can be, and an unknown critical chunk at its header; and the image data is refused once it passes twice
+        /// the size the header implies (plus 1 MiB).
         /// </summary>
         public static ImageBuffer Decode(Stream stream)
         {
@@ -66,10 +68,22 @@ namespace ToolBelt.Visualization
                 if (first && !(header[4] == 'I' && header[5] == 'H' && header[6] == 'D' && header[7] == 'R' && Be32(header, 0) == 13))
                     throw new InvalidDataException("PNG does not start with IHDR.");
                 long length = unchecked((uint)Be32(header, 0));
-                bool idat = header[4] == 'I' && header[5] == 'D' && header[6] == 'A' && header[7] == 'T';
+                bool idat = Is(header, "IDAT"), trns = Is(header, "tRNS");
                 // Ancillary chunks (lower-case first letter) are ignored, so they are checked as they stream past and kept
-                // as empty chunks; anything else is kept.
-                bool skip = (header[4] & 0x20) != 0;
+                // as empty chunks; anything else is kept. tRNS is ancillary but read: kept empty, palette images decoded
+                // opaque and greyscale or RGB ones were refused ("Bad tRNS length"), where Decode(byte[]) read them.
+                bool skip = (header[4] & 0x20) != 0 && !trns;
+                // The kept chunks other than IDAT have a fixed or small size, checked before reading: a PLTE, IEND or
+                // unknown critical chunk declaring 2 GB was buffered whole (and copied again) before Decode refused it.
+                if (!skip && !idat)
+                {
+                    if (Is(header, "PLTE") && length > 768) throw new InvalidDataException("Bad PLTE length.");
+                    else if (trns && length > 256) throw new InvalidDataException("Bad tRNS length.");
+                    else if (Is(header, "IHDR") && length != 13) throw new InvalidDataException("Bad IHDR length.");
+                    else if (Is(header, "IEND") && length != 0) throw new InvalidDataException("Bad IEND length.");
+                    else if (!Is(header, "PLTE") && !trns && !Is(header, "IHDR") && !Is(header, "IEND"))
+                        throw new InvalidDataException($"Unknown critical PNG chunk {System.Text.Encoding.ASCII.GetString(header, 4, 4)}.");
+                }
                 if (skip && (ancillary += length) > MaxAncillaryBytes)
                     throw new InvalidDataException($"PNG ancillary chunks pass {MaxAncillaryBytes} bytes.");
                 if (idat && (data += length) > dataLimit)
@@ -105,6 +119,9 @@ namespace ToolBelt.Visualization
             byte[] all = ms.ToArray();
             return Decode(all, all.Length);
         }
+
+        private static bool Is(byte[] header, string type) =>
+            header[4] == type[0] && header[5] == type[1] && header[6] == type[2] && header[7] == type[3];
 
         private sealed class Parts
         {
@@ -226,6 +243,8 @@ namespace ToolBelt.Visualization
                         idatLength += length;
                         break;
                     case "IEND":
+                        // IEND is empty; Decode(Stream) refuses a long one before reading it, and the two now agree.
+                        if (length != 0) throw new InvalidDataException("Bad IEND length.");
                         sawEnd = true;
                         break;
                     default:

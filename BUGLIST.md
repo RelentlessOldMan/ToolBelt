@@ -33,3 +33,5 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R98-1 | P3 | 11 | suspected | `NGramSimilarity` counts n-grams in UTF-16 code units, so a gram can split a surrogate pair; the doc says "character n-grams" without naming the unit. | review r98 |
 | R98-2 | P3 | 11 | suspected | `TextAlign.Fit` does not validate `ellipsis` as it does `pad`: a lone surrogate or escape fragment in it gives invalid UTF-16 or a mis-measured result. | review r98 |
 | R98-3 | P3 | 11 | suspected | `TextDiff`'s largest allowed table is one 1 GB `ulong[]`, which a 32-bit or memory-capped process can fail to allocate (OutOfMemoryException) before the documented ArgumentException limit. Not probed. | review r98 |
+| R99-1 | P3 | 6 | suspected | `Base58.Encode` has no output-length guard, so a huge input likely ends in OutOfMemoryException rather than ArgumentException. Not probed. | review r99 |
+| R99-2 | P3 | 6 | suspected | A 32-bit bitfields BMP with a 40-byte header: the channel masks can overlap the pixel data, giving a misleading error rather than a clear one. | review r99 |

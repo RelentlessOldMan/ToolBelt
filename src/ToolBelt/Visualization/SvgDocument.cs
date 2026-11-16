@@ -26,8 +26,9 @@ namespace ToolBelt.Visualization
             if (!(width > 0) || double.IsInfinity(width)) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive and finite.");
             if (!(height > 0) || double.IsInfinity(height)) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive and finite.");
             // Sizes are written to six decimals, so 1e-7 came out as width="0", which no viewer renders.
-            if (F(width, nameof(width)) == "0") throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be at least 0.0000005.");
-            if (F(height, nameof(height)) == "0") throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be at least 0.0000005.");
+            // "At least 0.0000005" was wrong: 5e-7, a double just below it, rounds to 0 and was refused with that message.
+            if (F(width, nameof(width)) == "0") throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be more than 0.0000005, so it does not round to 0 at six decimals.");
+            if (F(height, nameof(height)) == "0") throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be more than 0.0000005, so it does not round to 0 at six decimals.");
             _width = width;
             _height = height;
         }
