@@ -941,6 +941,7 @@ tests/
       TextReview4Tests.cs (round 74 review regressions: snowflake lead, linear glob/Jaro/n-grams, diff memory, VT escapes, wide scripts, slug folds)
       TextReview89Tests.cs (round 89 review regressions: emoji-plane and mark widths, Soundex and slug folds, no-break spaces)
       TextRobustnessReview89Tests.cs (round 89 review regressions: exact n-gram classes, diff line ids, glob masks, top-k heap, query surrogates)
+      TextReview98Tests.cs (round 98 review regressions: escapes cut short, emoji selector past escapes and on supplementary symbols, glob masks by token group)
       MiscReviewRegressionTests.cs  (2026-10-05 review regressions: Text, Cli, Threading, Time, Diagnostics, Collections)
       TruncateTests.cs
       WordWrapTests.cs

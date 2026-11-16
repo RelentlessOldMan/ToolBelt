@@ -14,9 +14,10 @@ namespace ToolBelt.Text
     /// link them, directly or through each other ('ſ', 's' and 'S' all match), and a character matches a class when any
     /// of those is in a range as written. The mappings are the runtime's: .NET Framework's leave 'ſ', the Kelvin sign and
     /// some others alone, so there they match only themselves. Characters are UTF-16 code units, so <c>?</c> matches one half of a surrogate pair. Time is linear in
-    /// the input for short patterns: O(n·m/64) at worst, plus O(m) for each distinct input character that a literal or
-    /// class of the pattern names (all other characters share one mask). Past about 8 MB of cached masks, a named
-    /// character's mask is rebuilt each time it is met.
+    /// the input for short patterns: O(n·m/64) at worst, plus, for each distinct input character that a literal or class
+    /// of the pattern names, O(m/64) per distinct class it falls in and a test of each distinct class (all other
+    /// characters share one mask). Past about 8 MB of cached masks, a named character's mask is rebuilt each time it is
+    /// met, at that same cost.
     /// </summary>
     public static class GlobMatcher
     {
@@ -94,6 +95,7 @@ namespace ToolBelt.Text
             var state = new ulong[words];
             var masks = new Dictionary<char, ulong[]>();
             var named = new Named(tokens, segment, ignoreCase);
+            var builder = new MaskBuilder(tokens, segment, ignoreCase, words);
             // A character no literal or class names matches just the ? and negated-class tokens, so all such characters
             // share one mask. Each had its own, and the cache was cleared at 8 MB, so 5,000 distinct CJK characters
             // against a 20,000-character segment rebuilt a mask on almost every character (13 s).
@@ -106,12 +108,12 @@ namespace ToolBelt.Text
                 {
                     if (!named.Contains(c))
                     {
-                        mask = unnamed ??= BuildMask(tokens, segment, c, ignoreCase, words);
+                        mask = unnamed ??= builder.Build(c);
                         masks[c] = mask;
                     }
                     else
                     {
-                        mask = BuildMask(tokens, segment, c, ignoreCase, words);
+                        mask = builder.Build(c);
                         if (namedCount * words <= 1 << 20)   // keep the cache to about 8 MB
                         {
                             masks[c] = mask;
@@ -131,12 +133,84 @@ namespace ToolBelt.Text
             return -1;
         }
 
-        private static ulong[] BuildMask(List<Token> tokens, (int Start, int Length) segment, char c, bool ignoreCase, int words)
+        // A character's mask as the union of the segment's token groups that match it: the ? tokens, the literals equal to
+        // it, and each distinct class it is in. Built position by position, a mask cost O(m), and past the cache's cap
+        // every named character was rebuilt: "*" + 20,000 "[一-龥]" + "x*" against 100,000 CJK characters took 15 s.
+        private sealed class MaskBuilder
         {
-            var mask = new ulong[words];
-            for (int j = 0; j < segment.Length; j++)
-                if (MatchOne(tokens[segment.Start + j], c, ignoreCase)) mask[j >> 6] |= 1UL << (j & 63);
-            return mask;
+            private readonly int _words;
+            private readonly bool _ignoreCase;
+            private readonly ulong[] _any;
+            private readonly Dictionary<char, Group> _literals = new Dictionary<char, Group>();
+            private readonly List<(Token Token, Group Group)> _classes = new List<(Token, Group)>();
+
+            // A group's positions: a bitset once it holds at least a word's worth (so at most 64 of them, O(m) in all),
+            // else a list, so many distinct literals don't take a bitset each.
+            private sealed class Group
+            {
+                public readonly List<int> Positions = new List<int>();
+                public ulong[]? Bits;
+            }
+
+            public MaskBuilder(List<Token> tokens, (int Start, int Length) segment, bool ignoreCase, int words)
+            {
+                _words = words;
+                _ignoreCase = ignoreCase;
+                _any = new ulong[words];
+                var classes = new Dictionary<string, Group>(StringComparer.Ordinal);
+                var all = new List<Group>();
+                for (int j = 0; j < segment.Length; j++)
+                {
+                    Token t = tokens[segment.Start + j];
+                    Group? g;
+                    switch (t.Kind)
+                    {
+                        case Kind.Any:
+                            _any[j >> 6] |= 1UL << (j & 63);
+                            continue;
+                        case Kind.Literal:
+                            char key = ignoreCase ? CaseClasses.Value.Root[t.Literal] : t.Literal;
+                            if (!_literals.TryGetValue(key, out g)) { _literals[key] = g = new Group(); all.Add(g); }
+                            break;
+                        default:
+                            var sb = new System.Text.StringBuilder(t.Ranges!.Length * 2 + 1).Append(t.Negated ? '!' : '=');
+                            foreach (var (lo, hi) in t.Ranges!) sb.Append(lo).Append(hi);
+                            string classKey = sb.ToString();
+                            if (!classes.TryGetValue(classKey, out g))
+                            {
+                                classes[classKey] = g = new Group();
+                                all.Add(g);
+                                _classes.Add((t, g));
+                            }
+                            break;
+                    }
+                    g.Positions.Add(j);
+                }
+                foreach (Group g in all)
+                {
+                    if (g.Positions.Count < words) continue;
+                    g.Bits = new ulong[words];
+                    foreach (int j in g.Positions) g.Bits[j >> 6] |= 1UL << (j & 63);
+                    g.Positions.Clear();
+                }
+            }
+
+            public ulong[] Build(char c)
+            {
+                var mask = (ulong[])_any.Clone();
+                if (_literals.TryGetValue(_ignoreCase ? CaseClasses.Value.Root[c] : c, out Group? lit)) Or(mask, lit);
+                foreach (var (token, group) in _classes)
+                    if (MatchOne(token, c, _ignoreCase)) Or(mask, group);
+                return mask;
+            }
+
+            private void Or(ulong[] mask, Group g)
+            {
+                if (g.Bits is null)
+                    foreach (int j in g.Positions) mask[j >> 6] |= 1UL << (j & 63);
+                else
+                    for (int w = 0; w < _words; w++) mask[w] |= g.Bits[w];
+            }
         }
 
         // The characters a segment's literals and classes name (with ignoreCase, through their case classes): every

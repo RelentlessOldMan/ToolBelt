@@ -29,17 +29,32 @@ namespace ToolBelt.Text
             int width = 0;
             for (int i = 0; i < text.Length; i++)
             {
-                char c = text[i];
-                if (c == '\u001b') { i = SkipEscape(text, i); continue; }
-                if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
-                {
-                    width += SupplementaryWidth(text, i);
-                    i++;
-                    continue;
-                }
-                width += CharWidth(c, i + 1 < text.Length && text[i + 1] == '\uFE0F');
+                if (text[i] == '\u001b') { i = SkipEscape(text, i); continue; }
+                width += WidthAt(text, i, out int len);
+                i += len - 1;
             }
             return width;
+        }
+
+        // Columns of the character (or surrogate pair, `len` 2) at `i`. U+FE0F after it, even past escape sequences
+        // ("❤" ESC[0m U+FE0F measured 1, and 2 once the escape was stripped), asks for the emoji presentation.
+        private static int WidthAt(string text, int i, out int len)
+        {
+            char c = text[i];
+            len = char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]) ? 2 : 1;
+            int next = i + len;
+            while (next < text.Length && text[next] == '\u001b') next = SkipEscape(text, next) + 1;
+            bool selector = next < text.Length && text[next] == '\uFE0F';
+            if (len == 1) return CharWidth(c, selector);
+            int w = SupplementaryWidth(text, i);
+            // The selector widened BMP symbols only: 🌡️ and 🕉️ measured 1 beside ❤️'s 2. The emoji blocks
+            // U+1F000–1FAFF are fixed, so .NET Framework measures them the same.
+            if (w == 1 && selector)
+            {
+                int cp = char.ConvertToUtf32(c, text[i + 1]);
+                if (cp >= 0x1F000 && cp <= 0x1FAFF) w = 2;
+            }
+            return w;
         }
 
         /// <summary>Pads on the left to <paramref name="width"/> display columns (text already that wide is returned unchanged).</summary>
@@ -99,15 +114,19 @@ namespace ToolBelt.Text
                 char c = text[i];
                 if (c == '\u001b')
                 {
-                    int end = SkipEscape(text, i);
-                    sb.Append(text, i, end - i + 1);
-                    sawEscape = true;
+                    int end = SkipEscape(text, i, out _, out bool aborted);
+                    // A sequence cut short by the next character is left out: kept, and with that character cut away, it
+                    // swallowed the padding and ellipsis after it.
+                    if (!aborted)
+                    {
+                        sb.Append(text, i, end - i + 1);
+                        sawEscape = true;
+                    }
                     i = end;
                     continue;
                 }
-                int len = char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]) ? 2 : 1;
-                if (i + len < text.Length && text[i + len] == '\uFE0F') len++;   // the emoji selector widens its base
-                int w = DisplayWidth(text.Substring(i, len));
+                int w = WidthAt(text, i, out int len);
+                if (i + len < text.Length && text[i + len] == '\uFE0F') len++;   // the emoji selector stays with its base
                 if (used + w > budget) break;
                 sb.Append(text, i, len);
                 used += w;
@@ -118,27 +137,36 @@ namespace ToolBelt.Text
             return sb.ToString();
         }
 
-        // The text without an escape sequence that runs unfinished to its end.
+        // The text without an escape sequence that runs unfinished to its end, nor the sequences cut short just before it:
+        // "ab" ESC ESC lost its last ESC, and the first, then unfinished itself, swallowed the padding ("ab" ESC ESC padded
+        // to 6 measured 2).
         private static string DropUnfinishedEscape(string text)
         {
+            int abortedRun = -1;   // start of the sequences cut short that end where this one starts
             for (int i = 0; i < text.Length; i++)
             {
-                if (text[i] != '\u001b') continue;
-                int end = SkipEscape(text, i, out bool finished);
-                if (!finished) return text.Substring(0, i);
+                if (text[i] != '\u001b') { abortedRun = -1; continue; }
+                int end = SkipEscape(text, i, out bool finished, out bool aborted);
+                if (!finished) return text.Substring(0, abortedRun >= 0 ? abortedRun : i);
+                if (!aborted) abortedRun = -1;
+                else if (abortedRun < 0) abortedRun = i;
                 i = end;
             }
             return text;
         }
 
-        private static int SkipEscape(string s, int i) => SkipEscape(s, i, out _);
+        private static int SkipEscape(string s, int i) => SkipEscape(s, i, out _, out _);
+
+        private static int SkipEscape(string s, int i, out bool finished) => SkipEscape(s, i, out finished, out _);
 
         // Index of the last character of the escape sequence starting at `i` (CSI "ESC [ ... final"; OSC "ESC ] ... BEL/ST"
         // and likewise the DCS, SOS, PM and APC strings ESC P, X, ^, _; or ESC + intermediate bytes 0x20-0x2F + one final
-        // char, e.g. "ESC ( B"). `finished` is false when the sequence runs to the end of the text without its terminator.
-        private static int SkipEscape(string s, int i, out bool finished)
+        // char, e.g. "ESC ( B"). `finished` is false when the sequence runs to the end of the text without its terminator;
+        // `aborted` is true when the next character (ESC, CAN, SUB or a non-ASCII one) cut it short.
+        private static int SkipEscape(string s, int i, out bool finished, out bool aborted)
         {
             finished = true;
+            aborted = false;
             if (i + 1 >= s.Length) { finished = false; return i; }
             char kind = s[i + 1];
             if (kind == '[')
@@ -147,7 +175,12 @@ namespace ToolBelt.Text
                 // non-ASCII character ends it early ("ESC [3 LF b" counted the 'b').
                 int j = i + 2;
                 while (j < s.Length && (s[j] < '@' || s[j] == '\u007f') && !Aborts(s[j])) j++;
-                if (j < s.Length) return s[j] >= '@' && s[j] <= '~' ? j : j - 1;
+                if (j < s.Length)
+                {
+                    if (s[j] >= '@' && s[j] <= '~') return j;
+                    aborted = true;
+                    return j - 1;
+                }
                 finished = false;
                 return s.Length - 1;
             }
@@ -156,15 +189,25 @@ namespace ToolBelt.Text
                 for (int j = i + 2; j < s.Length; j++)
                 {
                     if (s[j] == '\a') return j;
-                    if (s[j] == '\u0018' || s[j] == '\u001a') return j - 1;                                  // CAN and SUB abort it
-                    if (s[j] == '\u001b') return j + 1 < s.Length && s[j + 1] == '\\' ? j + 1 : j - 1;   // another ESC cancels it
+                    if (s[j] == '\u0018' || s[j] == '\u001a') { aborted = true; return j - 1; }            // CAN and SUB abort it
+                    if (s[j] == '\u001b')
+                    {
+                        if (j + 1 < s.Length && s[j + 1] == '\\') return j + 1;
+                        aborted = true;                                                                 // another ESC cancels it
+                        return j - 1;
+                    }
                 }
                 finished = false;
                 return s.Length - 1;
             }
             int k = i + 1;
             while (k < s.Length && (s[k] < '0' || s[k] == '\u007f') && !Aborts(s[k])) k++;
-            if (k < s.Length) return s[k] <= '~' && !Aborts(s[k]) ? k : k - 1;   // "ESC ESC [31m" ate the second ESC as a final byte
+            if (k < s.Length)
+            {
+                if (s[k] <= '~' && !Aborts(s[k])) return k;
+                aborted = true;   // "ESC ESC [31m" ate the second ESC as a final byte
+                return k - 1;
+            }
             finished = false;
             return s.Length - 1;
         }
