@@ -90,7 +90,7 @@ namespace ToolBelt.Numerics
                 for (int j = 0; j < row.Length; j++)
                     leverage += row[i] * _xtxInverse[i, j] * row[j];
             double se = ResidualStandardError * Math.Sqrt((includeNoise ? 1 : 0) + leverage);
-            double t = Distributions.StudentTQuantile((1 + confidence) / 2, DegreesOfFreedom);
+            double t = -Distributions.StudentTQuantile((1 - confidence) / 2, DegreesOfFreedom);   // (1 + c)/2 rounded to 1 near c = 1
             double y = Predict(predictors);
             return (y - t * se, y + t * se);
         }

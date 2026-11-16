@@ -429,7 +429,7 @@ src/
       ConfidenceInterval.cs  mean CI (Student-t, or large-sample z) / variance & SD (chi-square) / Wilson proportion
       DeterministicRandom.cs  seeded fixed-algorithm PRNG (xoshiro256**, stable across runtimes)
       Differentiation.cs    numerical derivative (uniform/uneven samples, function, Richardson)
-      Distributions.cs      normal/log-normal/exponential/uniform/Student-t/chi-square/F PDF/CDF/quantile + direct upper tails (<1e-13 rel vs mpmath refs: 20 digits, computed at 40)
+      Distributions.cs      normal/log-normal/exponential/uniform/Student-t/chi-square/F PDF/CDF/quantile + direct upper tails and the chi-square upper-tail quantile `ChiSquareInverseSurvival` (<1e-13 rel vs mpmath refs: 20 digits, computed at 40)
       EmpiricalDistribution.cs  empirical CDF step function (value<->percentile lookups)
       EngineeringNotation.cs  SI-prefix format + parse (yocto..yotta, round-trip)
       ExponentialMovingAverage.cs  EMA smoothing (alpha)
@@ -863,6 +863,7 @@ tests/
       StatisticsReview2Tests.cs      (second-pass regressions: scale invariance at 1e±170, far-tail quantiles, lnΓ near 1 and 2)
       StatisticsReview3Tests.cs      (third-pass regressions: sums near MaxValue, regression scaling, F density at large df, Γ accuracy)
       StatisticsReview4Tests.cs      (fourth-pass regressions: data on an offset, tight gamma/log-normal fits, exact KS p, far tails, huge counts)
+      StatisticsReview87Tests.cs     (round 87: far lower-tail quantiles, confidences next to 1, subnormal chi-square/F, digamma series, offset CUSUM)
       HugeShapeTests.cs              (round 46: incomplete beta at shapes near MaxValue and subnormal; drop-in copies agree)
       DifferentialHarnessTests.cs    (round 47: tiny-shape tails and prefixes, huge-other-shape prefix, from the mpmath harness)
       NumericsCoreReviewTests.cs     (review regressions: QR fit, cancellation-free roots, extreme magnitudes, NaN rejection, fast primes)

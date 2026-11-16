@@ -17,21 +17,21 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
    re-queued. The fifth pass runs in the order in REVIEW-PLAN.md: round 75 (section 8) 24 bugs, 1 severe (a stack
    overflow deleting a deep temp tree), so it stays re-queued; round 76 (section 7) 24 bugs, none severe, so it
    stays re-queued too; round 77 (section 14) 29 bugs, 1 severe (a pending Task hung the graph walkers), so it
-   stays re-queued; round 78 (section 12) 19 bugs, none severe, so it stays re-queued; round 79 (section 15) 15 bugs, none severe, so it stays re-queued; round 80 (section 5) 21 bugs, none severe, so it stays re-queued; round 81 (section 10) 15 bugs, 1 severe, so it stays re-queued; round 82 (section 16) 20 bugs, none severe, so it stays re-queued; round 83 (section 1) 14 bugs, none severe, so it stays re-queued; round 84 (section 6) 10 bugs, 1 severe, so it stays re-queued; round 85 (section 4) 23 bugs, 1 severe, so it stays re-queued; round 86 (section 2) 17 bugs, none severe, so it stays re-queued; section 3 is next.
+   stays re-queued; round 78 (section 12) 19 bugs, none severe, so it stays re-queued; round 79 (section 15) 15 bugs, none severe, so it stays re-queued; round 80 (section 5) 21 bugs, none severe, so it stays re-queued; round 81 (section 10) 15 bugs, 1 severe, so it stays re-queued; round 82 (section 16) 20 bugs, none severe, so it stays re-queued; round 83 (section 1) 14 bugs, none severe, so it stays re-queued; round 84 (section 6) 10 bugs, 1 severe, so it stays re-queued; round 85 (section 4) 23 bugs, 1 severe, so it stays re-queued; round 86 (section 2) 17 bugs, none severe, so it stays re-queued; round 87 (section 3) 13 bugs, none severe, so it stays re-queued; section 17 is next.
 
 ## Built
 
 - **The library** (2026-09-25 to 2026-10-05): 29+ divisions in the core plus the Windows, WPF and WinForms
   satellites. The README's Layout is the inventory.
-- **The review** (2026-10-07 onward): 86 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
+- **The review** (2026-10-07 onward): 87 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
   sections, two rounds on flaky tests and the incomplete beta/gamma harness, and four cross-cutting rounds (round 54,
   throwing callbacks: 36 bugs, 2 severe; round 55, cancellation and dispose races: 17 bugs, 2 severe, both a Ctrl+C
   handler letting a token callback's exception escape; round 56, non-finite and extreme numerics: 34 bugs, 2 severe,
   both hangs on data near MaxValue; round 57, the whole suite on .NET Framework 4.8: 4 bugs, none severe). The fourth
   pass began with IO (round 58: 39 bugs, 7 severe, mostly junction swaps mid-operation, the tar guard and names
   ending in a dot).
-- **Checks every round passes:** the full verify (core 3720 tests, Windows 153, WPF 209, WinForms 104,
-  MathChecks 40 at v2026.11.16.2), the overflow-checked build with no failures (since round 48), and the special
+- **Checks every round passes:** the full verify (core 3733 tests, Windows 153, WPF 209, WinForms 104,
+  MathChecks 40 at v2026.11.16.3), the overflow-checked build with no failures (since round 48), and the special
   functions against mpmath (graded in condition-number units).
 - **.NET Framework 4.8:** since round 57 the whole core suite compiles and passes there (3079 tests; net8-only
   types' tests are guarded out).
@@ -61,7 +61,12 @@ Written as rules a future session can apply.
 **Testing and reviews**
 - Reference values: hand-computed literals are wrong often enough that tests grade against independent references
   (SciPy, mpmath, Math.NET, naive implementations). SciPy 1.12's `savgol_coeffs` is itself wrong at high orders;
-  mpmath `betainc`/`gammainc` stall at huge parameters (use series at high precision or `quad`).
+  mpmath `betainc`/`gammainc` stall at huge parameters (use series at high precision or `quad`). A difference of
+  `loggamma` at huge arguments needs more digits than the argument has (B(½, 5e299) needs `mp.dps` past 300).
+- Subnormal inputs: build them from their bits (`BitConverter.Int64BitsToDouble`), not from decimal strings. .NET
+  Framework's `double.Parse` reads "1.4866e-320" as 3008·2^-1074, not 3009. That was a false finding in round 87. It
+  is also a lead for the core parsers that call `double.Parse` on netstandard2.0 (Configuration, CsvBinder,
+  EngineeringNotation, UnitConvert, ByteSize, PropertyPath and others): check them at subnormals in their sections.
 - A fix can break a cross-check in another suite. Run MathChecks every round.
 - Perf regression tests must be sized so the old code clearly fails (5-10x the limit), including on one slow core.
 - A stack-overflow fail-first test kills the test process (exit 127, "Stack overflow."). Count that as the failure.

@@ -70,7 +70,7 @@ namespace ToolBelt.Numerics
                 throw new ArgumentException("ANOVA needs at least two groups.", nameof(groups));
 
             int k = groups.Length;
-            int total = 0;
+            long total = 0;                      // the same array may be passed many times: an int count wrapped past 2^31
             double maxAbs = 0;
             for (int i = 0; i < k; i++)
             {

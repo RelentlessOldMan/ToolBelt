@@ -204,9 +204,11 @@ namespace ToolBelt.Numerics
                 dg = s2 / s0 - m * m + 1 / (k * k);
                 return m - 1 / k - meanLy;
             }
-            // Bracket the root of the shape equation; very tight data (CV ≲ 0.1%) has shape far above 1000.
+            // Bracket the root of the shape equation; very tight data (CV ≲ 0.1%) has shape far above 1000. The equal-values
+            // guard admits log spreads down to 1e-14, whose shape is ~1e14: a bracket capped at 1e12 returned 1e12 for them.
             double lo = 1e-3, hi = 1e3;
-            while (G(hi, out _) < 0 && hi < 1e12) { lo = hi; hi *= 10; }
+            while (G(hi, out _) < 0 && hi < 1e17) { lo = hi; hi *= 10; }
+            if (G(hi, out _) < 0) throw new ArgumentException("The values are too close together for the shape to be estimated.", nameof(sample));
             while (G(lo, out _) > 0 && lo > 1e-12) { hi = lo; lo /= 10; }
             double kk = 1.2 / Math.Sqrt(Math.Max(1e-12, ly.Select(l => (l - meanLy) * (l - meanLy)).Average())); // ≈ π/(√6·sd(ln x))
             kk = Math.Min(Math.Max(kk, lo * 2), hi / 2);
@@ -307,20 +309,29 @@ namespace ToolBelt.Numerics
         }
 
         // ln k − ψ(k), directly from the asymptotic series for large k (forming the difference of two O(ln k) values
-        // leaves no digits when the answer is 1/(2k) ≈ 1e-14).
+        // leaves no digits when the answer is 1/(2k) ≈ 1e-14). From k = 10 with terms to k⁻¹⁴: stopping at k⁻¹⁰ from k = 6
+        // left a relative error of 1e-10, which the gamma fit's shape inherited.
         private static double LogMinusDigamma(double k)
         {
-            if (k < 6) return Math.Log(k) - Digamma(k);
+            if (k < 10) return Math.Log(k) - Digamma(k);
             double f = 1 / (k * k);
-            return 0.5 / k + f * (1.0 / 12 - f * (1.0 / 120 - f * (1.0 / 252 - f * (1.0 / 240 - f * (1.0 / 132)))));
+            return 0.5 / k + f * PsiSeries(f);
         }
+
+        // Σ B₂ₙ/(2n)·f^(n−1) with alternating signs through k⁻¹⁴ (the next term is below 5e-17 of the sum from 10 up).
+        private static double PsiSeries(double f)
+            => 1.0 / 12 - f * (1.0 / 120 - f * (1.0 / 252 - f * (1.0 / 240 - f * (1.0 / 132 - f * (691.0 / 32760 - f * (1.0 / 12))))));
+
+        // Σ B₂ₙ·f^(n−1) with alternating signs through k⁻¹⁵.
+        private static double TrigammaSeries(double f)
+            => 1.0 / 6 - f * (1.0 / 30 - f * (1.0 / 42 - f * (1.0 / 30 - f * (5.0 / 66 - f * (691.0 / 2730 - f * (7.0 / 6))))));
 
         // 1/k − ψ′(k), likewise.
         private static double InvMinusTrigamma(double k)
         {
-            if (k < 6) return 1 / k - Trigamma(k);
+            if (k < 10) return 1 / k - Trigamma(k);
             double f = 1 / (k * k);
-            return -(f / 2 + f / k * (1.0 / 6 - f * (1.0 / 30 - f * (1.0 / 42 - f * (1.0 / 30)))));
+            return -(f / 2 + f / k * TrigammaSeries(f));
         }
 
         // ln Γ(k) − ((k − ½) ln k − k + ln √(2π)) for k >= 10, by its asymptotic series (next term below 2e-14 there).
@@ -342,17 +353,17 @@ namespace ToolBelt.Numerics
         private static double Digamma(double x)
         {
             double r = 0;
-            while (x < 6) { r -= 1 / x; x += 1; }
+            while (x < 10) { r -= 1 / x; x += 1; }
             double f = 1 / (x * x);
-            return r + Math.Log(x) - 0.5 / x - f * (1.0 / 12 - f * (1.0 / 120 - f * (1.0 / 252 - f * (1.0 / 240 - f * (1.0 / 132)))));
+            return r + Math.Log(x) - 0.5 / x - f * PsiSeries(f);
         }
 
         private static double Trigamma(double x)
         {
             double r = 0;
-            while (x < 6) { r += 1 / (x * x); x += 1; }
+            while (x < 10) { r += 1 / (x * x); x += 1; }
             double f = 1 / (x * x);
-            return r + 1 / x + f / 2 + f / x * (1.0 / 6 - f * (1.0 / 30 - f * (1.0 / 42 - f * (1.0 / 30))));
+            return r + 1 / x + f / 2 + f / x * TrigammaSeries(f);
         }
 
         // The same code as Distributions.cs (this copy had drifted: no tiny-x branch, no series near 1 and 2).

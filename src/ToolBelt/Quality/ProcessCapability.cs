@@ -78,8 +78,11 @@ namespace ToolBelt.Quality
             double cp = (upperSpec - lowerSpec) / (6 * sigma);
             // Specs like ±1.7e308 overflowed the width (Cp = ∞ for a sample whose Cpk was 7e7); halves and the division by
             // σ first keep it finite.
-            if (double.IsInfinity(cp)) cp = (0.5 * upperSpec - 0.5 * lowerSpec) / sigma / 3;
+            // 6σ itself overflows for σ past 3e307 (∞/∞ = NaN), and 3σ made Cpk 0: then each is divided by σ first too.
+            if (double.IsInfinity(cp) || double.IsInfinity(6 * sigma)) cp = (0.5 * upperSpec - 0.5 * lowerSpec) / sigma / 3;
             double cpk = Math.Min(upperSpec - mean, mean - lowerSpec) / (3 * sigma);
+            if (double.IsInfinity(cpk) || double.IsInfinity(3 * sigma))
+                cpk = Math.Min(0.5 * upperSpec - 0.5 * mean, 0.5 * mean - 0.5 * lowerSpec) / sigma / 1.5;
             double sigmaLevel = 3 * cpk;
             // Upper tail from the survival function: 1 − Φ rounds to 0 below about 1e-16 (and to multiples of 1e-16 above).
             double ppm = (Distributions.NormalCdf(lowerSpec, mean, sigma)

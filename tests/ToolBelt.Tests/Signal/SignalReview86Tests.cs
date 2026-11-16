@@ -215,7 +215,7 @@ namespace ToolBelt.Tests.Signal
         {
             string dir = FindSignalSource();
             var files = Directory.GetFiles(dir, "*.cs");
-            var names = files.Select(Path.GetFileNameWithoutExtension).ToArray();
+            var names = files.Select(f => Path.GetFileNameWithoutExtension(f)!).ToArray();
             foreach (var file in files)
             {
                 var lines = File.ReadAllLines(file);

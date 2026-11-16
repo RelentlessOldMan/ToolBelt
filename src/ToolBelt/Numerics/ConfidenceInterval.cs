@@ -30,7 +30,9 @@ namespace ToolBelt.Numerics
             var (mean, sd) = MeanSd(sample);
             double stdErr = sd / Math.Sqrt(n);
 
-            double z = Distributions.NormalQuantile((1 + confidence) / 2);
+            // From the tail mass α/2: (1 + confidence)/2 rounded to 1 for a confidence of 1 − 2⁻⁵³, and the quantile threw
+            // for a parameter "p" the caller never passed.
+            double z = -Distributions.NormalQuantile((1 - confidence) / 2);
             double margin = z * stdErr;
             return (mean - margin, mean + margin);
         }
@@ -42,7 +44,7 @@ namespace ToolBelt.Numerics
         public static (double Lower, double Upper) ForMeanT(IReadOnlyList<double> sample, double confidence = 0.95)
         {
             var (n, mean, sd) = Moments(sample, confidence);
-            double t = Distributions.StudentTQuantile((1 + confidence) / 2, n - 1);
+            double t = -Distributions.StudentTQuantile((1 - confidence) / 2, n - 1);
             double margin = t * (sd / Math.Sqrt(n));
             return (mean - margin, mean + margin);
         }
@@ -62,7 +64,7 @@ namespace ToolBelt.Numerics
         {
             // From s itself: s² under- or overflowed for data near 1e±160 (an interval of (0, 0) or (∞, ∞)).
             var (n, _, sd) = Moments(sample, confidence);
-            return (sd * Math.Sqrt((n - 1) / Distributions.ChiSquareQuantile((1 + confidence) / 2, n - 1)),
+            return (sd * Math.Sqrt((n - 1) / Distributions.ChiSquareInverseSurvival((1 - confidence) / 2, n - 1)),
                     sd * Math.Sqrt((n - 1) / Distributions.ChiSquareQuantile((1 - confidence) / 2, n - 1)));
         }
 
@@ -118,7 +120,7 @@ namespace ToolBelt.Numerics
             if (!(confidence > 0 && confidence < 1)) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
 
             double p = (double)successes / trials;
-            double z = Distributions.NormalQuantile((1 + confidence) / 2);
+            double z = -Distributions.NormalQuantile((1 - confidence) / 2);
             double z2 = z * z;
             double denom = 1 + z2 / trials;
             // 2.0·trials: 2·trials overflowed int past ~1.07 billion trials. The Wilson bounds are exactly 0 at no successes

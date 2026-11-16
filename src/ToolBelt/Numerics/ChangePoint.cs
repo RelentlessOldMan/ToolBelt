@@ -29,25 +29,18 @@ namespace ToolBelt.Numerics
                 if (double.IsNaN(v) || double.IsInfinity(v)) throw new ArgumentException($"Value [{i}] is not finite.", nameof(series));
                 big = Math.Max(big, Math.Abs(v));
             }
-            double p = Pow2Scale(big), mean = 0;
-            for (int i = 0; i < series.Count; i++) mean += series[i] / p;
-            mean = mean / series.Count * p;
+            // Offsets from the first value c, in units of p: summed raw, data on a large offset (1e8 + 3e-8 steps) lost the
+            // steps to rounding, and constant data left a drift of rounding errors where the sums are 0. In units of p each
+            // partial sum overflows only if its own value does (1e308 twice, then −1e308 twice is back to 0).
+            double p = Pow2Scale(big), c = series[0] / p, mean = 0;
+            for (int i = 0; i < series.Count; i++) mean += series[i] / p - c;
+            mean /= series.Count;
 
             var cusum = new double[series.Count];
             double running = 0;
             for (int i = 0; i < series.Count; i++)
             {
-                running += series[i] - mean;
-                cusum[i] = running;
-            }
-            if (!double.IsInfinity(running) && !double.IsNaN(running)) return cusum;
-            // A deviation or a partial sum overflowed (1e308 twice, then −1e308 twice: ∞ where the sum is back to 0), and
-            // ∞ − ∞ made the rest NaN: redone in units of p, so each sum overflows only if its own value does.
-            double ms = mean / p;
-            running = 0;
-            for (int i = 0; i < series.Count; i++)
-            {
-                running += series[i] / p - ms;
+                running += series[i] / p - c - mean;
                 cusum[i] = running * p;
                 if (double.IsInfinity(cusum[i]))
                     throw new ArgumentException($"The cumulative sum at [{i}] is outside the double range.", nameof(series));
@@ -76,17 +69,20 @@ namespace ToolBelt.Numerics
             }
             // Sums in units of the largest magnitude p (a power of two, so normal-range data give the same bits): summed
             // outright they overflowed for data near 1e308, and every split scored ∞ (the first one won).
-            double p = Pow2Scale(big), total = 0;
-            for (int i = 0; i < n; i++) total += series[i] / p;
+            // As offsets from the first value c, and the right segment's sum from its own suffix: total − leftSum on raw
+            // values cancelled a shift of 3e-8 on data at 1e8 away, and constant data reported rounding noise as a shift.
+            double p = Pow2Scale(big), c = series[0] / p;
+            var suffix = new double[n + 1];
+            for (int i = n - 1; i >= 0; i--) suffix[i] = suffix[i + 1] + (series[i] / p - c);
 
             double leftSum = 0;
             int bestIndex = 1;
             double bestScore = -1, bestMagnitude = 0;
             for (int k = 1; k < n; k++)
             {
-                leftSum += series[k - 1] / p;
+                leftSum += series[k - 1] / p - c;
                 double leftMean = leftSum / k;
-                double rightMean = (total - leftSum) / (n - k);
+                double rightMean = suffix[k] / (n - k);
                 double magnitude = Math.Abs(rightMean - leftMean);
                 // The reduction in squared error from splitting at k is k(n − k)/n · Δ²; its square root ranks the same
                 // splits without squaring Δ, which underflowed to a tie of zeros for data near 1e-160.

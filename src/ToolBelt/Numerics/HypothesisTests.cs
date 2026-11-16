@@ -192,6 +192,14 @@ namespace ToolBelt.Numerics
                 totalObserved += o;
                 totalExpected += e;
             }
+            // A total past double.MaxValue compared ∞ with ∞ (or with a finite total), and the check let mismatched counts
+            // through: both are summed again scaled down by a power of two (exact) then.
+            if (double.IsInfinity(totalObserved) || double.IsInfinity(totalExpected))
+            {
+                double down = Math.Pow(2, -Math.Ceiling(Math.Log(observed.Count, 2)));
+                totalObserved = totalExpected = 0;
+                for (int i = 0; i < observed.Count; i++) { totalObserved += observed[i] * down; totalExpected += expected[i] * down; }
+            }
             if (Math.Abs(totalObserved - totalExpected) > 1e-8 * Math.Max(totalObserved, totalExpected))
                 throw new ArgumentException(
                     $"Observed total {totalObserved:R} and expected total {totalExpected:R} differ; scale the expected counts to the observed total.",
@@ -224,6 +232,11 @@ namespace ToolBelt.Numerics
                     rowSum[i] += v; colSum[j] += v; total += v;
                 }
             if (total <= 0) throw new ArgumentException("Contingency table must contain positive counts.", nameof(contingency));
+            // Zero marginals are found on the unscaled sums: scaled down, a row of subnormal counts beside huge ones became 0.
+            for (int i = 0; i < r; i++)
+                if (rowSum[i] == 0) throw new ArgumentException($"Row {i} is all zero (zero marginal).", nameof(contingency));
+            for (int j = 0; j < c; j++)
+                if (colSum[j] == 0) throw new ArgumentException($"Column {j} is all zero (zero marginal).", nameof(contingency));
             // χ² scales with the table (χ²(sT) = s·χ²(T)): counts whose sums overflow are summed scaled down by a power of
             // two (exact), and the statistic scaled back up.
             double scale = 1;
@@ -238,10 +251,6 @@ namespace ToolBelt.Numerics
                         rowSum[i] += v; colSum[j] += v; total += v;
                     }
             }
-            for (int i = 0; i < r; i++)
-                if (rowSum[i] == 0) throw new ArgumentException($"Row {i} is all zero (zero marginal).", nameof(contingency));
-            for (int j = 0; j < c; j++)
-                if (colSum[j] == 0) throw new ArgumentException($"Column {j} is all zero (zero marginal).", nameof(contingency));
 
             double chi2 = 0;
             for (int i = 0; i < r; i++)
@@ -251,7 +260,10 @@ namespace ToolBelt.Numerics
                     // underflowed near 1e-162, so a valid table gave NaN.
                     double e = rowSum[i] * (colSum[j] / total);
                     double d = contingency[i, j] * scale - e;
-                    chi2 += d * (d / e);
+                    if (d == 0) continue;      // also a row scaled to zero beside huge ones, whose e is 0 too
+                    // An expected count that underflowed (subnormal margins: {{ε, 0}, {0, 1}} gave ∞ for χ² = 1) is not formed:
+                    // d²/e = (d/row)·(d/col)·total.
+                    chi2 += e < 1e-290 ? (d / rowSum[i]) * (d / colSum[j]) * total : d * (d / e);
                 }
             chi2 /= scale;
             double df = (r - 1) * (c - 1);

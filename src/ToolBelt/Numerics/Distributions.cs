@@ -113,9 +113,21 @@ namespace ToolBelt.Numerics
         public static double UniformPdf(double x, double a, double b)
         {
             RequireOrdered(a, b);
+            if (double.IsNaN(x)) return double.NaN;                             // NaN passed both comparisons: 1/(b − a)
             if (x < a || x > b) return 0;
             double width = b - a;
             return double.IsInfinity(width) ? 0.5 / (b / 2 - a / 2) : 1.0 / width;    // a width past MaxValue, from halves
+        }
+
+        /// <summary>The uniform quantile a + p·(b − a), for p in [0, 1] (exactly a at 0 and b at 1).</summary>
+        public static double UniformQuantile(double p, double a, double b)
+        {
+            RequireOrdered(a, b);
+            if (!(p >= 0 && p <= 1)) throw new ArgumentOutOfRangeException(nameof(p), p, "Probability must be in [0, 1].");
+            if (p == 1) return b;
+            double width = b - a;
+            double x = double.IsInfinity(width) ? 2 * (a / 2 + p * (b / 2 - a / 2)) : a + p * width;
+            return Math.Min(b, Math.Max(a, x));
         }
 
         public static double UniformCdf(double x, double a, double b)
@@ -184,6 +196,7 @@ namespace ToolBelt.Numerics
             if (x < 0) return 0;
             if (x == 0) return k < 2 ? double.PositiveInfinity : (k == 2 ? 0.5 : 0);
             if (double.IsPositiveInfinity(x)) return 0;
+            if (x < MinNormal) return Math.Exp(Math.Log(k / 2) + (k / 2 - 1) * (Math.Log(x) - Ln2) - LnGamma1p(k / 2) - Ln2);
             return GammaFront(k / 2, x / 2) / x; // ½(x/2)^(a−1)e^(−x/2)/Γ(a) = [ (x/2)^a e^(−x/2)/Γ(a) ] / x
         }
 
@@ -191,6 +204,7 @@ namespace ToolBelt.Numerics
         {
             double k = RequireDf(degreesOfFreedom, nameof(degreesOfFreedom));
             if (x <= 0) return 0;
+            if (x < MinNormal) return Math.Exp(ChiSquareLnLowerSubnormal(x, k));
             GammaPQ(k / 2, x / 2, out double p, out _);
             return p;
         }
@@ -201,6 +215,7 @@ namespace ToolBelt.Numerics
             double k = RequireDf(degreesOfFreedom, nameof(degreesOfFreedom));
             if (double.IsNaN(x)) return double.NaN;
             if (x <= 0) return 1;
+            if (x < MinNormal) return -Expm1(ChiSquareLnLowerSubnormal(x, k));
             GammaPQ(k / 2, x / 2, out _, out double q);
             return q;
         }
@@ -213,8 +228,27 @@ namespace ToolBelt.Numerics
             double a = k / 2;
             double guess = ChiSquareGuess(p, k);
             if (p <= 0.5)
+            {
+                // A quantile below the smallest double underflows to 0 (as documented): the solver stopped a few ulps up,
+                // at a subnormal whose CDF was 1e156 times p.
+                if (ChiSquareCdf(double.Epsilon, k) > p) return 0;
                 return SolveIncreasing(x => { GammaPQ(a, x / 2, out double lo, out _); return lo; }, x => ChiSquarePdf(x, k), p, guess);
+            }
             return SolveDecreasing(x => { GammaPQ(a, x / 2, out _, out double up); return up; }, x => ChiSquarePdf(x, k), 1 - p, guess);
+        }
+
+        /// <summary>
+        /// The x with upper tail P(X &gt; x) = <paramref name="q"/>: <c>ChiSquareQuantile(1 − q, k)</c> without forming 1 − q,
+        /// so tails below 2⁻⁵³ (which round 1 − q to 1) keep their full precision.
+        /// </summary>
+        public static double ChiSquareInverseSurvival(double q, double degreesOfFreedom)
+        {
+            double k = RequireDf(degreesOfFreedom, nameof(degreesOfFreedom));
+            RequireOpenProbability(q, nameof(q));
+            if (q >= 0.5) return ChiSquareQuantile(1 - q, k);                  // 1 − q exact (Sterbenz)
+            double a = k / 2;
+            double guess = ChiSquareGuess(0.5, k, -StandardNormalQuantile(q));
+            return SolveDecreasing(x => { GammaPQ(a, x / 2, out _, out double up); return up; }, x => ChiSquarePdf(x, k), q, guess);
         }
 
         // ---- F (Fisher–Snedecor) ----
@@ -230,6 +264,16 @@ namespace ToolBelt.Numerics
             // (1.6e-6 relative at df = 1e10). p = d1x/(d1x + d2), q = 1 − p, each formed without the subtraction.
             double m = d1, n = d2, mx = m * x;
             double p = double.IsInfinity(mx) ? 1 : mx / (n + mx), q = double.IsInfinity(mx) ? 0 : n / (n + mx);
+            if (mx < MinNormal)
+            {
+                // A subnormal d1·x is rounded (1e-4 relative at x = 1.5e-320). Over a tiny d2 the ratio is formed scaled
+                // up (exact); otherwise y < 1e-17 and the density is its leading term (1 − y)^(d2/2) = 1 − O(d1·x) included.
+                double sn = m * (x * TwoTo600), sd = n * TwoTo600;
+                if (!(n < 1e-290 && sn >= MinNormal))
+                    return Math.Exp(m / 2 * (Math.Log(m) - Math.Log(n + mx)) + (m / 2 - 1) * Math.Log(x) - LnBeta(m / 2, n / 2));
+                p = sn / (sn + sd);
+                q = sd / (sn + sd);
+            }
             // The failure count n/2 is passed itself: recovered as (m + n − 2)/2 − (m − 2)/2 it was lost once m dwarfed n
             // (density 1e10 too large at m = 1e17, n = 3, which sent FQuantile's Newton steps astray).
             if (m >= 2) return m * q / 2 * BinomialDensity((m - 2) / 2, n / 2, p, q);
@@ -266,7 +310,10 @@ namespace ToolBelt.Numerics
                 if (y > 0 && y < 0.01) guess = d2 * y / (d1 * (1 - y));
             }
             if (p <= 0.5)
+            {
+                if (FMasses(double.Epsilon, d1, d2).Lower > p) return 0;          // below the smallest double: underflows to 0
                 return SolveIncreasing(x => FMasses(x, d1, d2).Lower, x => FPdf(x, d1, d2), p, guess);
+            }
             return SolveDecreasing(x => FMasses(x, d1, d2).Upper, x => FPdf(x, d1, d2), 1 - p, guess);
         }
 
@@ -410,14 +457,33 @@ namespace ToolBelt.Numerics
         {
             if (double.IsPositiveInfinity(x)) return (1, 0);
             double num = d1 * x, den = d1 * x + d2;
+            if (num < MinNormal)
+            {
+                // A subnormal d1·x is rounded, and the lower tail ~ y^(d1/2) carries its error (8e-5 at x = 1.5e-320). Over
+                // a tiny d2 the ratio is formed scaled up (exact scaling); otherwise y = d1·x/(d1·x + d2) is below 1e-17 and
+                // I_y(a, b) is its leading term y^a/(a·B(a, b)): (1 − y)^b and the series differ from 1 by O(y + d1·x).
+                double sn = d1 * (x * TwoTo600), sd = d2 * TwoTo600;
+                if (d2 < 1e-290 && sn >= MinNormal)
+                {
+                    BetaI(sn / (sn + sd), sd / (sn + sd), d1 / 2, d2 / 2, out double lo, out double up);
+                    return (lo, up);
+                }
+                double l = d1 / 2 * (Math.Log(d1) + Math.Log(x) - Math.Log(den)) - Math.Log(d1 / 2) - LnBeta(d1 / 2, d2 / 2);
+                return (Math.Exp(l), -Expm1(l));
+            }
             BetaI(num / den, d2 / den, d1 / 2, d2 / 2, out double lower, out double upper);
             return (lower, upper);
         }
 
-        private static double ChiSquareGuess(double p, double k)
+        // ln P(X ≤ x) for subnormal x, where x/2 rounds (8e-5 relative at 1.5e-320): the leading term (x/2)^a/Γ(a + 1), the
+        // series' other terms and e^(−x/2) differing from 1 by O(x).
+        private static double ChiSquareLnLowerSubnormal(double x, double k) => k / 2 * (Math.Log(x) - Ln2) - LnGamma1p(k / 2);
+
+        private static double ChiSquareGuess(double p, double k) => ChiSquareGuess(p, k, StandardNormalQuantile(p));
+
+        private static double ChiSquareGuess(double p, double k, double z)
         {
             // Wilson–Hilferty; for small p and few degrees of freedom use the leading term of the lower tail instead.
-            double z = StandardNormalQuantile(p);
             double h = 2 / (9 * k);
             double wh = k * Math.Pow(Math.Max(1 - h + z * Math.Sqrt(h), 1e-3), 3);
             if (p < 0.05)
@@ -450,8 +516,8 @@ namespace ToolBelt.Numerics
             if (g(hi) < 0) return hi;
 
             double x = guess > lo && guess < hi ? guess : (lo > 0 ? Math.Sqrt(lo) * Math.Sqrt(hi) : hi / 2);
-            double jump = 16;
-            int slow = 0;
+            double jump = 16, lastStep = 0;
+            int slow = 0, linear = 0;
             for (int iter = 0; iter < 400; iter++)
             {
                 double gx = g(x);
@@ -476,6 +542,20 @@ namespace ToolBelt.Numerics
                     }
                 }
                 else slow = 0;
+                // Newton converging only linearly (steps that don't shrink, as from above in a far lower tail at many
+                // degrees of freedom: χ² at k = 1e9, p = 1e-300 moved ~sd/|z| a step and returned x with CDF 1e128 times
+                // p): after three such steps bisect the bracket instead.
+                double step = next - x;
+                if (lo > 0 && lastStep != 0 && Math.Sign(step) == Math.Sign(lastStep) && Math.Abs(step) >= 0.5 * Math.Abs(lastStep))
+                {
+                    if (++linear >= 3)
+                    {
+                        next = hi / lo > 4 ? Math.Sqrt(lo) * Math.Sqrt(hi) : 0.5 * (lo + hi);
+                        linear = 0;
+                    }
+                }
+                else linear = 0;
+                lastStep = next - x;
                 if (Math.Abs(next - x) <= 4e-16 * Math.Abs(next)) return next;
                 x = next;
                 if (hi - lo <= 4e-16 * hi) return x;
@@ -1102,10 +1182,12 @@ namespace ToolBelt.Numerics
         }
 
         private const double MinNormal = 2.2250738585072014E-308;
+        private const double Ln2 = 0.69314718055994530942;
+        private const double TwoTo600 = 4.149515568880993E+180;
 
-        private static void RequireOpenProbability(double p)
+        private static void RequireOpenProbability(double p, string name = "p")
         {
-            if (!(p > 0 && p < 1)) throw new ArgumentOutOfRangeException(nameof(p), p, "Probability must be in (0, 1).");
+            if (!(p > 0 && p < 1)) throw new ArgumentOutOfRangeException(name, p, "Probability must be in (0, 1).");
         }
 
         private static void RequireOrdered(double a, double b)
