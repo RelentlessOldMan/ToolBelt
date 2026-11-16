@@ -111,6 +111,8 @@ namespace ToolBelt.IO
                         if (entry.Name.EndsWith("/", StringComparison.Ordinal) || entry.Name.EndsWith("\\", StringComparison.Ordinal))
                             throw new InvalidDataException($"Archive entry '{entry.Name}' is a file named like a directory.");
                         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                        // A folder is never replaced: the move threw a bare UnauthorizedAccessException naming nothing.
+                        if (Directory.Exists(target)) throw new IOException($"Archive entry '{entry.Name}' is a file, but a folder has its path: {target}");
                         if (File.Exists(target) && !overwrite) throw new IOException($"Destination file already exists: {target}");
                         if (entry.Length > budget)
                             throw new InvalidDataException($"Extracting '{entry.Name}' would pass the {maxTotalBytes}-byte limit.");
@@ -366,6 +368,7 @@ namespace ToolBelt.IO
             private long _paxLeft;
             private long? _nextSize;
             private bool _ended;
+            private char _family;   // the metadata headers since the last entry: 'G' (GNU L, K), 'P' (PAX x, g) or none
 
             public MetadataGuardStream(Stream inner) => _inner = inner;
 
@@ -408,8 +411,18 @@ namespace ToolBelt.IO
                 bool metadata = type == 'x' || type == 'g' || type == 'L' || type == 'K';
                 if (metadata && size > MaxMetadataBytes)
                     throw new InvalidDataException($"Archive has a {size}-byte metadata entry; the limit is {MaxMetadataBytes} bytes.");
-                if (!metadata)
+                if (metadata)
                 {
+                    // TarReader reads a PAX header after a GNU long name as an ordinary entry and ignores its size, so this
+                    // guard applied that size to the next header instead: a GNU L, then a PAX x, let a later gigabyte "x"
+                    // through. No archive writer mixes the two before one entry; refused. (GNU K then L is one family.)
+                    char family = type == 'L' || type == 'K' ? 'G' : 'P';
+                    if (_family != '\0' && _family != family) throw Unreadable("mix of GNU and PAX metadata headers");
+                    _family = family;
+                }
+                else
+                {
+                    _family = '\0';
                     if (_nextSize is long s) size = s;
                     _nextSize = null;
                 }
@@ -480,9 +493,12 @@ namespace ToolBelt.IO
                     {
                         if (size != null) throw Unreadable("PAX header");
                         long value = 0;
-                        int digits = recordEnd - 1 - (keyStart + 5);
-                        if (digits < 1 || digits > 18) throw Unreadable("PAX size");
-                        for (int i = keyStart + 5; i < recordEnd - 1; i++)
+                        int first = keyStart + 5;
+                        if (recordEnd - 1 - first < 1) throw Unreadable("PAX size");
+                        // Leading zeros are not counted: TarReader reads "size=0000000000000000005" as 5.
+                        while (first < recordEnd - 2 && data[first] == '0') first++;
+                        if (recordEnd - 1 - first > 18) throw Unreadable("PAX size");
+                        for (int i = first; i < recordEnd - 1; i++)
                         {
                             if (data[i] < '0' || data[i] > '9') throw Unreadable("PAX size");
                             value = value * 10 + (data[i] - '0');

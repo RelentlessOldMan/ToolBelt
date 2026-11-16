@@ -119,6 +119,9 @@ namespace ToolBelt.IO
 
                 string? dir = Path.GetDirectoryName(target);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                // A folder is never replaced: the move threw a bare UnauthorizedAccessException naming nothing.
+                if (Directory.Exists(target))
+                    throw new IOException($"Archive entry '{entry.FullName}' is a file, but a folder has its path: {target}");
                 if (File.Exists(target) && !overwrite)
                     throw new IOException($"Destination file already exists: {target}");
 

@@ -68,7 +68,9 @@ namespace ToolBelt.IO
 
         // Deletes a tree through the exact form of each name, clearing ReadOnly (which Directory.Delete refuses) on the
         // way; a linked folder loses only the link. Iterative, bottom-up: the BCL's recursive delete, and this one when
-        // it recursed, overflowed the stack on a deep tree (depth 8,000), which ends the process.
+        // it recursed, overflowed the stack on a deep tree (depth 8,000), which ends the process. Best-effort: an entry
+        // that cannot be removed (a file still open) is left and the rest are still deleted; the first failure used to end
+        // the walk, leaving every file and folder after it on disk.
         internal static void DeleteTree(string root)
         {
             var pending = new Stack<(string Dir, bool Emptied)>();
@@ -76,22 +78,34 @@ namespace ToolBelt.IO
             while (pending.Count > 0)
             {
                 (string dir, bool emptied) = pending.Pop();
-                if (emptied) { Directory.Delete(Exact(dir)); continue; }
+                if (emptied) { Try(() => Directory.Delete(Exact(dir))); continue; }
                 pending.Push((dir, true));
-                foreach (string f in List(dir, directories: false))
-                {
-                    FileAttributes a = File.GetAttributes(Exact(f));
-                    if ((a & FileAttributes.ReadOnly) != 0) File.SetAttributes(Exact(f), a & ~FileAttributes.ReadOnly);
-                    File.Delete(Exact(f));
-                }
-                foreach (string sub in List(dir, directories: true))
-                {
-                    FileAttributes a = File.GetAttributes(Exact(sub));
-                    if ((a & FileAttributes.ReadOnly) != 0) File.SetAttributes(Exact(sub), a & ~FileAttributes.ReadOnly);
-                    if ((a & FileAttributes.ReparsePoint) != 0) Directory.Delete(Exact(sub));
-                    else pending.Push((sub, false));
-                }
+                string[] files = Array.Empty<string>(), subs = Array.Empty<string>();
+                Try(() => files = List(dir, directories: false));
+                foreach (string f in files)
+                    Try(() =>
+                    {
+                        FileAttributes a = File.GetAttributes(Exact(f));
+                        if ((a & FileAttributes.ReadOnly) != 0) File.SetAttributes(Exact(f), a & ~FileAttributes.ReadOnly);
+                        File.Delete(Exact(f));
+                    });
+                Try(() => subs = List(dir, directories: true));
+                foreach (string sub in subs)
+                    Try(() =>
+                    {
+                        FileAttributes a = File.GetAttributes(Exact(sub));
+                        if ((a & FileAttributes.ReadOnly) != 0) File.SetAttributes(Exact(sub), a & ~FileAttributes.ReadOnly);
+                        if ((a & FileAttributes.ReparsePoint) != 0) Directory.Delete(Exact(sub));
+                        else pending.Push((sub, false));
+                    });
             }
+        }
+
+        private static void Try(Action action)
+        {
+            try { action(); }
+            catch (IOException) { /* best-effort: left on disk */ }
+            catch (UnauthorizedAccessException) { /* best-effort: left on disk */ }
         }
 
         // Win32 path normalisation drops a trailing dot or space from each name, so a listed file "a." was read, replaced

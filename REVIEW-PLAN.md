@@ -48,7 +48,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 5 | 21 / 127 | re-queue (21 bugs, none severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 5 | 10 / 67 | re-queue (10 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 5 | 24 / 117 | re-queue (24 bugs, none severe) |
-| 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 5 | 24 / 149 | re-queue (24 bugs, 1 severe) |
+| 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 6 | 4 / 153 | re-queue (4 bugs, 1 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 5 | 16 / 87 | re-queue (16 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 5 | 15 / 114 | re-queue (15 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 5 | 15 / 90 | re-queue (15 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); **next: 8**, then 4, 9, 10, 11, 6, 7, 5, 16, 12, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); **next: 4**, then 9, 10, 11, 6, 7, 5, 16, 12, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -167,11 +167,33 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.7 | 91 | Security, net, time, fifth pass | 11 | (see tag) |
 | v2026.11.16.8 | 92 | Security, net, time, sixth pass | 3 | (see tag) |
 | v2026.11.16.9 | 93 | Objects, functional, grids, graphs, intervals, sixth pass | 3 | (see tag) |
+| v2026.11.16.10 | 94 | IO, sixth pass | 4 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 94: IO, sixth pass (v2026.11.16.10)
+
+Two fresh reviewers (correctness, robustness): 4 bugs, 1 severe, so section 8 stays re-queued. FileRetention's
+wildcard matching agreed with the BCL's Win32 matcher on 300,000 random pairs, and seven other crafted tar metadata
+sequences gave the guard and TarReader the same reading. The regression tests are in `IOReview94Tests` (6); each
+regression fails on the old code, run by name under a 60 s timeout, and `Tar_GnuLongNamesStillRead` is a guard.
+
+- **TarUtils metadata guard (severe):** a GNU long-name header followed by a PAX header put the guard out of step
+  with TarReader, which reads that PAX header as an ordinary entry and ignores its size; the guard applied the size
+  to the next header, so a later 1.5 GB "x" header got through and a 5 KB archive made `ListEntries` (or
+  `ExtractToDirectory`) allocate gigabytes. GNU and PAX metadata headers before one entry are refused (GNU's own K
+  then L is still read). A PAX `size=` with more than 18 digits of leading zeros, which TarReader reads, was refused.
+- **TempDirectory.Dispose** stopped at the first file it could not delete (one still open), leaving everything after
+  it on disk. Each entry is tried; only those that cannot go are left.
+- **ZipUtils and TarUtils extraction:** a file entry whose path is an existing folder threw a bare
+  UnauthorizedAccessException naming nothing. It throws IOException naming the entry and the path.
+
+Still suspected (BUGLIST R94-1..4): tar's self-exclusion through a short name or junction (it fails on a sharing
+violation rather than packing itself), a folder holding only the archive left out, AtomicFile's ".bak" past the
+255-character name limit (the write fails; the original is kept), and zip directory entries ending in a backslash.
+
 ### Round 93: Objects, functional, grids, graphs, intervals, sixth pass (v2026.11.16.9)
 
 Two fresh reviewers (correctness, robustness): 3 bugs, none severe, so section 14 stays re-queued. RangeMap,
