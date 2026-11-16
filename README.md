@@ -875,6 +875,7 @@ tests/
       NumericsCoreReview3Tests.cs    (third-pass regressions: LU and cubic overflow, false root convergence, tiny-scale splines and stats)
       NumericsCoreReview4Tests.cs    (fourth-pass regressions: overflowing Simpson, LU growth, angles, splines, means, IDW, cubic double roots)
       NumericsCoreReview85Tests.cs   (round 85: double roots of exact cubics, aliased Simpson samples, tiny knots beside huge ones, exact angle units, uncertainty digits, bounds of means and scaling)
+      NumericsCoreReview95Tests.cs   (round 95: subnormal fractions, roots past the double range, tiny weights, data a few ulps apart, uniform NextInt64, Poisson zero draws)
       NumericsExtremeReview56Tests.cs (round 56, cross-cutting: values near MaxValue, subnormals, infinities, sizes past Array.MaxLength)
       NumericsReviewRegressionTests.cs  (2026-10-05 review regressions: Numerics and Signal)
       StreamingQuantileTests.cs

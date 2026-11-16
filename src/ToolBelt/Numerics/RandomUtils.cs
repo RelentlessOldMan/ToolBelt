@@ -153,7 +153,9 @@ namespace ToolBelt.Numerics
                 double us = 0.5 - Math.Abs(u);
                 double kd = Math.Floor((2 * a / us + b) * u + lambda + 0.43);
                 if (us >= 0.07 && v <= vr) return (int)kd;
-                if (kd < 0 || (us < 0.013 && v > us)) continue;
+                // v = 0 made the test below log 0 = −∞ and accepted any kd, up to 1e15 when u was at its edge, which (int)
+                // turned into int.MinValue.
+                if (kd < 0 || kd > int.MaxValue || v == 0 || (us < 0.013 && v > us)) continue;
                 if (Math.Log(v) + Math.Log(invAlpha) - Math.Log(a / (us * us) + b) <= -lambda + kd * logLam - LnGamma(kd + 1))
                     return (int)kd;
             }

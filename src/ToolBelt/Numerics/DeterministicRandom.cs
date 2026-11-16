@@ -102,14 +102,20 @@ namespace ToolBelt.Numerics
             return NextInt64(0, maxValue);
         }
 
-        /// <remarks>Modulo reduction, with the same negligible bias as <see cref="Next(int, int)"/>.</remarks>
+        /// <remarks>Uniform: a draw past the last whole multiple of the range is drawn again (rare except for ranges near
+        /// 2⁶⁴), and every other draw gives the value plain modulo reduction gave.</remarks>
         public override long NextInt64(long minValue, long maxValue)
         {
             if (minValue > maxValue)
                 throw new ArgumentOutOfRangeException(nameof(minValue), "minValue must not exceed maxValue.");
             ulong range = unchecked((ulong)maxValue - (ulong)minValue);
             if (range == 0) return minValue;
-            return unchecked(minValue + (long)(NextUInt64() % range));
+            // Plain modulo favoured the first 2⁶⁴ mod range values: for a range of 3·2⁶², the first third of it came up
+            // half the time, though the remarks called the bias negligible.
+            ulong excess = unchecked(0UL - range) % range; // 2⁶⁴ mod range
+            ulong x;
+            do x = NextUInt64(); while (x > ulong.MaxValue - excess);
+            return unchecked(minValue + (long)(x % range));
         }
 
         public override float NextSingle() => (NextUInt64() >> 40) * (1.0f / 16777216.0f); // 24 bits in [0, 1)

@@ -21,3 +21,6 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R94-2 | P3 | 8 | suspected | `TarUtils.CreateFromDirectory` leaves out a folder whose only file is the archive being written. | review r94 |
 | R94-3 | P3 | 8 | suspected | `AtomicFile` with a backup fails on names of 252 characters or more ("<name>.bak" passes the 255-character limit); the original is kept, but the write is refused. Undocumented. | review r94 |
 | R94-4 | P3 | 8 | suspected | A zip made on Unix with a directory entry ending in a backslash is extracted as a file; on Unix, extraction treats a backslash as a separator while creation keeps it as a name character. | review r94 |
+| R95-1 | P3 | 4 | suspected | `RandomUtils.NextGamma` with a subnormal shape below 1 and a zero draw computes `Math.Pow(1, ∞)`, which is 1 on .NET Core but may be NaN on .NET Framework 4.8. Not run there. | review r95 |
+| R95-2 | P3 | 4 | suspected | `Angle` normalisation of ±∞ returns NaN rather than throwing; whether the contract allows it was not judged. | review r95 |
+| R95-3 | P3 | 4 | suspected | `Primes.Sieve(int.MaxValue)` and `Polynomial.Fit` at its n·m cap run out of memory (OutOfMemoryException) instead of rejecting the size; neither limit is documented. | review r95 |

@@ -63,23 +63,25 @@ namespace ToolBelt.Numerics
                 shiftX += xs[i] / px - x0;
                 shiftY += ys[i] / py - y0;
             }
-            double meanX = x0 + shiftX / n, meanY = y0 + shiftY / n;
+            double mx = shiftX / n, my = shiftY / n, meanX = x0 + mx, meanY = y0 + my;
 
-            // Deviations relative to each variable's largest: squared outright they underflowed to zero (or overflowed)
-            // for data near 1e±160, reading a varying x as constant.
+            // Deviations are the offsets from the first point less their mean: x − meanX lost them when the mean rounded
+            // onto the data's own grid ({1, 1 + 2^-52} gave half the slope and R² 0.5). They are taken relative to each
+            // variable's largest: squared outright they underflowed to zero (or overflowed) for data near 1e±160, reading
+            // a varying x as constant.
             double maxX = 0, maxY = 0;
             for (int i = 0; i < n; i++)
             {
-                maxX = Math.Max(maxX, Math.Abs(xs[i] / px - meanX));
-                maxY = Math.Max(maxY, Math.Abs(ys[i] / py - meanY));
+                maxX = Math.Max(maxX, Math.Abs((xs[i] / px - x0) - mx));
+                maxY = Math.Max(maxY, Math.Abs((ys[i] / py - y0) - my));
             }
             double sx = Pow2Scale(maxX), sy = Pow2Scale(maxY);
 
             double sxx = 0, sxy = 0, syy = 0;
             for (int i = 0; i < n; i++)
             {
-                double dx = (xs[i] / px - meanX) / sx;
-                double dy = (ys[i] / py - meanY) / sy;
+                double dx = ((xs[i] / px - x0) - mx) / sx;
+                double dy = ((ys[i] / py - y0) - my) / sy;
                 sxx += dx * dx;
                 sxy += dx * dy;
                 syy += dy * dy;

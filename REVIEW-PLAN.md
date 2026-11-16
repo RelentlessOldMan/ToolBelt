@@ -44,7 +44,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 5 | 14 / 73 | re-queue (14 bugs, none severe) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 5 | 17 / 100 | re-queue (17 bugs, none severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 5 | 13 / 122 | re-queue (13 bugs, none severe) |
-| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 5 | 23 / 142 | re-queue (23 bugs, 1 severe) |
+| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 6 | 8 / 150 | re-queue (8 bugs, none severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 5 | 21 / 127 | re-queue (21 bugs, none severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 5 | 10 / 67 | re-queue (10 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 5 | 24 / 117 | re-queue (24 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); **next: 4**, then 9, 10, 11, 6, 7, 5, 16, 12, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); **next: 9**, then 10, 11, 6, 7, 5, 16, 12, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -168,11 +168,44 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.8 | 92 | Security, net, time, sixth pass | 3 | (see tag) |
 | v2026.11.16.9 | 93 | Objects, functional, grids, graphs, intervals, sixth pass | 3 | (see tag) |
 | v2026.11.16.10 | 94 | IO, sixth pass | 4 | (see tag) |
+| v2026.11.16.11 | 95 | Numerics core, sixth pass | 8 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 95: Numerics core, sixth pass (v2026.11.16.11)
+
+Two fresh reviewers (correctness, robustness): 8 bugs, none severe, so section 4 stays re-queued. The correctness
+reviewer did not reach AkimaSpline, LookupTable, ScatteredInterpolation, StreamingQuantile, Differentiation,
+Uncertainty, Vector2 or EngineeringNotation; the next pass should start there. The regression tests are in
+`NumericsCoreReview95Tests` (13); each regression fails on the old code, run by name under a 60 s timeout.
+`Fraction_SubnormalResultsMatchACorrectlyRoundedReference` and `NextInt64_ASmallRangeKeepsItsSequence` are guards.
+
+- **RandomUtils.NextPoisson** could return int.MinValue: a zero uniform draw made the PTRS acceptance test compare
+  log 0 = −∞ and accept any count, up to 1e15 when the other draw sat at the edge of the hat. Such draws are redrawn.
+- **DeterministicRandom.NextInt64(min, max)** used plain modulo reduction, documented as a negligible bias: for a
+  range of 3·2^62 the first third of the range came up half the time. A draw past the last whole multiple of the
+  range is redrawn; every other draw gives the value it gave before, so small ranges keep their sequences.
+- **LinearRegression.Fit and ZScore.Standardize** lost data spread over a few ulps: the mean rounded onto the
+  data's own grid, so the deviations were off-centre (`{1, 1 + 2^-52}` fitted half the slope with R² 0.5, and
+  scored 0 and 1.414). Deviations are the offsets from the first point less their mean.
+- **Polynomial.RealRoots:** a quadratic whose coefficients span more than the double range lost a root to
+  underflow (1e300x² − 1e-300 gave [−0]); x is now scaled to balance a against c, and the roots come back through
+  the mantissas. A cubic's monic coefficient could underflow the same way (1e300x³ − 1e-300 gave [0], not 1e-200);
+  the monic shift also scales x up where that keeps every coefficient normal.
+- **WeightedAverage.Compute:** a weight far below the largest flushed to 0 when the weights were scaled, though its
+  product with a huge value dominated ({1e308, 0} weighted {1e-300, 1e300} gave 0, not 1e-292). Products are formed
+  from the mantissas, and the mean is taken about the value nearest 0, not the first one, which cancelled there.
+- **Fraction.ToDouble** rounded a subnormal result twice ((3·2^59 − 1)/2^1134 gave 1e-323, not 5e-324). It is
+  rounded once, to a multiple of 2^-1074.
+
+Hardening without a public repro: the ScaleB copies in LinearAlgebra, Polynomial, WeightedAverage and ZScore rounded
+twice when a step went subnormal and was scaled again; a result below the normal range is now reached in one
+multiplication. Still suspected (BUGLIST R95-1..3): NextGamma's `Pow(1, ∞)` on .NET Framework, `Angle`'s
+normalisation of an infinite angle (NaN, not an exception), and the sizes at which `Primes.Sieve` and
+`Polynomial.Fit` run out of memory instead of rejecting the argument.
+
 ### Round 94: IO, sixth pass (v2026.11.16.10)
 
 Two fresh reviewers (correctness, robustness): 4 bugs, 1 severe, so section 8 stays re-queued. FileRetention's

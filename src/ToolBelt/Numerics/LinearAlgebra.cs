@@ -238,12 +238,29 @@ namespace ToolBelt.Numerics
             return e == 0 ? Exponent(x * 18446744073709551616.0) - 64 : e - 1023;
         }
 
-        // x·2^k without overflowing the factor itself (2^k alone is out of range for |k| > 1023).
+        // x·2^k without overflowing the factor itself (2^k alone is out of range for |k| > 1023), rounded once. Steps of
+        // 2^±1022 are exact while the result is normal; one that went subnormal and was scaled again rounded twice, so a
+        // result below the normal range is reached from 2^-1022 in a single multiplication.
         private static double ScaleB(double x, int k)
+        {
+            if (x == 0 || double.IsNaN(x) || double.IsInfinity(x)) return x;
+            long kk = k;
+            if (Math.Abs(x) < 2.2250738585072014E-308) { x *= 18446744073709551616.0; kk -= 64; } // subnormal: made normal, exactly
+            int e = Exponent(Math.Abs(x));
+            long target = e + kk; // the result's exponent
+            if (target > 1023) return x > 0 ? double.PositiveInfinity : double.NegativeInfinity;
+            if (target >= -1022) return ScaleSteps(x, kk);
+            x = ScaleSteps(x, -1022 - e); // exactly ±[1, 2)·2^-1022
+            long rest = target + 1022;
+            return rest < -1022 ? x * 0.0 : x * Pow2((int)rest);
+        }
+
+        // Exact: x and x·2^k are normal, and so is every step between them.
+        private static double ScaleSteps(double x, long k)
         {
             while (k > 1023) { x *= Pow2(1023); k -= 1023; }
             while (k < -1022) { x *= Pow2(-1022); k += 1022; }
-            return x * Pow2(k);
+            return x * Pow2((int)k);
         }
 
         private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);

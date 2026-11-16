@@ -88,6 +88,16 @@ namespace ToolBelt.Numerics
             int s = 62 - (BitLength(an) - BitLength(d));
             BigInteger q = s >= 0 ? BigInteger.DivRem(an << s, d, out BigInteger rem) : BigInteger.DivRem(an, d << -s, out rem);
             if (!rem.IsZero) q |= BigInteger.One;
+            // A subnormal result has fewer than 53 bits: rounding the quotient to a double and then to the subnormal rounded
+            // twice ((3·2^59 − 1)/2^1134 gave 1e-323, not 5e-324). It is rounded once, to a multiple of 2^-1074.
+            if (BitLength(q) - 1 - s < -1022)
+            {
+                BigInteger units = BigInteger.DivRem(an << 1074, d, out BigInteger r);
+                int half = (r << 1).CompareTo(d);
+                if (half > 0 || (half == 0 && !units.IsEven)) units += BigInteger.One;
+                double tiny = (long)units * double.Epsilon; // at most 2^52 units: exact
+                return n.Sign < 0 ? -tiny : tiny;
+            }
             double result = ScaleByPowerOfTwo((long)q, -s);
             return n.Sign < 0 ? -result : result;
         }

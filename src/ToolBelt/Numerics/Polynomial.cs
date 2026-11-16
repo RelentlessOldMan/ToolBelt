@@ -202,16 +202,26 @@ namespace ToolBelt.Numerics
         private double[] QuadraticRoots()
         {
             double a = _coefficients[2], b = _coefficients[1], c = _coefficients[0];
-            // Scale by a power of two (exact, roots unchanged) so the largest coefficient is in [1, 2): b² can then neither
-            // overflow (x² + 1e200x + 1 gave [−∞, −0]) nor underflow (−1e-320x² + 1e-320 gave [−0]).
-            int e = Exponent(Math.Max(Math.Abs(a), Math.Max(Math.Abs(b), Math.Abs(c))));
-            a = ScaleB(a, -e); b = ScaleB(b, -e); c = ScaleB(c, -e);
-            double disc = b * b - 4 * a * c;
+            // In y = x / 2^k, with k balancing a against c, scaled by a power of two (exact, roots unchanged) so the largest
+            // coefficient is in [1, 2): b² can then neither overflow (x² + 1e200x + 1 gave [−∞, −0]) nor underflow
+            // (−1e-320x² + 1e-320 gave [−0]). Scaling the coefficients alone flushed a small one to 0 when they spanned more
+            // than the double range (1e300x² − 1e-300 gave [−0], not ±1e-300).
+            int ea = Exponent(Math.Abs(a));
+            int ec = c == 0 ? 0 : Exponent(Math.Abs(c));
+            int k = c == 0 ? 0 : FloorDiv(ec - ea, 2);
+            int e = ea + 2 * k;
+            if (b != 0) e = Math.Max(e, Exponent(Math.Abs(b)) + k);
+            if (c != 0) e = Math.Max(e, ec);
+            double sa = ScaleB(a, 2 * k - e), sb = ScaleB(b, k - e), sc = ScaleB(c, -e);
+            double disc = sb * sb - 4 * sa * sc;
             if (disc < 0) return Array.Empty<double>();
-            if (disc == 0) return new[] { -b / (2 * a) };
+            // Back to x = 2^k·y through the mantissas of a and c, so no quotient overflows or underflows on the way.
+            double ma = ScaleB(a, -ea);
+            if (disc == 0) return new[] { ScaleB(-sb / (2 * ma), e - k - ea) };
             // Stable form: (−b ± √D)/2a loses the small root to cancellation when b² ≫ 4ac.
-            double q = -0.5 * (b + (b >= 0 ? Math.Sqrt(disc) : -Math.Sqrt(disc)));
-            double r1 = q / a, r2 = c / q;
+            double q = -0.5 * (sb + (sb >= 0 ? Math.Sqrt(disc) : -Math.Sqrt(disc)));
+            double r1 = ScaleB(q / ma, e - k - ea);
+            double r2 = c == 0 ? c / q : ScaleB(ScaleB(c, -ec) / q, ec + k - e);
             return r1 <= r2 ? new[] { r1, r2 } : new[] { r2, r1 };
         }
 
@@ -343,18 +353,26 @@ namespace ToolBelt.Numerics
             if (!double.IsNaN(best)) roots.Add(ScaleB(best, k));
         }
 
-        // The least ks ≥ 0 that keeps every |c_i / c_3| / 2^((3 − i)·ks) below 2^1023, so the monic coefficients are finite.
+        // The ks that keeps every |c_i / c_3| / 2^((3 − i)·ks) below 2^1023, so the monic coefficients are finite, and where
+        // it can at least 2^-1022, so none is lost to underflow (1e300x³ − 1e-300 gave [0], not 1e-200): the least ks ≥ 0
+        // for the first, else the greatest ks ≤ 0 for the second, else 0.
         private int MonicShift()
         {
-            int e3 = Exponent(Math.Abs(_coefficients[3])), ks = 0;
+            int e3 = Exponent(Math.Abs(_coefficients[3]));
+            int lo = int.MinValue, hi = int.MaxValue;
             for (int i = 0; i < 3; i++)
             {
                 if (_coefficients[i] == 0) continue;
-                int excess = Exponent(Math.Abs(_coefficients[i])) + 1 - e3 - 1023; // |c_i / c_3| < 2^(excess + 1023)
-                if (excess > 0) ks = Math.Max(ks, (excess + 2 - i) / (3 - i));
+                int rel = Exponent(Math.Abs(_coefficients[i])) - e3; // |c_i / c_3| in [2^(rel − 1), 2^(rel + 1))
+                lo = Math.Max(lo, -FloorDiv(-(rel + 1 - 1023), 3 - i));
+                hi = Math.Min(hi, FloorDiv(rel - 1 + 1022, 3 - i));
             }
-            return ks;
+            if (lo > 0) return lo;
+            if (hi < 0) return Math.Max(lo, hi);
+            return 0;
         }
+
+        private static int FloorDiv(int a, int b) => a / b - (a % b != 0 && (a < 0) != (b < 0) ? 1 : 0);
 
         // The two roots left after dividing the monic cubic by (x − x1): their product is −d/x1 and their sum
         // (c − product)/x1, both free of cancellation when x1 is the largest root. When the roots are known to be
@@ -407,12 +425,29 @@ namespace ToolBelt.Numerics
             return e == 0 ? Exponent(x * 18446744073709551616.0) - 64 : e - 1023;
         }
 
-        // x·2^k without overflowing the factor itself (2^k alone is out of range for |k| > 1023).
+        // x·2^k without overflowing the factor itself (2^k alone is out of range for |k| > 1023), rounded once. Steps of
+        // 2^±1022 are exact while the result is normal; one that went subnormal and was scaled again rounded twice, so a
+        // result below the normal range is reached from 2^-1022 in a single multiplication.
         private static double ScaleB(double x, int k)
+        {
+            if (x == 0 || double.IsNaN(x) || double.IsInfinity(x)) return x;
+            long kk = k;
+            if (Math.Abs(x) < 2.2250738585072014E-308) { x *= 18446744073709551616.0; kk -= 64; } // subnormal: made normal, exactly
+            int e = Exponent(Math.Abs(x));
+            long target = e + kk; // the result's exponent
+            if (target > 1023) return x > 0 ? double.PositiveInfinity : double.NegativeInfinity;
+            if (target >= -1022) return ScaleSteps(x, kk);
+            x = ScaleSteps(x, -1022 - e); // exactly ±[1, 2)·2^-1022
+            long rest = target + 1022;
+            return rest < -1022 ? x * 0.0 : x * Pow2((int)rest);
+        }
+
+        // Exact: x and x·2^k are normal, and so is every step between them.
+        private static double ScaleSteps(double x, long k)
         {
             while (k > 1023) { x *= Pow2(1023); k -= 1023; }
             while (k < -1022) { x *= Pow2(-1022); k += 1022; }
-            return x * Pow2(k);
+            return x * Pow2((int)k);
         }
 
         private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
