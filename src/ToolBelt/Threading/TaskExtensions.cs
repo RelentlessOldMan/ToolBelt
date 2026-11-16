@@ -45,9 +45,22 @@ namespace ToolBelt.Threading
         }
 
         // A task given up on that faults later: its exception went unobserved (an UnobservedTaskException at a later GC).
-        private static void Observe(Task task) =>
-            task.ContinueWith(t => _ = t.Exception, CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        // Once per task: a continuation per give-up piled up on a long-lived task polled with short timeouts (a million
+        // WithTimeout(0) calls kept a million continuations, 122 MB).
+        private static void Observe(Task task)
+        {
+            if (task.IsCompleted) { _ = task.Exception; return; }
+            s_observed.GetValue(task, t =>
+            {
+                t.ContinueWith(c => _ = c.Exception, CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                return s_observedMark;
+            });
+        }
+
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Task, object> s_observed =
+            new System.Runtime.CompilerServices.ConditionalWeakTable<Task, object>();
+        private static readonly object s_observedMark = new object();
 
         private static Task StartDelay(TimeSpan timeout, CancellationToken cancellationToken)
         {

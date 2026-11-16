@@ -42,6 +42,8 @@ namespace ToolBelt.Threading
         private volatile bool _drained; // the consumer stopped because the buffer emptied after completion
         private int _disposed;
         [ThreadStatic] private static object? t_reporting; // the pipeline whose onError this thread is running
+        // The pipeline whose consumer this flow is: set on the consumer thread, so it follows the callback across awaits.
+        private static readonly AsyncLocal<object?> s_consuming = new AsyncLocal<object?>();
 
         public ConcurrentPipeline(
             Func<T, CancellationToken, Task> consumer,
@@ -103,6 +105,10 @@ namespace ToolBelt.Threading
             bool evicted = false;
             lock (_gate)
             {
+                // The drop policies never looked: after Dispose a full buffer dropped (or evicted) and returned, and a
+                // call from onError returned true for an item the stopped consumer would never process.
+                if (Volatile.Read(ref _disposed) == 1)
+                    throw new ObjectDisposedException(GetType().Name);
                 if (_completed == 1)
                     throw Completed();
                 if (_queue.Count >= _capacity)
@@ -128,12 +134,17 @@ namespace ToolBelt.Threading
         /// <summary>
         /// Signals that no more items will be added, then waits for the buffer to drain. Throws
         /// <see cref="ObjectDisposedException"/> if the pipeline was disposed before every buffered item was processed.
+        /// Called from the consumer callback (a consumer that stops on a sentinel item), it marks the pipeline completed and
+        /// returns without waiting: the rest of the buffer drains after the callback returns.
         /// </summary>
         public async Task CompleteAsync()
         {
             // Under the gate, so no enqueue can land after the consumer has seen "completed and empty".
             lock (_gate) Volatile.Write(ref _completed, 1);
             _signal.Release(); // wake the consumer so it can observe completion
+            // From the consumer, waiting for the drain waited on the caller itself: it hung, and so did every later
+            // CompleteAsync and Dispose.
+            if (ReferenceEquals(s_consuming.Value, this)) return;
             await _loop.ConfigureAwait(false);
             // A Dispose racing the drain stopped the consumer with items still buffered, and this reported success.
             if (!_drained)
@@ -142,6 +153,7 @@ namespace ToolBelt.Threading
 
         private void Consume(CancellationToken ct)
         {
+            s_consuming.Value = this;
             while (true)
             {
                 try { _signal.Wait(ct); }
@@ -186,9 +198,9 @@ namespace ToolBelt.Threading
         }
 
         /// <summary>
-        /// Cancels processing and waits for the consumer to stop. Do not call from within the consumer
-        /// callback itself. Called from the <c>onError</c> callback it cancels without waiting, since the consumer is
-        /// the caller. For an orderly drain of buffered items, call <see cref="CompleteAsync"/> first.
+        /// Cancels processing and waits for the consumer to stop. Called from the consumer callback or from
+        /// <c>onError</c> it cancels without waiting, since the consumer is the caller. For an orderly drain of buffered
+        /// items, call <see cref="CompleteAsync"/> first.
         /// </summary>
         public void Dispose()
         {
@@ -199,7 +211,7 @@ namespace ToolBelt.Threading
             catch (AggregateException ex) { cancelError = ex; }
             // From onError the consumer is this thread: waiting for it deadlocked. It stops when onError returns, and
             // its cancellation source and semaphores are left to the collector (they hold no handles here).
-            if (!ReferenceEquals(t_reporting, this))
+            if (!ReferenceEquals(t_reporting, this) && !ReferenceEquals(s_consuming.Value, this))
             {
                 try { _loop.Wait(); }
                 catch (AggregateException) { /* cancellation */ }
