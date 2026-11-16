@@ -21,6 +21,9 @@ namespace ToolBelt.Signal
             int n = samples.Length;
             if (n < 2) throw new ArgumentException("Need at least two samples.", nameof(samples));
             if (tapers < 1 || tapers > n / 2) throw new ArgumentOutOfRangeException(nameof(tapers), tapers, "Use between 1 and N/2 tapers.");
+            // Fft refused it only after the arrays below, and named its own parameter ("real").
+            if ((n & (n - 1)) != 0 && 2L * n - 1 > 1 << 30)
+                throw new ArgumentException($"A length-{n} signal that is not a power of two is too long for the FFT (2n − 1 ≤ 2^30); pad it to a power of two.", nameof(samples));
 
             int bins = n / 2 + 1;
             bool even = n % 2 == 0;

@@ -88,8 +88,13 @@ namespace ToolBelt.Signal
         {
             if (window is null) throw new ArgumentNullException(nameof(window));
             if (window.Length == 0) throw new ArgumentException("Window is empty.", nameof(window));
+            // Divided once at the end: divided entry by entry, subnormal windows underflowed ([ε, ε] gave 0). Only a plain
+            // sum that overflows divides each entry first.
             double sum = 0;
-            foreach (var v in window) sum += v / window.Length;               // the plain sum overflowed for huge entries
+            foreach (var v in window) sum += v;
+            if (!double.IsInfinity(sum)) return sum / window.Length;
+            sum = 0;
+            foreach (var v in window) sum += v / window.Length;
             return sum;
         }
 

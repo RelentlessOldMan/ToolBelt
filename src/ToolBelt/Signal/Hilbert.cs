@@ -1,4 +1,4 @@
-// ToolBelt drop-in — self-contained; depends on ToolBelt.Signal.Fft.
+// ToolBelt drop-in — self-contained; depends on ToolBelt.Signal.Fft and ToolBelt.Signal.PhaseUnwrap.
 using System;
 using System.Numerics;
 
@@ -20,6 +20,9 @@ namespace ToolBelt.Signal
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
             if (samples.Length == 0) return Array.Empty<Complex>();
+            // Fft refused it only after the copy below, and named its own parameter ("real").
+            if ((samples.Length & (samples.Length - 1)) != 0 && 2L * samples.Length - 1 > 1 << 30)
+                throw new ArgumentException($"A length-{samples.Length} signal that is not a power of two is too long for the FFT (2n − 1 ≤ 2^30); pad it to a power of two.", nameof(samples));
 
             // One NaN or ∞ made every output NaN, and InstantaneousFrequency then blamed a "phase" argument.
             double max = 0;
@@ -32,7 +35,9 @@ namespace ToolBelt.Signal
 
             // The spectrum is up to n times the input, so a large (representable) signal overflowed to NaN: scale it to at
             // most 1 by a power of two (exact) and scale the analytic signal back.
-            int exponent = max > 1 ? (int)Math.Ceiling(Math.Log(max, 2)) : 0;
+            // A subnormal signal is scaled up by 2^600 the same way: its spectrum lost bits ([3, 0, −3, 0, 5, 7, −2]·ε gave −2ε
+            // for −1.475ε).
+            int exponent = max > 1 ? (int)Math.Ceiling(Math.Log(max, 2)) : max > 0 && max < 3.054936363499605e-151 ? -600 : 0;   // 2^-500
             double down = Math.Pow(2, -exponent), upHalf = Math.Pow(2, exponent / 2), upRest = Math.Pow(2, exponent - exponent / 2);
             int n = samples.Length;
             var scaled = new double[n];

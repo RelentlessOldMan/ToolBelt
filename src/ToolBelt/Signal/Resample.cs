@@ -38,7 +38,7 @@ namespace ToolBelt.Signal
                 if (lo >= samples.Length - 1 || i == newLength - 1) { result[i] = samples[samples.Length - 1]; continue; }
                 double frac = pos - lo;
                 // On an input point, take it as is: 0 × a NaN or ∞ neighbour is NaN.
-                result[i] = frac == 0 ? samples[lo] : samples[lo] * (1 - frac) + samples[lo + 1] * frac;
+                result[i] = frac == 0 ? samples[lo] : Lerp(samples[lo], samples[lo + 1], frac);
             }
             return result;
         }
@@ -69,7 +69,7 @@ namespace ToolBelt.Signal
                 if (!(pos < last)) { result[i] = i == 0 ? samples[0] : samples[last]; continue; }
                 int lo = (int)pos;
                 double frac = pos - lo;
-                result[i] = frac == 0 ? samples[lo] : samples[lo] * (1 - frac) + samples[lo + 1] * frac;
+                result[i] = frac == 0 ? samples[lo] : Lerp(samples[lo], samples[lo + 1], frac);
             }
             return result;
         }
@@ -100,6 +100,14 @@ namespace ToolBelt.Signal
                 else result[i] = sum / factor;
             }
             return result;
+        }
+
+        // The difference form returns a constant signal exactly (a·(1 − t) + b·t rippled by an ulp); the weighted form is
+        // the fallback where b − a overflows.
+        private static double Lerp(double a, double b, double t)
+        {
+            double d = b - a;
+            return double.IsInfinity(d) ? a * (1 - t) + b * t : a + d * t;
         }
     }
 }

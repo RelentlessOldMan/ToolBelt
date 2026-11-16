@@ -38,7 +38,13 @@ namespace ToolBelt.Signal
                 if (Math.Abs(delta) >= tolerance)
                 {
                     double turns = Math.Floor((delta + Math.PI) / Turn);
-                    if (delta > 0 && delta - turns * Turn == -Math.PI) turns--;   // +π stays +π, as in NumPy
+                    // delta + π is rounded, so a jump a few ulps below 5π counted 3 turns and landed below −π: the remainder
+                    // itself decides (+π stays +π, as in NumPy), computed with the product's rounding error so it is rounded
+                    // once (delta − turns·2π is exact by Sterbenz's lemma).
+                    double product = turns * Turn;
+                    double rest = delta - product - ProductError(turns, Turn, product);
+                    if (rest < -Math.PI || (rest == -Math.PI && delta > 0)) turns--;
+                    else if (rest > Math.PI) turns++;
                     correction -= turns * Turn;
                 }
                 result[i] = phase[i] + correction;
@@ -47,6 +53,16 @@ namespace ToolBelt.Signal
                     throw new ArgumentException($"The jump at phase[{i}] is too large to unwrap.", nameof(phase));
             }
             return result;
+        }
+
+        // a·b − p exactly, for p = a·b rounded (Dekker's split; 0 where the split would overflow).
+        private static double ProductError(double a, double b, double p)
+        {
+            if (Math.Abs(a) > 1e290 || Math.Abs(b) > 1e290) return 0;
+            const double Split = 134217729;                                     // 2^27 + 1
+            double ah = a * Split; ah -= ah - a; double al = a - ah;
+            double bh = b * Split; bh -= bh - b; double bl = b - bh;
+            return ((ah * bh - p) + ah * bl + al * bh) + al * bl;
         }
 
         /// <summary>

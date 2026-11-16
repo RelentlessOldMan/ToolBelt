@@ -795,6 +795,7 @@ tests/
       SignalReview2Tests.cs (second-pass regressions: pulse state levels and edges, zero runs, NaN medians, overflow and scale)
       SignalReview3Tests.cs (third-pass regressions: high-order Savitzky-Golay, Bluestein and Hilbert overflow, huge-rate scaling, band edges)
       SignalReview4Tests.cs (fourth-pass regressions: spectral overflow, subnormal FFT/cycle/pulse, NumPy unwrap tolerance, sliding median/Hampel, length checks)
+      SignalReview86Tests.cs (round 86: huge power-of-two FFTs, linear rise time, exact quantizer codes, unwrap at ±π, zero signs in medians, file headers)
       WindowTests.cs
       ZeroCrossingTests.cs
     Objects/

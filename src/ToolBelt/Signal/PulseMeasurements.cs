@@ -107,12 +107,15 @@ namespace ToolBelt.Signal
             string edge = rising ? "rising" : "falling";
             double t2 = FindCrossing(samples, endRef, rising, reach: true);
             if (t2 < 0) throw new InvalidOperationException($"No {edge} edge crosses the {(rising ? "high" : "low")} reference.");
+            int searched = 0;
             while (t2 >= 0)
             {
                 // The first start-reference crossing in the record paired a glitch long before the edge with the edge's end.
-                double t1 = FindLastCrossing(samples, startRef, (int)Math.Floor(t2), rising);
+                // Each search stops where the last one began: back to index 0 every time, many partial edges took O(n²).
+                double t1 = FindLastCrossing(samples, startRef, (int)Math.Floor(t2), rising, searched);
                 if (t1 >= 0) return (t2 - t1) / sampleRate;
-                t2 = FindCrossing(samples, endRef, rising, reach: true, (int)Math.Floor(t2) + 1);
+                searched = (int)Math.Floor(t2) + 1;
+                t2 = FindCrossing(samples, endRef, rising, reach: true, searched);
             }
             throw new InvalidOperationException($"No {edge} edge crosses the {(rising ? "low" : "high")} reference.");
         }
@@ -156,10 +159,10 @@ namespace ToolBelt.Signal
             return -1;
         }
 
-        // The last crossing (leaving the level) in a segment starting at or before `end`, or -1.
-        private static double FindLastCrossing(double[] s, double level, int end, bool rising)
+        // The last crossing (leaving the level) in a segment starting at or before `end` and at or after `begin`, or -1.
+        private static double FindLastCrossing(double[] s, double level, int end, bool rising, int begin)
         {
-            for (int i = Math.Min(end, s.Length - 2); i >= 0; i--)
+            for (int i = Math.Min(end, s.Length - 2); i >= begin; i--)
                 if (Crosses(s[i], s[i + 1], level, rising, reach: false)) return i + Fraction(s[i], s[i + 1], level);
             return -1;
         }

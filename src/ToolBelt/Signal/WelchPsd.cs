@@ -27,6 +27,9 @@ namespace ToolBelt.Signal
             if (segmentLength < 2) throw new ArgumentOutOfRangeException(nameof(segmentLength), segmentLength, "Segment length must be at least 2.");
             if (segmentLength > samples.Length) throw new ArgumentException("Segment longer than the signal.", nameof(segmentLength));
             if (!(overlap >= 0 && overlap < 1)) throw new ArgumentOutOfRangeException(nameof(overlap), overlap, "Overlap must be in [0, 1).");
+            // Fft refused it only after the window was built, and named its own parameter ("real").
+            if ((segmentLength & (segmentLength - 1)) != 0 && 2L * segmentLength - 1 > 1 << 30)
+                throw new ArgumentException($"A length-{segmentLength} segment that is not a power of two is too long for the FFT (2n − 1 ≤ 2^30); use a power of two.", nameof(segmentLength));
 
             if (!Enum.IsDefined(typeof(WindowType), window)) throw new ArgumentOutOfRangeException(nameof(window), window, "Unknown window type.");
             var w = Window.Create(window, segmentLength);
@@ -50,7 +53,8 @@ namespace ToolBelt.Signal
             double downHalf = Math.Pow(2, -(exponent / 2)), downRest = Math.Pow(2, -(exponent - exponent / 2));
 
             var seg = new double[segmentLength];
-            for (int start = 0; start + segmentLength <= samples.Length; start += step)
+            // start + segmentLength wrapped past int.MaxValue for a signal near the longest array, and read past the end.
+            for (int start = 0; start <= samples.Length - segmentLength; start = step > samples.Length - segmentLength - start ? samples.Length : start + step)
             {
                 for (int i = 0; i < segmentLength; i++) seg[i] = samples[start + i] * downHalf * downRest * w[i];
                 var fft = Fft.Forward(seg);

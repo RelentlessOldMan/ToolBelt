@@ -50,14 +50,14 @@ namespace ToolBelt.Signal
             bool finite = true;
             for (int i = 0; i < data.Length; i++)
             {
-                data[i] *= scale;
+                data[i] = Scale(data[i], scale);
                 finite &= IsFinite(data[i]);
             }
             // The unscaled sum overflowed ([1e308, 1e308] gave ∞ + NaN·i); scaling first can't, but would lose denormals,
             // so it is only the fallback.
             if (!finite && AllFinite(spectrum))
             {
-                for (int i = 0; i < data.Length; i++) data[i] = spectrum[i] * scale;
+                for (int i = 0; i < data.Length; i++) data[i] = Scale(spectrum[i], scale);
                 Transform(data, inverse: true, nameof(spectrum));
             }
             return data;
@@ -65,6 +65,9 @@ namespace ToolBelt.Signal
 
         /// <summary>True if <paramref name="n"/> is a positive power of two.</summary>
         public static bool IsPowerOfTwo(int n) => n > 0 && (n & (n - 1)) == 0;
+
+        // Part by part: Complex × double is a complex product, and ∞ · (s + 0i) gives ∞ + NaN·i (Inverse([∞]) was (∞, NaN)).
+        private static Complex Scale(Complex c, double s) => new Complex(c.Real * s, c.Imaginary * s);
 
         private static bool IsFinite(Complex c)
             => !double.IsNaN(c.Real) && !double.IsInfinity(c.Real) && !double.IsNaN(c.Imaginary) && !double.IsInfinity(c.Imaginary);
@@ -92,13 +95,16 @@ namespace ToolBelt.Signal
             if ((n & (n - 1)) == 0)
             {
                 // Subnormal inputs lost bits in the twiddle products ([7ε, 3ε, 5ε, 0, 0, 0, 0, 0] was 8% off in bins 1 and 7),
-                // so a tiny input is scaled up by 2^600 (exact) and back, as Bluestein does.
+                // so a tiny input is scaled up by 2^600 (exact) and back, as Bluestein does. Huge inputs overflowed the partial
+                // sums (four 1e308s gave NaN in bins that are 0), so from 2^512 they are scaled down by 2^-512 the same way: the
+                // sums then stay under 2^543, and what that flushes to 0 is under 2^-1074 of the largest sample.
                 double max = 0;
                 for (int k = 0; k < n; k++) max = Math.Max(max, Math.Max(Math.Abs(data[k].Real), Math.Abs(data[k].Imaginary)));
-                bool tiny = max > 0 && max < 3.054936363499605e-151;                                    // 2^-500
-                if (tiny) for (int k = 0; k < n; k++) data[k] *= Math.Pow(2, 600);
+                double down = max > 0 && max < 3.054936363499605e-151 ? Math.Pow(2, 600)                // 2^-500
+                    : max >= 1.3407807929942597e154 && !double.IsInfinity(max) ? Math.Pow(2, -512) : 1;  // 2^512
+                if (down != 1) for (int k = 0; k < n; k++) data[k] = Scale(data[k], down);
                 Radix2(data, inverse);
-                if (tiny) for (int k = 0; k < n; k++) data[k] *= Math.Pow(2, -600);
+                if (down != 1) for (int k = 0; k < n; k++) data[k] = Scale(data[k], 1 / down);
             }
             else Bluestein(data, inverse, paramName);
         }
@@ -123,9 +129,10 @@ namespace ToolBelt.Signal
             double step = 2.0 * Math.PI / n * (inverse ? 1 : -1);
             for (int k = 0; k < twiddle.Length; k++) twiddle[k] = new Complex(Math.Cos(step * k), Math.Sin(step * k));
 
-            for (int len = 2; len <= n; len <<= 1)
+            // Counted by the half-length: at n = 2^30, len <<= 1 wrapped to int.MinValue, still ≤ n, and the loop never ended.
+            for (int half = 1; half < n; half <<= 1)
             {
-                int half = len >> 1, stride = n / len;
+                int len = half << 1, stride = n / len;
                 for (int i = 0; i < n; i += len)
                 {
                     for (int k = 0; k < half; k++)
@@ -173,7 +180,7 @@ namespace ToolBelt.Signal
             double upHalf = Math.Pow(2, exponent / 2), upRest = Math.Pow(2, exponent - exponent / 2);
 
             var a = new Complex[m];
-            for (int k = 0; k < n; k++) a[k] = data[k] * downHalf * downRest * chirp[k];
+            for (int k = 0; k < n; k++) a[k] = Scale(Scale(data[k], downHalf), downRest) * chirp[k];
 
             var b = new Complex[m];
             b[0] = Complex.Conjugate(chirp[0]);
@@ -190,7 +197,7 @@ namespace ToolBelt.Signal
             Radix2(a, inverse: true);
 
             double scale = 1.0 / m;
-            for (int k = 0; k < n; k++) data[k] = a[k] * scale * chirp[k] * upHalf * upRest;
+            for (int k = 0; k < n; k++) data[k] = Scale(Scale(Scale(a[k], scale) * chirp[k], upHalf), upRest);
         }
     }
 }

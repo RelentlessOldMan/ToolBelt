@@ -107,8 +107,6 @@ namespace ToolBelt.Signal
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
             if (level is double given && (double.IsNaN(given) || double.IsInfinity(given))) throw new ArgumentOutOfRangeException(nameof(level), given, "Level must be finite.");
             if (!(hysteresis >= 0 && hysteresis < 0.5)) throw new ArgumentOutOfRangeException(nameof(hysteresis), hysteresis, "Hysteresis must be in [0, 0.5).");
-            if (samples.Count < 3) return new CycleStatistics(Array.Empty<Cycle>(), level ?? double.NaN, sampleRate);
-
             double min = double.PositiveInfinity, max = double.NegativeInfinity;
             for (int i = 0; i < samples.Count; i++)
             {
@@ -117,6 +115,8 @@ namespace ToolBelt.Signal
                 min = Math.Min(min, x);
                 max = Math.Max(max, x);
             }
+            // After the finiteness check: [NaN, NaN] was measured as no cycles.
+            if (samples.Count < 3) return new CycleStatistics(Array.Empty<Cycle>(), level ?? double.NaN, sampleRate);
             // A subnormal capture lost bits in every halved level and difference (the default level 2ε for 3ε, and a ±ε
             // square wave gave 0/0 for its crossings, so no cycles): it is measured scaled up by 2^600, which is exact.
             // Crossing times don't depend on scale; the level and the extremes are scaled back.

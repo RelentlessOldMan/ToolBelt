@@ -27,7 +27,11 @@ namespace ToolBelt.Signal
             {
                 bool edge = k == 0 || (n % 2 == 0 && k == n / 2);
                 double scale = edge ? 1.0 / n : 2.0 / n;
-                result[k] = fft[k].Magnitude * scale;
+                double magnitude = fft[k].Magnitude;
+                // A bin of (Max, Max) has a magnitude past double.MaxValue but an amplitude that fits: halve the parts first.
+                if (double.IsInfinity(magnitude) && !double.IsInfinity(fft[k].Real) && !double.IsInfinity(fft[k].Imaginary))
+                    result[k] = new Complex(fft[k].Real / 2, fft[k].Imaginary / 2).Magnitude * (2 * scale);
+                else result[k] = magnitude * scale;
             }
             return result;
         }

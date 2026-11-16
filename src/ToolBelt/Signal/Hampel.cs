@@ -112,14 +112,17 @@ namespace ToolBelt.Signal
             count--;
         }
 
-        // The first index whose value is not below x.
+        // The first index whose value is not below x, with −0 ordered before +0: equal under <, a leaving −0 could remove
+        // a +0 that was still in the window (or the reverse), and a later median had the wrong sign.
         private static int LowerBound(double[] window, int count, double x)
         {
             int lo = 0, hi = count;
+            bool negativeZero = x == 0 && BitConverter.DoubleToInt64Bits(x) < 0;
             while (lo < hi)
             {
                 int mid = lo + (hi - lo) / 2;
-                if (window[mid] < x) lo = mid + 1; else hi = mid;
+                double w = window[mid];
+                if (w < x || (w == 0 && x == 0 && !negativeZero && BitConverter.DoubleToInt64Bits(w) < 0)) lo = mid + 1; else hi = mid;
             }
             return lo;
         }

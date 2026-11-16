@@ -41,7 +41,8 @@ namespace ToolBelt.Signal
             else
             {
                 double step = level - Value;                             // can overflow only after Reset to a huge negative
-                Value = double.IsInfinity(step) ? Value + (g * level - g * Value) : Value + g * step;
+                // The convex form can't overflow either (Value + (g·level − g·Value) did once g > 0.5: ∞ after Reset(−Max)).
+                Value = double.IsInfinity(step) ? (1 - g) * Value + g * level : Value + g * step;
             }
             return Value;
         }
