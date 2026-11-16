@@ -190,8 +190,9 @@ namespace ToolBelt.Visualization
                 // Bars are centred on their x, so the axis must reach half a slot past the end bars (they were
                 // cut to half width). The slot is the closest spacing of bar centres, else 1.
                 double gap = BarSpacing(series);
-                Extend(ref dxMin, ref dxMax, dxMin.Value - gap / 2);
-                Extend(ref dxMin, ref dxMax, dxMax!.Value + gap / 2);
+                // Held finite: bars at 0 and 1.7e308 padded the axis to ±∞, which AxisTicks refused (naming its "min").
+                Extend(ref dxMin, ref dxMax, Math.Max(-double.MaxValue, dxMin.Value - gap / 2));
+                Extend(ref dxMin, ref dxMax, Math.Min(double.MaxValue, dxMax!.Value + gap / 2));
             }
 
             // More ticks than pixels cannot be drawn; MaxXTicks = 100 000 000 spent seconds building them.
@@ -208,6 +209,10 @@ namespace ToolBelt.Visualization
             double left = 10 + (string.IsNullOrEmpty(o.YLabel) ? 0 : fs + 8) + (o.ShowYTickLabels ? maxYLabel + 9 : 0);
             double bottom = 10 + (o.ShowXTickLabels ? fs + 8 : 0) + (string.IsNullOrEmpty(o.XLabel) ? 0 : fs + 8);
             double right = Math.Max(14, lastXLabel / 2 + 6);
+            // NaN made every margin NaN and failed inside PlotFrame, naming its "width".
+            if (double.IsNaN(o.MinMarginLeft + o.MinMarginTop + o.MinMarginRight + o.MinMarginBottom)
+                || double.IsPositiveInfinity(Math.Max(Math.Max(o.MinMarginLeft, o.MinMarginTop), Math.Max(o.MinMarginRight, o.MinMarginBottom))))
+                throw new ArgumentOutOfRangeException("options", "MinMarginLeft, MinMarginTop, MinMarginRight and MinMarginBottom must not be NaN or +∞.");
             left = Math.Max(left, o.MinMarginLeft);
             top = Math.Max(top, o.MinMarginTop);
             right = Math.Max(right, o.MinMarginRight);

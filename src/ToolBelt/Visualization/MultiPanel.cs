@@ -129,7 +129,9 @@ namespace ToolBelt.Visualization
             int cols = Math.Min(columns, panels.Count), rows = (panels.Count + cols - 1) / cols;
             // In long: the int sizes wrapped (a huge gap gave an 8 × 8 canvas).
             long w = (long)cols * cellW + (cols + 1L) * gap, h = (long)rows * cellH + (rows + 1L) * gap;
-            if (w > int.MaxValue || h > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(gap), gap, "The composed image is too large.");
+            // The byte-array cap too: past it ImageBuffer refused it, naming its own "width".
+            if (w > int.MaxValue || h > int.MaxValue || (double)w * h * 4 > 0x7FFFFFC7)
+                throw new ArgumentOutOfRangeException(nameof(gap), gap, "The composed image is too large.");
             var image = new ImageBuffer((int)w, (int)h, background ?? Rgba.White);
             for (int i = 0; i < panels.Count; i++)
                 image.Blit(panels[i], gap + i % cols * (cellW + gap), gap + i / cols * (cellH + gap));

@@ -90,7 +90,9 @@ namespace ToolBelt.Visualization
             else
             {
                 t = max == min ? 0.5
-                    : double.IsInfinity(max - min) ? (v / 2 - min / 2) / (max / 2 - min / 2) // a ±1e308 range overflowed
+                    // A ±1e308 range overflowed; so did v − min for a value far outside a finite range, which mapped to ±∞
+                    // rather than outside the area (LinePlot dropped the segment, SvgChart drew a dot).
+                    : double.IsInfinity(max - min) || double.IsInfinity(v - min) ? (v / 2 - min / 2) / (max / 2 - min / 2)
                     : (v - min) / (max - min);
             }
             return invert ? origin + extent - t * extent : origin + t * extent;

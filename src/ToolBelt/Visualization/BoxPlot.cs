@@ -154,7 +154,8 @@ namespace ToolBelt.Visualization
             // Halved when the span overflows (data near ±double.MaxValue): ∞ put every box on the bottom row.
             bool halve = double.IsInfinity(range);
             // Doubles, clipped when drawn: a value outside an explicit Min/Max overflowed the int cast.
-            double MapY(double v) => halve ? bottom - (0.5 * v - 0.5 * minV) / (0.5 * maxV - 0.5 * minV) * plotHeight
+            // Halved when v − minV overflows too: an upper whisker far above an explicit Max mapped to ∞ and was not drawn.
+            double MapY(double v) => halve || double.IsInfinity(v - minV) ? bottom - (0.5 * v - 0.5 * minV) / (0.5 * maxV - 0.5 * minV) * plotHeight
                 : range > 0 ? bottom - (v - minV) / range * plotHeight : (top + bottom) / 2;
 
             int plotWidth = right - left;

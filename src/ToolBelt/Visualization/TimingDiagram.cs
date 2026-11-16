@@ -175,6 +175,8 @@ namespace ToolBelt.Visualization
             var times = signals.SelectMany(s => s.Changes.Select(c => c.Time)).ToList();
             double t0 = o.Start ?? (times.Count > 0 ? times.Min() : 0), t1 = o.End ?? (times.Count > 0 ? times.Max() : 1);
             // One unit was below the spacing of doubles past 2^53 (epoch nanoseconds), so t1 == t0 and every x was 0/0.
+            // An End at or before every change was replaced by t0 + 1, silently: the window opens before End instead.
+            if (!(t1 > t0) && o.End.HasValue && !o.Start.HasValue) t0 = Math.Max(-double.MaxValue, t1 - Math.Max(1, Math.Abs(t1) * 1e-9));
             if (!(t1 > t0)) t1 = t0 + Math.Max(1, Math.Abs(t0) * 1e-9);
             if (double.IsInfinity(t1)) { t1 = double.MaxValue; t0 = Math.Min(t0, t1 - Math.Max(1, Math.Abs(t1) * 1e-9)); }
             Func<double, string> fmt = o.FormatTime ?? FormatSeconds;
@@ -353,8 +355,9 @@ namespace ToolBelt.Visualization
             // Below half a femtosecond the picoseconds rounded to "0 ps", and 1e300 s printed all 301 digits.
             if (a < 5e-16 || a >= 1e15) return seconds.ToString("0.###e+0", CultureInfo.InvariantCulture) + " s";
             (double scale, string unit) = a >= 1 ? (1, "s") : a >= 1e-3 ? (1e3, "ms") : a >= 1e-6 ? (1e6, "µs") : a >= 1e-9 ? (1e9, "ns") : (1e12, "ps");
-            // Choose the unit after rounding: 0.9999999 s came out as "1000 ms".
-            if (Math.Round(a * scale, 3) >= 1000 && scale > 1)
+            // Choose the unit after rounding: 0.9999999 s came out as "1000 ms". By the label's own rounding: Math.Round's
+            // ties-to-even disagreed with the format string at 999.9995, printing "1000 ps" for 9.999995e-10.
+            if (scale > 1 && double.Parse((a * scale).ToString("0.###", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture) >= 1000)
             {
                 scale /= 1000;
                 unit = unit == "ms" ? "s" : unit == "µs" ? "ms" : unit == "ns" ? "µs" : "ns";

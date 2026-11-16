@@ -92,8 +92,10 @@ namespace ToolBelt.Visualization
             // 0.3 fell in the bin below); i·width only when span·bins overflows (ranges near ±double.MaxValue).
             double span = hi - lo;
             bool exact = !double.IsInfinity(span * bins);
+            // i·width alone overflowed past the middle of a ±1.7e308 range (edges of +∞, the maximum counted in a middle bin):
+            // halved, it stays finite. Held in [previous edge, hi] so rounding can't make the edges non-monotone.
             for (int i = 1; i < bins; i++)
-                edges[i] = exact ? lo + span * i / bins : lo + i * width;
+                edges[i] = Math.Min(hi, Math.Max(edges[i - 1], exact ? lo + span * i / bins : 2 * (lo / 2 + i * (width / 2))));
             edges[bins] = hi;
 
             var counts = new int[bins];

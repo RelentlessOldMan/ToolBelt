@@ -136,6 +136,7 @@ namespace ToolBelt.Visualization
 
         // (v − min) / (max − min), halved when the span overflows (±1e308 data mapped everything to one row).
         private static double Fraction(double v, double min, double max)
-            => double.IsInfinity(max - min) ? (v / 2 - min / 2) / (max / 2 - min / 2) : (v - min) / (max - min);
+            // Halved when v − min overflows too (a value far outside an explicit range): its ±∞ pixel dropped the whole line.
+            => double.IsInfinity(max - min) || double.IsInfinity(v - min) ? (v / 2 - min / 2) / (max / 2 - min / 2) : (v - min) / (max - min);
     }
 }

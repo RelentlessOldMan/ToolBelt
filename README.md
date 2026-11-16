@@ -1021,6 +1021,7 @@ tests/
       ChartsReview3Tests.cs (third-pass regressions: sub-millisecond time ticks, one bound past the data, overflowing spans, option validation)
       ChartsReview4Tests.cs (fourth-pass regressions: two ticks over ±MaxValue, bounded hatch and binning, limits at MaxValue, subnormal Pearson)
       ChartsReview80Tests.cs (fifth pass: tight tick search and bounds, exact exponent labels, option validation, unresolvable steps, ordered quartiles, callout sides)
+      ChartsReview101Tests.cs (round 101: histogram edges over huge ranges, far values mapped without overflow, finite bar padding, margin and image-size validation, an End before every change, FormatSeconds unit boundary)
       DocsVizReviewRegressionTests.cs  (2026-10-05 review regressions: Documents and Visualization)
     Resilience/
       RetryTests.cs

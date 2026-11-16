@@ -66,6 +66,9 @@ namespace ToolBelt.Visualization
             int cell = options.CellSize;
             if ((long)cols * cell > int.MaxValue || (long)rows * cell > int.MaxValue)
                 throw new ArgumentOutOfRangeException(nameof(options), "CellSize makes the image too large."); // the int product wrapped
+            // Past the largest byte array ImageBuffer refused it, naming its own "width".
+            if ((double)cols * cell * rows * cell * 4 > 0x7FFFFFC7)
+                throw new ArgumentOutOfRangeException(nameof(options), "CellSize makes the image too large.");
             var image = new ImageBuffer(cols * cell, rows * cell);
             for (int r = 0; r < rows; r++)
                 for (int c = 0; c < cols; c++)
