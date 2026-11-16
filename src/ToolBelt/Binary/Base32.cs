@@ -28,7 +28,11 @@ namespace ToolBelt.Binary
             if (data.Length == 0)
                 return string.Empty;
 
-            var sb = new StringBuilder((int)Math.Min(((long)data.Length * 8 + 4) / 5, 0x3FFFFFDF));   // int overflowed
+            // Past the longest string the builder ran out of memory, after seconds of work, instead of refusing the input.
+            long length = padding ? ((long)data.Length + 4) / 5 * 8 : ((long)data.Length * 8 + 4) / 5;
+            if (length > 0x3FFFFFDF)                                             // the CLR's longest string
+                throw new ArgumentException($"{data.Length} bytes is too long to encode as one Base32 string.", nameof(data));
+            var sb = new StringBuilder((int)length);
             int buffer = 0;
             int bits = 0;
 

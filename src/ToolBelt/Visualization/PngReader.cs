@@ -13,7 +13,8 @@ namespace ToolBelt.Visualization
     /// all five scanline filters; Adam7 interlacing; and tRNS transparency. Chunk CRCs and the zlib checksum are verified,
     /// and the chunk layout is checked (IHDR first and once, PLTE and tRNS once and before the image data, consecutive
     /// IDAT chunks, a closing IEND). Image data is inflated one scanline at a time straight into the image (capped at
-    /// <see cref="MaxPixels"/>), so memory is the image plus the compressed data. Deflate expands at most 1032-fold, so
+    /// <see cref="MaxPixels"/>), so memory is the image plus about twice the compressed data (up to three times when
+    /// decoding a stream). Deflate expands at most 1032-fold, so
     /// data too short to hold the image fails as truncated before the image is allocated: a tiny file claiming a huge
     /// image can't force a huge allocation. Decompressed data past the last scanline is checksummed and
     /// ignored, as libpng does. Ancillary chunks (gamma, text, ICC profiles) are ignored.
@@ -25,49 +26,129 @@ namespace ToolBelt.Visualization
         /// <summary>Largest width × height accepted (default 100 megapixels).</summary>
         public const long MaxPixels = 100_000_000;
 
-        public static ImageBuffer Load(string path) => Decode(File.ReadAllBytes(path ?? throw new ArgumentNullException(nameof(path))));
+        public static ImageBuffer Load(string path)
+        {
+            if (path is null) throw new ArgumentNullException(nameof(path));
+            // File.ReadAllBytes threw IOException for a file over 2 GB; reading it as a stream refuses it as Decode does.
+            using var file = File.OpenRead(path);
+            if (file.Length > 0x7FFFFFC7) return Decode(file);
+            var bytes = new byte[file.Length];
+            return Decode(bytes, ReadFully(file, bytes, bytes.Length));
+        }
 
-        /// <summary>Decodes a PNG read from <paramref name="stream"/>, which is read chunk by chunk up to IEND.</summary>
+        /// <summary>
+        /// Decodes a PNG read from <paramref name="stream"/>, which is read chunk by chunk up to IEND. Each chunk is checked
+        /// as it arrives; ancillary chunks are checked and skipped rather than kept, up to <see cref="MaxAncillaryBytes"/>
+        /// in all, and the image data is refused once it passes twice the size the header implies (plus 1 MiB).
+        /// </summary>
         public static ImageBuffer Decode(Stream stream)
         {
             if (stream is null) throw new ArgumentNullException(nameof(stream));
             // CopyTo read an endless or huge source to the end (past IEND), and failed at 2 GB with an IOException.
-            using var ms = new MemoryStream();
+            // Kept as exact copies of each read and joined once: a growing MemoryStream allocated about four times the data.
+            var ms = new Parts();
             var header = new byte[8];
             if (ReadFully(stream, header, 8) < 8) throw new InvalidDataException("Not a PNG file.");
-            // Each chunk is checked as it arrives: unchecked, a non-PNG source (a GIF, endless zeros) was read up to 2 GB
-            // before Decode(byte[]) rejected it.
+            // Each chunk is checked as it arrives: unchecked, a non-PNG source (a GIF, endless zeros, one chunk declaring
+            // 2 GB) was read up to 2 GB before Decode(byte[]) rejected it.
             for (int i = 0; i < 8; i++) if (header[i] != Signature[i]) throw new InvalidDataException("Not a PNG file (bad signature).");
             ms.Write(header, 0, 8);
             var buffer = new byte[1 << 16];
+            long dataLimit = 0, data = 0, ancillary = 0;
             for (bool first = true; ; first = false)
             {
                 long start = ms.Length;
                 int got = ReadFully(stream, header, 8);
-                ms.Write(header, 0, got);
-                if (got < 8) break;                                              // truncated: Decode(byte[]) says so
+                if (got < 8) { ms.Write(header, 0, got); break; }                // truncated: Decode(byte[]) says so
                 for (int i = 4; i < 8; i++)
                     if (!(header[i] >= 'A' && header[i] <= 'Z' || header[i] >= 'a' && header[i] <= 'z'))
                         throw new InvalidDataException("Bad PNG chunk type.");
                 if (first && !(header[4] == 'I' && header[5] == 'H' && header[6] == 'D' && header[7] == 'R' && Be32(header, 0) == 13))
                     throw new InvalidDataException("PNG does not start with IHDR.");
-                long rest = (long)unchecked((uint)Be32(header, 0)) + 4;                  // body and CRC
-                if (ms.Length + rest > 0x7FFFFFC7) throw new InvalidDataException("PNG stream is too large (over 2 GB).");
-                for (long left = rest; left > 0;)
+                long length = unchecked((uint)Be32(header, 0));
+                bool idat = header[4] == 'I' && header[5] == 'D' && header[6] == 'A' && header[7] == 'T';
+                // Ancillary chunks (lower-case first letter) are ignored, so they are checked as they stream past and kept
+                // as empty chunks; anything else is kept.
+                bool skip = (header[4] & 0x20) != 0;
+                if (skip && (ancillary += length) > MaxAncillaryBytes)
+                    throw new InvalidDataException($"PNG ancillary chunks pass {MaxAncillaryBytes} bytes.");
+                if (idat && (data += length) > dataLimit)
+                    throw new InvalidDataException("PNG image data is far larger than the image it describes.");
+                if (!skip && ms.Length + length + 12 > 0x7FFFFFC7) throw new InvalidDataException("PNG stream is too large (over 2 GB).");
+                uint crc = Crc32Update(0xFFFFFFFFu, header, 4, 4);
+                if (!skip) ms.Write(header, 0, 8);
+                bool truncated = false;
+                for (long left = length + 4; left > 0;)
                 {
                     int n = stream.Read(buffer, 0, (int)Math.Min(buffer.Length, left));
-                    if (n <= 0) { left = 0; rest = -1; break; }
-                    ms.Write(buffer, 0, n);
+                    if (n <= 0) { truncated = true; break; }
+                    if (!skip) ms.Write(buffer, 0, n);
+                    int body = (int)Math.Min(n, Math.Max(0, left - 4));          // the last 4 bytes are the CRC
+                    crc = Crc32Update(crc, buffer, 0, body);
+                    for (int i = body; i < n; i++) header[(int)(4 - left + i)] = buffer[i];           // the CRC, over the length field
                     left -= n;
                 }
-                if (rest < 0) break;
-                int length = (int)(ms.Length - start - 12);
-                byte[] all = ms.GetBuffer();
-                if (Crc32(all, (int)start + 4, length + 4) != unchecked((uint)Be32(all, (int)start + 8 + length)))
-                    throw new InvalidDataException("CRC mismatch in PNG chunk.");
+                if (truncated) break;
+                if ((crc ^ 0xFFFFFFFFu) != unchecked((uint)Be32(header, 0))) throw new InvalidDataException("CRC mismatch in PNG chunk.");
+                if (skip)
+                {
+                    // An empty chunk of the same type, with its own CRC.
+                    ms.Write(new byte[4], 0, 4);
+                    ms.Write(header, 4, 4);
+                    var type = new byte[4];
+                    Array.Copy(header, 4, type, 0, 4);
+                    WriteBe32(ms, Crc32(type, 0, 4));
+                }
+                if (first) dataLimit = DataLimit(ms.ToArray(), 16);
                 if (header[4] == 'I' && header[5] == 'E' && header[6] == 'N' && header[7] == 'D') break;
             }
-            return Decode(ms.ToArray());
+            byte[] all = ms.ToArray();
+            return Decode(all, all.Length);
+        }
+
+        private sealed class Parts
+        {
+            private readonly List<byte[]> _parts = new List<byte[]>();
+            public long Length { get; private set; }
+
+            public void Write(byte[] data, int offset, int count)
+            {
+                var part = new byte[count];
+                Array.Copy(data, offset, part, 0, count);
+                _parts.Add(part);
+                Length += count;
+            }
+
+            public void WriteByte(byte value) => Write(new[] { value }, 0, 1);
+
+            public byte[] ToArray()
+            {
+                var all = new byte[Length];
+                int at = 0;
+                foreach (var part in _parts) { Array.Copy(part, 0, all, at, part.Length); at += part.Length; }
+                return all;
+            }
+        }
+
+        /// <summary>Largest total of ancillary chunks (text, ICC profiles, EXIF) <see cref="Decode(Stream)"/> reads past (256 MiB).</summary>
+        public const long MaxAncillaryBytes = 256L << 20;
+
+        // Twice the filtered image data IHDR implies (Adam7's extra filter bytes included), plus 1 MiB: deflate's own
+        // overhead is a few bytes per 64 KiB, so a stream past this is not an image. An implausible header is refused here,
+        // with Decode(byte[])'s message.
+        private static long DataLimit(byte[] ihdr, int at)
+        {
+            long width = unchecked((uint)Be32(ihdr, at)), height = unchecked((uint)Be32(ihdr, at + 4));
+            if (width == 0 || height == 0 || width * height > MaxPixels) throw new InvalidDataException($"Unsupported PNG size {width}x{height}.");
+            int channels = ihdr[at + 9] switch { 0 => 1, 2 => 3, 3 => 1, 4 => 2, _ => 4 };
+            long bits = channels * Math.Min((int)ihdr[at + 8], 16);
+            long raw = height * (1 + (width * bits + 7) / 8) + 2 * height + 8;
+            return 2 * raw + (1 << 20);
+        }
+
+        private static void WriteBe32(Parts s, uint v)
+        {
+            unchecked { s.WriteByte((byte)(v >> 24)); s.WriteByte((byte)(v >> 16)); s.WriteByte((byte)(v >> 8)); s.WriteByte((byte)v); }
         }
 
         private static int ReadFully(Stream stream, byte[] buffer, int count)
@@ -85,18 +166,25 @@ namespace ToolBelt.Visualization
         public static ImageBuffer Decode(byte[] data)
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
-            if (data.Length < 8) throw new InvalidDataException("Not a PNG file.");
+            return Decode(data, data.Length);
+        }
+
+        // The first count bytes of data (a MemoryStream's buffer, which ToArray copied).
+        private static ImageBuffer Decode(byte[] data, int count)
+        {
+            if (count < 8) throw new InvalidDataException("Not a PNG file.");
             for (int i = 0; i < 8; i++) if (data[i] != Signature[i]) throw new InvalidDataException("Not a PNG file (bad signature).");
 
             int width = 0, height = 0, bitDepth = 0, colorType = -1, interlace = 0;
             byte[]? palette = null, trns = null;
-            var idat = new MemoryStream();
+            var idat = new List<(int Start, int Length)>();
+            long idatLength = 0;
             bool sawHeader = false, sawEnd = false, sawData = false, dataEnded = false;
             int pos = 8;
-            while (pos + 12 <= data.Length && !sawEnd)
+            while (pos + 12 <= count && !sawEnd)
             {
                 int length = Be32(data, pos);
-                if (length < 0 || pos + 12L + length > data.Length) throw new InvalidDataException("Truncated PNG chunk.");
+                if (length < 0 || pos + 12L + length > count) throw new InvalidDataException("Truncated PNG chunk.");
                 for (int k = pos + 4; k < pos + 8; k++)                                 // chunk types are ASCII letters only
                     if (!((data[k] >= 'A' && data[k] <= 'Z') || (data[k] >= 'a' && data[k] <= 'z')))
                         throw new InvalidDataException("Bad PNG chunk type.");
@@ -134,7 +222,8 @@ namespace ToolBelt.Visualization
                     case "IDAT":
                         if (dataEnded) throw new InvalidDataException("IDAT chunks are not consecutive.");
                         sawData = true;
-                        idat.Write(data, body, length);
+                        idat.Add((body, length));
+                        idatLength += length;
                         break;
                     case "IEND":
                         sawEnd = true;
@@ -158,6 +247,16 @@ namespace ToolBelt.Visualization
             };
             if (!depthOk) throw new InvalidDataException($"Bad bit depth {bitDepth} for colour type {colorType}.");
             if (colorType == 3 && palette == null) throw new InvalidDataException("Palette image without PLTE.");
+            // These were accepted against the spec (section 11.2.3 and 11.3.2.1).
+            if (colorType == 3 && palette!.Length / 3 > 1 << bitDepth)
+                throw new InvalidDataException($"PLTE has {palette.Length / 3} entries; bit depth {bitDepth} indexes {1 << bitDepth}.");
+            if (trns != null)
+            {
+                if (colorType == 4 || colorType == 6) throw new InvalidDataException("tRNS in a PNG with an alpha channel.");
+                if (colorType == 0 && trns.Length != 2 || colorType == 2 && trns.Length != 6)
+                    throw new InvalidDataException("Bad tRNS length.");
+                if (colorType == 3 && trns.Length > palette!.Length / 3) throw new InvalidDataException("tRNS has more entries than PLTE.");
+            }
 
             // Pass geometry (Adam7 or a single pass) and the exact number of filtered bytes expected.
             var passes = new List<(int X0, int Y0, int Dx, int Dy, int W, int H)>();
@@ -178,7 +277,12 @@ namespace ToolBelt.Visualization
             // Row sizes in bytes, not bits: a row of 2^28 bytes or more (100 megapixels by 1 in RGBA8) was refused.
             if (((long)width * bitsPerPixel + 7) / 8 > 0x7FFFFFC7 || expected > int.MaxValue)
                 throw new InvalidDataException($"PNG image {width}x{height} is too large.");
-            using var zlib = new ZlibReader(idat.ToArray(), expected);
+            // Gathered into an array of the exact size: a growing MemoryStream and its ToArray held up to three copies.
+            if (idatLength > 0x7FFFFFC7) throw new InvalidDataException("PNG image data is too large.");
+            var compressed = new byte[idatLength];
+            int filled = 0;
+            foreach (var (start, length) in idat) { Array.Copy(data, start, compressed, filled, length); filled += length; }
+            using var zlib = new ZlibReader(compressed, expected);
 
             var image = new ImageBuffer(width, height);
             byte[] px = image.Pixels;
@@ -317,7 +421,7 @@ namespace ToolBelt.Visualization
                 while (_read < limit)
                     if (Read(_block, 0, (int)Math.Min(_block.Length, limit - _read)) == 0)
                     {
-                        if (((_b << 16) | _a) != _adler) throw new InvalidDataException("zlib checksum mismatch in PNG data.");
+                        if (((_b << 16) | _a) != _adler) throw new InvalidDataException("zlib checksum mismatch in PNG data (or data after the end of the zlib stream).");
                         return;
                     }
             }
@@ -381,11 +485,12 @@ namespace ToolBelt.Visualization
             return t;
         }
 
-        private static uint Crc32(byte[] data, int start, int count)
+        private static uint Crc32(byte[] data, int start, int count) => Crc32Update(0xFFFFFFFFu, data, start, count) ^ 0xFFFFFFFFu;
+
+        private static uint Crc32Update(uint crc, byte[] data, int start, int count)
         {
-            uint crc = 0xFFFFFFFFu;
             for (int i = start; i < start + count; i++) crc = CrcTable[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
-            return crc ^ 0xFFFFFFFFu;
+            return crc;
         }
 
     }

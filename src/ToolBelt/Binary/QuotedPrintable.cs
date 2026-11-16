@@ -25,6 +25,9 @@ namespace ToolBelt.Binary
         public static string Encode(byte[] data)
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
+            // Past the longest string the builder ran out of memory, after a minute of work, instead of refusing the input.
+            if (EncodedLength(data) > 0x3FFFFFDF)                                // the CLR's longest string
+                throw new ArgumentException($"{data.Length} bytes is too long to encode as one quoted-printable string.", nameof(data));
 
             var output = new StringBuilder();
             var line = new StringBuilder();
@@ -101,6 +104,26 @@ namespace ToolBelt.Binary
         }
 
         // The quoted-printable token for one byte: a literal char where allowed, otherwise =XX.
+        // The exact length Encode produces, following its line breaking without building anything.
+        private static long EncodedLength(byte[] data)
+        {
+            long total = 0;
+            int line = 0;
+            bool blank = false;
+            foreach (byte b in data)
+            {
+                int token = (b >= 33 && b <= 126 && b != (byte)'=') || b == (byte)' ' || b == (byte)'\t' ? 1 : 3;
+                if (line + token > MaxLineContent)
+                {
+                    total += line + (blank ? 2 : 0) + 3;
+                    line = 0;
+                }
+                line += token;
+                blank = b == (byte)' ' || b == (byte)'\t';
+            }
+            return total + line + (blank ? 2 : 0);
+        }
+
         private static string Represent(byte b)
         {
             // Printable ASCII (33..126) except '=' passes through; space and tab pass through here and are

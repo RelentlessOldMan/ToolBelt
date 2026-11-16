@@ -230,7 +230,7 @@ src/
     Binary/
       Base32.cs             RFC 4648 Base32 encode/decode (canonical: one accepted spelling per value)
       Adler32.cs            Adler-32 checksum (batched + streaming)
-      Base58.cs             Base58 (Bitcoin alphabet, leading-zero preservation; quadratic, for short values)
+      Base58.cs             Base58 (Bitcoin alphabet, leading-zero preservation; quadratic, for short values; Decode takes a maxLength)
       Base64Url.cs          URL-safe base64 (RFC 4648 §5, unpadded, canonical)
       Base85.cs             Ascii85 encode/decode
       Bits.cs               popcount / leading-trailing-zeros / rotate (32 & 64-bit)
@@ -523,7 +523,7 @@ src/
     Visualization/
       ImageBuffer.cs        RGBA raster canvas (get/set/fill/line/rect/blit; DrawLineClipped cuts a double-precision line to a rect)
       PngWriter.cs          BCL-only PNG encoder (deflate + CRC-32 + Adler-32), streamed in 64 KiB IDAT chunks
-      PngReader.cs          BCL-only PNG decoder: all colour types, 1-16 bit, all filters, Adam7, tRNS; CRC/Adler and chunk order verified, inflated a row at a time
+      PngReader.cs          BCL-only PNG decoder: all colour types, 1-16 bit, all filters, Adam7, tRNS; CRC/Adler and chunk order verified, inflated a row at a time; streams checked chunk by chunk, ancillary chunks skipped (MaxAncillaryBytes)
       Bmp.cs                BMP read/write (32-bit BGRA V4 or 24-bit; reads top-down, bitfields, 8-bit palette)
       Palettes.cs           Okabe-Ito / Tableau10, WCAG luminance + contrast ratio, contrasting label colour, hex
       SvgDocument.cs        fluent SVG vector builder (shapes/text/path; invariant coords)
@@ -655,6 +655,7 @@ tests/
       BinaryImagesReview2Tests.cs (second-pass regressions: exact line clipping, XML whitespace escaping, QP soft breaks and blank runs, image size limits, negative SVG lengths)
       BinaryImagesReview3Tests.cs (third-pass regressions: atomic SVG elements, exact far-line clipping, strict PNG chunk layout, streamed PNG encode/decode, canonical Base32/Base64url)
       BinaryImagesReview4Tests.cs (fourth-pass regressions: tall-narrow PNG speed, bounded drain and stream reads, exact SVG number rounding, zero-width text, canonical Crockford/Base85, Base58 encode speed)
+      BinaryImagesReview84Tests.cs (round 84: exact line clipping, flag widths, fixed Unicode tables, PNG stream checks and memory, PNG/BMP palette rules, encoder length limits, Base58 speed)
       BitsTests.cs
       Crc16Tests.cs
       Crc32Tests.cs

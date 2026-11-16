@@ -17,21 +17,21 @@ full history is in [REVIEW-PLAN.md](../REVIEW-PLAN.md) (round log) and the git t
    re-queued. The fifth pass runs in the order in REVIEW-PLAN.md: round 75 (section 8) 24 bugs, 1 severe (a stack
    overflow deleting a deep temp tree), so it stays re-queued; round 76 (section 7) 24 bugs, none severe, so it
    stays re-queued too; round 77 (section 14) 29 bugs, 1 severe (a pending Task hung the graph walkers), so it
-   stays re-queued; round 78 (section 12) 19 bugs, none severe, so it stays re-queued; round 79 (section 15) 15 bugs, none severe, so it stays re-queued; round 80 (section 5) 21 bugs, none severe, so it stays re-queued; round 81 (section 10) 15 bugs, 1 severe, so it stays re-queued; round 82 (section 16) 20 bugs, none severe, so it stays re-queued; round 83 (section 1) 14 bugs, none severe, so it stays re-queued; round 84 (section 6) is in progress: reviewed (10 bugs, 1 severe), C1, C2 and most of R1 fixed and committed unreleased (verify green before R1; Binary and Png suites green after), the rest listed in BUGLIST.md as R84-*; finish those, then release round 84.
+   stays re-queued; round 78 (section 12) 19 bugs, none severe, so it stays re-queued; round 79 (section 15) 15 bugs, none severe, so it stays re-queued; round 80 (section 5) 21 bugs, none severe, so it stays re-queued; round 81 (section 10) 15 bugs, 1 severe, so it stays re-queued; round 82 (section 16) 20 bugs, none severe, so it stays re-queued; round 83 (section 1) 14 bugs, none severe, so it stays re-queued; round 84 (section 6) 10 bugs, 1 severe, so it stays re-queued; section 4 is next.
 
 ## Built
 
 - **The library** (2026-09-25 to 2026-10-05): 29+ divisions in the core plus the Windows, WPF and WinForms
   satellites. The README's Layout is the inventory.
-- **The review** (2026-10-07 onward): 83 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
+- **The review** (2026-10-07 onward): 84 rounds, released as v0.1.0 to v0.56.0 and v2026.11.13.0 onward. Three full passes over all 17
   sections, two rounds on flaky tests and the incomplete beta/gamma harness, and four cross-cutting rounds (round 54,
   throwing callbacks: 36 bugs, 2 severe; round 55, cancellation and dispose races: 17 bugs, 2 severe, both a Ctrl+C
   handler letting a token callback's exception escape; round 56, non-finite and extreme numerics: 34 bugs, 2 severe,
   both hangs on data near MaxValue; round 57, the whole suite on .NET Framework 4.8: 4 bugs, none severe). The fourth
   pass began with IO (round 58: 39 bugs, 7 severe, mostly junction swaps mid-operation, the tar guard and names
   ending in a dot).
-- **Checks every round passes:** the full verify (core 3668 tests, Windows 153, WPF 209, WinForms 104,
-  MathChecks 40 at v2026.11.15.0), the overflow-checked build with no failures (since round 48), and the special
+- **Checks every round passes:** the full verify (core 3682 tests, Windows 153, WPF 209, WinForms 104,
+  MathChecks 40 at v2026.11.16.0), the overflow-checked build with no failures (since round 48), and the special
   functions against mpmath (graded in condition-number units).
 - **.NET Framework 4.8:** since round 57 the whole core suite compiles and passes there (3079 tests; net8-only
   types' tests are guarded out).

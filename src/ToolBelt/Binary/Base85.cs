@@ -22,7 +22,11 @@ namespace ToolBelt.Binary
                 if (data is null) throw new ArgumentNullException(nameof(data));
                 if (data.Length == 0) return string.Empty;
 
-                var sb = new StringBuilder((int)Math.Min((long)data.Length * 5 / 4 + 5, 0x3FFFFFDF));   // int overflowed
+                // Past the longest string the builder ran out of memory, after seconds of work, instead of refusing the input.
+                long length = (long)data.Length / 4 * 5 + (data.Length % 4 == 0 ? 0 : data.Length % 4 + 1);
+                if (length > 0x3FFFFFDF)                                         // the CLR's longest string
+                    throw new ArgumentException($"{data.Length} bytes is too long to encode as one Base85 string.", nameof(data));
+                var sb = new StringBuilder((int)length);
                 int i = 0;
                 while (i < data.Length)
                 {

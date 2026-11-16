@@ -18,23 +18,30 @@ namespace ToolBelt.Binary
             if (data is null)
                 throw new ArgumentNullException(nameof(data));
 
-            string standard = Convert.ToBase64String(data);
-
-            // Trim '=' padding and swap to the URL-safe alphabet in a single pass.
-            int length = standard.Length;
-            while (length > 0 && standard[length - 1] == '=')
-                length--;
-
-            var chars = new char[length];
-            for (int i = 0; i < length; i++)
+            // The unpadded length; past the longest string Convert ran out of memory instead of refusing the input. Encoding
+            // a slice at a time also lets an output that fits only without its padding through.
+            long total = ((long)data.Length * 4 + 2) / 3;
+            if (total > 0x3FFFFFDF)                                              // the CLR's longest string
+                throw new ArgumentException($"{data.Length} bytes is too long to encode as one base64url string.", nameof(data));
+            var chars = new char[total];
+            const int Slice = 3 << 20;
+            for (int offset = 0, at = 0; offset < data.Length; offset += Slice)
             {
-                char c = standard[i];
-                chars[i] = c switch
+                string standard = Convert.ToBase64String(data, offset, Math.Min(Slice, data.Length - offset));
+                // Trim '=' padding (only the last slice has any) and swap to the URL-safe alphabet.
+                int length = standard.Length;
+                while (length > 0 && standard[length - 1] == '=')
+                    length--;
+                for (int i = 0; i < length; i++)
                 {
-                    '+' => '-',
-                    '/' => '_',
-                    _ => c,
-                };
+                    char c = standard[i];
+                    chars[at++] = c switch
+                    {
+                        '+' => '-',
+                        '/' => '_',
+                        _ => c,
+                    };
+                }
             }
             return new string(chars);
         }

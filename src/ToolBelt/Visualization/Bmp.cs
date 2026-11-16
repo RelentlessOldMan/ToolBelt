@@ -98,13 +98,16 @@ namespace ToolBelt.Visualization
             else if (bpp == 32) hasAlpha = false;                            // BI_RGB 32-bit: the 4th byte is unused by spec
 
             byte[]? palette = null;
+            int colors = 0;
             if (bpp == 8)
             {
-                int colors = Le32(data, 46);
+                colors = Le32(data, 46);
                 if (colors == 0) colors = 256;
                 if (colors < 0 || colors > 256) throw new InvalidDataException($"Implausible BMP palette size {colors}.");
                 int palStart = 14 + headerSize;
                 if (palStart + colors * 4 > data.Length) throw new InvalidDataException("Truncated BMP palette.");
+                // A pixel offset inside the palette read palette entries as pixels.
+                if (palStart + colors * 4 > offset) throw new InvalidDataException("BMP palette overlaps the pixel data.");
                 palette = new byte[256 * 4];
                 Array.Copy(data, palStart, palette, 0, Math.Min(colors, 256) * 4);
             }
@@ -121,6 +124,8 @@ namespace ToolBelt.Visualization
                     int d = (y * w + x) * 4;
                     if (palette != null)
                     {
+                        // An index past the palette read as black; PngReader refuses it too.
+                        if (data[row + x] >= colors) throw new InvalidDataException($"BMP palette index {data[row + x]} out of range ({colors} colours).");
                         int p = data[row + x] * 4;
                         px[d] = palette[p + 2]; px[d + 1] = palette[p + 1]; px[d + 2] = palette[p]; px[d + 3] = 255;
                     }
@@ -135,7 +140,13 @@ namespace ToolBelt.Visualization
             return image;
         }
 
-        public static ImageBuffer Load(string path) => Decode(File.ReadAllBytes(path ?? throw new ArgumentNullException(nameof(path))));
+        public static ImageBuffer Load(string path)
+        {
+            if (path is null) throw new ArgumentNullException(nameof(path));
+            // File.ReadAllBytes threw IOException for a file over 2 GB; no BMP Decode accepts is that large.
+            if (new FileInfo(path).Length > 0x7FFFFFC7) throw new InvalidDataException("BMP file is too large (over 2 GB).");
+            return Decode(File.ReadAllBytes(path));
+        }
 
         private static void Le32(byte[] b, int i, int v) { unchecked { b[i] = (byte)v; b[i + 1] = (byte)(v >> 8); b[i + 2] = (byte)(v >> 16); b[i + 3] = (byte)(v >> 24); } }
         private static void Le16(byte[] b, int i, int v) { unchecked { b[i] = (byte)v; b[i + 1] = (byte)(v >> 8); } }
