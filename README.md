@@ -688,6 +688,7 @@ tests/
       CollectionsReview3Tests.cs (third-pass regressions: Bloom hash mixing, sums at double.MaxValue, throwing hashes, enumerator checks, argument names)
       CollectionsReview4Tests.cs (fourth-pass regressions: Bloom probe mixing and lone surrogates, tiny-value spread, long counts, size caps, ordinal table sorts)
       CollectionsReview90Tests.cs (round 90 review regressions: mixed sequence/multiset hashes, value-hashed keys, TTL expiry, trie memory, streaming Summarize)
+      CollectionsReview96Tests.cs (round 96: Summarize means within [min, max], zero-only Randoms, multiset counts past 2^32, null sketch items, cheap Clear, default rows)
       CounterTests.cs
       CountMinSketchTests.cs
       DataTableLiteTests.cs

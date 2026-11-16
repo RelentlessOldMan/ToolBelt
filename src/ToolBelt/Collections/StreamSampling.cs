@@ -74,13 +74,7 @@ namespace ToolBelt.Collections
             _nextAccept = skip >= long.MaxValue - index - 1 || double.IsNaN(skip) ? long.MaxValue : index + 1 + (long)skip;
         }
 
-        // Uniform on (0, 1): never exactly 0, so logarithms stay finite.
-        private double Uniform()
-        {
-            double u;
-            do u = _random.NextDouble(); while (u == 0);
-            return u;
-        }
+        private double Uniform() => SamplingPlans.NonZeroUniform(_random);
     }
 
     /// <summary>Weighted and stratified sampling without replacement.</summary>
@@ -174,8 +168,7 @@ namespace ToolBelt.Collections
             for (int i = 0; i < items.Count; i++)
             {
                 if (weights[i] == 0) continue;
-                double u;
-                do u = random.NextDouble(); while (u == 0);
+                double u = NonZeroUniform(random);
                 // ln(u)/w in log space: −(ln(−ln u) − ln w) orders the same and keeps every weight's own scale. ln(u)/w for a
                 // subnormal w was −∞, and relative weights w/max underflowed to 0 for a 1e308 neighbour, which tied them and
                 // left the draw to the index.
@@ -188,6 +181,18 @@ namespace ToolBelt.Collections
                 }
             }
             return heap.Reverse().Select(e => items[e.Index]).ToArray();
+        }
+
+        // Uniform on (0, 1): never exactly 0, so logarithms stay finite. Redrawing until nonzero hung on a Random that
+        // only ever returns 0; a sound one returns 0 sixty-four times running with probability 2^-3392.
+        internal static double NonZeroUniform(Random random)
+        {
+            for (int i = 0; i < 64; i++)
+            {
+                double u = random.NextDouble();
+                if (u != 0) return u;
+            }
+            throw new InvalidOperationException("The random source returned 0 sixty-four times in a row.");
         }
 
         /// <summary>

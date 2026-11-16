@@ -84,7 +84,10 @@ namespace ToolBelt.Collections
 
         public void Clear()
         {
-            Array.Clear(_buffer, 0, _buffer.Length);
+            // Only the occupied slots: wiping the whole buffer made clearing a nearly empty one cost its capacity.
+            int first = Math.Min(_count, _buffer.Length - _start);
+            Array.Clear(_buffer, _start, first);
+            Array.Clear(_buffer, 0, _count - first);
             _start = 0;
             _count = 0;
             unchecked { _version++; }

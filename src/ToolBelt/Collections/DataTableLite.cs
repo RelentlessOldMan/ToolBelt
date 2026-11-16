@@ -374,7 +374,8 @@ namespace ToolBelt.Collections
             {
                 get
                 {
-                    if (column < 0 || column >= _cells.Length)
+                    // default(Row) has no cells (its fields are null, which threw NullReferenceException).
+                    if (column < 0 || column >= Count)
                         throw new ArgumentOutOfRangeException(nameof(column), column, "Column ordinal is out of range.");
                     return _cells[column];
                 }
@@ -386,13 +387,13 @@ namespace ToolBelt.Collections
                 get
                 {
                     if (column is null) throw new ArgumentNullException(nameof(column));
-                    if (!_index.TryGetValue(column, out int c)) throw new ArgumentException($"No column named '{column}'.", nameof(column));
+                    if (_index is null || !_index.TryGetValue(column, out int c)) throw new ArgumentException($"No column named '{column}'.", nameof(column));
                     return _cells[c];
                 }
             }
 
             /// <summary>Number of cells.</summary>
-            public int Count => _cells.Length;
+            public int Count => _cells?.Length ?? 0;
         }
 
         /// <summary>One group produced by <see cref="GroupBy(string)"/>: the key value and its rows.</summary>

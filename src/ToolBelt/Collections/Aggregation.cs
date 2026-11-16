@@ -180,8 +180,10 @@ namespace ToolBelt.Collections
                     {
                         // The sum too: it was left at the overflowed ∞ when the true sum ([1e308, 1e308, −1e308]) is finite.
                         sum = Scale(_scaledSum, k);
-                        mean = Scale(_scaledSum / n, k);
                     }
+                    // Welford's running mean, not sum / n: the rounding in the sum put the mean outside [min, max] (three
+                    // copies of 0.1 gave 0.10000000000000002, 1e7 copies 0.09999999998389754).
+                    mean = Math.Min(_max, Math.Max(_min, Scale(_scaledMean, k)));
                 }
                 return new GroupSummary<TKey>(key, n, sum, mean, _min, _max, stdDev);
             }

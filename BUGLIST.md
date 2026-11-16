@@ -24,3 +24,6 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R95-1 | P3 | 4 | suspected | `RandomUtils.NextGamma` with a subnormal shape below 1 and a zero draw computes `Math.Pow(1, ∞)`, which is 1 on .NET Core but may be NaN on .NET Framework 4.8. Not run there. | review r95 |
 | R95-2 | P3 | 4 | suspected | `Angle` normalisation of ±∞ returns NaN rather than throwing; whether the contract allows it was not judged. | review r95 |
 | R95-3 | P3 | 4 | suspected | `Primes.Sieve(int.MaxValue)` and `Polynomial.Fit` at its n·m cap run out of memory (OutOfMemoryException) instead of rejecting the size; neither limit is documented. | review r95 |
+| R96-1 | P3 | 9 | suspected | `TtlCache`: an entry that never expires (or whose expiry was capped at `DateTimeOffset.MaxValue`) counts as expired when an injected clock returns `MaxValue`. | review r96 |
+| R96-2 | P3 | 9 | suspected | `ReservoirSampler` and `WeightedWithoutReplacement`: a seeded `Random`'s NextDouble has 31-bit resolution, which quantises skip lengths after about k·2^31 items. Effect looks negligible; not measured. | review r96 |
+| R96-3 | P3 | 9 | suspected | `CountMinSketch` does not check width × depth before allocating, so a huge size runs out of memory rather than being rejected. | review r96 |

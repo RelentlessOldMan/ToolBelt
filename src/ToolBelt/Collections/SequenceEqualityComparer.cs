@@ -242,13 +242,14 @@ namespace ToolBelt.Collections
             // Null elements are tallied in nullCount, never inserted, so the notnull-key constraint is honored
             // at run time even when T is a nullable reference type — hence the local suppression.
 #pragma warning disable CS8714
-            var counts = new Dictionary<T, int>(_elementComparer);
+            var counts = new Dictionary<T, long>(_elementComparer);
 #pragma warning restore CS8714
-            int nullCount = 0;
+            // Counted in longs: int counts wrapped, so 2^32 nulls (or copies of one item) matched an empty sequence.
+            long nullCount = 0;
             foreach (T item in x)
             {
                 if (item is null) nullCount++;
-                else counts[item] = (counts.TryGetValue(item, out int n) ? n : 0) + 1;
+                else counts[item] = (counts.TryGetValue(item, out long n) ? n : 0) + 1;
             }
 
             foreach (T item in y)
@@ -258,12 +259,12 @@ namespace ToolBelt.Collections
                     if (--nullCount < 0) return false;
                     continue;
                 }
-                if (!counts.TryGetValue(item, out int n) || n == 0) return false;
+                if (!counts.TryGetValue(item, out long n) || n == 0) return false;
                 counts[item] = n - 1;
             }
 
             if (nullCount != 0) return false;
-            foreach (int remaining in counts.Values)
+            foreach (long remaining in counts.Values)
                 if (remaining != 0) return false;
             return true;
         }

@@ -105,7 +105,7 @@ namespace ToolBelt.Collections
         public void Add(T item, long amount = 1)
         {
             if (amount < 0) throw new ArgumentOutOfRangeException(nameof(amount), amount, "Amount must be non-negative.");
-            int baseHash = _comparer.GetHashCode(item!);
+            int baseHash = Hash(item);
             for (int row = 0; row < _depth; row++)
             {
                 int col = Column(baseHash, row);
@@ -114,13 +114,17 @@ namespace ToolBelt.Collections
             TotalCount = Saturating(TotalCount, amount);
         }
 
+        // A null item is counted under hash 0, as the default comparer hashes it; a caller's comparer (StringComparer.Ordinal)
+        // threw ArgumentNullException for a parameter "obj" the caller never passed.
+        private int Hash(T item) => item is null ? 0 : _comparer.GetHashCode(item);
+
         // Wrapping made a count negative, under-counting; stopping at long.MaxValue keeps estimates upper bounds.
         private static long Saturating(long count, long amount) => count > long.MaxValue - amount ? long.MaxValue : count + amount;
 
         /// <summary>Returns the estimated frequency of <paramref name="item"/> (never below the true count).</summary>
         public long Estimate(T item)
         {
-            int baseHash = _comparer.GetHashCode(item!);
+            int baseHash = Hash(item);
             long min = long.MaxValue;
             for (int row = 0; row < _depth; row++)
             {

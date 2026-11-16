@@ -49,7 +49,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 5 | 10 / 67 | re-queue (10 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 5 | 24 / 117 | re-queue (24 bugs, none severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 6 | 4 / 153 | re-queue (4 bugs, 1 severe) |
-| 9  | Collections | `Collections/*` | 3,400 | ~1 | 5 | 16 / 87 | re-queue (16 bugs, 1 severe) |
+| 9  | Collections | `Collections/*` | 3,400 | ~1 | 6 | 6 / 93 | re-queue (6 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 5 | 15 / 114 | re-queue (15 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 5 | 15 / 90 | re-queue (15 bugs, 1 severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 5 | 19 / 116 | re-queue (19 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); **next: 9**, then 10, 11, 6, 7, 5, 16, 12, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); **next: 10**, then 11, 6, 7, 5, 16, 12, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -169,11 +169,37 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.9 | 93 | Objects, functional, grids, graphs, intervals, sixth pass | 3 | (see tag) |
 | v2026.11.16.10 | 94 | IO, sixth pass | 4 | (see tag) |
 | v2026.11.16.11 | 95 | Numerics core, sixth pass | 8 | (see tag) |
+| v2026.11.16.12 | 96 | Collections, sixth pass | 6 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 96: Collections, sixth pass (v2026.11.16.12)
+
+Two fresh reviewers (correctness, robustness): 6 bugs, 1 severe (a hang), so section 9 stays re-queued. The
+regression tests are in `CollectionsReview96Tests` (13); each regression fails on the old code, run by name under a
+60 s timeout. `Samplers_AFewZeroDrawsAreRedrawn` and the two wrapped-Clear tests are guards.
+
+- **Severe: ReservoirSampler.Add and SamplingPlans.WeightedWithoutReplacement** redrew a zero uniform until it was
+  nonzero, which never ended on a Random that only returns 0. After 64 zeros in a row (2^-3392 for a sound source)
+  they throw InvalidOperationException.
+- **Aggregation.Summarize** reported the mean as sum / n, whose rounding left [min, max]: three copies of 0.1 had a
+  mean of 0.10000000000000002, and 1e7 copies 0.09999999998389754. It reports the running (Welford) mean it already
+  kept, clamped to [min, max].
+- **MultisetEqualityComparer.Equals** kept int counts, which wrapped: 2^32 nulls equalled an empty sequence (and
+  2^32 copies of one item would too). Counts are longs.
+- **CountMinSketch.Add and Estimate** passed a null item to the caller's comparer, so StringComparer.Ordinal threw
+  ArgumentNullException for a parameter "obj". A null item hashes to 0, as under the default comparer.
+- **Deque.Clear and CircularBuffer.Clear** wiped the whole backing array, so clearing one item cost the largest size
+  ever held (117 ms after 5e7 items, where `Queue<T>` takes none). They clear the occupied slots.
+- **DataTableLite.Row:** `default(Row)` threw NullReferenceException from Count and both indexers; it reads as a row
+  with no cells.
+
+Still suspected (BUGLIST R96-1..3): TtlCache entries that never expire counting as expired when an injected clock
+returns DateTimeOffset.MaxValue; the samplers' skip lengths quantised by a seeded Random's 31-bit NextDouble after
+about k·2^31 items; CountMinSketch not checking width × depth before allocating.
+
 ### Round 95: Numerics core, sixth pass (v2026.11.16.11)
 
 Two fresh reviewers (correctness, robustness): 8 bugs, none severe, so section 4 stays re-queued. The correctness

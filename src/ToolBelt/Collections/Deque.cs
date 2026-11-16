@@ -96,7 +96,10 @@ namespace ToolBelt.Collections
 
         public void Clear()
         {
-            Array.Clear(_array, 0, _array.Length);
+            // Only the occupied slots: wiping the whole array made Clear cost the largest size ever held.
+            int first = Math.Min(_count, _array.Length - _head);
+            Array.Clear(_array, _head, first);
+            Array.Clear(_array, 0, _count - first);
             _head = 0;
             _count = 0;
             unchecked { _version++; }
