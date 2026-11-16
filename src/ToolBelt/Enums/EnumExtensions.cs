@@ -24,6 +24,36 @@ namespace ToolBelt.Enums
             public static readonly bool IsFlags = typeof(TEnum).IsDefined(typeof(FlagsAttribute), false);
         }
 
+        // Value → description, in declaration order: for aliases (two names, one value) the first declared one with a
+        // [Description] wins, else the first declared name. ToString() picks one alias, and .NET 8 and .NET Framework
+        // pick different ones, so the attribute on the other was lost and the fallback name changed with the runtime.
+        private static class Descriptions<TEnum> where TEnum : struct, Enum
+        {
+            public static readonly Dictionary<TEnum, string> Map = Build();
+
+            private static Dictionary<TEnum, string> Build()
+            {
+                var map = new Dictionary<TEnum, string>();
+                var described = new HashSet<TEnum>();
+                foreach (FieldInfo field in typeof(TEnum).GetFields(BindingFlags.Public | BindingFlags.Static))
+                {
+                    var value = (TEnum)field.GetValue(null)!;
+                    var attribute = field.GetCustomAttribute<DescriptionAttribute>();
+                    if (described.Contains(value)) continue;
+                    if (attribute != null)
+                    {
+                        map[value] = attribute.Description;
+                        described.Add(value);
+                    }
+                    else if (!map.ContainsKey(value))
+                    {
+                        map[value] = field.Name;
+                    }
+                }
+                return map;
+            }
+        }
+
         /// <summary>All declared values of <typeparamref name="TEnum"/> (cached, read-only).</summary>
         public static IReadOnlyList<TEnum> GetValues<TEnum>() where TEnum : struct, Enum => Cache<TEnum>.ValuesView;
 
@@ -41,14 +71,19 @@ namespace ToolBelt.Enums
             if (string.IsNullOrEmpty(text))
                 return false;
 
-            var comparison = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            // An exact match first: with ignoreCase, "FOO" found Foo before FOO in an enum that declares both.
             var names = Cache<TEnum>.Names;
-            for (int i = 0; i < names.Length; i++)
+            int passes = ignoreCase ? 2 : 1;
+            for (int p = 0; p < passes; p++)
             {
-                if (string.Equals(names[i], text, comparison))
+                var comparison = p == 0 ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+                for (int i = 0; i < names.Length; i++)
                 {
-                    value = Cache<TEnum>.Values[i];
-                    return true;
+                    if (string.Equals(names[i], text, comparison))
+                    {
+                        value = Cache<TEnum>.Values[i];
+                        return true;
+                    }
                 }
             }
             return false;
@@ -56,15 +91,11 @@ namespace ToolBelt.Enums
 
         /// <summary>
         /// The <see cref="DescriptionAttribute"/> text for <paramref name="value"/>, or the member name if
-        /// none is present.
+        /// none is present. When several members share the value, the first declared one with a description wins,
+        /// else the first declared name. An undefined value gives <see cref="Enum.ToString()"/>.
         /// </summary>
         public static string GetDescription<TEnum>(this TEnum value) where TEnum : struct, Enum
-        {
-            string name = value.ToString();
-            FieldInfo? field = typeof(TEnum).GetField(name);
-            var attribute = field?.GetCustomAttribute<DescriptionAttribute>();
-            return attribute?.Description ?? name;
-        }
+            => Descriptions<TEnum>.Map.TryGetValue(value, out string? text) ? text : value.ToString();
 
         /// <summary>
         /// Decomposes a <c>[Flags]</c> value into the declared single-bit members it contains (composite

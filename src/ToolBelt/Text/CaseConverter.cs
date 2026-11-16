@@ -18,6 +18,8 @@ namespace ToolBelt.Text
     /// additions so every style's output is properly cased: 'İ' lowers to 'i', 'ı' uppers to 'I' and 'ß' to "SS" ("Ss" at
     /// the start of a word), so the Turkish dotted and dotless i and the 'ß' don't survive a trip through an upper-case
     /// style. A letter with no case of its own continues the word it is in; a digraph such as 'ǆ' is titlecased ('ǅ').
+    /// Which characters are letters, and their case, come from the runtime's Unicode tables: .NET Framework's are Unicode 8,
+    /// so a letter added since (Syriac Malayalam, Greek 'Ϳ') is a separator there and a word character on .NET 8.
     /// </summary>
     public static class CaseConverter
     {

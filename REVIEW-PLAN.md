@@ -51,7 +51,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 5 | 24 / 149 | re-queue (24 bugs, 1 severe) |
 | 9  | Collections | `Collections/*` | 3,400 | ~1 | 4 | 19 / 71 | re-queue (19 bugs) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 5 | 15 / 114 | re-queue (15 bugs, 1 severe) |
-| 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 4 | 20 / 75 | re-queue (20 bugs, none severe) |
+| 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 5 | 15 / 90 | re-queue (15 bugs, 1 severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 5 | 19 / 116 | re-queue (19 bugs, none severe) |
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 4 | 16 / 88 | re-queue (16 bugs, none severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 5 | 29 / 138 | re-queue (29 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); **next: 11**, then 9, 13 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); **next: 9**, then 9, 13 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -162,11 +162,45 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.2 | 86 | Signal analysis, fifth pass | 17 | (see tag) |
 | v2026.11.16.3 | 87 | Statistics, fifth pass | 13 | (see tag) |
 | v2026.11.16.4 | 88 | WinForms + tooling + docs, fifth pass | 17 | (see tag) |
+| v2026.11.16.5 | 89 | Text & small types, fifth pass | 15 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 89: Text & small types, fifth pass (v2026.11.16.5)
+
+Two fresh reviewers (correctness, robustness): 15 bugs, 1 severe (n-gram hash collisions). Section 11 stays
+re-queued. The regression tests are in `TextReview89Tests` (7), `TextRobustnessReview89Tests` (6) and
+`EnumReview89Tests` (3); every one fails on the old code, run by name under a 60 s timeout (three of them only on
+.NET Framework 4.8, where they were proven with net48.sh).
+
+- **NGramSimilarity (severe):** grams were told apart by a rolling hash mod 2^64, and a Thue–Morse block and its
+  complement share one for any base, so such text gave thousands of distinct grams with one hash (a million
+  characters took 43 s; 2 million, 3.5 minutes). Repetitive text compared every repeat in full, O(length·n). Grams now
+  get exact class ids by rank doubling with counting sorts, O((|a| + |b|) log n) whatever the text; checked against a
+  naive Substring reference over 4,000 seeded trials.
+- **TextDiff** compared whole lines in every LCS cell, so long near-identical lines cost their length each time
+  (2,000 lines of 10,000 characters took 6 s). Lines are mapped to int ids once.
+- **GlobMatcher:** each distinct input character got its own cached mask, rebuilt once the 8 MB cache was cleared, so
+  5,000 distinct CJK characters against a long segment took 13 s. Characters the pattern never names share one mask.
+- **StringSimilarity.TopMatches** kept and sorted every qualifying candidate; it keeps a bounded heap of `count`.
+- **EnumFlags** threw OverflowException on a ulong enum with bit 63 set; it works on the bits of any width.
+- **QueryString.Format** wrote U+FFFD for an unpaired surrogate on .NET 8 (Parse didn't give it back) and threw
+  UriFormatException on .NET Framework; it throws ArgumentException (ParamName `pairs`).
+- **TextAlign:** every character in U+1F000–U+1FAFF counted two columns, narrow symbols too; U+3248–U+324F (circled
+  numbers on black squares, ambiguous width) counted two. Zero-width marks came from the runtime's categories, so
+  marks newer than Unicode 8 counted one on .NET Framework. Both now come from fixed Unicode 15 tables.
+- **Soundex** coded 'ſ' as S and 'ı' as I on .NET Framework (upper-casing); letters outside A–Z act as vowels on
+  every runtime.
+- **Slug** didn't fold 'ẞ' (capital sharp s) to "ss".
+- **EnumExtensions.GetDescription** went through ToString, so an alias could lose its [Description] (and .NET
+  Framework picked a different alias); the first declared field with a description wins, else the first name.
+  **TryParseName** with ignoreCase took the first case-insensitive match even when another name matched exactly.
+- **WordWrap / Truncate** broke words at no-break spaces (U+00A0, U+2007, U+202F).
+- **Docs:** CaseConverter and NaturalComparer now say their letters and casing come from the runtime's tables, which
+  differ on .NET Framework.
+
 ### Round 88: WinForms + tooling + docs, fifth pass (v2026.11.16.4)
 
 Two fresh reviewers (correctness, robustness): 17 bugs, none severe, after merging the one both raised (README's

@@ -47,10 +47,10 @@ namespace ToolBelt.Text
             int budget = maxLength - ellipsis.Length;
             string head = text.Substring(0, budget);
 
-            if (!char.IsWhiteSpace(text[budget]))
+            if (!IsBreakingSpace(text[budget]))
             {
                 int lastSpace = head.Length - 1;
-                while (lastSpace > 0 && !char.IsWhiteSpace(head[lastSpace]))
+                while (lastSpace > 0 && !IsBreakingSpace(head[lastSpace]))
                     lastSpace--;
                 if (lastSpace > 0)
                     head = head.Substring(0, lastSpace);
@@ -60,5 +60,8 @@ namespace ToolBelt.Text
             if (trimmed.Length == 0) trimmed = text.Substring(0, budget).TrimEnd();   // "   abcdef" gave "  …"
             return trimmed + ellipsis;
         }
+
+        // No-break spaces (U+00A0, U+2007, U+202F) are not word breaks: "10 km" joined by one was cut after "10".
+        private static bool IsBreakingSpace(char c) => char.IsWhiteSpace(c) && c != '\u00A0' && c != '\u2007' && c != '\u202F';
     }
 }

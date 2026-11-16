@@ -38,7 +38,9 @@ namespace ToolBelt.Text
                 if (!char.IsLetter(raw))
                     continue;
 
-                char c = char.ToUpperInvariant(BaseLetter(raw));
+                // Only a–z are upper-cased: ToUpperInvariant took 'ſ' and 'ı' to S and I on .NET 8 but not on .NET Framework.
+                char c = BaseLetter(raw);
+                if (c >= 'a' && c <= 'z') c = (char)(c - 32);
                 if (c < 'A' || c > 'Z')
                 {
                     if (haveFirst)

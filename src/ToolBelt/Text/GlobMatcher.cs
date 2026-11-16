@@ -14,7 +14,9 @@ namespace ToolBelt.Text
     /// link them, directly or through each other ('ſ', 's' and 'S' all match), and a character matches a class when any
     /// of those is in a range as written. The mappings are the runtime's: .NET Framework's leave 'ſ', the Kelvin sign and
     /// some others alone, so there they match only themselves. Characters are UTF-16 code units, so <c>?</c> matches one half of a surrogate pair. Time is linear in
-    /// the input for short patterns: O(n·m/64) at worst, plus O(m) for each distinct input character.
+    /// the input for short patterns: O(n·m/64) at worst, plus O(m) for each distinct input character that a literal or
+    /// class of the pattern names (all other characters share one mask). Past about 8 MB of cached masks, a named
+    /// character's mask is rebuilt each time it is met.
     /// </summary>
     public static class GlobMatcher
     {
@@ -91,16 +93,31 @@ namespace ToolBelt.Text
             ulong topBit = 1UL << ((k - 1) & 63);
             var state = new ulong[words];
             var masks = new Dictionary<char, ulong[]>();
+            var named = new Named(tokens, segment, ignoreCase);
+            // A character no literal or class names matches just the ? and negated-class tokens, so all such characters
+            // share one mask. Each had its own, and the cache was cleared at 8 MB, so 5,000 distinct CJK characters
+            // against a 20,000-character segment rebuilt a mask on almost every character (13 s).
+            ulong[]? unnamed = null;
+            long namedCount = 0;
             for (int i = from; i < limit; i++)
             {
                 char c = s[i];
                 if (!masks.TryGetValue(c, out ulong[]? mask))
                 {
-                    mask = new ulong[words];
-                    for (int j = 0; j < k; j++)
-                        if (MatchOne(tokens[segment.Start + j], c, ignoreCase)) mask[j >> 6] |= 1UL << (j & 63);
-                    if ((long)masks.Count * words > 1 << 20) masks.Clear();   // keep the cache to about 8 MB
-                    masks[c] = mask;
+                    if (!named.Contains(c))
+                    {
+                        mask = unnamed ??= BuildMask(tokens, segment, c, ignoreCase, words);
+                        masks[c] = mask;
+                    }
+                    else
+                    {
+                        mask = BuildMask(tokens, segment, c, ignoreCase, words);
+                        if (namedCount * words <= 1 << 20)   // keep the cache to about 8 MB
+                        {
+                            masks[c] = mask;
+                            namedCount++;
+                        }
+                    }
                 }
                 ulong carry = 1;
                 for (int w = 0; w < words; w++)
@@ -112,6 +129,80 @@ namespace ToolBelt.Text
                 if ((state[topWord] & topBit) != 0) return i + 1;
             }
             return -1;
+        }
+
+        private static ulong[] BuildMask(List<Token> tokens, (int Start, int Length) segment, char c, bool ignoreCase, int words)
+        {
+            var mask = new ulong[words];
+            for (int j = 0; j < segment.Length; j++)
+                if (MatchOne(tokens[segment.Start + j], c, ignoreCase)) mask[j >> 6] |= 1UL << (j & 63);
+            return mask;
+        }
+
+        // The characters a segment's literals and classes name (with ignoreCase, through their case classes): every
+        // other character matches exactly the ? and negated-class tokens.
+        private sealed class Named
+        {
+            private readonly HashSet<char> _literals = new HashSet<char>();
+            private readonly char[] _lo, _hi;   // the classes' ranges, merged and sorted
+            private readonly bool _ignoreCase;
+
+            public Named(List<Token> tokens, (int Start, int Length) segment, bool ignoreCase)
+            {
+                _ignoreCase = ignoreCase;
+                var ranges = new List<(char Lo, char Hi)>();
+                for (int j = 0; j < segment.Length; j++)
+                {
+                    Token t = tokens[segment.Start + j];
+                    if (t.Kind == Kind.Literal) _literals.Add(ignoreCase ? CaseClasses.Value.Root[t.Literal] : t.Literal);
+                    else if (t.Kind == Kind.Class) ranges.AddRange(t.Ranges!);
+                }
+                ranges.Sort((x, y) => x.Lo.CompareTo(y.Lo));
+                var lo = new List<char>();
+                var hi = new List<char>();
+                foreach (var (l, h) in ranges)
+                {
+                    if (l > h) continue;   // a reversed range is empty
+                    if (hi.Count > 0 && l <= hi[hi.Count - 1] + 1)
+                    {
+                        if (h > hi[hi.Count - 1]) hi[hi.Count - 1] = h;
+                    }
+                    else
+                    {
+                        lo.Add(l);
+                        hi.Add(h);
+                    }
+                }
+                _lo = lo.ToArray();
+                _hi = hi.ToArray();
+            }
+
+            public bool Contains(char c)
+            {
+                if (!_ignoreCase) return _literals.Contains(c) || InMerged(c);
+                char root = CaseClasses.Value.Root[c];
+                if (_literals.Contains(root)) return true;
+                if (CaseClasses.Value.Members.TryGetValue(root, out char[]? members))
+                {
+                    foreach (char m in members)
+                        if (InMerged(m)) return true;
+                    return false;
+                }
+                return InMerged(c);
+            }
+
+            private bool InMerged(char c)
+            {
+                int lo = 0, hi = _lo.Length - 1;
+                while (lo <= hi)
+                {
+                    int mid = (lo + hi) >> 1;
+                    if (c < _lo[mid]) hi = mid - 1;
+                    else if (c > _hi[mid]) lo = mid + 1;
+                    else return true;
+                }
+                return false;
+            }
         }
 
         private static bool MatchOne(Token token, char c, bool ignoreCase)

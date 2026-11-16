@@ -66,12 +66,15 @@ namespace ToolBelt.Text
         public static string WrapToString(string text, int width, string newline = "\n")
             => string.Join(newline, Wrap(text, width));
 
+        // No-break spaces (U+00A0, U+2007, U+202F) glue their neighbours: "10 km" was split across lines.
+        private static bool IsBreakingSpace(char c) => char.IsWhiteSpace(c) && c != '\u00A0' && c != '\u2007' && c != '\u202F';
+
         private static IEnumerable<string> SplitWords(string text)
         {
             int start = -1;
             for (int i = 0; i < text.Length; i++)
             {
-                if (char.IsWhiteSpace(text[i]))
+                if (IsBreakingSpace(text[i]))
                 {
                     if (start >= 0)
                     {

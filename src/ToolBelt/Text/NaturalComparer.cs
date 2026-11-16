@@ -15,7 +15,11 @@ namespace ToolBelt.Text
         /// <summary>Case-sensitive (ordinal) natural comparer.</summary>
         public static readonly NaturalComparer Ordinal = new NaturalComparer(ignoreCase: false);
 
-        /// <summary>Case-insensitive (ordinal) natural comparer.</summary>
+        /// <summary>
+        /// Case-insensitive (ordinal) natural comparer: characters are compared after the runtime's invariant upper-casing.
+        /// .NET Framework's leaves some characters alone that .NET 8 maps ('ſ' stays 'ſ' there, so "ſ" sorts after "s"
+        /// instead of equal to it), so don't share a sort order persisted from one runtime with code on the other.
+        /// </summary>
         public static readonly NaturalComparer OrdinalIgnoreCase = new NaturalComparer(ignoreCase: true);
 
         private readonly bool _ignoreCase;

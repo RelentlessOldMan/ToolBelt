@@ -81,6 +81,13 @@ namespace ToolBelt.Text
             long cells = (long)n * m;
             if (cells > 1L << 33)
                 throw new ArgumentException($"The texts differ in {n} and {m} lines; diffing them needs more than 2^33 table cells.", nameof(newText));
+            // Each line becomes an int id first, so a cell compares two ints: comparing the strings made it O(n·m·length)
+            // (2,000 lines a side of 10,000 characters that differ only at the end took 6 s).
+            var ids = new Dictionary<string, int>(StringComparer.Ordinal);
+            var ia = new int[n];
+            var ib = new int[m];
+            for (int i = 0; i < n; i++) ia[i] = LineId(ids, a[prefix + i]);
+            for (int j = 0; j < m; j++) ib[j] = LineId(ids, b[prefix + j]);
             var down = new ulong[(cells + 63) >> 6];
             var next = new int[m + 1];
             var cur = new int[m + 1];
@@ -88,7 +95,7 @@ namespace ToolBelt.Text
             {
                 for (int j = m - 1; j >= 0; j--)
                 {
-                    cur[j] = string.Equals(a[prefix + i], b[prefix + j], StringComparison.Ordinal)
+                    cur[j] = ia[i] == ib[j]
                         ? next[j + 1] + 1
                         : Math.Max(next[j], cur[j + 1]);
                     if (next[j] >= cur[j + 1])
@@ -103,7 +110,7 @@ namespace ToolBelt.Text
             int x = 0, y = 0;
             while (x < n && y < m)
             {
-                if (string.Equals(a[prefix + x], b[prefix + y], StringComparison.Ordinal))
+                if (ia[x] == ib[y])
                 {
                     result.Add(new DiffLine(DiffOp.Equal, a[prefix + x]));
                     x++; y++;
@@ -139,6 +146,13 @@ namespace ToolBelt.Text
                 sb.Append(diff[i].ToString());
             }
             return sb.ToString();
+        }
+
+        private static int LineId(Dictionary<string, int> ids, string line)
+        {
+            if (!ids.TryGetValue(line, out int id))
+                ids.Add(line, id = ids.Count);
+            return id;
         }
 
         private static string[] SplitLines(string text)

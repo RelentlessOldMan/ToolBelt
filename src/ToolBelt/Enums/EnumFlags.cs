@@ -5,9 +5,7 @@ namespace ToolBelt.Enums
 {
     /// <summary>
     /// Generic combinators for <c>[Flags]</c> enums — add, remove, toggle, and membership tests — without
-    /// per-type boilerplate. Operates on the underlying integral value (up to 64 bits signed). Intended
-    /// for enums with signed integral backing (byte/short/int/long); enums backed by <c>ulong</c> values
-    /// above <see cref="long.MaxValue"/> are not supported.
+    /// per-type boilerplate. Operates on the bits of the underlying integral value, of any width, signed or unsigned.
     /// </summary>
     public static class EnumFlags
     {
@@ -44,8 +42,9 @@ namespace ToolBelt.Enums
             return FromLong<TEnum>(acc);
         }
 
+        // A ulong value with bit 63 set threw OverflowException from Convert.ToInt64; its bits are taken as they are.
         private static long ToLong<TEnum>(TEnum value) where TEnum : struct, Enum
-            => Convert.ToInt64(value);
+            => Type.GetTypeCode(typeof(TEnum)) == TypeCode.UInt64 ? unchecked((long)Convert.ToUInt64(value)) : Convert.ToInt64(value);
 
         private static TEnum FromLong<TEnum>(long value) where TEnum : struct, Enum
             => (TEnum)Enum.ToObject(typeof(TEnum), value);

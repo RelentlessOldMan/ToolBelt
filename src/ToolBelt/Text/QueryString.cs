@@ -15,8 +15,8 @@ namespace ToolBelt.Text
     public static class QueryString
     {
         /// <summary>
-        /// Joins key/value pairs into a query string (no leading '?'). A null value is written as empty. An unpaired
-        /// surrogate becomes U+FFFD on .NET Core and later, and throws on .NET Framework.
+        /// Joins key/value pairs into a query string (no leading '?'). A null value is written as empty. A key or value
+        /// with an unpaired surrogate throws <see cref="ArgumentException"/>: it has no UTF-8 form.
         /// </summary>
         public static string Format(IEnumerable<KeyValuePair<string, string>> pairs)
         {
@@ -26,6 +26,9 @@ namespace ToolBelt.Text
             foreach (var pair in pairs)
             {
                 if (pair.Key is null) throw new ArgumentException("Keys must not be null.", nameof(pairs));
+                // .NET 8 wrote U+FFFD (so Parse didn't give it back) and .NET Framework threw UriFormatException.
+                if (HasLoneSurrogate(pair.Key) || HasLoneSurrogate(pair.Value))
+                    throw new ArgumentException("Keys and values must not contain an unpaired surrogate.", nameof(pairs));
                 if (sb.Length > 0)
                     sb.Append('&');
                 Escape(sb, pair.Key);
@@ -33,6 +36,17 @@ namespace ToolBelt.Text
                 Escape(sb, pair.Value ?? string.Empty);
             }
             return sb.ToString();
+        }
+
+        private static bool HasLoneSurrogate(string? text)
+        {
+            if (text is null) return false;
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) i++;
+                else if (char.IsSurrogate(text[i])) return true;
+            }
+            return false;
         }
 
         // .NET Framework's EscapeDataString throws UriFormatException past 65,519 characters: escape in pieces, never

@@ -84,31 +84,69 @@ namespace ToolBelt.Text
             if (count < 0) throw new ArgumentOutOfRangeException(nameof(count), count, "Count must not be negative.");
             if (count == 0) return Array.Empty<StringMatch>();
 
-            // Collect qualifying matches tagged with their input index, then do a STABLE sort: descending by
-            // score, and by original index when scores tie. List.Sort is not stable, so the index is the
-            // explicit tie-breaker that reproduces first-seen order.
-            var scored = new List<(StringMatch match, int index)>();
-            int i = 0;
+            // Keep the best `count` so far in a heap whose root is the worst of them, ordered by score and then by input
+            // index (so ties keep first-seen order). Every qualifying candidate was kept and sorted, so asking for the top
+            // 10 of 10 million held all 10 million.
+            var heap = new List<(StringMatch Match, long Index)>();
+            long i = 0;
             foreach (string candidate in candidates)
             {
                 if (candidate is null) throw new ArgumentException("Candidates must not contain null.", nameof(candidates));
                 double score = scorer(target, candidate);
                 if (!double.IsNaN(score) && (score >= minScore || double.IsNaN(minScore)))   // as BestMatch: a NaN minScore filters nothing
-                    scored.Add((new StringMatch(candidate, score), i));
+                {
+                    var item = (new StringMatch(candidate, score), i);
+                    if (heap.Count < count)
+                    {
+                        heap.Add(item);
+                        SiftUp(heap, heap.Count - 1);
+                    }
+                    else if (Better(item, heap[0]))
+                    {
+                        heap[0] = item;
+                        SiftDown(heap, 0, heap.Count);
+                    }
+                }
                 i++;
             }
 
-            scored.Sort((x, y) =>
+            // Pop the worst to the back each time: the array ends up best first.
+            for (int end = heap.Count - 1; end > 0; end--)
             {
-                int byScore = y.match.Score.CompareTo(x.match.Score); // descending
-                return byScore != 0 ? byScore : x.index.CompareTo(y.index); // ascending index on ties
-            });
-
-            int take = Math.Min(count, scored.Count);
-            var result = new StringMatch[take];
-            for (int k = 0; k < take; k++)
-                result[k] = scored[k].match;
+                var t = heap[0]; heap[0] = heap[end]; heap[end] = t;
+                SiftDown(heap, 0, end);
+            }
+            var result = new StringMatch[heap.Count];
+            for (int k = 0; k < heap.Count; k++)
+                result[k] = heap[k].Match;
             return result;
+        }
+
+        private static bool Better((StringMatch Match, long Index) x, (StringMatch Match, long Index) y)
+            => x.Match.Score > y.Match.Score || (x.Match.Score == y.Match.Score && x.Index < y.Index);
+
+        private static void SiftUp(List<(StringMatch Match, long Index)> heap, int k)
+        {
+            while (k > 0)
+            {
+                int parent = (k - 1) >> 1;
+                if (!Better(heap[parent], heap[k])) break;
+                var t = heap[parent]; heap[parent] = heap[k]; heap[k] = t;
+                k = parent;
+            }
+        }
+
+        private static void SiftDown(List<(StringMatch Match, long Index)> heap, int k, int count)
+        {
+            while (true)
+            {
+                int worst = k, l = 2 * k + 1, r = l + 1;
+                if (l < count && Better(heap[worst], heap[l])) worst = l;
+                if (r < count && Better(heap[worst], heap[r])) worst = r;
+                if (worst == k) return;
+                var t = heap[worst]; heap[worst] = heap[k]; heap[k] = t;
+                k = worst;
+            }
         }
     }
 }

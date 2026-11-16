@@ -83,7 +83,7 @@ namespace ToolBelt.Text
         // Latin letters with no decomposition, which FormKD leaves whole: each entry is the letter and its ASCII spelling.
         // Upper-case forms are listed too, for runtimes whose invariant lower-casing predates them. "Ħ" and "ŧ" were dropped.
         private static readonly Dictionary<char, string> Folds = BuildFolds(
-            "ßss æae Æae ðd Ðd øo Øo þth Þth đd Đd ħh Ħh ıi ĸq łl Łl ŋng Ŋng œoe Œoe ŧt Ŧt ƀb Ƀb ƃb Ƃb ƈc "
+            "ßss ẞss æae Æae ðd Ðd øo Øo þth Þth đd Đd ħh Ħh ıi ĸq łl Łl ŋng Ŋng œoe Œoe ŧt Ŧt ƀb Ƀb ƃb Ƃb ƈc "
             + "Ƈc ƌd Ƌd ƒf Ƒf ƕhv Ƕhv ƙk Ƙk ƚl Ƚl ƞn Ƞn ƣoi Ƣoi ƥp Ƥp ƫt ƭt Ƭt ƴy Ƴy ƶz Ƶz ǝe Ǝe ǥg Ǥg ȡd ȣou "
             + "Ȣou ȥz Ȥz ȴl ȵn ȶt ȷj ȸdb ȹqp ȼc Ȼc ȿs Ȿs ɀz Ɀz ɇe Ɇe ɉj Ɉj ɋq Ɋq ɍr Ɍr ɏy Ɏy ỻll Ỻll ỽv Ỽv ỿy "
             + "Ỿy ⱡl Ⱡl ⱥa Ⱥa ⱦt Ⱦt ⱨh Ⱨh ⱪk Ⱪk ⱬz Ⱬz ⱱv ⱳw Ⱳw ⱴv ⱸe ⱹr ⱺo ꜩtz Ꜩtz ꜳaa Ꜳaa ꜵao Ꜵao ꜷau Ꜷau ꜹav "

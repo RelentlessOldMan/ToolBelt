@@ -745,6 +745,7 @@ tests/
       DocumentsConfigReview5Tests.cs (fifth-pass regressions: every get-only collection and private setter reloads, exact Update rollback, binder drops, PDF indents, GitHub anchors)
     Enums/
       EnumExtensionsTests.cs
+      EnumReview89Tests.cs (round 89 review regressions: alias descriptions, exact-case parse, ulong flags)
       EnumFlagsTests.cs
       EnumMapTests.cs
     Functional/
@@ -933,6 +934,8 @@ tests/
       TextReview2Tests.cs (round 32 review regressions: escapes, slug folding, case folding, validation)
       TextReview3Tests.cs (round 50 review regressions: id generator edges, DCS/APC strings, case-less letters, net48 limits)
       TextReview4Tests.cs (round 74 review regressions: snowflake lead, linear glob/Jaro/n-grams, diff memory, VT escapes, wide scripts, slug folds)
+      TextReview89Tests.cs (round 89 review regressions: emoji-plane and mark widths, Soundex and slug folds, no-break spaces)
+      TextRobustnessReview89Tests.cs (round 89 review regressions: exact n-gram classes, diff line ids, glob masks, top-k heap, query surrogates)
       MiscReviewRegressionTests.cs  (2026-10-05 review regressions: Text, Cli, Threading, Time, Diagnostics, Collections)
       TruncateTests.cs
       WordWrapTests.cs
