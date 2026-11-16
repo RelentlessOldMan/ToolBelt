@@ -1111,6 +1111,7 @@ tests/
     WpfReview3Tests.cs      (round 49 review regressions: numeric deletions, shared-load cancellation, theme follow failures, hotkey gestures)
     WpfReview4Tests.cs      (round 73 review regressions: bound-box culture, overtype and text drops, nested drop targets, object-level errors, anchored patterns, hotkey ids)
     WpfReview82Tests.cs     (round 82: kept trace levels, throwing rules, dispatcher shutdown, Messenger index, drop effects and inherited AllowDrop, MaxLength pastes)
+    WpfReview102Tests.cs    (round 102: theme self-merge, bad trace switches and formats, null names and NaN bounds, dialog filters, FitMatrix sizes, bound and DynamicResource AllowDrop, Minimum rounded, Enter and Tab, Messenger re-registration order)
     CallbackReview54Tests.cs  (round 54: throwing handlers in validation, commands and incremental loading)
     CancelDisposeReview55Tests.cs (round 55: incremental loading's cancelled tokens)
     UiReviewRegressionTests.cs  (2026-10-05 review regressions: WPF satellite)

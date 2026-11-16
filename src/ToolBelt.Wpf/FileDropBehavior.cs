@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Data;
@@ -123,6 +124,32 @@ namespace ToolBelt.Wpf
 
         private static readonly object NoLocalValue = new object();
 
+        // The prior value is boxed: stored directly, a binding or resource reference was attached to PriorAllowDrop
+        // itself, which threw ("NonShareable ... already been used") or lost the DynamicResource on restore.
+        private sealed class Prior
+        {
+            public readonly object Value;
+            public Prior(object value) => Value = value;
+        }
+
+        private static readonly PropertyInfo? ResourceKeyOf = typeof(FrameworkElement).Assembly
+            .GetType("System.Windows.ResourceReferenceExpression")?.GetProperty("ResourceKey", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+        private static void Restore(DependencyObject d, object prior)
+        {
+            if (ReferenceEquals(prior, NoLocalValue)) { d.ClearValue(UIElement.AllowDropProperty); return; }
+            if (prior is BindingExpressionBase binding) { BindingOperations.SetBinding(d, UIElement.AllowDropProperty, binding.ParentBindingBase); return; }
+            if (prior is Expression)
+            {
+                object? key = ResourceKeyOf != null && ResourceKeyOf.DeclaringType!.IsInstanceOfType(prior) ? ResourceKeyOf.GetValue(prior) : null;
+                if (key != null && d is FrameworkElement fe) { fe.SetResourceReference(UIElement.AllowDropProperty, key); return; }
+                if (key != null && d is FrameworkContentElement fce) { fce.SetResourceReference(UIElement.AllowDropProperty, key); return; }
+                d.ClearValue(UIElement.AllowDropProperty);   // an expression that can't be re-created: back to the inherited value
+                return;
+            }
+            d.SetValue(UIElement.AllowDropProperty, prior);
+        }
+
         // Elements the behavior has attached to: only these are nested targets. A Command on an element it could not
         // attach to made the outer target step aside with nothing taking the drop.
         private static readonly DependencyProperty AttachedProperty =
@@ -136,12 +163,10 @@ namespace ToolBelt.Wpf
             element.RemoveHandler(DragDrop.PreviewDragOverEvent, (DragEventHandler)OnDragOver);
             element.RemoveHandler(DragDrop.PreviewDragLeaveEvent, (DragEventHandler)OnDragLeave);
             element.RemoveHandler(DragDrop.PreviewDropEvent, (DragEventHandler)OnDrop);
-            object? prior = d.GetValue(PriorAllowDropProperty);
+            var prior = (Prior?)d.GetValue(PriorAllowDropProperty);
             if (!(e.NewValue is ICommand) && prior != null)
             {
-                if (ReferenceEquals(prior, NoLocalValue)) d.ClearValue(UIElement.AllowDropProperty);
-                else if (prior is BindingExpressionBase binding) BindingOperations.SetBinding(d, UIElement.AllowDropProperty, binding.ParentBindingBase);
-                else d.SetValue(UIElement.AllowDropProperty, prior);
+                Restore(d, prior.Value);
                 d.ClearValue(PriorAllowDropProperty);
                 d.ClearValue(AttachedProperty);
             }
@@ -150,7 +175,7 @@ namespace ToolBelt.Wpf
                 if (prior is null)
                 {
                     object local = d.ReadLocalValue(UIElement.AllowDropProperty);
-                    d.SetValue(PriorAllowDropProperty, ReferenceEquals(local, DependencyProperty.UnsetValue) ? NoLocalValue : local);
+                    d.SetValue(PriorAllowDropProperty, new Prior(ReferenceEquals(local, DependencyProperty.UnsetValue) ? NoLocalValue : local));
                 }
                 d.SetValue(UIElement.AllowDropProperty, true);
                 d.SetValue(AttachedProperty, true);

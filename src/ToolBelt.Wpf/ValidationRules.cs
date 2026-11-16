@@ -68,7 +68,8 @@ namespace ToolBelt.Wpf
 
         /// <summary>Properties whose rules read <paramref name="propertyName"/> (declared with <c>DependsOn</c>).</summary>
         public IEnumerable<string> Dependents(string propertyName)
-            => _dependents.TryGetValue(propertyName, out var set) ? set : Enumerable.Empty<string>();
+            => _dependents.TryGetValue(propertyName ?? throw new ArgumentNullException(nameof(propertyName)), out var set)   // named "key"
+                ? set : Enumerable.Empty<string>();
 
         internal void Add(string property, Func<string?> rule, bool stopOnFailure)
         {
@@ -127,6 +128,9 @@ namespace ToolBelt.Wpf
         {
             // Comparer<string>.Default compares in the culture current at each check: "chyba" left ["a", "d"] under cs-CZ.
             IComparer<T> cmp = typeof(T) == typeof(string) ? (IComparer<T>)(object)StringComparer.Ordinal : Comparer<T>.Default;
+            // The default comparer orders NaN below everything: a NaN minimum was ignored and a NaN value then passed.
+            if (IsNaN(min)) throw new ArgumentOutOfRangeException(nameof(min), "min must not be NaN.");
+            if (IsNaN(max)) throw new ArgumentOutOfRangeException(nameof(max), "max must not be NaN.");
             if (cmp.Compare(min, max) > 0) throw new ArgumentException("min must not exceed max.", nameof(max));
             _set.Add(_property, () =>
             {
@@ -152,6 +156,9 @@ namespace ToolBelt.Wpf
             return Must(v => v is not string s || s.Length <= length, message ?? $"{_property} must be at most {length} characters.");
         }
 
+        private static bool IsNaN(T value)
+            => (object?)value is double d ? double.IsNaN(d) : (object?)value is float f ? float.IsNaN(f) : (object?)value is Half h && Half.IsNaN(h);
+
         // A negative length was accepted: MaxLength(-1) failed every string, even "", and MinLength(-5) did nothing.
         private static void NonNegative(int length)
         {
@@ -172,7 +179,11 @@ namespace ToolBelt.Wpf
         /// <summary>Re-validate this property whenever <paramref name="otherProperties"/> change (cross-field rules).</summary>
         public RuleBuilder<T> DependsOn(params string[] otherProperties)
         {
-            foreach (string other in otherProperties ?? throw new ArgumentNullException(nameof(otherProperties)))
+            if (otherProperties is null) throw new ArgumentNullException(nameof(otherProperties));
+            // Checked before any is added: a null item threw naming "key" after the ones before it were registered.
+            foreach (string other in otherProperties)
+                if (other is null) throw new ArgumentException("A property name is null.", nameof(otherProperties));
+            foreach (string other in otherProperties)
                 _set.AddDependency(_property, other);
             return this;
         }

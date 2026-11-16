@@ -56,14 +56,14 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 6 | 3 / 102 | re-queue (3 bugs, none severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 6 | 3 / 141 | re-queue (3 bugs, none severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 5 | 15 / 114 | re-queue (15 bugs, none severe) |
-| 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 5 | 20 / 102 | re-queue (20 bugs, none severe) |
+| 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 6 | 13 / 115 | re-queue (13 bugs, none severe) |
 | 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 5 | 17 / 93 | re-queue (17 bugs, none severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); **next: 16**, then 12, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); **next: 12**, then 2, 2, 17, 15, 1, 3 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -175,11 +175,49 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.15 | 99 | Binary formats & images, sixth pass | 3 | (see tag) |
 | v2026.11.16.16 | 100 | Documents & config, sixth pass | 10 | (see tag) |
 | v2026.11.16.17 | 101 | Charts, sixth pass | 9 | (see tag) |
+| v2026.11.16.18 | 102 | WPF satellite, sixth pass | 13 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 102: WPF satellite, sixth pass (v2026.11.16.18)
+
+Two fresh reviewers (correctness, robustness): 13 bugs, none severe, so section 16 stays re-queued. The regression
+tests are in `WpfReview102Tests` (14); each fails on the old code, run by name under a 60 s timeout.
+
+- **ThemeManager** let the target dictionary be registered as a theme (or one that merges it, at any depth), so Apply
+  merged the target into itself and the next missing-key lookup overflowed the stack. Register throws naming
+  "dictionary"; Apply checks again (a dictionary can merge the target after registering) and changes nothing.
+- **BindingFailureListener** read every live TraceSwitch's setting; one switch anywhere in the app whose value doesn't
+  parse made the constructor throw, and the listener count, already raised, left every later listener with
+  DataBindingSource Off. Such switches are skipped, and the count rises only once set up.
+- **BindingFailureListener** let a FormatException out of a trace call with a malformed format; it records the raw
+  format and its arguments.
+- **DebugConverter.Log** took null and every conversion then threw NullReferenceException; the setter throws.
+- **ValidationRuleSet.Dependents(null)** and **DependsOn** with a null name threw naming "key" (DependsOn after
+  registering the names before it). They name "propertyName" and "otherProperties", and DependsOn checks first.
+- **RuleBuilder.Range** took a NaN bound (ignored, so a NaN value passed); it throws naming "min" or "max".
+- **GlobalHotkeys.Register(string)** named "text" for a null gesture; it names "gesture".
+- **FileDialogOptions.Filter** took an odd number of '|' parts, which WpfDialogService rejected only when shown (no
+  ParamName) and RecordingDialogService accepted, so tests passed where the app threw. The setter checks it.
+- **PlotPresenter.FitMatrix** returned a NaN matrix for NaN or infinite sizes, or a subnormal content size; it returns
+  Identity as for empty sizes.
+- **FileDropBehavior** saved a bound or DynamicResource AllowDrop by storing the expression in another property: a
+  binding threw "NonShareable ... already been used" out of SetCommand, and a resource reference came back as a local
+  value (or ClearValue threw). The prior value is boxed, and a resource reference is restored as one.
+- **NumericInputBehavior.Coerce** with no shown value in range gave "0.2" or "0.3" depending on the input; it gives
+  Minimum rounded, as documented.
+- **NumericInputBehavior** let Enter and Tab insert "\r\n" and "\t" unchecked with AcceptsReturn or AcceptsTab, as
+  they go through editing commands; those commands are refused.
+- **Messenger**: after Unregister and a re-register, the delivery order depended on whether a Send had pruned the stale
+  index entry in between. Unregister drops the entry, so a re-registration always goes last.
+
+Still suspected (BUGLIST R102-1..6): IncrementalCollection with a re-entrant ResetAsync; CountToVisibilityConverter with
+a null enumerator or a one-shot sequence; GlobalHotkeys with a null callback for a held gesture; RecordingDialogService
+recording live caller objects; ThemeManager's dispatcher on a non-pumping STA thread; NumericRangeValidationRule with a
+NaN bound.
+
 ### Round 101: Charts, sixth pass (v2026.11.16.17)
 
 Two fresh reviewers (correctness, robustness): 9 bugs, none severe, so section 5 stays re-queued. The regression tests

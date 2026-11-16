@@ -333,6 +333,9 @@ namespace ToolBelt.Wpf
             // Overtype mode replaced the character after the caret, but the checks modelled an insertion: "1.5" with "5"
             // overtyped after the "1" was checked as "15.5" under a maximum of 100 and became "155".
             if (command == EditingCommands.ToggleInsert) { e.Handled = true; return; }
+            // With AcceptsReturn or AcceptsTab, Enter and Tab inserted "\r\n" and "\t" through these commands, unchecked.
+            if (command == EditingCommands.EnterParagraphBreak || command == EditingCommands.EnterLineBreak
+                || command == EditingCommands.TabForward || command == EditingCommands.TabBackward) { e.Handled = true; return; }
             bool cut = command == ApplicationCommands.Cut, back = command == EditingCommands.Backspace, del = command == EditingCommands.Delete;
             bool prevWord = command == EditingCommands.DeletePreviousWord, nextWord = command == EditingCommands.DeleteNextWord;
             if (!(cut || back || del || prevWord || nextWord)) return;
@@ -397,7 +400,9 @@ namespace ToolBelt.Wpf
         {
             double min = Finite(r.Minimum), max = Finite(r.Maximum);
             double lo = Inward(min, r, up: true), hi = Inward(max, r, up: false);
-            if (lo > hi) { lo = min; hi = Math.Max(min, max); }      // no shown value fits (or Minimum > Maximum)
+            // No shown value fits (or Minimum > Maximum): Minimum rounded, as documented. Clamping to the raw range gave
+            // "0.2" or "0.3" for [0.24, 0.26] at one decimal, depending on the input.
+            if (lo > hi) return Round(min, r);
             return v < lo ? lo : (v > hi ? hi : v);
         }
 

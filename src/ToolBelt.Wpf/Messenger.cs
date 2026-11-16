@@ -102,6 +102,10 @@ namespace ToolBelt.Wpf
                     _registrations.Remove(recipient);
                     registration.Removed = true;
                 }
+                // Dropped from the type's index now, so a re-registration always goes last: the stale entry kept its old
+                // slot until a Send pruned it, so the order depended on whether one had run in between.
+                else if (registration.Indexed.Remove(typeof(TMessage)) && _byType.TryGetValue(typeof(TMessage), out var index))
+                    index.Entries.RemoveAll(w => w.TryGetTarget(out var r) && ReferenceEquals(r, registration));
                 return true;
             }
         }

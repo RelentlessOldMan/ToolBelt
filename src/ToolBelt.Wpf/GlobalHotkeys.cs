@@ -163,7 +163,8 @@ namespace ToolBelt.Wpf
         }
 
         /// <summary>Convenience: <c>Register("Ctrl+Alt+K", ...)</c>.</summary>
-        public int Register(string gesture, Action callback, bool noRepeat = true) => Register(HotkeyGesture.Parse(gesture), callback, noRepeat);
+        public int Register(string gesture, Action callback, bool noRepeat = true)
+            => Register(HotkeyGesture.Parse(gesture ?? throw new ArgumentNullException(nameof(gesture))), callback, noRepeat);   // named "text"
 
         /// <summary>
         /// Registers <paramref name="gesture"/> if it is free (false when another app or this instance holds it).

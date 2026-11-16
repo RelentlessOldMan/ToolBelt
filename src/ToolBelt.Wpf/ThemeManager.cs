@@ -1,5 +1,6 @@
 // ToolBelt.Wpf drop-in — Windows-only (net8.0-windows), self-contained (BCL + WPF).
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -89,6 +90,9 @@ namespace ToolBelt.Wpf
         public ThemeManager Register(AppTheme theme, ResourceDictionary dictionary)
         {
             if (dictionary is null) throw new ArgumentNullException(nameof(dictionary));
+            // Merging the target into itself made the next missing-key lookup recurse until the process died.
+            if (Reaches(dictionary, _target))
+                throw new ArgumentException("The dictionary is, or merges, the target dictionary: applying it would merge the target into itself.", nameof(dictionary));
             switch (theme)
             {
                 case AppTheme.Light: _light = dictionary; _lightUri = null; break;
@@ -121,6 +125,9 @@ namespace ToolBelt.Wpf
             CheckTheme(theme);   // (AppTheme)42 applied Light and reported 42 as the effective theme
             AppTheme effective = theme == AppTheme.System ? GetSystemTheme() : theme;
             ResourceDictionary dictionary = Resolve(effective);   // throws for an unregistered theme: change nothing first
+            // Checked again here: the dictionary may have merged the target since it was registered, or been loaded from a Uri.
+            if (Reaches(dictionary, _target))
+                throw new InvalidOperationException("The theme dictionary is, or merges, the target dictionary: applying it would merge the target into itself.");
             Requested = theme;
             if (ReferenceEquals(dictionary, _applied))
             {
@@ -193,6 +200,23 @@ namespace ToolBelt.Wpf
             if (_subscribed) SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
             _subscribed = false;
             _disposed = true;
+        }
+
+        // Whether target is root or anywhere in its merged tree (the tree itself may already hold a cycle).
+        private static bool Reaches(ResourceDictionary root, ResourceDictionary target)
+        {
+            var seen = new HashSet<ResourceDictionary>(ReferenceEqualityComparer.Instance);
+            var stack = new Stack<ResourceDictionary>();
+            stack.Push(root);
+            while (stack.Count > 0)
+            {
+                ResourceDictionary d = stack.Pop();
+                if (ReferenceEquals(d, target)) return true;
+                if (!seen.Add(d)) continue;
+                foreach (ResourceDictionary child in d.MergedDictionaries)
+                    if (child != null) stack.Push(child);
+            }
+            return false;
         }
 
         private ResourceDictionary Resolve(AppTheme effective)

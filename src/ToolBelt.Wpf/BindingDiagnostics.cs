@@ -78,7 +78,9 @@ namespace ToolBelt.Wpf
             lock (LevelGate)
             {
                 var source = PresentationTraceSources.DataBindingSource;
-                if (_activeListeners++ == 0)
+                // Counted only once set up: a setup that threw left the count raised, so every later listener skipped the
+                // setup and left DataBindingSource Off.
+                if (_activeListeners == 0)
                 {
                     // Refresh() turns binding tracing on when no debugger is attached, but re-reads config and resets the level:
                     // remember the app's level first and re-apply it, adding Warning if it lacks it. (Flags, not ordering:
@@ -98,6 +100,7 @@ namespace ToolBelt.Wpf
                     source.Switch.Level = (_originalLevel & SourceLevels.Warning) == SourceLevels.Warning ? _originalLevel : _originalLevel | SourceLevels.Warning;
                 }
                 source.Listeners.Add(this);
+                _activeListeners++;
             }
         }
 
@@ -158,7 +161,12 @@ namespace ToolBelt.Wpf
                     _sources.Add((source, source.Switch, Copy(source.Listeners)));
                 if (SwitchSetting != null && SwitchSetting.CanRead && SwitchSetting.CanWrite)
                     foreach (Switch s in Live<Switch>("s_switches"))
-                        _switches.Add(new KeyValuePair<Switch, object>(s, SwitchSetting.GetValue(s)!));
+                    {
+                        // A switch whose configured value doesn't parse throws on first read: one such switch anywhere in
+                        // the app made every listener's constructor throw. It is left as it is.
+                        try { _switches.Add(new KeyValuePair<Switch, object>(s, SwitchSetting.GetValue(s)!)); }
+                        catch (TargetInvocationException) { }
+                    }
             }
 
             public void Restore()
@@ -170,7 +178,10 @@ namespace ToolBelt.Wpf
                     Put(source.Listeners, listeners);
                 }
                 foreach (var pair in _switches)
-                    if (!Equals(SwitchSetting!.GetValue(pair.Key), pair.Value)) SwitchSetting.SetValue(pair.Key, pair.Value);
+                {
+                    try { if (!Equals(SwitchSetting!.GetValue(pair.Key), pair.Value)) SwitchSetting.SetValue(pair.Key, pair.Value); }
+                    catch (TargetInvocationException) { }   // as above: re-read after Refresh, its config may not parse
+                }
             }
 
             private static List<T> Live<T>(string field) where T : class
@@ -212,7 +223,14 @@ namespace ToolBelt.Wpf
         public override void TraceEvent(TraceEventCache? eventCache, string source, TraceEventType eventType, int id, string? format, params object?[]? args)
         {
             if (eventType > TraceEventType.Warning || (eventType == TraceEventType.Warning && !IncludeWarnings)) return;
-            Report(id, args is { Length: > 0 } && format != null ? string.Format(CultureInfo.InvariantCulture, format, args) : format ?? "");
+            Report(id, args is { Length: > 0 } && format != null ? Format(format, args) : format ?? "");
+        }
+
+        // A malformed format threw FormatException out of the traced call, which may be inside WPF's binding engine.
+        private static string Format(string format, object?[] args)
+        {
+            try { return string.Format(CultureInfo.InvariantCulture, format, args); }
+            catch (FormatException) { return format + " " + string.Join(" ", args); }
         }
 
         // TraceSource.TraceData went to the base class, which wrote a "Critical: " or "Warning: " header the line parser
@@ -298,7 +316,13 @@ namespace ToolBelt.Wpf
     public sealed class DebugConverter : IValueConverter
     {
         /// <summary>Where log lines go (default: <see cref="Debug.WriteLine(string)"/>).</summary>
-        public Action<string> Log { get; set; } = s => Debug.WriteLine(s);
+        public Action<string> Log
+        {
+            get => _log;
+            set => _log = value ?? throw new ArgumentNullException(nameof(value));   // null threw NullReferenceException from every conversion
+        }
+
+        private Action<string> _log = s => Debug.WriteLine(s);
 
         /// <summary>Break into an attached debugger on each conversion.</summary>
         public bool BreakOnConvert { get; set; }

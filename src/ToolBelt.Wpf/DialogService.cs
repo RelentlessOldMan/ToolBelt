@@ -23,7 +23,21 @@ namespace ToolBelt.Wpf
         public string? Title { get; set; }
 
         /// <summary>A WPF/Win32 filter string, e.g. <c>"Images|*.png;*.jpg|All files|*.*"</c>.</summary>
-        public string? Filter { get; set; }
+        /// <exception cref="ArgumentException">The filter has an odd number of '|'-separated parts.</exception>
+        public string? Filter
+        {
+            get => _filter;
+            set
+            {
+                // Checked here as the WPF dialog checks it: the WPF service threw (with no ParamName) where
+                // RecordingDialogService accepted it, so tests passed for a filter the app could not show.
+                if (!string.IsNullOrEmpty(value) && value.Split('|').Length % 2 != 0)
+                    throw new ArgumentException("The filter must be pairs of description|pattern, e.g. \"Images|*.png\".", nameof(value));
+                _filter = value;
+            }
+        }
+
+        private string? _filter;
 
         public string? InitialDirectory { get; set; }
 

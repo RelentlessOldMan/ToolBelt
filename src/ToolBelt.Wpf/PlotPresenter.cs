@@ -195,8 +195,12 @@ namespace ToolBelt.Wpf
         /// <summary>The uniform scale-and-centre transform that fits <paramref name="content"/> inside <paramref name="viewport"/>.</summary>
         public static Matrix FitMatrix(Size content, Size viewport)
         {
-            if (content.Width <= 0 || content.Height <= 0 || viewport.Width <= 0 || viewport.Height <= 0) return Matrix.Identity;
+            // NaN and ∞ sizes gave a NaN matrix, which can't be inverted or drawn.
+            if (!(content.Width > 0) || !(content.Height > 0) || !(viewport.Width > 0) || !(viewport.Height > 0)
+                || double.IsInfinity(content.Width) || double.IsInfinity(content.Height)
+                || double.IsInfinity(viewport.Width) || double.IsInfinity(viewport.Height)) return Matrix.Identity;
             double s = Math.Min(viewport.Width / content.Width, viewport.Height / content.Height);
+            if (!(s > 0) || double.IsInfinity(s)) return Matrix.Identity;   // a subnormal content size overflowed the scale
             return FitAtScale(content, viewport, s);
         }
 
