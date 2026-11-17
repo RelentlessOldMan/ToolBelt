@@ -7,8 +7,9 @@ namespace ToolBelt.Signal
     /// <summary>One cycle of a periodic capture, from one rising crossing to the next.</summary>
     public sealed class Cycle
     {
-        internal Cycle(double start, double period, double highTime, double maximum, double minimum, double periodSamples, double highSamples)
+        internal Cycle(double start, double period, double highTime, double maximum, double minimum, double periodSamples, double highSamples, double sampleRate)
         {
+            _sampleRate = sampleRate;
             HighSamples = highSamples;
             Start = start;
             Period = period;
@@ -27,7 +28,11 @@ namespace ToolBelt.Signal
         // The period in samples, which the statistics work in.
         internal double PeriodSamples { get; }
 
-        public double Frequency => 1 / Period;
+        // In samples too: 1/Period was 0 where the period in seconds overflowed (10 samples at 1e-308 Hz), and ∞ where it
+        // underflowed, though the frequency is representable.
+        public double Frequency => _sampleRate / PeriodSamples;
+
+        private readonly double _sampleRate;
 
         /// <summary>Seconds above the level (rising to falling crossing).</summary>
         public double HighTime { get; }
@@ -51,7 +56,7 @@ namespace ToolBelt.Signal
             int n = cycles.Count;
             if (n == 0)
             {
-                MeanPeriod = PeriodStandardDeviation = PeakToPeakJitter = CycleToCycleJitter = MeanDutyCycle = double.NaN;
+                MeanPeriod = PeriodStandardDeviation = PeakToPeakJitter = CycleToCycleJitter = MeanDutyCycle = MeanFrequency = double.NaN;
                 return;
             }
             // In samples, divided by the rate last: squared periods in seconds underflowed or overflowed at extreme rates
@@ -60,6 +65,7 @@ namespace ToolBelt.Signal
             foreach (var c in cycles) { sum += c.PeriodSamples; duty += c.DutyCycle; min = Math.Min(min, c.PeriodSamples); max = Math.Max(max, c.PeriodSamples); }
             double mean = sum / n;
             MeanPeriod = mean / sampleRate;
+            MeanFrequency = sampleRate / mean;   // not 1/MeanPeriod, which lost it at extreme rates as Cycle.Frequency did
             MeanDutyCycle = duty / n;
             PeakToPeakJitter = (max - min) / sampleRate;
             double ss = 0;
@@ -77,7 +83,7 @@ namespace ToolBelt.Signal
         public double Level { get; }
 
         public double MeanPeriod { get; }
-        public double MeanFrequency => 1 / MeanPeriod;
+        public double MeanFrequency { get; }
 
         /// <summary>Standard deviation of the periods (RMS period jitter).</summary>
         public double PeriodStandardDeviation { get; }
@@ -185,7 +191,7 @@ namespace ToolBelt.Signal
                     cmax = Math.Max(cmax, samples[i]);
                     cmin = Math.Min(cmin, samples[i]);
                 }
-                cycles.Add(new Cycle(start / sampleRate, (end - start) / sampleRate, high / sampleRate, cmax * unscale, cmin * unscale, end - start, high));
+                cycles.Add(new Cycle(start / sampleRate, (end - start) / sampleRate, high / sampleRate, cmax * unscale, cmin * unscale, end - start, high, sampleRate));
             }
             return new CycleStatistics(cycles, lvl * unscale, sampleRate);
         }

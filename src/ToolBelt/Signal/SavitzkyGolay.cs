@@ -29,22 +29,47 @@ namespace ToolBelt.Signal
             double[] centre = fit.Row(half, new double[windowSize]), edge = new double[windowSize];
             var result = new double[n];
 
-            for (int i = 0; i < n; i++)
+            // The window is centred on i, shifted inward at the ends so it always has windowSize points.
+            for (int i = half; i < n - half; i++)
             {
-                // Center the window on i, shifting it inward at the ends so it always has windowSize points.
                 int start = i - half;
-                if (start < 0) start = 0;
-                if (start > n - windowSize) start = n - windowSize;
-
-                int e = i - start;
-                double[] c = e == half ? centre : fit.Row(e, edge);
                 double sum = 0;
-                for (int k = 0; k < windowSize; k++) sum += c[k] * data[start + k];
-                if (double.IsInfinity(sum) || double.IsNaN(sum)) sum = Rescaled(c, data, start, sum);
-                else if (Math.Abs(sum) < Tiny) sum = ScaledUp(c, data, start, sum);
+                for (int k = 0; k < windowSize; k++) sum += centre[k] * data[start + k];
+                if (double.IsInfinity(sum) || double.IsNaN(sum)) sum = Rescaled(centre, data, start, sum);
+                else if (Math.Abs(sum) < Tiny) sum = ScaledUp(centre, data, start, sum);
                 result[i] = sum;
             }
+            Edges(fit, data, 0, 0, half, result, edge);
+            Edges(fit, data, n - windowSize, half + 1, windowSize, result, edge);
             return result;
+        }
+
+        // Window positions from..to−1 of the window at start. Their weight rows are rows of Q·Qᵀ, so the fitted values are
+        // Q·(Qᵀ·window): the window is projected once and the projection evaluated at each position. A weight row built and
+        // summed per position made the edges O(w²·m), 19.9 s at w = 40001. The window is scaled to a peak near 1 by a power of
+        // two first (exact, but for what it flushes below 2^-1074 of the peak), so neither overflow nor subnormals touch the
+        // sums, and scaled back. A window holding ∞ or NaN keeps the plain sums, which say where they fall.
+        private static void Edges(Fit fit, IReadOnlyList<double> data, int start, int from, int to, double[] result, double[] row)
+        {
+            int w = row.Length;
+            double peak = 0;
+            for (int k = 0; k < w; k++) peak = Math.Max(peak, Math.Abs(data[start + k]));
+            if (double.IsInfinity(peak) || double.IsNaN(peak))
+            {
+                for (int e = from; e < to; e++)
+                {
+                    double[] c = fit.Row(e, row);
+                    double sum = 0;
+                    for (int k = 0; k < w; k++) sum += c[k] * data[start + k];
+                    result[start + e] = sum;
+                }
+                return;
+            }
+            int exponent = peak > 0 ? (int)Math.Ceiling(Math.Log(peak, 2)) : 0;
+            double downHalf = Math.Pow(2, -(exponent / 2)), downRest = Math.Pow(2, -(exponent - exponent / 2));
+            double upHalf = Math.Pow(2, exponent / 2), upRest = Math.Pow(2, exponent - exponent / 2);
+            double[] p = fit.Project(data, start, downHalf, downRest);
+            for (int e = from; e < to; e++) result[start + e] = fit.Evaluate(e, p) * upHalf * upRest;
         }
 
         // Row(e)[k]: the weight of window sample k in the fitted polynomial's value at window position e. The fit is linear in
@@ -83,6 +108,26 @@ namespace ToolBelt.Signal
                     for (int k = 0; k < w; k++) q[k, j] = v[k] / norm;
                 }
                 _q = q;
+            }
+
+            // Qᵀ·window, the window's samples each multiplied by down1 then down2.
+            public double[] Project(IReadOnlyList<double> data, int start, double down1, double down2)
+            {
+                var p = new double[_m];
+                for (int k = 0; k < _w; k++)
+                {
+                    double x = data[start + k] * down1 * down2;
+                    for (int j = 0; j < _m; j++) p[j] += _q[k, j] * x;
+                }
+                return p;
+            }
+
+            // The fitted value at window position e from the projection.
+            public double Evaluate(int e, double[] p)
+            {
+                double sum = 0;
+                for (int j = 0; j < _m; j++) sum += _q[e, j] * p[j];
+                return sum;
             }
 
             public double[] Row(int e, double[] c)

@@ -23,7 +23,7 @@ namespace ToolBelt.Signal
             return lag;
         }
 
-        /// <summary>The lag and the correlation value at that lag.</summary>
+        /// <summary>The lag and the correlation value at that lag. Lags tied at the peak go to the one nearest zero.</summary>
         public static (int Lag, double Value) CrossCorrelationPeak(double[] reference, double[] delayed)
         {
             if (reference is null) throw new ArgumentNullException(nameof(reference));
@@ -131,7 +131,10 @@ namespace ToolBelt.Signal
         // lag nearest zero.
         // The FFT's rounding broke exact ties against the documented "nearest zero" rule ([−1] against
         // [−1, −1, 1, 2, 1, 2, −1] gave lag 1 at 1.0000000000000002 though lags 0 and 1 are both 1). Lags within the FFT's
-        // error of the peak are summed directly and compared again; with more than a few such lags the FFT's pick stands.
+        // error of the peak are summed directly and compared again. Past 64 such lags the FFT's pick stood, so a template
+        // against a periodic train (or [1] against 200 ones) gave a lag among the ties by rounding noise ((7, 1.0000000000000002)
+        // for (0, 1)): every near-tie is summed while the sums' total length stays within a budget, and past it the near-tie
+        // nearest zero is taken, which the FFT cannot tell from the peak.
         // Where no product or sum can overflow or underflow the sums are of the samples themselves (raw: the value needs no
         // scaling back; dividing by the peaks first rounded the 14 of an integer correlation to 13.999999999999998).
         private static (int Lag, double Value, bool Raw) Refine(Complex[] corr, double[] reference, double[] delayed, double sa, double sb, int lag, double value)
@@ -141,15 +144,22 @@ namespace ToolBelt.Signal
             double tolerance = 1e-12 * norms * Math.Max(1, Math.Log(corr.Length, 2));
             int m = corr.Length;
             var candidates = new List<int>();
+            long work = 0, budget = Math.Max(64L * Math.Min(reference.Length, delayed.Length), 16L * m * (long)Math.Max(1, Math.Log(m, 2)));
+            int nearest = 0;
+            bool any = false;
             for (int k = -(reference.Length - 1); k <= delayed.Length - 1; k++)
             {
                 if (corr[k >= 0 ? k : m + k].Real < value - tolerance) continue;
                 candidates.Add(k);
-                if (candidates.Count > MaxRefined) return (lag, value, false);
+                work += Math.Min(reference.Length, delayed.Length - k) - Math.Max(0, -k);
+                if (!any || Math.Abs(k) < Math.Abs(nearest)) nearest = k;
+                any = true;
             }
             const double Low = 1e-140, High = 1e140;
             bool raw = sa > Low && sa < High && sb > Low && sb < High;
             if (raw) sa = sb = 1;
+            if (!any) return (lag, value, false);
+            if (work > budget) return (nearest, Direct(reference, delayed, sa, sb, nearest), raw);
             int bestLag = 0;
             double best = double.NegativeInfinity;
             foreach (int k in candidates)
@@ -159,8 +169,6 @@ namespace ToolBelt.Signal
             }
             return (bestLag, best, raw);
         }
-
-        private const int MaxRefined = 64;
 
         // sum_l delayed[l + k]·reference[l] on the scaled samples.
         private static double Direct(double[] reference, double[] delayed, double sa, double sb, int k)

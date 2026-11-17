@@ -46,15 +46,11 @@ namespace ToolBelt.Signal
             CheckLength(spectrum.Length, nameof(spectrum));
             var data = (Complex[])spectrum.Clone();
             double scale = 1.0 / data.Length;
-            // A power-of-two transform applies 1/N with its own scale-back (both powers of two, so one rounding): a subnormal
-            // result was rounded by the 2^-600 and again by 1/N (−10ε for −10.53ε).
-            bool scaled = Transform(data, inverse: true, nameof(spectrum), scale);
+            // The transform applies 1/N before or with its own scale-back, so a subnormal result is rounded once: by the 2^-600
+            // and again by 1/N it was −10ε for −10.53ε, and Bluestein's −0 for −0.58ε at N = 6.
+            Transform(data, inverse: true, nameof(spectrum), scale);
             bool finite = true;
-            for (int i = 0; i < data.Length; i++)
-            {
-                if (!scaled) data[i] = Scale(data[i], scale);
-                finite &= IsFinite(data[i]);
-            }
+            for (int i = 0; i < data.Length; i++) finite &= IsFinite(data[i]);
             // The unscaled sum overflowed ([1e308, 1e308] gave ∞ + NaN·i); scaling first can't, but would lose denormals,
             // so it is only the fallback.
             if (!finite && AllFinite(spectrum))
@@ -89,12 +85,11 @@ namespace ToolBelt.Signal
                 throw new ArgumentException($"A length-{n} transform that is not a power of two is too long (Bluestein needs 2n − 1 ≤ 2^30); pad it to a power of two.", paramName);
         }
 
-        // Unnormalized transform in place; dispatches by length. A power-of-two transform also multiplies by post, a power of
-        // two, and returns true; otherwise post is the caller's to apply.
-        private static bool Transform(Complex[] data, bool inverse, string paramName, double post = 1)
+        // Unnormalized transform in place, then multiplied by post; dispatches by length.
+        private static void Transform(Complex[] data, bool inverse, string paramName, double post = 1)
         {
             int n = data.Length;
-            if (n <= 1) { if (post != 1) for (int k = 0; k < n; k++) data[k] = Scale(data[k], post); return true; }
+            if (n <= 1) { if (post != 1) for (int k = 0; k < n; k++) data[k] = Scale(data[k], post); return; }
             if ((n & (n - 1)) == 0)
             {
                 // Subnormal inputs lost bits in the twiddle products ([7ε, 3ε, 5ε, 0, 0, 0, 0, 0] was 8% off in bins 1 and 7),
@@ -109,10 +104,9 @@ namespace ToolBelt.Signal
                 Radix2(data, inverse);
                 double back = 1 / down * post;                                          // exact: powers of two
                 if (back != 1) for (int k = 0; k < n; k++) data[k] = Scale(data[k], back);
-                return true;
+                return;
             }
-            Bluestein(data, inverse, paramName);
-            return false;
+            Bluestein(data, inverse, paramName, post);
         }
 
         // Iterative in-place radix-2 Cooley–Tukey. Requires a power-of-two length. Unnormalized.
@@ -153,7 +147,7 @@ namespace ToolBelt.Signal
         }
 
         // Bluestein's chirp-z: turns an arbitrary-length DFT into a power-of-two convolution.
-        private static void Bluestein(Complex[] data, bool inverse, string paramName)
+        private static void Bluestein(Complex[] data, bool inverse, string paramName, double post)
         {
             int n = data.Length;
             double dir = inverse ? 1 : -1;
@@ -202,8 +196,15 @@ namespace ToolBelt.Signal
             for (int k = 0; k < m; k++) a[k] *= b[k];
             Radix2(a, inverse: true);
 
+            // post (1/N for the inverse) while the values are still near 1, then the scale-back, exact unless subnormal: one
+            // rounding there.
             double scale = 1.0 / m;
-            for (int k = 0; k < n; k++) data[k] = Scale(Scale(Scale(a[k], scale) * chirp[k], upHalf), upRest);
+            for (int k = 0; k < n; k++)
+            {
+                var v = Scale(a[k], scale) * chirp[k];
+                if (post != 1) v = Scale(v, post);
+                data[k] = Scale(Scale(v, upHalf), upRest);
+            }
         }
     }
 }

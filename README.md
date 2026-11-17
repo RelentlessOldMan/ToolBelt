@@ -806,6 +806,7 @@ tests/
       SignalReview4Tests.cs (fourth-pass regressions: spectral overflow, subnormal FFT/cycle/pulse, NumPy unwrap tolerance, sliding median/Hampel, length checks)
       SignalReview86Tests.cs (round 86: huge power-of-two FFTs, linear rise time, exact quantizer codes, unwrap at ±π, zero signs in medians, file headers)
       SignalReview104Tests.cs (round 104: subnormal convolution, smoothing, vertices, inverse FFT and interpolation, rounded crossing hand-off, Hampel overflow, correlation ties, envelope coefficient, duty cycle and group delay at extremes, Goertzel aliasing)
+      SignalReview115Tests.cs (seventh pass: many tied correlation lags, Goertzel aliases, cycle frequencies at extreme rates, Bluestein inverse subnormals, linear-time Hampel and Savitzky-Golay edges)
       WindowTests.cs
       ZeroCrossingTests.cs
     Objects/

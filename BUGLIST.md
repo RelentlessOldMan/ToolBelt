@@ -124,3 +124,10 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R114-6 | P3 | 10 | suspected | ProcessRunner.RunAsync can report a timeout and a cancel landing together as a cancel. | review r114 |
 | R114-7 | P3 | 10 | suspected | TokenBucket's capacity check does not match the tolerance it grants with. | review r114 |
 | R114-8 | P3 | 10 | suspected | WhichExe resolves a drive-relative name like `C:tool.exe` against that drive's current directory. | review r114 |
+| R115-1 | P3 | 2 | suspected | Resample.ToRate rounds its output length half to even (5 samples to 2, 7 to 4). | review r115 |
+| R115-2 | P3 | 2 | suspected | FrequencyGrid.NearestBin breaks a tie between two bins to the even one. | review r115 |
+| R115-3 | P3 | 2 | suspected | MedianFilter moves O(w) elements per insert and remove (13 s at n = 400000, w = 200000). | review r115 |
+| R115-4 | P3 | 2 | suspected | A Hampel window whose median is infinite gives a NaN MAD, so a finite sample there is never flagged. | review r115 |
+| R115-5 | P3 | 2 | suspected | Welch and Multitaper scale with ScaleB after the sum, which may round subnormal results twice. | review r115 |
+| R115-6 | P3 | 2 | suspected | An IReadOnlyList input that changes between reads gives inconsistent results. | review r115 |
+| R115-7 | P3 | 2 | suspected | SavitzkyGolay still sums per row for an edge window holding non-finite values. | review r115 |

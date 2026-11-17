@@ -16,7 +16,8 @@ namespace ToolBelt.Signal
         /// and Nyquist). The phase is referenced to the end of the analysis window (a linear offset versus an
         /// n=0 reference), so use phase <i>differences</i> between signals rather than the absolute value.
         /// The recursion's rounding error grows with N and as the frequency nears 0 or Nyquist (about 1e-6
-        /// relative at bin 1 of 2²⁰ samples); use the FFT for very long, low-frequency records.
+        /// relative at bin 1 of 2²⁰ samples); use the FFT for very long, low-frequency records. A frequency at or above the
+        /// sample rate is the same tone as its alias <c>targetFrequency % sampleRate</c> at these samples, and is measured as that.
         /// </summary>
         public static (double Magnitude, double Phase) Estimate(
             IReadOnlyList<double> samples, double targetFrequency, double sampleRate)
@@ -27,11 +28,11 @@ namespace ToolBelt.Signal
 
             if (double.IsNaN(targetFrequency) || double.IsInfinity(targetFrequency))
                 throw new ArgumentOutOfRangeException(nameof(targetFrequency), targetFrequency, "Target frequency must be finite.");
-            double omega = 2.0 * Math.PI * targetFrequency / sampleRate;
-            if (double.IsInfinity(omega)) omega = 2.0 * Math.PI * (targetFrequency / sampleRate);   // 2π·f overflowed first
-            // f/fs overflowed too (1e300 Hz at 1e-10 Hz), so cos(∞) made the result NaN. The
-            // frequency is an alias of f mod fs (exact), the same tone at these samples.
-            if (double.IsInfinity(omega)) omega = 2.0 * Math.PI * (targetFrequency % sampleRate / sampleRate);
+            // The frequency is an alias of f mod fs (exact), the same tone at these samples. Reduced only once 2π·f/fs overflowed,
+            // a large finite ratio kept an omega whose rounding error passed 2π: 1e17 Hz at 1 Hz, a multiple of the rate, gave
+            // 1.14 for the 8 of DC, and 1e300 Hz the same.
+            if (Math.Abs(targetFrequency) >= sampleRate) targetFrequency %= sampleRate;
+            double omega = 2.0 * Math.PI * (targetFrequency / sampleRate);
             double cosine = Math.Cos(omega);
             double coeff = 2.0 * cosine;
 

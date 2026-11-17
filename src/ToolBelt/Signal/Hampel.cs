@@ -83,7 +83,8 @@ namespace ToolBelt.Signal
         }
 
         // MAD = median of |x − median| over the sorted window. The deviations of the values below the median grow leftward
-        // from the middle and those above it rightward, so merging the two runs outward reaches the middle rank in O(w).
+        // from the middle and those above it rightward, so the middle rank of the two runs is found by binary search: merging
+        // them outward was O(w) a sample, 292 s for 400000 samples with a half-window of 100000.
         // An infinite median makes the deviations NaN, which don't order; they are sorted as before.
         private static double Mad(double[] sorted, int count, double median, ref double[]? scratch)
         {
@@ -94,15 +95,29 @@ namespace ToolBelt.Signal
                 Array.Sort(scratch, 0, count);
                 return count % 2 != 0 ? scratch[count / 2] : Midpoint(scratch[count / 2 - 1], scratch[count / 2]);
             }
+            double current = KthDeviation(sorted, count, median, count / 2);
+            if (count % 2 != 0) return current;
+            return Midpoint(KthDeviation(sorted, count, median, count / 2 - 1), current);   // 0.5·(a + b) overflowed near double.MaxValue
+        }
+
+        // The k-th smallest (from 0) of the deviations: the left run is |sorted[left − i] − median| for i = 0..left and the
+        // right run |sorted[right + j] − median|, both ascending. Taking i from the left and k + 1 − i from the right, the
+        // smallest i whose next left deviation is not below the last right one taken splits the k + 1 smallest.
+        private static double KthDeviation(double[] sorted, int count, double median, int k)
+        {
             int left = count / 2 - 1, right = count / 2;
-            double previous = 0, current = 0;
-            for (int rank = 0; rank <= count / 2; rank++)
+            int a = left + 1, b = count - right;
+            int lo = Math.Max(0, k + 1 - b), hi = Math.Min(k + 1, a);
+            while (lo < hi)
             {
-                previous = current;
-                bool takeLeft = left >= 0 && (right >= count || Math.Abs(sorted[left] - median) <= Math.Abs(sorted[right] - median));
-                current = takeLeft ? Math.Abs(sorted[left--] - median) : Math.Abs(sorted[right++] - median);
+                int i = lo + (hi - lo) / 2, j = k + 1 - i;
+                if (Math.Abs(sorted[left - i] - median) < Math.Abs(sorted[right + j - 1] - median)) lo = i + 1; else hi = i;
             }
-            return count % 2 != 0 ? current : Midpoint(previous, current);   // 0.5·(a + b) overflowed near double.MaxValue
+            int fromLeft = lo, fromRight = k + 1 - lo;
+            double last = double.NegativeInfinity;
+            if (fromLeft > 0) last = Math.Abs(sorted[left - (fromLeft - 1)] - median);
+            if (fromRight > 0) last = Math.Max(last, Math.Abs(sorted[right + fromRight - 1] - median));
+            return last;
         }
 
         private static void Insert(double[] window, ref int count, double x)
