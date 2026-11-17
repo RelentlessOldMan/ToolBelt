@@ -43,7 +43,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 6 | 10 / 83 | re-queue (10 bugs, none severe) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 7 | 6 / 125 | re-queue (6 bugs, none severe) |
-| 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 6 | 11 / 133 | re-queue (11 bugs, none severe) |
+| 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 7 | 5 / 138 | re-queue (5 bugs, none severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 6 | 8 / 150 | re-queue (8 bugs, none severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 6 | 9 / 136 | re-queue (9 bugs, none severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 3,400 | ~3 | 7 | 5 / 76 | re-queue (5 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); 1 (done, round 107); 3 (done, round 108). Seventh pass, same rule and order (severe count, then bugs in the sixth pass; ties by section number): 7 (done, round 109); 15 (done, round 110); 9 (done, round 111); 8 (done, round 112); 6 (done, round 113); 10 (done, round 114); 2 (done, round 115); 12 (done, round 116); 16 (done, round 117); **next: 3**, then 1, 17, 5, 4, 11, 13, 14 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); 1 (done, round 107); 3 (done, round 108). Seventh pass, same rule and order (severe count, then bugs in the sixth pass; ties by section number): 7 (done, round 109); 15 (done, round 110); 9 (done, round 111); 8 (done, round 112); 6 (done, round 113); 10 (done, round 114); 2 (done, round 115); 12 (done, round 116); 16 (done, round 117); 3 (done, round 118); **next: 1**, then 17, 5, 4, 11, 13, 14 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -191,11 +191,36 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.17.5 | 115 | Signal analysis, seventh pass | 8 | (see tag) |
 | v2026.11.17.6 | 116 | Logging, diagnostics, CLI, seventh pass | 13 | (see tag) |
 | v2026.11.17.7 | 117 | WPF satellite, seventh pass | 11 | (see tag) |
+| v2026.11.17.8 | 118 | Statistics, seventh pass | 10 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 118: Statistics, seventh pass (v2026.11.17.8)
+
+Two fresh reviewers (correctness, robustness): 5 bugs, none severe, so section 3 stays re-queued. The regression tests
+are in `NumericsReview118Tests` (10, all failing on the old code, run by name under a 60 s timeout). References are
+700-digit mpmath: at 60 digits mpmath itself was wrong for shapes near 1e308.
+
+- **F distribution when d1·x overflows**: FMasses formed d1·x + d2 = ∞, so FCdf(1e308; 2, 0.001) was 1 (it is 0.301)
+  and others NaN, and FPdf was 0. The tails come from the ratio d2/(d1·x) without forming the product, and past
+  1e-280 from the gamma limit with a cancellation-free ln Γ(a + b)/(Γ(a)·aᵇ).
+- **The private F tails** in Anova and GaugeRR had the same overflow; each copy gains the same branch, and a test checks
+  the three agree.
+- **Tiny shapes**: the leading term 1 − yᵃ/(a·B(a, b)) took ln a + ln B(a, b), which keeps only eps·|ln a| absolutely,
+  so FSurvival(1e-300; 1e-100, 1e-20) was −2.8e-14 (it is 1e-80); a tail at l = 0 was −0; and Anova's tail was 1
+  when df1·f was subnormal. ln(a·B) is formed as lnΓ(1 + a) − (lnΓ(b + a) − lnΓ(b)), each part accurate to eps·a (the
+  Stirling corrections' difference formed apart, since added in order it vanished into the larger one).
+- **Quantiles past MaxValue**: the solver doubled its bracket to ∞ and bisected there, so FQuantile(0.5; 2, 0.001) was
+  9e307 (it is ∞) and ChiSquareQuantile(0.99; 8e307) was ∞. The bracket stops at MaxValue, the midpoint no longer
+  overflows, and a chi-square quantile within half an ulp of MaxValue (by the Laurent–Massart bound) rounds to it.
+- **Subnormal data**: the t-tests, the F-test and the confidence intervals rounded on the subnormal grid before the
+  statistic or the quantile multiplied (OneSampleT 2.99944 for 2.99935; ForMeanT of {0, 3ε} was (−11ε, 15ε), it is
+  (−17.6ε, 20.6ε)). Data below 2⁻⁹⁰⁰ are scaled up by 2⁶⁰⁰ first, and the intervals scaled back at the end.
+
+Still suspected (BUGLIST R118-1..4).
+
 ### Round 117: WPF satellite, seventh pass (v2026.11.17.7)
 
 Two fresh reviewers (correctness, robustness): 6 bugs, none severe, so section 16 stays re-queued. The regression tests

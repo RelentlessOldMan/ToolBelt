@@ -20,21 +20,14 @@ namespace ToolBelt.Numerics
         /// </summary>
         public static (double Lower, double Upper) ForMean(IReadOnlyList<double> sample, double confidence = 0.95)
         {
-            if (sample is null) throw new ArgumentNullException(nameof(sample));
-            if (sample.Count < 2) throw new ArgumentException("At least two samples are required.", nameof(sample));
-            if (!(confidence > 0 && confidence < 1)) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
-
-            int n = sample.Count;
-            for (int i = 0; i < n; i++)
-                if (double.IsNaN(sample[i]) || double.IsInfinity(sample[i])) throw new ArgumentException($"Value [{i}] is not finite.", nameof(sample));
-            var (mean, sd) = MeanSd(sample);
+            var (n, mean, sd, unit) = Moments(sample, confidence);
             double stdErr = sd / Math.Sqrt(n);
 
             // From the tail mass α/2: (1 + confidence)/2 rounded to 1 for a confidence of 1 − 2⁻⁵³, and the quantile threw
             // for a parameter "p" the caller never passed.
             double z = -Distributions.NormalQuantile((1 - confidence) / 2);
             double margin = z * stdErr;
-            return (mean - margin, mean + margin);
+            return ((mean - margin) / unit, (mean + margin) / unit);
         }
 
         /// <summary>
@@ -43,10 +36,10 @@ namespace ToolBelt.Numerics
         /// </summary>
         public static (double Lower, double Upper) ForMeanT(IReadOnlyList<double> sample, double confidence = 0.95)
         {
-            var (n, mean, sd) = Moments(sample, confidence);
+            var (n, mean, sd, unit) = Moments(sample, confidence);
             double t = -Distributions.StudentTQuantile((1 - confidence) / 2, n - 1);
             double margin = t * (sd / Math.Sqrt(n));
-            return (mean - margin, mean + margin);
+            return ((mean - margin) / unit, (mean + margin) / unit);
         }
 
         /// <summary>
@@ -63,21 +56,37 @@ namespace ToolBelt.Numerics
         public static (double Lower, double Upper) ForStandardDeviation(IReadOnlyList<double> sample, double confidence = 0.95)
         {
             // From s itself: s² under- or overflowed for data near 1e±160 (an interval of (0, 0) or (∞, ∞)).
-            var (n, _, sd) = Moments(sample, confidence);
-            return (sd * Math.Sqrt((n - 1) / Distributions.ChiSquareInverseSurvival((1 - confidence) / 2, n - 1)),
-                    sd * Math.Sqrt((n - 1) / Distributions.ChiSquareQuantile((1 - confidence) / 2, n - 1)));
+            var (n, _, sd, unit) = Moments(sample, confidence);
+            return (sd * Math.Sqrt((n - 1) / Distributions.ChiSquareInverseSurvival((1 - confidence) / 2, n - 1)) / unit,
+                    sd * Math.Sqrt((n - 1) / Distributions.ChiSquareQuantile((1 - confidence) / 2, n - 1)) / unit);
         }
 
-        private static (int N, double Mean, double Sd) Moments(IReadOnlyList<double> sample, double confidence)
+        private static readonly double TinyData = Math.Pow(2, -900), Upscale = Math.Pow(2, 600);
+
+        // A sample entirely below 2^-900 is moved up by Unit = 2^600 (exact), its moments taken there and the interval moved
+        // back by the caller: down in the subnormals the spread was rounded and the margin rounded again (ForMeanT of
+        // [0, ε, 0, ε] had zero width). Unit is 1 otherwise.
+        private static (int N, double Mean, double Sd, double Unit) Moments(IReadOnlyList<double> sample, double confidence)
         {
             if (sample is null) throw new ArgumentNullException(nameof(sample));
             if (sample.Count < 2) throw new ArgumentException("At least two samples are required.", nameof(sample));
             if (!(confidence > 0 && confidence < 1)) throw new ArgumentOutOfRangeException(nameof(confidence), confidence, "Confidence must be in (0, 1).");
             int n = sample.Count;
+            double big = 0;
             for (int i = 0; i < n; i++)
+            {
                 if (double.IsNaN(sample[i]) || double.IsInfinity(sample[i])) throw new ArgumentException($"Value [{i}] is not finite.", nameof(sample));
+                big = Math.Max(big, Math.Abs(sample[i]));
+            }
+            if (big < TinyData)
+            {
+                var up = new double[n];
+                for (int i = 0; i < n; i++) up[i] = sample[i] * Upscale;
+                var (m, s) = MeanSd(up);
+                return (n, m, s, Upscale);
+            }
             var (mean, sd) = MeanSd(sample);
-            return (n, mean, sd);
+            return (n, mean, sd, 1);
         }
 
         // Mean and sample standard deviation of finite data, in units of the largest magnitude p (a power of two, so

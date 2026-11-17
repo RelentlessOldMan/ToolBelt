@@ -193,15 +193,85 @@ namespace ToolBelt.Numerics
             if (double.IsPositiveInfinity(f)) return 0.0;
             // P(F > f) = 1 − I_y(df1/2, df2/2) with y = df1·f/(df1·f + df2), the complement computed directly.
             double num = df1 * f, den = num + df2;
+            // df1·f + df2 overflows (the tail was 0 at f = 1e308, df = (2, 0.001), not 0.70): as Distributions' FMasses.
+            if (double.IsInfinity(den)) return FOverflowUpper(f, df1, df2);
+            if (num < 2.2250738585072014E-308)
+            {
+                // A subnormal df1·f is rounded or 0, and the tail was 1 where tiny df put it near 0 (1e-80 at f = 1e-300,
+                // df = (1e-100, 1e-20)): as Distributions' FMasses, scaled up by 2^600 over a tiny df2, else the leading term.
+                double sn = df1 * (f * 4.149515568880993E+180), sd = df2 * 4.149515568880993E+180;
+                if (df2 < 1e-290 && sn >= 2.2250738585072014E-308)
+                {
+                    BetaI(sn / (sn + sd), sd / (sn + sd), df1 / 2, df2 / 2, out _, out double su);
+                    return su;
+                }
+                return 0 - Expm1(Math.Min(0, df1 / 2 * (Math.Log(df1) + Math.Log(f) - Math.Log(den)) - LnAB(df1 / 2, df2 / 2)));
+            }
             // y underflows under a huge df2 (the tail was 1 where it is Q(a, b·y)): as Distributions' FMasses.
             if (num / den < 2.2250738585072014E-308 && !double.IsInfinity(den))
             {
-                if (num < 1e-17) return -Expm1(df1 / 2 * (Math.Log(num) - Math.Log(den)) - Math.Log(df1 / 2) - LnBeta(df1 / 2, df2 / 2));
+                if (num < 1e-17) return 0 - Expm1(Math.Min(0, df1 / 2 * (Math.Log(num) - Math.Log(den)) - LnAB(df1 / 2, df2 / 2)));
                 GammaPQ(df1 / 2, num / 2 * (df2 / den), out _, out double gq);
                 return gq;
             }
             BetaI(num / den, df2 / den, df1 / 2, df2 / 2, out _, out double upper);
             return upper;
+        }
+
+        // df1·f + df2 overflowed: Distributions' FOverflowMasses, the upper tail only.
+        private static double FOverflowUpper(double x, double d1, double d2)
+        {
+            double a = d1 / 2, b = d2 / 2, num = d1 * x;
+            double r = double.IsInfinity(num) ? d2 / Math.Max(d1, x) / Math.Min(d1, x) : d2 / num;
+            if (r >= 1e-280)
+            {
+                BetaI(1 / (1 + r), r / (1 + r), a, b, out _, out double up);
+                return up;
+            }
+            double z = 0.5 * d2 / x, lnP, p;
+            if (z < 1e-280)
+            {
+                lnP = Math.Min(0, b * (Math.Log(0.5 * d2) - Math.Log(x)) - LnGamma1p(b));
+                p = Math.Exp(lnP);
+            }
+            else
+            {
+                GammaPQ(b, z, out p, out _);
+                lnP = Math.Log(p);
+            }
+            if (p == 0) return 0;
+            return Math.Min(1, Math.Exp(lnP + FarLnG(a, b)));
+        }
+
+        // ln( Γ(a + b)/(Γ(a)·aᵇ) ), as Distributions.
+        private static double FarLnG(double a, double b)
+        {
+            if (a < 10) return (b < 1 ? LnGammaDiff(a, b) : LnGamma(a + b) - LnGamma(a)) - b * Math.Log(a);
+            double t = b / a;
+            return a * Log1pmx(t) + (b - 0.5) * Log1p(t) + StirlingCorrDiff(a, b);
+        }
+
+        // ln(a·B(a, b)), the logarithm the leading-term tails subtract. For a < 1 it is ~a, and as ln a + ln B(a, b) it
+        // kept only eps·|ln a| absolutely: the complements 1 − yᵃ/(a·B) lost every digit at tiny shapes (FSurvival(1e-300,
+        // 1e-100, 1e-20) was −2.8e-14, not 1e-80). There it is lnΓ(1 + a) − (lnΓ(b + a) − lnΓ(b)), each part to ~eps·a.
+        private static double LnAB(double a, double b) =>
+            a < 1 ? LnGamma1p(a) - LnGammaDiff(b, a) : Math.Log(a) + LnBeta(a, b);
+
+        // lnΓ(b + a) − lnΓ(b) for 0 < a < 1 to a few eps·a absolutely (the two lnΓ values subtracted kept eps·|lnΓ(b)|):
+        // by Stirling for b >= 10, else as the difference of LnGamma's Lanczos forms, A(b + a) − A(b) = −a·Σ Lᵢ/(c(c + a)).
+        private static double LnGammaDiff(double b, double a)
+        {
+            // The corrections' difference is formed apart: added in order, the ~a terms vanished into StirlingCorr(b).
+            if (b >= 10) return a * Math.Log(b) + b * Log1pmx(a / b) + (a - 0.5) * Log1p(a / b) + StirlingCorrDiff(b, a);
+            if (b < 0.5) return LnGammaDiff(b + 1, a) - Log1p(a / b);      // Γ(z) = Γ(z + 1)/z on both sides
+            double t = b + 6.5, bm1 = b - 1, sum = Lanczos[0], s = 0;
+            for (int i = 1; i < Lanczos.Length; i++)
+            {
+                double c = bm1 + i;
+                sum += Lanczos[i] / c;
+                s += Lanczos[i] / (c * (c + a));
+            }
+            return a * Math.Log(t) + (b + a - 0.5) * Log1p(a / t) - a + Log1p(-a * s / sum);
         }
 
         // ---- special functions: the same code as Distributions.cs, duplicated privately (no leaf-to-leaf dependency) ----
@@ -716,6 +786,23 @@ namespace ToolBelt.Numerics
             return r * (1.0 / 12 + r2 * (-1.0 / 360 + r2 * (1.0 / 1260 + r2 * (-1.0 / 1680 + r2 * (1.0 / 1188
                  + r2 * (-691.0 / 360360 + r2 * (1.0 / 156 + r2 * (-3617.0 / 122400))))))));
         }
+
+        // StirlingCorr(x + a) − StirlingCorr(x) for a > 0 without the cancellation (the two corrections agree to ~a/x):
+        // each rʸᵏ − rₓᵏ is (r_y − r_x)·Σ r_yʲ r_xᵏ⁻¹⁻ʲ, with r_y − r_x = −a/(x(x + a)).
+        private static double StirlingCorrDiff(double x, double a)
+        {
+            double rx = 1 / x, ry = 1 / (x + a), sum = 0;
+            for (int n = 0; n < StirlingCoefficients.Length; n++)
+            {
+                double g = 0, py = 1;
+                for (int j = 0, k = 2 * n + 1; j < k; j++, py *= ry) g += py * Math.Pow(rx, k - 1 - j);
+                sum += StirlingCoefficients[n] * g;
+            }
+            return -a / (x * (x + a)) * sum;
+        }
+
+        private static readonly double[] StirlingCoefficients =
+            { 1.0 / 12, -1.0 / 360, 1.0 / 1260, -1.0 / 1680, 1.0 / 1188, -691.0 / 360360, 1.0 / 156, -3617.0 / 122400 };
 
         // ln B(a, b) without the catastrophic lnΓ(a+b) − lnΓ(a) − lnΓ(b) cancellation for large arguments
         // (the same decomposition R's lbeta uses).

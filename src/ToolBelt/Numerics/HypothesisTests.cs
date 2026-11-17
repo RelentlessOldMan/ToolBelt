@@ -69,6 +69,13 @@ namespace ToolBelt.Numerics
             RequireCount(sample, 2, nameof(sample));
             if (double.IsNaN(populationMean) || double.IsInfinity(populationMean))
                 throw new ArgumentOutOfRangeException(nameof(populationMean), populationMean, "Population mean must be finite.");
+            // Data all below 2^-900 are scaled up by 2^600 (exact; t is scale-free): the spread came back rounded to a
+            // subnormal and its standard error rounded again (t was ∞ for [0, ε, 0, ε], not 1.73).
+            if (MaxAbs(sample, Math.Abs(populationMean)) < TinyData)
+            {
+                sample = Scaled(sample);
+                populationMean *= Upscale;
+            }
             var (mean, sd, n) = MeanVariance(sample, nameof(sample));
             double df = n - 1;
             if (sd == 0)
@@ -107,6 +114,7 @@ namespace ToolBelt.Numerics
         {
             RequireCount(a, 2, nameof(a));
             RequireCount(b, 2, nameof(b));
+            if (MaxAbs(b, MaxAbs(a, 0)) < TinyData) { a = Scaled(a); b = Scaled(b); }    // as OneSampleT (t, df scale-free)
             var (ma, sda, na) = MeanVariance(a, nameof(a));
             var (mb, sdb, nb) = MeanVariance(b, nameof(b));
 
@@ -148,6 +156,7 @@ namespace ToolBelt.Numerics
         {
             RequireCount(a, 2, nameof(a));
             RequireCount(b, 2, nameof(b));
+            if (MaxAbs(b, MaxAbs(a, 0)) < TinyData) { a = Scaled(a); b = Scaled(b); }    // as OneSampleT (F is scale-free)
             var (_, sda, na) = MeanVariance(a, nameof(a));
             var (_, sdb, nb) = MeanVariance(b, nameof(b));
             double d1 = na - 1, d2 = nb - 1;
@@ -525,6 +534,22 @@ namespace ToolBelt.Numerics
             double r = d * p;
             if (double.IsInfinity(r)) return d / (se / p);
             return Math.Abs(r) < 2.2250738585072014E-308 ? d * (p / se) : r / se;      // a subnormal difference keeps its digits
+        }
+
+        // Samples entirely below TinyData are scaled up by Upscale (exact) before their moments: see OneSampleT.
+        private static readonly double TinyData = Math.Pow(2, -900), Upscale = Math.Pow(2, 600);
+
+        private static double MaxAbs(IReadOnlyList<double> x, double start)
+        {
+            for (int i = 0; i < x.Count; i++) start = Math.Max(start, Math.Abs(x[i]));
+            return start;
+        }
+
+        private static double[] Scaled(IReadOnlyList<double> x)
+        {
+            var s = new double[x.Count];
+            for (int i = 0; i < s.Length; i++) s[i] = x[i] * Upscale;
+            return s;
         }
 
         // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same

@@ -147,3 +147,7 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R117-4 | P3 | 16 | suspected | RecordingDialogService in Strict mode does not record a call that throws for want of a queued answer. | review r117 |
 | R117-5 | P3 | 16 | suspected | ThemeManager on an STA thread that never pumps accepts FollowSystem and queues work that never runs. | review r117 |
 | R117-6 | P3 | 16 | suspected | FileDropBehavior's drop re-checks every file on disk, skipping the per-drag cache. | review r117 |
+| R118-1 | P3 | 3 | suspected | FitWeibull's log-likelihood may cancel on tightly clustered data (not probed against a reference). | review r118 |
+| R118-2 | P3 | 3 | suspected | The two-sample Kolmogorov-Smirnov p-value is Stephens' asymptotic form and may be poor at small n. | review r118 |
+| R118-3 | P3 | 3 | suspected | MultipleRegression standard errors are NaN at zero residual degrees of freedom (may be by design; undocumented). | review r118 |
+| R118-4 | P3 | 3 | suspected | Bgrat's ln R adds the Stirling corrections' difference in order, the pattern fixed in round 118; no wrong value found (tiny b agreed with mpmath to 1e-15). | review r118 |

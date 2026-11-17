@@ -238,7 +238,17 @@ namespace ToolBelt.Numerics
                 if (ChiSquareCdf(double.Epsilon, k) > p) return 0;
                 return SolveIncreasing(x => { GammaPQ(a, x / 2, out double lo, out _); return lo; }, x => ChiSquarePdf(x, k), p, guess);
             }
-            return SolveDecreasing(x => { GammaPQ(a, x / 2, out _, out double up); return up; }, x => ChiSquarePdf(x, k), 1 - p, guess);
+            return ChiSquareBeyondMax(SolveDecreasing(x => { GammaPQ(a, x / 2, out _, out double up); return up; }, x => ChiSquarePdf(x, k), 1 - p, guess), k, 1 - p);
+        }
+
+        // A quantile past MaxValue (Solve's +∞) that lies within half an ulp of it rounds to MaxValue: P(X > k + 2√(kt) + 2t)
+        // <= e^(−t) (Laurent & Massart), so with t = −ln q that bound, itself rounded, decides
+        // (ChiSquareInverseSurvival(0.01, MaxValue) was ∞; the quantile is MaxValue + ~1e155).
+        private static double ChiSquareBeyondMax(double x, double k, double q)
+        {
+            if (!double.IsPositiveInfinity(x)) return x;
+            double t = -Math.Log(q);
+            return double.IsInfinity(k + 2 * Math.Sqrt(k) * Math.Sqrt(t) + 2 * t) ? x : double.MaxValue;
         }
 
         /// <summary>
@@ -252,7 +262,7 @@ namespace ToolBelt.Numerics
             if (q >= 0.5) return ChiSquareQuantile(1 - q, k);                  // 1 − q exact (Sterbenz)
             double a = k / 2;
             double guess = ChiSquareGuess(0.5, k, -StandardNormalQuantile(q));
-            return SolveDecreasing(x => { GammaPQ(a, x / 2, out _, out double up); return up; }, x => ChiSquarePdf(x, k), q, guess);
+            return ChiSquareBeyondMax(SolveDecreasing(x => { GammaPQ(a, x / 2, out _, out double up); return up; }, x => ChiSquarePdf(x, k), q, guess), k, q);
         }
 
         // ---- F (Fisher–Snedecor) ----
@@ -286,6 +296,20 @@ namespace ToolBelt.Numerics
                     return Math.Exp(m / 2 * (Math.Log(mx) - Math.Log(n + mx)) - Math.Log(x) - LnBeta(m / 2, n / 2));
                 double g = n / (n + mx);
                 return ChiSquarePdf(mx * g, m) * m * g * g;
+            }
+            else if (double.IsInfinity(n + mx))
+            {
+                // d1·x + d2 overflowed (the density was 0): p and q from r = d2/(d1·x) as in FMasses, and past r < 1e-280
+                // the derivative of its P(b, z)·G, z = d2/(2x): G·zᵇe^(−z)/(Γ(b)·x).
+                double r = double.IsInfinity(mx) ? n / Math.Max(m, x) / Math.Min(m, x) : n / mx;
+                if (r < 1e-280)
+                {
+                    double b = n / 2, z = 0.5 * n / x, lnG = FarLnG(m / 2, b);
+                    if (z >= 1e-280) return Math.Exp(lnG + LnPrefix(b, z) - Math.Log(x));
+                    return b * Math.Exp(lnG + b * (Math.Log(0.5 * n) - Math.Log(x)) - LnGamma1p(b) - Math.Log(x));
+                }
+                p = 1 / (1 + r);
+                q = r / (1 + r);
             }
             // The failure count n/2 is passed itself: recovered as (m + n − 2)/2 − (m − 2)/2 it was lost once m dwarfed n
             // (density 1e10 too large at m = 1e17, n = 3, which sent FQuantile's Newton steps astray).
@@ -470,6 +494,7 @@ namespace ToolBelt.Numerics
         {
             if (double.IsPositiveInfinity(x)) return (1, 0);
             double num = d1 * x, den = d1 * x + d2;
+            if (double.IsInfinity(den)) return FOverflowMasses(x, d1, d2);
             if (num < MinNormal)
             {
                 // A subnormal d1·x is rounded, and the lower tail ~ y^(d1/2) carries its error (8e-5 at x = 1.5e-320). Over
@@ -481,8 +506,9 @@ namespace ToolBelt.Numerics
                     BetaI(sn / (sn + sd), sd / (sn + sd), d1 / 2, d2 / 2, out double lo, out double up);
                     return (lo, up);
                 }
-                double l = d1 / 2 * (Math.Log(d1) + Math.Log(x) - Math.Log(den)) - Math.Log(d1 / 2) - LnBeta(d1 / 2, d2 / 2);
-                return (Math.Exp(l), -Expm1(l));
+                // At most 0: with tiny shapes l rounds a hair above it (FCdf(5e-324, 1e-100, 1e-20) was 1 + 2.8e-14).
+                double l = Math.Min(0, d1 / 2 * (Math.Log(d1) + Math.Log(x) - Math.Log(den)) - LnAB(d1 / 2, d2 / 2));
+                return (Math.Exp(l), 0 - Expm1(l));     // 0 − : not −0 at l = 0
             }
             if (num / den < MinNormal && !double.IsInfinity(den))
             {
@@ -492,14 +518,77 @@ namespace ToolBelt.Numerics
                 // gamma limit P(a, b·y) to O(1/b).
                 if (num < 1e-17)
                 {
-                    double l = d1 / 2 * (Math.Log(num) - Math.Log(den)) - Math.Log(d1 / 2) - LnBeta(d1 / 2, d2 / 2);
-                    return (Math.Exp(l), -Expm1(l));
+                    double l = Math.Min(0, d1 / 2 * (Math.Log(num) - Math.Log(den)) - LnAB(d1 / 2, d2 / 2));
+                    return (Math.Exp(l), 0 - Expm1(l));
                 }
                 GammaPQ(d1 / 2, num / 2 * (d2 / den), out double gp, out double gq);
                 return (gp, gq);
             }
             BetaI(num / den, d2 / den, d1 / 2, d2 / 2, out double lower, out double upper);
             return (lower, upper);
+        }
+
+        // d1·x + d2 overflowed (FCdf(1e308, 2, 0.001) was 1, not 0.30, and the upper tail 0): y = d2/(d1·x + d2) is formed
+        // as r/(1 + r) from r = d2/(d1·x), the product split when it overflows too. Past r < 1e-280 (where y ≈ r) the upper
+        // tail I_y(b, a) is P(b, z)·G with z = a·y = d2/(2x) and G = Γ(a + b)/(Γ(a)·aᵇ): exactly its leading term
+        // yᵇ/(b·B(a, b)) while z is tiny, and otherwise (then a > 1e262) the gamma limit, whose O(b/a) error is far below
+        // a rounding wherever the tail is not 0.
+        private static (double Lower, double Upper) FOverflowMasses(double x, double d1, double d2)
+        {
+            double a = d1 / 2, b = d2 / 2, num = d1 * x;
+            double r = double.IsInfinity(num) ? d2 / Math.Max(d1, x) / Math.Min(d1, x) : d2 / num;
+            if (r >= 1e-280)
+            {
+                BetaI(1 / (1 + r), r / (1 + r), a, b, out double lo, out double up);
+                return (lo, up);
+            }
+            double z = 0.5 * d2 / x, lnP, p, q;
+            if (z < 1e-280)
+            {
+                lnP = Math.Min(0, b * (Math.Log(0.5 * d2) - Math.Log(x)) - LnGamma1p(b));    // P(b, z) ≈ zᵇ/Γ(b + 1)
+                p = Math.Exp(lnP);
+                q = 0 - Expm1(lnP);
+            }
+            else
+            {
+                GammaPQ(b, z, out p, out q);
+                lnP = Math.Log(p);
+            }
+            if (p == 0) return (1, 0);
+            double lnG = FarLnG(a, b), upper = Math.Min(1, Math.Exp(lnP + lnG));
+            return (upper < 0.5 ? 1 - upper : Math.Max(0, q - p * Expm1(lnG)), upper);
+        }
+
+        // ln( Γ(a + b)/(Γ(a)·aᵇ) ); for a >= 10 by Stirling as a·(ln(1 + t) − t) + (b − ½)·ln(1 + t) + corr, t = b/a,
+        // free of the cancellation between lnΓ(a + b) and lnΓ(a).
+        private static double FarLnG(double a, double b)
+        {
+            if (a < 10) return (b < 1 ? LnGammaDiff(a, b) : LnGamma(a + b) - LnGamma(a)) - b * Math.Log(a);
+            double t = b / a;
+            return a * Log1pmx(t) + (b - 0.5) * Log1p(t) + StirlingCorrDiff(a, b);
+        }
+
+        // ln(a·B(a, b)), the logarithm the leading-term tails subtract. For a < 1 it is ~a, and as ln a + ln B(a, b) it
+        // kept only eps·|ln a| absolutely: the complements 1 − yᵃ/(a·B) lost every digit at tiny shapes (FSurvival(1e-300,
+        // 1e-100, 1e-20) was −2.8e-14, not 1e-80). There it is lnΓ(1 + a) − (lnΓ(b + a) − lnΓ(b)), each part to ~eps·a.
+        private static double LnAB(double a, double b) =>
+            a < 1 ? LnGamma1p(a) - LnGammaDiff(b, a) : Math.Log(a) + LnBeta(a, b);
+
+        // lnΓ(b + a) − lnΓ(b) for 0 < a < 1 to a few eps·a absolutely (the two lnΓ values subtracted kept eps·|lnΓ(b)|):
+        // by Stirling for b >= 10, else as the difference of LnGamma's Lanczos forms, A(b + a) − A(b) = −a·Σ Lᵢ/(c(c + a)).
+        private static double LnGammaDiff(double b, double a)
+        {
+            // The corrections' difference is formed apart: added in order, the ~a terms vanished into StirlingCorr(b).
+            if (b >= 10) return a * Math.Log(b) + b * Log1pmx(a / b) + (a - 0.5) * Log1p(a / b) + StirlingCorrDiff(b, a);
+            if (b < 0.5) return LnGammaDiff(b + 1, a) - Log1p(a / b);      // Γ(z) = Γ(z + 1)/z on both sides
+            double t = b + 6.5, bm1 = b - 1, sum = Lanczos[0], s = 0;
+            for (int i = 1; i < Lanczos.Length; i++)
+            {
+                double c = bm1 + i;
+                sum += Lanczos[i] / c;
+                s += Lanczos[i] / (c * (c + a));
+            }
+            return a * Math.Log(t) + (b + a - 0.5) * Log1p(a / t) - a + Log1p(-a * s / sum);
         }
 
         // ln P(X ≤ x) for subnormal x, where x/2 rounds (8e-5 relative at 1.5e-320): the leading term (x/2)^a/Γ(a + 1), the
@@ -539,7 +628,14 @@ namespace ToolBelt.Numerics
         private static double Solve(Func<double, double> g, Func<double, double> slope, double guess)
         {
             double lo = 0, hi = guess > 0 && !double.IsInfinity(guess) ? guess : 1;
-            for (int i = 0; i < 2100 && g(hi) < 0; i++) { lo = hi; hi *= 2; }   // expand until bracketed
+            // Expand until bracketed, doubling no further than MaxValue: past it hi was ∞ and so was the answer
+            // (ChiSquareQuantile(0.5, 1e308) was ∞, not ~1e308). A root beyond MaxValue is +∞.
+            for (int i = 0; i < 2100 && g(hi) < 0; i++)
+            {
+                if (hi == double.MaxValue) return double.PositiveInfinity;
+                lo = hi;
+                hi = hi > double.MaxValue / 2 ? double.MaxValue : hi * 2;
+            }
             if (g(hi) < 0) return hi;
 
             double x = guess > lo && guess < hi ? guess : (lo > 0 ? Math.Sqrt(lo) * Math.Sqrt(hi) : hi / 2);
@@ -554,7 +650,7 @@ namespace ToolBelt.Numerics
                 double d = slope(x);
                 double next = d > 0 && !double.IsInfinity(d) ? x - gx / d : double.NaN;
                 if (!(next > lo && next < hi))
-                    next = lo > 0 && hi / lo > 4 ? Math.Sqrt(lo) * Math.Sqrt(hi) : (lo == 0 && hi > 1e-300 && x == hi ? hi / 16 : 0.5 * (lo + hi));
+                    next = lo > 0 && hi / lo > 4 ? Math.Sqrt(lo) * Math.Sqrt(hi) : (lo == 0 && hi > 1e-300 && x == hi ? hi / 16 : 0.5 * lo + 0.5 * hi);   // halves: lo + hi overflows near MaxValue
                 else if (lo == 0 && next > 0.5 * x && next < 0.999 * x)
                 {
                     // Above the root with nothing below it yet, on a steep power law (a far lower tail, CDF ~ xᵐ), Newton
@@ -577,7 +673,7 @@ namespace ToolBelt.Numerics
                 {
                     if (++linear >= 3)
                     {
-                        next = hi / lo > 4 ? Math.Sqrt(lo) * Math.Sqrt(hi) : 0.5 * (lo + hi);
+                        next = hi / lo > 4 ? Math.Sqrt(lo) * Math.Sqrt(hi) : 0.5 * lo + 0.5 * hi;
                         linear = 0;
                     }
                 }
@@ -1100,6 +1196,23 @@ namespace ToolBelt.Numerics
             return r * (1.0 / 12 + r2 * (-1.0 / 360 + r2 * (1.0 / 1260 + r2 * (-1.0 / 1680 + r2 * (1.0 / 1188
                  + r2 * (-691.0 / 360360 + r2 * (1.0 / 156 + r2 * (-3617.0 / 122400))))))));
         }
+
+        // StirlingCorr(x + a) − StirlingCorr(x) for a > 0 without the cancellation (the two corrections agree to ~a/x):
+        // each rʸᵏ − rₓᵏ is (r_y − r_x)·Σ r_yʲ r_xᵏ⁻¹⁻ʲ, with r_y − r_x = −a/(x(x + a)).
+        private static double StirlingCorrDiff(double x, double a)
+        {
+            double rx = 1 / x, ry = 1 / (x + a), sum = 0;
+            for (int n = 0; n < StirlingCoefficients.Length; n++)
+            {
+                double g = 0, py = 1;
+                for (int j = 0, k = 2 * n + 1; j < k; j++, py *= ry) g += py * Math.Pow(rx, k - 1 - j);
+                sum += StirlingCoefficients[n] * g;
+            }
+            return -a / (x * (x + a)) * sum;
+        }
+
+        private static readonly double[] StirlingCoefficients =
+            { 1.0 / 12, -1.0 / 360, 1.0 / 1260, -1.0 / 1680, 1.0 / 1188, -691.0 / 360360, 1.0 / 156, -3617.0 / 122400 };
 
         // ln B(a, b) without the catastrophic lnΓ(a+b) − lnΓ(a) − lnΓ(b) cancellation for large arguments
         // (the same decomposition R's lbeta uses).
