@@ -41,7 +41,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 
 | #  | Section | Scope (src) | ~Lines | Prior | Passes | Bugs (last / total) | Status |
 |----|---------|-------------|-------:|------:|-------:|---------------------|--------|
-| 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 5 | 14 / 73 | re-queue (14 bugs, none severe) |
+| 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 6 | 10 / 83 | re-queue (10 bugs, none severe) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 6 | 17 / 117 | re-queue (17 bugs, none severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 5 | 13 / 122 | re-queue (13 bugs, none severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 6 | 8 / 150 | re-queue (8 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); **next: 1**, then 3 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); 1 (done, round 107); **next: 3** (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -180,11 +180,42 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.20 | 104 | Signal analysis, sixth pass | 17 | (see tag) |
 | v2026.11.16.21 | 105 | WinForms, tooling, docs, sixth pass | 9 | (see tag) |
 | v2026.11.16.22 | 106 | Windows satellite, sixth pass | 9 | (see tag) |
+| v2026.11.16.23 | 107 | Filters & control, sixth pass | 9 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 107: Filters & control, sixth pass (v2026.11.16.23)
+
+Two fresh reviewers (correctness, robustness): 10 bugs, none severe, so section 1 stays re-queued. The regression tests
+are in `FiltersControlReview107Tests` (9); each fails on the old code, run by name under a 60 s timeout.
+
+- **IirFilter.Filter / FirFilter.Filter, FilterAligned**: one output past double.MaxValue redid the whole buffer at
+  2^-64, so outputs that never overflowed lost their low bits or became 0 (a causal filter's early outputs depended on
+  later samples). Only the outputs that overflowed are redone at the next scale; IirFilter.Filter streams the signal
+  through a fresh copy, which rescales only where it must.
+- **IirFilter.FiltFilt**: the backward pass carried an overflow to every sample, so 1e-300 thousands of samples before a
+  burst came out as 0 or 1e169. FiltFilt is linear, so the small samples are filtered unscaled, the large ones rescaled,
+  and the two added.
+- **IirFilter.Process**: the streaming shift only grew, so after one burst near double.MaxValue every later small signal
+  was flushed to 0 until Reset. The shift steps back down once the state is small again.
+- **Response, MagnitudeDb, GroupDelay** (Biquad, IirFilter, FirFilter): the frequency was divided by the sample rate
+  before reducing, so 2^60 Hz at 1 Hz was not DC and 1e300 Hz at 1e-10 Hz was NaN. The frequency is reduced first
+  (IEEERemainder), so responses alias exactly.
+- **Biquad** (LowPass, Notch, BandPass, Peaking, shelves): a Q of 1e12 to 1e17 at a mid-band frequency put the poles on
+  the circle and the error named `frequency`; it names `q` (or `slope`) when a moderate section at that frequency is fine.
+- **IirFilter.ButterworthOrder** (band-pass, band-stop): band edges a few ulps apart gave a selectivity just under 1 and
+  order 1 (about −1 dB where −40 was asked); it throws, as the Chebyshev and elliptic estimates do.
+- **FirFilter.KaiserParameters**: `sampleRate / 2` rounded at a subnormal rate, so the same width ratio gave a different
+  tap count (16 at 1.5e-323 vs 12 at 3); the ratio is taken first.
+- **PidTuning.Simc**: a model with no dead time and no τc named `closedLoopTimeConstant`, which was never passed; it
+  names the model.
+- **KalmanFilter1D.Reset** left LastGain from before the reset; it is 0, as before the first update.
+
+Still suspected (BUGLIST R107-1..3): FopdtModel.StepResponse at a NaN time; PID ScaledOutput precision at extreme
+output ranges; the FitStep error message.
+
 ### Round 106: Windows satellite, sixth pass (v2026.11.16.22)
 
 Two fresh reviewers (correctness, robustness): 10 bugs, 1 severe, so section 15 stays re-queued. The regression tests

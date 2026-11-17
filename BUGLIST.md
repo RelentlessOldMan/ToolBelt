@@ -85,3 +85,6 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R106-5 | P3 | 15 | suspected | ShortcutUtils: fields at or past the 260-character limits may be cut or refused inconsistently between Create and Read. | review r106 |
 | R106-6 | P3 | 15 | suspected | ShortcutUtils.Read of a truncated .lnk (past the header) can return partial data rather than throw. | review r106 |
 | R106-7 | P3 | 15 | suspected | JobObject: Start("   ") and AssignProcess(IntPtr.Zero) throw Win32Exception rather than ArgumentException. | review r106 |
+| R107-1 | P3 | 1 | suspected | FopdtModel.StepResponse at a NaN time returns a value rather than NaN or a throw. | review r107 |
+| R107-2 | P3 | 1 | suspected | PidController ScaledOutput may lose precision when the output range is extreme (near double.MaxValue wide). | review r107 |
+| R107-3 | P3 | 1 | suspected | FopdtModel.FitStep's error message for an unusable step does not say which input is at fault. | review r107 |

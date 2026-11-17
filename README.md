@@ -723,6 +723,7 @@ tests/
       FiltersControlReview3Tests.cs (third-pass regressions: IIR cascade accuracy against double-double, poles within rounding of the unit circle, tiny-ripple orders, symmetric FIR taps, PID and tuning overflow)
       FiltersControlReview4Tests.cs (fourth-pass regressions: PID windup stall, elliptic passband spec at high order, deep-stop-band MagnitudeDb, subnormal state flush, huge and subnormal sample rates, FOPDT and tuning-rule overflow)
       FiltersControlReview83Tests.cs (round 83: section scaling, rescaling near double.MaxValue, group delay at unit-circle zeros, causal flush, PID NaN windup, deadband ties, huge lag cutoffs)
+      FiltersControlReview107Tests.cs (round 107: rescaling only what overflowed, FiltFilt split by size, the streaming shift stepping down, aliased responses, extreme Q named, ulp-close Butterworth bands, subnormal Kaiser rates, Simc and Kalman Reset)
     Diagnostics/
       BenchmarkTests.cs
       MetricsRegistryTests.cs

@@ -34,35 +34,35 @@ namespace ToolBelt.Signal
             var (cos, alpha) = Prewarp(sampleRate, frequency, q);
             // (1 − cos)/2 from the same rounded cos as the poles keeps the DC gain exactly 1; it cancelled to 0 only where
             // the poles were already on the unit circle, which Normalize rejects.
-            return Normalize((1 - cos) / 2, 1 - cos, (1 - cos) / 2, 1 + alpha, -2 * cos, 1 - alpha, frequency);
+            return Normalize((1 - cos) / 2, 1 - cos, (1 - cos) / 2, 1 + alpha, -2 * cos, 1 - alpha, sampleRate, frequency, q);
         }
 
         /// <summary>Second-order high-pass; <paramref name="q"/> = 1/√2 is maximally flat.</summary>
         public static Biquad HighPass(double sampleRate, double frequency, double q = 0.7071067811865476)
         {
             var (cos, alpha) = Prewarp(sampleRate, frequency, q);
-            return Normalize((1 + cos) / 2, -(1 + cos), (1 + cos) / 2, 1 + alpha, -2 * cos, 1 - alpha, frequency);
+            return Normalize((1 + cos) / 2, -(1 + cos), (1 + cos) / 2, 1 + alpha, -2 * cos, 1 - alpha, sampleRate, frequency, q);
         }
 
         /// <summary>Band-pass with unity (0 dB) gain at the centre <paramref name="frequency"/>; bandwidth ≈ frequency / Q.</summary>
         public static Biquad BandPass(double sampleRate, double frequency, double q)
         {
             var (cos, alpha) = Prewarp(sampleRate, frequency, q);
-            return Normalize(alpha, 0, -alpha, 1 + alpha, -2 * cos, 1 - alpha, frequency);
+            return Normalize(alpha, 0, -alpha, 1 + alpha, -2 * cos, 1 - alpha, sampleRate, frequency, q);
         }
 
         /// <summary>Notch (band-reject): zero gain exactly at <paramref name="frequency"/>, e.g. 50/60 Hz mains hum.</summary>
         public static Biquad Notch(double sampleRate, double frequency, double q)
         {
             var (cos, alpha) = Prewarp(sampleRate, frequency, q);
-            return Normalize(1, -2 * cos, 1, 1 + alpha, -2 * cos, 1 - alpha, frequency);
+            return Normalize(1, -2 * cos, 1, 1 + alpha, -2 * cos, 1 - alpha, sampleRate, frequency, q);
         }
 
         /// <summary>All-pass: unity gain at every frequency, phase turning through −180° at <paramref name="frequency"/>.</summary>
         public static Biquad AllPass(double sampleRate, double frequency, double q)
         {
             var (cos, alpha) = Prewarp(sampleRate, frequency, q);
-            return Normalize(1 - alpha, -2 * cos, 1 + alpha, 1 + alpha, -2 * cos, 1 - alpha, frequency);
+            return Normalize(1 - alpha, -2 * cos, 1 + alpha, 1 + alpha, -2 * cos, 1 - alpha, sampleRate, frequency, q);
         }
 
         /// <summary>Peaking EQ: <paramref name="gainDb"/> of boost (or cut) centred on <paramref name="frequency"/>, unity far away.</summary>
@@ -74,7 +74,7 @@ namespace ToolBelt.Signal
             if (double.IsInfinity(alpha * a) || double.IsInfinity(alpha / a))
                 throw new ArgumentOutOfRangeException(nameof(q), q, "Q is too small for this gain.");
             var s = Normalize(1 + alpha * a, -2 * cos, 1 - alpha * a, 1 + alpha / a, -2 * cos, 1 - alpha / a);
-            return CheckGain(s, frequency, gainDb, () => Peaking(sampleRate, frequency, q, 0));
+            return CheckGain(s, sampleRate, frequency, nameof(q), q, gainDb, () => Peaking(sampleRate, frequency, q, 0));
         }
 
         /// <summary>Low shelf: <paramref name="gainDb"/> at DC, unity at Nyquist, mid-gain at <paramref name="frequency"/>. Slope 1 is the steepest monotonic shelf.</summary>
@@ -84,7 +84,7 @@ namespace ToolBelt.Signal
             var s = Normalize(
                 a * ((a + 1) - (a - 1) * cos + k), 2 * a * ((a - 1) - (a + 1) * cos), a * ((a + 1) - (a - 1) * cos - k),
                 (a + 1) + (a - 1) * cos + k, -2 * ((a - 1) + (a + 1) * cos), (a + 1) + (a - 1) * cos - k);
-            return CheckGain(s, frequency, gainDb, () => LowShelf(sampleRate, frequency, 0, slope));
+            return CheckGain(s, sampleRate, frequency, nameof(slope), slope, gainDb, () => LowShelf(sampleRate, frequency, 0, slope));
         }
 
         /// <summary>High shelf: <paramref name="gainDb"/> at Nyquist, unity at DC.</summary>
@@ -94,14 +94,14 @@ namespace ToolBelt.Signal
             var s = Normalize(
                 a * ((a + 1) + (a - 1) * cos + k), -2 * a * ((a - 1) + (a + 1) * cos), a * ((a + 1) + (a - 1) * cos - k),
                 (a + 1) - (a - 1) * cos + k, 2 * ((a - 1) - (a + 1) * cos), (a + 1) - (a - 1) * cos - k);
-            return CheckGain(s, frequency, gainDb, () => HighShelf(sampleRate, frequency, 0, slope));
+            return CheckGain(s, sampleRate, frequency, nameof(slope), slope, gainDb, () => HighShelf(sampleRate, frequency, 0, slope));
         }
 
         /// <summary>The complex frequency response at <paramref name="frequency"/> Hz.</summary>
         public Complex Response(double frequency, double sampleRate)
         {
             CheckResponseArguments(frequency, sampleRate);
-            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * (frequency / sampleRate));   // z⁻¹
+            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * Cycles(frequency, sampleRate));   // z⁻¹
             Complex z2 = z1 * z1;
             return (B0 + B1 * z1 + B2 * z2) / (1 + A1 * z1 + A2 * z2);
         }
@@ -110,7 +110,7 @@ namespace ToolBelt.Signal
         public double GroupDelay(double frequency, double sampleRate)
         {
             CheckResponseArguments(frequency, sampleRate);
-            double x = frequency / sampleRate;
+            double x = Cycles(frequency, sampleRate);
             return PolynomialDelay(B0, B1, B2, x) - PolynomialDelay(1, A1, A2, x);
         }
 
@@ -143,7 +143,7 @@ namespace ToolBelt.Signal
         internal double NumeratorMagnitude(double frequency, double sampleRate)
         {
             CheckResponseArguments(frequency, sampleRate);
-            double w = -2 * Math.PI * (frequency / sampleRate);
+            double w = -2 * Math.PI * Cycles(frequency, sampleRate);
             Complex z1 = Complex.FromPolarCoordinates(1, w), z2 = z1 * z1;
             double direct = (B0 + B1 * z1 + B2 * z2).Magnitude;
             double size = Math.Abs(B0) + Math.Abs(B1) + Math.Abs(B2);
@@ -154,7 +154,7 @@ namespace ToolBelt.Signal
             Complex q = -(B1 + disc) / 2;
             if (!IsFinite(q.Real) || !IsFinite(q.Imaginary) || q == Complex.Zero) return direct;
             Complex r1 = q / B0, r2 = B2 / q;
-            double factored = Math.Abs(B0) * DistanceOnCircle(frequency / sampleRate, r1) * DistanceOnCircle(frequency / sampleRate, r2);
+            double factored = Math.Abs(B0) * DistanceOnCircle(Cycles(frequency, sampleRate), r1) * DistanceOnCircle(Cycles(frequency, sampleRate), r2);
             return IsFinite(factored) ? factored : direct;
         }
 
@@ -200,9 +200,14 @@ namespace ToolBelt.Signal
         /// <summary>|denominator| 1 + A1·z⁻¹ + A2·z⁻² at <paramref name="frequency"/>.</summary>
         internal double DenominatorMagnitude(double frequency, double sampleRate)
         {
-            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * (frequency / sampleRate));
+            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * Cycles(frequency, sampleRate));
             return (1 + A1 * z1 + A2 * z1 * z1).Magnitude;
         }
+
+        // The frequency in cycles per sample, reduced to [−½, ½] first (IEEERemainder is exact): the plain ratio lost the
+        // phase for a frequency far past the sample rate (2^60 Hz at 1 Hz did not give the DC response) and overflowed to
+        // NaN for 1e300 Hz at 1e-10 Hz.
+        private static double Cycles(double frequency, double sampleRate) => Math.IEEERemainder(frequency, sampleRate) / sampleRate;
 
         // A NaN or infinite frequency made every response NaN instead of failing; any finite one is fine (it aliases).
         private static void CheckResponseArguments(double frequency, double sampleRate)
@@ -248,10 +253,10 @@ namespace ToolBelt.Signal
 
         // A frequency near 0 or Nyquist (or an extreme gain) put a pole within rounding of the unit circle: the quantised
         // section had a pole at z = 1 (LowPass(1e9, 1): DC gain ∞, output 0) or a DC gain 33% off (3 Hz at 1 GHz).
-        private static Biquad Normalize(double b0, double b1, double b2, double a0, double a1, double a2, double frequency)
+        private static Biquad Normalize(double b0, double b1, double b2, double a0, double a1, double a2, double sampleRate, double frequency, double q)
         {
             var s = Normalize(b0, b1, b2, a0, a1, a2);
-            if (!s.IsWellConditioned()) throw FrequencyTooClose(frequency);
+            if (!s.IsWellConditioned()) throw TooClose(sampleRate, frequency, nameof(q), q);
             return s;
         }
 
@@ -260,7 +265,7 @@ namespace ToolBelt.Signal
 
         // An extreme gain (±600 dB at 1 kHz of 48 kHz) pushes the poles onto the circle on its own: |H| came out NaN or
         // 0 at DC. The gain is named when the same filter at 0 dB holds.
-        private static Biquad CheckGain(Biquad s, double frequency, double gainDb, Func<Biquad> unity)
+        private static Biquad CheckGain(Biquad s, double sampleRate, double frequency, string shapeName, double shape, double gainDb, Func<Biquad> unity)
         {
             if (s.IsWellConditioned()) return s;
             if (gainDb != 0)
@@ -268,11 +273,19 @@ namespace ToolBelt.Signal
                 unity();                                                          // throws on the frequency if that's the cause
                 throw new ArgumentOutOfRangeException(nameof(gainDb), gainDb, "The gain is too extreme for this frequency to hold in double precision: a pole lands on or within rounding of the unit circle.");
             }
-            throw FrequencyTooClose(frequency);
+            throw TooClose(sampleRate, frequency, shapeName, shape);
         }
 
-        private static ArgumentOutOfRangeException FrequencyTooClose(double frequency)
-            => new ArgumentOutOfRangeException(nameof(frequency), frequency, "The frequency is too close to 0 or Nyquist (for this Q and gain) to hold in double precision: a pole lands on or within rounding of the unit circle.");
+        // An extreme Q (1e12 at 1 kHz of 48 kHz) or slope puts the poles on the circle at any frequency: it blamed the
+        // frequency. The frequency is named only when a Butterworth section there fails too.
+        private static ArgumentOutOfRangeException TooClose(double sampleRate, double frequency, string shapeName, double shape)
+        {
+            double w0 = 2 * Math.PI * (frequency / sampleRate), cos = Math.Cos(w0), alpha = Math.Sin(w0) / Math.Sqrt(2);
+            var reference = Normalize((1 - cos) / 2, 1 - cos, (1 - cos) / 2, 1 + alpha, -2 * cos, 1 - alpha);
+            if (reference.IsWellConditioned())
+                return new ArgumentOutOfRangeException(shapeName, shape, $"The {(shapeName == "q" ? "Q" : shapeName)} is too extreme for this frequency to hold in double precision: a pole lands on or within rounding of the unit circle.");
+            return new ArgumentOutOfRangeException(nameof(frequency), frequency, "The frequency is too close to 0 or Nyquist (for this Q and gain) to hold in double precision: a pole lands on or within rounding of the unit circle.");
+        }
 
         // The poles are inside the unit circle, and rounding the coefficients moves the response at DC and Nyquist (and
         // the pole radius) by at most about 1e-4 relative.
@@ -326,6 +339,7 @@ namespace ToolBelt.Signal
         private int _shift;
         private double _down = 1, _up = 1;
         private const int ShiftStep = 64, MaxShift = 960;
+        private const double LowerBelow = 1.0e269;     // under 2^895: lowered by 2^64, the state is still 2^64 from overflow
 
         // A subnormal state is flushed to 0 once the signal reaches this size, where the change (under 2.3e-308 per sample)
         // is far below one rounding of the signal: a decaying tail in subnormal arithmetic ran 20 times slower. A signal
@@ -381,7 +395,20 @@ namespace ToolBelt.Signal
                     _z2[s] = b;
                     x = y;
                 }
-                if (s == _sections.Length) return x * _up;
+                if (s == _sections.Length)
+                {
+                    double output = x * _up;
+                    // Back down once the state is small again: a shift that only grew kept flushing (to 0) the low bits of
+                    // every later small signal after one burst near double.MaxValue, until Reset.
+                    if (_shift > 0 && Math.Abs(sample * _down) < LowerBelow && Math.Abs(x) < LowerBelow)
+                    {
+                        bool small = true;
+                        for (int r = 0; r < _sections.Length && small; r++)
+                            small = Math.Abs(_z1[r]) < LowerBelow && Math.Abs(_z2[r]) < LowerBelow;
+                        if (small) SetShift(_shift - ShiftStep);
+                    }
+                    return output;
+                }
                 for (int r = 0; r < s; r++) { _z1[r] = _o1[r]; _z2[r] = _o2[r]; }
                 SetShift(_shift + ShiftStep);
             }
@@ -442,13 +469,16 @@ namespace ToolBelt.Signal
         public double[] Filter(IReadOnlyList<double> samples)
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
-            return Rescaled(samples, scale =>
-            {
-                var output = new double[samples.Count];
-                for (int i = 0; i < output.Length; i++) output[i] = samples[i] * scale;
-                Run(output, new double[_sections.Length], new double[_sections.Length]);
-                return output;
-            });
+            var output = new double[samples.Count];
+            for (int i = 0; i < output.Length; i++) output[i] = samples[i];
+            Run(output, new double[_sections.Length], new double[_sections.Length]);
+            if (AllFinite(output) || !AllFinite(samples)) return output;
+            // A finite input overflowed: stream it through a fresh copy, which rescales only from the sample that needs it
+            // and back once the state is small again. One rescaled pass over the whole buffer lost the low bits of every
+            // small output, before the overflow too.
+            var fresh = new IirFilter(_sections);
+            for (int i = 0; i < output.Length; i++) output[i] = fresh.Process(samples[i]);
+            return output;
         }
 
         // Runs a linear pass at scale 1 and, when finite samples gave a non-finite result (an intermediate value, the
@@ -458,15 +488,21 @@ namespace ToolBelt.Signal
         {
             double[] result = pass(1);
             if (AllFinite(result) || !AllFinite(samples)) return result;
+            // Only the outputs that came out non-finite are taken from a rescaled pass: an overflow never yields a finite
+            // value, so a finite one is exact, and redoing all of them at 2^-64 lost the low bits of small outputs (and
+            // made a causal pass depend on later samples).
             for (int shift = ShiftStep; ; shift += ShiftStep)
             {
-                result = pass(Pow2(-shift));
-                if (AllFinite(result) || shift >= MaxShift)
+                double[] scaled = pass(Pow2(-shift));
+                double up = Pow2(shift);
+                bool done = true;
+                for (int i = 0; i < result.Length; i++)
                 {
-                    double up = Pow2(shift);
-                    for (int i = 0; i < result.Length; i++) result[i] *= up;
-                    return result;
+                    if (Biquad.IsFinite(result[i])) continue;
+                    if (Biquad.IsFinite(scaled[i]) || shift >= MaxShift) result[i] = scaled[i] * up;
+                    if (!Biquad.IsFinite(scaled[i])) done = false;
                 }
+                if (done || shift >= MaxShift) return result;
             }
         }
 
@@ -496,15 +532,14 @@ namespace ToolBelt.Signal
             if ((long)n + 2L * pad > 0x7FFFFFC7)
                 throw new ArgumentOutOfRangeException(nameof(padLength), pad, "The padded signal (length + 2 × pad) is longer than the largest array.");
             var (zi1, zi2) = SteadyState();
-            // Rescaled: the extension x0 + (x0 − x[k]) still overflowed for a swing of ±1e308, and so could the state.
-            return Rescaled(samples, scale =>
+            double[] Pass(IReadOnlyList<double> x, double scale)
             {
                 var ext = new double[n + 2 * pad];
                 // x0 + (x0 − x[k]), not 2·x0 − x[k]: 2·x0 overflowed for samples near double.MaxValue (a constant 1e308 gave NaN).
-                double first = samples[0] * scale, last = samples[n - 1] * scale;
-                for (int i = 0; i < pad; i++) ext[i] = first + (first - samples[pad - i] * scale);
-                for (int i = 0; i < n; i++) ext[pad + i] = samples[i] * scale;
-                for (int i = 0; i < pad; i++) ext[pad + n + i] = last + (last - samples[n - 2 - i] * scale);
+                double first = x[0] * scale, last = x[n - 1] * scale;
+                for (int i = 0; i < pad; i++) ext[i] = first + (first - x[pad - i] * scale);
+                for (int i = 0; i < n; i++) ext[pad + i] = x[i] * scale;
+                for (int i = 0; i < pad; i++) ext[pad + n + i] = last + (last - x[n - 2 - i] * scale);
 
                 Run(ext, Scaled(zi1, ext[0]), Scaled(zi2, ext[0]));
                 Array.Reverse(ext);
@@ -514,7 +549,26 @@ namespace ToolBelt.Signal
                 var result = new double[n];
                 Array.Copy(ext, pad, result, 0, n);
                 return result;
-            });
+            }
+
+            double[] direct = Pass(samples, 1);
+            if (AllFinite(direct) || !AllFinite(samples)) return direct;
+            // A finite signal overflowed. The backward pass carries the overflow to every sample, so rescaling the whole
+            // signal lost the low bits (or all) of outputs far from the burst. FiltFilt is linear in the samples (so are
+            // the extension and the initial state), so the small samples are filtered unscaled, only the large ones are
+            // rescaled, and the two are added.
+            var small = new double[n];
+            var large = new double[n];
+            for (int i = 0; i < n; i++)
+            {
+                if (Math.Abs(samples[i]) < LowerBelow) small[i] = samples[i];
+                else large[i] = samples[i];
+            }
+            double[] smallOut = Pass(small, 1);
+            if (!AllFinite(smallOut)) return Rescaled(samples, scale => Pass(samples, scale));
+            double[] largeOut = Rescaled(large, scale => Pass(large, scale));
+            for (int i = 0; i < n; i++) smallOut[i] += largeOut[i];
+            return smallOut;
         }
 
         /// <summary>The complex frequency response of the whole cascade at <paramref name="frequency"/> Hz.</summary>
@@ -828,7 +882,10 @@ namespace ToolBelt.Signal
             }
         }
 
-        private static int ButterworthOrderFor(OrderSpec spec) => Ceiling(spec.LogDiscrimination / (2 * Math.Log(spec.Selectivity)));
+        // A selectivity rounded just below 1 (band edges a few ulps apart) made the logarithm negative, and the order 1:
+        // no order meets such a spec, as the Chebyshev and elliptic estimates (acosh of it is NaN) already said.
+        private static int ButterworthOrderFor(OrderSpec spec)
+            => Ceiling(spec.Selectivity > 1 ? spec.LogDiscrimination / (2 * Math.Log(spec.Selectivity)) : double.PositiveInfinity);
 
         // Prototype frequency at which an order-n Butterworth is exactly −passRipple dB.
         private static double ButterworthW0(OrderSpec spec, int n) => Math.Pow(Pow10m1(spec.PassRippleDb / 10), -1.0 / (2 * n));

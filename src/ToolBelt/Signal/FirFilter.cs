@@ -98,15 +98,21 @@ namespace ToolBelt.Signal
         {
             double[] result = pass(1);
             if (AllFinite(result) || !AllFinite(samples)) return result;
+            // Only the outputs that came out non-finite are taken from a rescaled pass: an overflow never yields a finite
+            // value, so a finite one is exact, and redoing all of them at 2^-64 lost the low bits of small outputs (and
+            // made a causal pass depend on later samples).
             for (int shift = ShiftStep; ; shift += ShiftStep)
             {
-                result = pass(Pow2(-shift));
-                if (AllFinite(result) || shift >= MaxShift)
+                double[] scaled = pass(Pow2(-shift));
+                double up = Pow2(shift);
+                bool done = true;
+                for (int i = 0; i < result.Length; i++)
                 {
-                    double up = Pow2(shift);
-                    for (int i = 0; i < result.Length; i++) result[i] *= up;
-                    return result;
+                    if (IsFinite(result[i])) continue;
+                    if (IsFinite(scaled[i]) || shift >= MaxShift) result[i] = scaled[i] * up;
+                    if (!IsFinite(scaled[i])) done = false;
                 }
+                if (done || shift >= MaxShift) return result;
             }
         }
 
@@ -168,7 +174,8 @@ namespace ToolBelt.Signal
         {
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
             if (double.IsNaN(frequency) || double.IsInfinity(frequency)) throw new ArgumentOutOfRangeException(nameof(frequency), frequency, "Frequency must be finite.");
-            double w = -2 * Math.PI * (frequency / sampleRate);       // the ratio first: π·f overflowed past fs ≈ 5e307
+            // Reduced to [−fs/2, fs/2] first (exactly): the ratio alone lost the phase far past fs, and overflowed to NaN.
+            double w = -2 * Math.PI * (Math.IEEERemainder(frequency, sampleRate) / sampleRate);
             double re = 0, im = 0;
             for (int k = 0; k < _taps.Length; k++) { re += _taps[k] * Math.Cos(w * k); im += _taps[k] * Math.Sin(w * k); }
             return new Complex(re, im);
@@ -201,10 +208,12 @@ namespace ToolBelt.Signal
         {
             if (!(attenuationDb > 8 && attenuationDb < 1000)) throw new ArgumentOutOfRangeException(nameof(attenuationDb), attenuationDb, "Attenuation must be between 8 and 1000 dB.");
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
-            if (!(transitionWidth > 0 && transitionWidth < sampleRate / 2)) throw new ArgumentOutOfRangeException(nameof(transitionWidth), transitionWidth, "Transition width must be between 0 and Nyquist, exclusive.");
+            // The ratio, not sampleRate / 2, as Design does: halving a subnormal sample rate rounded it (16 taps at fs =
+            // 1.5e-323 where the same ratio at fs = 3 gives 12).
+            if (!(transitionWidth > 0 && transitionWidth / sampleRate < 0.5)) throw new ArgumentOutOfRangeException(nameof(transitionWidth), transitionWidth, "Transition width must be between 0 and Nyquist, exclusive.");
             double a = attenuationDb;
             double beta = a > 50 ? 0.1102 * (a - 8.7) : a > 21 ? 0.5842 * Math.Pow(a - 21, 0.4) + 0.07886 * (a - 21) : 0;
-            double width = transitionWidth / (sampleRate / 2);                      // fraction of Nyquist
+            double width = 2 * (transitionWidth / sampleRate);                      // fraction of Nyquist
             double taps = Math.Ceiling((a - 7.95) / 2.285 / (Math.PI * width) + 1);
             if (!(taps <= MaxTaps)) throw new ArgumentOutOfRangeException(nameof(transitionWidth), transitionWidth, "The transition band is too narrow: the filter would need more taps than the largest array holds.");
             return ((int)taps, beta);

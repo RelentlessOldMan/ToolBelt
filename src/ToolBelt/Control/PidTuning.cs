@@ -196,6 +196,9 @@ namespace ToolBelt.Control
         /// </summary>
         public static PidGains Simc(FopdtModel model, double? closedLoopTimeConstant = null)
         {
+            // The default τc = θ is 0 without dead time: that named closedLoopTimeConstant, which the caller never passed.
+            if (closedLoopTimeConstant is null && model.TimeConstant != 0 && model.DeadTime == 0)
+                throw new ArgumentException("The model has no dead time, so the default closed-loop time constant (τc = θ) is 0; pass a positive closedLoopTimeConstant.", nameof(model));
             double tc = Knob(closedLoopTimeConstant ?? model.DeadTime, model, nameof(closedLoopTimeConstant));
             double sum = tc + model.DeadTime;
             return Gains(Ratio(model, tc), Math.Min(model.TimeConstant, double.IsInfinity(sum) ? sum : 4 * sum), 0);

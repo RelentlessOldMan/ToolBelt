@@ -33,7 +33,7 @@ namespace ToolBelt.Control
         /// <summary>The current estimate error covariance (P).</summary>
         public double ErrorCovariance { get; private set; }
 
-        /// <summary>The Kalman gain applied by the most recent <see cref="Update"/>.</summary>
+        /// <summary>The Kalman gain applied by the most recent <see cref="Update"/> (0 before the first one and after <see cref="Reset"/>).</summary>
         public double LastGain { get; private set; }
 
         /// <summary>Incorporates a new measurement and returns the updated estimate. A non-finite measurement is rejected
@@ -64,6 +64,7 @@ namespace ToolBelt.Control
             if (!(errorCovariance >= 0) || double.IsInfinity(errorCovariance)) throw new ArgumentOutOfRangeException(nameof(errorCovariance), errorCovariance, "Error covariance must be non-negative and finite.");
             Estimate = estimate;
             ErrorCovariance = errorCovariance;
+            LastGain = 0;                       // was the previous run's gain, as if an update had happened
         }
     }
 }
