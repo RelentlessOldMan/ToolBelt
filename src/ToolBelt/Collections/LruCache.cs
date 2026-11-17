@@ -134,9 +134,18 @@ namespace ToolBelt.Collections
 
             if (_map.Count > _capacity)
             {
+                // The map first: a key whose hash throws on a later call (a disposed object) was taken off the list and
+                // left in the map, so the cache grew past its capacity and that key failed every call after. If it
+                // throws, the new entry is undone and the cache is as it was.
                 var lru = _order.Last!;
+                try { _map.Remove(lru.Value.Key); }
+                catch
+                {
+                    _order.Remove(fresh);
+                    _map.Remove(key);
+                    throw;
+                }
                 _order.RemoveLast();
-                _map.Remove(lru.Value.Key);
             }
         }
 
@@ -166,8 +175,8 @@ namespace ToolBelt.Collections
             ThrowIfKeyNull(key);
             if (_map.TryGetValue(key, out var node))
             {
+                _map.Remove(key);       // first: if the hash throws, the entry is still on the list (see Set)
                 _order.Remove(node);
-                _map.Remove(key);
                 return true;
             }
             return false;

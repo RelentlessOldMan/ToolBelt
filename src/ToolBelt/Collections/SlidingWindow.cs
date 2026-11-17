@@ -20,9 +20,12 @@ namespace ToolBelt.Collections
 
         private static IEnumerable<T[]> Iterator<T>(IReadOnlyList<T> source, int size)
         {
-            int last = source.Count - size;
+            int count = source.Count;
+            int last = count - size;
             for (int start = 0; start <= last; start++)
             {
+                // As Combinatorics.Combinations: a list that changed is an InvalidOperationException, not a bad "index".
+                if (source.Count != count) throw new InvalidOperationException("The list changed during enumeration.");
                 var window = new T[size];
                 for (int j = 0; j < size; j++)
                     window[j] = source[start + j];

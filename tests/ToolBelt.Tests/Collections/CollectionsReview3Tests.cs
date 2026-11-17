@@ -28,17 +28,17 @@ namespace ToolBelt.Tests.Collections
 
         public void BloomFilter_EvenBitCount_MeetsTheTargetRate()
         {
-            var f = new BloomFilter(1000, 0.001);
+            var f = new BloomFilter(1004, 0.001);   // an even size (1000 was, until round 111 sized to the exact rate)
             Check.Equal(0, f.BitCount % 2);
-            double rate = FalsePositiveRate(f.Add, f.MightContain, 1000);
+            double rate = FalsePositiveRate(f.Add, f.MightContain, 1004);
             Check.True(rate < 0.002, $"false-positive rate {rate}");
         }
 
         public void CountingBloomFilter_EvenSlotCount_MeetsTheTargetRate()
         {
-            var f = new CountingBloomFilter(1000, 0.001);
+            var f = new CountingBloomFilter(1004, 0.001);   // an even size, as above
             Check.Equal(0, f.SlotCount % 2);
-            double rate = FalsePositiveRate(f.Add, f.MightContain, 1000);
+            double rate = FalsePositiveRate(f.Add, f.MightContain, 1004);
             Check.True(rate < 0.002, $"false-positive rate {rate}");
         }
 

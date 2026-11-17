@@ -22,8 +22,18 @@ namespace ToolBelt.Collections
             // Past Array.MaxLength the allocation threw OutOfMemoryException.
             if (capacity <= 0 || capacity > 0x7FFFFFC7)
                 throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity must be in [1, Array.MaxLength] (0x7FFFFFC7).");
-            _buffer = new T[capacity];
+            try { _buffer = new T[capacity]; }
+            catch (OutOfMemoryException) when (PastFrameworkLimit(capacity))
+            {
+                throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity is past .NET Framework's array limit (0x7FEFFFFF for this type).");
+            }
         }
+
+        // .NET Framework caps an array of elements wider than a byte at 0x7FEFFFFF (Array.MaxLength, 0x7FFFFFC7, is .NET's),
+        // and whether T is one byte is not known here, so a length in between is tried. Its OutOfMemoryException there
+        // (refused before anything is allocated) is the length limit, not memory.
+        private static bool PastFrameworkLimit(int length) => length > 0x7FEFFFFF
+            && System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework", StringComparison.Ordinal);
 
         public int Capacity => _buffer.Length;
 

@@ -16,10 +16,12 @@ namespace ToolBelt.Collections
         public static IEnumerable<T[]> Of<T>(IReadOnlyList<IReadOnlyList<T>> sequences)
         {
             if (sequences is null) throw new ArgumentNullException(nameof(sequences));
-            for (int i = 0; i < sequences.Count; i++)
-                if (sequences[i] is null)
-                    throw new ArgumentException($"Sequence at index {i} is null.", nameof(sequences));
-            return Iterator(sequences);
+            // The list of sequences is copied as it is checked: the iterator read the caller's list again, so a slot set to
+            // null after this call (which had passed the check) threw NullReferenceException mid-enumeration.
+            var copy = new IReadOnlyList<T>[sequences.Count];
+            for (int i = 0; i < copy.Length; i++)
+                copy[i] = sequences[i] ?? throw new ArgumentException($"Sequence at index {i} is null.", nameof(sequences));
+            return Iterator(copy);
         }
 
         /// <summary>The product of two or more sequences passed as separate arguments.</summary>
@@ -39,12 +41,12 @@ namespace ToolBelt.Collections
             all[0] = first;
             all[1] = second;
             Array.Copy(rest, 0, all, 2, rest.Length);
-            return Of((IReadOnlyList<IReadOnlyList<T>>)all);
+            return Iterator(all);
         }
 
-        private static IEnumerable<T[]> Iterator<T>(IReadOnlyList<IReadOnlyList<T>> sequences)
+        private static IEnumerable<T[]> Iterator<T>(IReadOnlyList<T>[] sequences)
         {
-            int n = sequences.Count;
+            int n = sequences.Length;
             if (n == 0)
             {
                 yield return Array.Empty<T>();

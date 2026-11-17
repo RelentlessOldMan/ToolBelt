@@ -83,6 +83,10 @@ namespace ToolBelt.Collections
 
             public TValue Value { get; }
             public DateTimeOffset ExpiresAt { get; }
+
+            // An expiry saturated at the end of the calendar (a ttl of TimeSpan.MaxValue) is never reached: the entry
+            // expired when the clock read DateTimeOffset.MaxValue, though the doc says it never does.
+            public bool LiveAt(DateTimeOffset now) => ExpiresAt == DateTimeOffset.MaxValue || now < ExpiresAt;
         }
 
         private readonly Dictionary<TKey, Entry> _entries = new Dictionary<TKey, Entry>(ValueKeys.For<TKey>());
@@ -134,7 +138,7 @@ namespace ToolBelt.Collections
             if (key is null) throw new ArgumentNullException(nameof(key));
             if (_entries.TryGetValue(key, out var entry))
             {
-                if (_clock() < entry.ExpiresAt)
+                if (entry.LiveAt(_clock()))
                 {
                     value = entry.Value;
                     return true;
@@ -153,9 +157,10 @@ namespace ToolBelt.Collections
             if (key is null) throw new ArgumentNullException(nameof(key));
             // An expired entry is absent, as TryGet says; it returned true for one not yet pruned.
             if (!_entries.TryGetValue(key, out var entry)) return false;
+            bool live = entry.LiveAt(_clock());   // before removing: a clock that threw removed the entry and then failed
             _entries.Remove(key);
             if (_entries.Count <= _pruneAt / 4) ResetPruneAt();
-            return _clock() < entry.ExpiresAt;
+            return live;
         }
 
         public void Clear()
@@ -176,7 +181,7 @@ namespace ToolBelt.Collections
             List<TKey>? expired = null;
             foreach (var pair in _entries)
             {
-                if (now >= pair.Value.ExpiresAt)
+                if (!pair.Value.LiveAt(now))
                     (expired ??= new List<TKey>()).Add(pair.Key);
             }
             if (expired is not null)

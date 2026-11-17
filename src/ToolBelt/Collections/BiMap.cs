@@ -79,7 +79,8 @@ namespace ToolBelt.Collections
 
         public IReadOnlyCollection<TKey> Keys => _forward.Keys;
 
-        public IReadOnlyCollection<TValue> Values => _backward.Keys;
+        /// <summary>The values, in the same order as <see cref="Keys"/> (the i-th value is the i-th key's).</summary>
+        public IReadOnlyCollection<TValue> Values => _forward.Values;   // the other map's keys drifted out of step after removals
 
         /// <summary>Adds a key/value pair. Throws if either side is already present.</summary>
         public void Add(TKey key, TValue value)
@@ -137,8 +138,11 @@ namespace ToolBelt.Collections
             if (key is null) throw new ArgumentNullException(nameof(key));
             if (_forward.TryGetValue(key, out var value))
             {
-                _forward.Remove(key);
+                // The other side first, undone if this side then throws: a value whose hash throws on a later call (a
+                // disposed object) left a one-sided pair, and that value could never be added again. As Add does.
                 _backward.Remove(value);
+                try { _forward.Remove(key); }
+                catch { _backward[value] = key; throw; }
                 return true;
             }
             return false;
@@ -149,8 +153,10 @@ namespace ToolBelt.Collections
             if (value is null) throw new ArgumentNullException(nameof(value));
             if (_backward.TryGetValue(value, out var key))
             {
-                _backward.Remove(value);
+                // As RemoveByKey: the other side first, undone if this side then throws.
                 _forward.Remove(key);
+                try { _backward.Remove(value); }
+                catch { _forward[key] = value; throw; }
                 return true;
             }
             return false;

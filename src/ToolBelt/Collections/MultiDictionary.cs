@@ -106,10 +106,12 @@ namespace ToolBelt.Collections
                 int index = list.IndexOf(value);
                 if (index >= 0)
                 {
+                    // The key first (its hash is the call that can throw, for a disposed object say): the count and the
+                    // list were changed before it, leaving a key with no values or a total that disagreed with them.
+                    if (list.Count == 1)
+                        _map.Remove(key);
                     list.RemoveAt(index);
                     _count--;
-                    if (list.Count == 0)
-                        _map.Remove(key);
                     return true;
                 }
             }
@@ -122,8 +124,8 @@ namespace ToolBelt.Collections
             ThrowIfKeyNull(key);
             if (_map.TryGetValue(key, out var list))
             {
+                _map.Remove(key);       // first, as Remove does
                 _count -= list.Count;
-                _map.Remove(key);
                 return true;
             }
             return false;

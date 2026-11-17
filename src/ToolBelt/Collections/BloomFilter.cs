@@ -33,10 +33,48 @@ namespace ToolBelt.Collections
             if (optimalBits > int.MaxValue)
                 throw new ArgumentOutOfRangeException(nameof(expectedItems),
                     "The requested capacity and false-positive rate would require more than int.MaxValue bits.");
-            _bitCount = Math.Max(1, (int)optimalBits);
-            _hashCount = Math.Max(1, (int)Math.Round((double)_bitCount / expectedItems * ln2));
+            long bits = SizeFor(expectedItems, falsePositiveRate, Math.Max(1, (long)optimalBits), int.MaxValue);
+            if (bits < 0)
+                throw new ArgumentOutOfRangeException(nameof(expectedItems),
+                    "The requested capacity and false-positive rate would require more than int.MaxValue bits.");
+            _bitCount = (int)bits;
+            _hashCount = HashesFor(bits, expectedItems);
             _bits = new long[((long)_bitCount + 63) / 64];
         }
+
+        // The formulas are the large-n limit: for a few items the rate they give is past the target (3 items at 0.01 got
+        // 29 bits and 7 hashes, a rate of 0.0128; 1 at 0.3 got 0.34). The size grows to the smallest that meets the target
+        // by the exact rate (1 − (1 − 1/m)^(kn))^k, with k the rounded optimum for that size. A size past max returns −1.
+        private static long SizeFor(int n, double p, long m, long max)
+        {
+            if (RateAt(m, n) <= p) return m;
+            long hi = m;
+            do
+            {
+                if (hi >= max) return -1;
+                hi = Math.Min(max, hi * 2);
+            }
+            while (RateAt(hi, n) > p);
+            long lo = m;   // RateAt(lo) > p >= RateAt(hi)
+            while (hi - lo > 1)
+            {
+                long mid = lo + (hi - lo) / 2;
+                if (RateAt(mid, n) <= p) hi = mid; else lo = mid;
+            }
+            return hi;
+        }
+
+        private static int HashesFor(long m, int n) => (int)Math.Max(1, Math.Round((double)m / n * Math.Log(2)));
+
+        private static double RateAt(long m, int n)
+        {
+            int k = HashesFor(m, n);
+            double empty = Math.Exp((double)k * n * Log1p(-1.0 / m));   // (1 − 1/m)^(kn), the chance a bit stays clear
+            return Math.Pow(1 - empty, k);
+        }
+
+        // ln(1 + x) for small |x|, accurate where 1 + x rounds (netstandard2.0 has no Math.Log1p).
+        private static double Log1p(double x) => Math.Abs(x) < 1e-4 ? x - x * x / 2 + x * x * x / 3 : Math.Log(1 + x);
 
         public int BitCount => _bitCount;
 

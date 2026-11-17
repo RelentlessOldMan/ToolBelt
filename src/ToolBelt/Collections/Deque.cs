@@ -24,8 +24,18 @@ namespace ToolBelt.Collections
             // Past Array.MaxLength the allocation threw OutOfMemoryException.
             if (initialCapacity < 0 || initialCapacity > 0x7FFFFFC7)
                 throw new ArgumentOutOfRangeException(nameof(initialCapacity), initialCapacity, "Capacity must be in [0, Array.MaxLength] (0x7FFFFFC7).");
-            _array = new T[Math.Max(4, initialCapacity)];
+            try { _array = new T[Math.Max(4, initialCapacity)]; }
+            catch (OutOfMemoryException) when (PastFrameworkLimit(initialCapacity))
+            {
+                throw new ArgumentOutOfRangeException(nameof(initialCapacity), initialCapacity, "Capacity is past .NET Framework's array limit (0x7FEFFFFF for this type).");
+            }
         }
+
+        // .NET Framework caps an array of elements wider than a byte at 0x7FEFFFFF (Array.MaxLength, 0x7FFFFFC7, is .NET's),
+        // and whether T is one byte is not known here, so a length in between is tried. Its OutOfMemoryException there
+        // (refused before anything is allocated) is the length limit, not memory.
+        private static bool PastFrameworkLimit(int length) => length > 0x7FEFFFFF
+            && System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework", StringComparison.Ordinal);
 
         public int Count => _count;
 
@@ -138,7 +148,15 @@ namespace ToolBelt.Collections
             // Doubling overflowed int past 2^30 elements; cap at the largest array length, as List<T> does.
             const int MaxLength = 0x7FFFFFC7;
             if (_array.Length >= MaxLength) throw new InvalidOperationException("The deque is at the maximum array length.");
-            var grown = new T[(int)Math.Min((long)_array.Length * 2, MaxLength)];
+            int target = (int)Math.Min((long)_array.Length * 2, MaxLength);
+            T[] grown;
+            try { grown = new T[target]; }
+            catch (OutOfMemoryException) when (PastFrameworkLimit(target))
+            {
+                // .NET Framework's limit for this T: grow to it, or report the deque full as on .NET.
+                if (_array.Length >= 0x7FEFFFFF) throw new InvalidOperationException("The deque is at the maximum array length.");
+                grown = new T[0x7FEFFFFF];
+            }
             for (int i = 0; i < _count; i++)
                 grown[i] = _array[Slot(i)];
             _array = grown;

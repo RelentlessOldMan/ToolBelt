@@ -84,7 +84,9 @@ namespace ToolBelt.Collections
 
         /// <summary>
         /// Index of the element whose key is nearest <paramref name="key"/> (ties go to the earlier element), or −1 for an
-        /// empty list — "the sample closest to t". A NaN <paramref name="key"/> is nearest nothing and throws.
+        /// empty list — "the sample closest to t". A NaN <paramref name="key"/> is nearest nothing and throws. An infinite
+        /// key, every distance to which is infinite, is taken as the limit: +∞ is nearest the first element with the largest
+        /// key, −∞ the first element.
         /// </summary>
         public static int NearestBy<T>(this IReadOnlyList<T> list, double key, Func<T, double> keySelector)
         {

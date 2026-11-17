@@ -74,28 +74,38 @@ namespace ToolBelt.Collections
 #endif
         }
 
-        private readonly List<TKey> _keys = new List<TKey>();
-        private readonly List<TPriority> _priorities = new List<TPriority>();
-        private readonly Dictionary<TKey, int> _indexOf = new Dictionary<TKey, int>(ValueKeys.For<TKey>());
+        // Each entry is a node that knows its own heap slot, so moving it (every sift) touches no hash: a key whose hash
+        // threw on a later call, written into the index mid-sift, lost one key and duplicated another. Only Enqueue,
+        // dequeue and lookups hash a key, each before anything changes.
+        private sealed class Node
+        {
+            public Node(TKey key, TPriority priority) { Key = key; Priority = priority; }
+            public readonly TKey Key;
+            public TPriority Priority;
+            public int Index;
+        }
+
+        private readonly List<Node> _heap = new List<Node>();
+        private readonly Dictionary<TKey, Node> _nodes = new Dictionary<TKey, Node>(ValueKeys.For<TKey>());
         private readonly IComparer<TPriority> _comparer;
 
         public IndexedPriorityQueue(IComparer<TPriority>? comparer = null)
             => _comparer = comparer ?? Comparer<TPriority>.Default;
 
-        public int Count => _keys.Count;
+        public int Count => _heap.Count;
 
         public bool Contains(TKey key)
         {
             if (key is null) throw new ArgumentNullException(nameof(key));
-            return _indexOf.ContainsKey(key);
+            return _nodes.ContainsKey(key);
         }
 
         public bool TryGetPriority(TKey key, out TPriority priority)
         {
             if (key is null) throw new ArgumentNullException(nameof(key));
-            if (_indexOf.TryGetValue(key, out int i))
+            if (_nodes.TryGetValue(key, out Node? node))
             {
-                priority = _priorities[i];
+                priority = node.Priority;
                 return true;
             }
             priority = default!;
@@ -106,56 +116,53 @@ namespace ToolBelt.Collections
         public void Enqueue(TKey key, TPriority priority)
         {
             if (key is null) throw new ArgumentNullException(nameof(key));
-            if (_indexOf.ContainsKey(key))
+            if (_nodes.ContainsKey(key))
                 throw new ArgumentException($"Key '{key}' is already in the queue.", nameof(key));
 
             // Comparisons first, then the key's hash: a comparer or hash that throws leaves the queue as it was (a throw
             // mid-sift left the order broken).
-            int at = FindUp(priority, _keys.Count);
-            _indexOf[key] = at;
-            _keys.Add(key);
-            _priorities.Add(priority);
-            int i = _keys.Count - 1;
-            while (i > at)
-            {
-                int parent = (i - 1) / 2;
-                Place(i, _keys[parent], _priorities[parent]);
-                i = parent;
-            }
-            _keys[at] = key;
-            _priorities[at] = priority;
+            int at = FindUp(priority, _heap.Count);
+            var node = new Node(key, priority);
+            _nodes.Add(key, node);
+            _heap.Add(node);
+            Settle(_heap.Count - 1, at, node);
         }
 
-        /// <summary>Changes the priority of an existing key, re-heapifying. Throws if the key is absent.</summary>
+        /// <summary>
+        /// Changes the priority of an existing key, re-heapifying. Throws if the key is absent. The key first enqueued is
+        /// kept (as a dictionary keeps the first of two equal keys); the one passed here only finds it.
+        /// </summary>
         public void UpdatePriority(TKey key, TPriority priority)
         {
             if (key is null) throw new ArgumentNullException(nameof(key));
-            if (!_indexOf.TryGetValue(key, out int i))
+            if (!_nodes.TryGetValue(key, out Node? node))
                 throw new KeyNotFoundException($"Key '{key}' is not in the queue.");
 
             // Comparisons first: a throw mid-sift (after the priority was stored) left the order broken.
-            int cmp = _comparer.Compare(priority, _priorities[i]);
-            int at = cmp < 0 ? FindUp(priority, i) : cmp > 0 ? FindDown(priority, i, _keys.Count) : i;
-            Settle(i, at, key, priority);
+            int i = node.Index;
+            int cmp = _comparer.Compare(priority, node.Priority);
+            int at = cmp < 0 ? FindUp(priority, i) : cmp > 0 ? FindDown(priority, i, _heap.Count) : i;
+            node.Priority = priority;
+            Settle(i, at, node);
         }
 
         public bool TryPeekMin(out TKey key, out TPriority priority)
         {
-            if (_keys.Count == 0)
+            if (_heap.Count == 0)
             {
                 key = default!;
                 priority = default!;
                 return false;
             }
-            key = _keys[0];
-            priority = _priorities[0];
+            key = _heap[0].Key;
+            priority = _heap[0].Priority;
             return true;
         }
 
         /// <summary>Removes and returns the minimum-priority entry.</summary>
         public bool TryDequeueMin(out TKey key, out TPriority priority)
         {
-            if (_keys.Count == 0)
+            if (_heap.Count == 0)
             {
                 key = default!;
                 priority = default!;
@@ -164,16 +171,15 @@ namespace ToolBelt.Collections
 
             // Move the last element to the root and sink it. Comparisons first, then the hash: a throw mid-sift lost the
             // dequeued key (already out of the index) and left the order broken.
-            int last = _keys.Count - 1;
-            TKey movedKey = _keys[last];
-            TPriority moved = _priorities[last];
-            int at = last > 0 ? FindDown(moved, 0, last) : 0;
-            key = _keys[0];
-            priority = _priorities[0];
-            _indexOf.Remove(key);
-            _keys.RemoveAt(last);
-            _priorities.RemoveAt(last);
-            if (last > 0) Settle(0, at, movedKey, moved);
+            int last = _heap.Count - 1;
+            Node moved = _heap[last];
+            int at = last > 0 ? FindDown(moved.Priority, 0, last) : 0;
+            Node min = _heap[0];
+            _nodes.Remove(min.Key);
+            _heap.RemoveAt(last);
+            if (last > 0) Settle(0, at, moved);
+            key = min.Key;
+            priority = min.Priority;
             return true;
         }
 
@@ -183,7 +189,7 @@ namespace ToolBelt.Collections
             while (i > 0)
             {
                 int parent = (i - 1) / 2;
-                if (_comparer.Compare(priority, _priorities[parent]) >= 0)
+                if (_comparer.Compare(priority, _heap[parent].Priority) >= 0)
                     break;
                 i = parent;
             }
@@ -196,9 +202,9 @@ namespace ToolBelt.Collections
             while (i < n / 2) // past n / 2 is a leaf; 2 * i + 1 overflowed int past 2^30 elements
             {
                 int child = 2 * i + 1;
-                if (child + 1 < n && _comparer.Compare(_priorities[child + 1], _priorities[child]) < 0)
+                if (child + 1 < n && _comparer.Compare(_heap[child + 1].Priority, _heap[child].Priority) < 0)
                     child++;
-                if (_comparer.Compare(_priorities[child], priority) >= 0)
+                if (_comparer.Compare(_heap[child].Priority, priority) >= 0)
                     break;
                 i = child;
             }
@@ -206,8 +212,8 @@ namespace ToolBelt.Collections
         }
 
         // Moves each entry on the path between slots from and at (at is an ancestor or a descendant of from) one level
-        // toward from and puts the entry at slot at. No comparisons.
-        private void Settle(int from, int at, TKey key, TPriority priority)
+        // toward from and puts node at slot at. No comparisons and no hashing, so it cannot fail part way.
+        private void Settle(int from, int at, Node node)
         {
             if (at < from)
             {
@@ -216,36 +222,32 @@ namespace ToolBelt.Collections
                 while (i > at)
                 {
                     int parent = (i - 1) / 2;
-                    Place(i, _keys[parent], _priorities[parent]);
+                    Place(i, _heap[parent]);
                     i = parent;
                 }
             }
             else if (at > from)
             {
                 // Sinking: from is an ancestor of at; walk up from at carrying each displaced entry up a level.
-                TKey carryKey = key;
-                TPriority carry = priority;
+                Node carry = node;
                 int i = at;
                 while (i > from)
                 {
-                    TKey k = _keys[i];
-                    TPriority p = _priorities[i];
-                    Place(i, carryKey, carry);
-                    carryKey = k;
-                    carry = p;
+                    Node displaced = _heap[i];
+                    Place(i, carry);
+                    carry = displaced;
                     i = (i - 1) / 2;
                 }
-                Place(from, carryKey, carry);
+                Place(from, carry);
                 return;
             }
-            Place(at, key, priority);
+            Place(at, node);
         }
 
-        private void Place(int i, TKey key, TPriority priority)
+        private void Place(int i, Node node)
         {
-            _keys[i] = key;
-            _priorities[i] = priority;
-            _indexOf[key] = i;
+            _heap[i] = node;
+            node.Index = i;
         }
     }
 }

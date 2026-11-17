@@ -31,6 +31,9 @@ namespace ToolBelt.Collections
 
             while (true)
             {
+                // A list that shrank since the start threw ArgumentOutOfRangeException for an "index" the caller never
+                // passed; a changed list is an InvalidOperationException, as the BCL's enumerators say.
+                if (items.Count != n) throw new InvalidOperationException("The list changed during enumeration.");
                 var combo = new T[k];
                 for (int i = 0; i < k; i++)
                     combo[i] = items[indices[i]];

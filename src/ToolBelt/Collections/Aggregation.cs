@@ -123,14 +123,16 @@ namespace ToolBelt.Collections
         // Count, sum, min and max as plain running values, and Welford's mean and squared deviations on the values scaled
         // by 2^-k, where 2^k is near the largest |v| so far (rescaled, exactly, by a power of two when a larger one
         // comes). Scaled values stay near 1, so finite values whose sum or squared deviations overflow (1e308 + 1e308)
-        // or underflow (1e-200 and 2e-200 had a deviation of 0) keep their spread.
+        // or underflow (1e-200 and 2e-200 had a deviation of 0) keep their spread. Welford runs on the distance from the
+        // first value (the shift): its running mean, rounded at the size of the values, put that rounding into deviations
+        // far smaller ([1e10 + 4, 1e10 + 1, 1e10 − 1, ...] gave a deviation of 2.0000002622604196, not 2).
         private sealed class Running
         {
             private long _count;
             private double _sum, _min = double.PositiveInfinity, _max = double.NegativeInfinity;
             private bool _nonFinite;
             private int _k = int.MinValue;   // no nonzero finite value yet
-            private double _scaledSum, _scaledMean, _scaledM2;
+            private double _scaledSum, _scaledMean, _scaledM2, _shift;   // _scaledMean is the mean of x − _shift
             private long _scaledCount;
 
             public void Add(double v)
@@ -151,6 +153,7 @@ namespace ToolBelt.Collections
                     {
                         _scaledSum = Scale(_scaledSum, _k - e);
                         _scaledMean = Scale(_scaledMean, _k - e);
+                        _shift = Scale(_shift, _k - e);
                         _scaledM2 = Scale(Scale(_scaledM2, _k - e), _k - e);
                         _k = e;
                     }
@@ -158,9 +161,16 @@ namespace ToolBelt.Collections
                 double x = _k == int.MinValue ? 0 : Scale(v, -_k);
                 _scaledCount++;
                 _scaledSum += x;
-                double d = x - _scaledMean;
+                if (_shift == 0 && x != 0)
+                {
+                    // The first nonzero value (zeros before it gave a shift of 0); moving the shift moves the mean only.
+                    _scaledMean -= x;
+                    _shift = x;
+                }
+                double y = x - _shift;
+                double d = y - _scaledMean;
                 _scaledMean += d / _scaledCount;
-                _scaledM2 += d * (x - _scaledMean);
+                _scaledM2 += d * (y - _scaledMean);
             }
 
             public GroupSummary<TKey> Summary<TKey>(TKey key)
@@ -183,7 +193,7 @@ namespace ToolBelt.Collections
                     }
                     // Welford's running mean, not sum / n: the rounding in the sum put the mean outside [min, max] (three
                     // copies of 0.1 gave 0.10000000000000002, 1e7 copies 0.09999999998389754).
-                    mean = Math.Min(_max, Math.Max(_min, Scale(_scaledMean, k)));
+                    mean = Math.Min(_max, Math.Max(_min, Scale(_shift + _scaledMean, k)));
                 }
                 return new GroupSummary<TKey>(key, n, sum, mean, _min, _max, stdDev);
             }

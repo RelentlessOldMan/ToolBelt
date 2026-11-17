@@ -106,3 +106,5 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R110-2 | P3 | 15 | suspected | Elevation.CurrentIntegrityLevel would read sub-authority -1 for a label SID with none. | review r110 |
 | R110-3 | P3 | 15 | suspected | RegistryUtils.DeleteKey of a path with a 300-character component throws ArgumentException where KeyExists, GetValue and DeleteValue report absent. | review r110 |
 | R110-4 | P3 | 15 | suspected | IsNetworkDrive on a device spelling of a real mapped drive is untested (no mapped drive available to the reviewers). | review r110 |
+| R111-1 | P3 | 9 | suspected | Composite keys (tuples, object keys) holding a NaN or decimals of different scale still hash by bits or scale on .NET Framework, so equal keys count separately; the value-hashed comparers cover only plain double, float and decimal. | review r111 |
+| R111-2 | P3 | 9 | suspected | Deque and TopN growth to .NET Framework's 0x7FEFFFFF limit is untested (it needs a 16 GB array). | review r111 |

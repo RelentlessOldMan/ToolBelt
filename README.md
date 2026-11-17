@@ -690,6 +690,7 @@ tests/
       CollectionsReview4Tests.cs (fourth-pass regressions: Bloom probe mixing and lone surrogates, tiny-value spread, long counts, size caps, ordinal table sorts)
       CollectionsReview90Tests.cs (round 90 review regressions: mixed sequence/multiset hashes, value-hashed keys, TTL expiry, trie memory, streaming Summarize)
       CollectionsReview96Tests.cs (round 96: Summarize means within [min, max], zero-only Randoms, multiset counts past 2^32, null sketch items, cheap Clear, default rows)
+      CollectionsReview111Tests.cs (round 111: 64-bit sketch keys, precise deviations, throwing hashes in LRU, heap, BiMap and MultiDictionary, endless TTLs, copied product lists, Bloom sizes for a few items, .NET Framework array limits)
       CounterTests.cs
       CountMinSketchTests.cs
       DataTableLiteTests.cs

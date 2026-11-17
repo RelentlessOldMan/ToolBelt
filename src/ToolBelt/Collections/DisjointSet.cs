@@ -13,13 +13,20 @@ namespace ToolBelt.Collections
         private readonly int[] _parent;
         private readonly int[] _rank;
 
-        private const int ArrayMaxLength = 0x7FFFFFC7;   // Array.MaxLength (not in netstandard2.0)
+#if NETSTANDARD2_0
+        // .NET Framework caps an array of elements wider than a byte at 0x7FEFFFFF; Array.MaxLength (0x7FFFFFC7) is .NET's.
+        // A length between passed the check there and threw OutOfMemoryException.
+        private static readonly int ArrayMaxLength = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription
+            .StartsWith(".NET Framework", StringComparison.Ordinal) ? 0x7FEFFFFF : 0x7FFFFFC7;
+#else
+        private const int ArrayMaxLength = 0x7FFFFFC7;   // Array.MaxLength
+#endif
 
         public DisjointSet(int size)
         {
             // Past Array.MaxLength the allocation threw OutOfMemoryException ("array dimensions exceeded").
             if (size < 0 || size > ArrayMaxLength)
-                throw new ArgumentOutOfRangeException(nameof(size), size, "Size must be 0 to Array.MaxLength (0x7FFFFFC7).");
+                throw new ArgumentOutOfRangeException(nameof(size), size, "Size must be 0 to Array.MaxLength (0x7FFFFFC7; 0x7FEFFFFF on .NET Framework).");
             _parent = new int[size];
             _rank = new int[size];
             for (int i = 0; i < size; i++)

@@ -8,6 +8,9 @@ namespace ToolBelt.Collections
     /// A Count-Min Sketch: a compact, fixed-memory structure for estimating item frequencies in a stream.
     /// Estimates never under-count the true frequency; they may over-count, with error bounded by the
     /// configured width and depth. Complements a Bloom filter (membership) with approximate counts.
+    /// Items are told apart by their hash code: two items the comparer hashes alike share a counter in every row, so
+    /// the bound holds for items with distinct hash codes. With the default comparer, 64-bit keys (<c>long</c>,
+    /// <c>ulong</c>, <c>double</c>, <c>DateTime</c>, <c>DateTimeOffset</c>, <c>TimeSpan</c>) are hashed from all 64 bits.
     /// Not thread-safe.
     /// </summary>
     public sealed class CountMinSketch<T>
@@ -74,8 +77,18 @@ namespace ToolBelt.Collections
         private readonly long[][] _counts; // [depth][width]
         private readonly int _width;
         private readonly int _depth;
-        private readonly uint[] _seeds;
+        private readonly ulong[] _seeds;
         private readonly IEqualityComparer<T> _comparer;
+        private readonly bool _wide;   // hash 64-bit keys by their whole value, not their 32-bit hash code
+
+#if NETSTANDARD2_0
+        // .NET Framework caps an array of elements wider than a byte at 0x7FEFFFFF; Array.MaxLength (0x7FFFFFC7) is .NET's.
+        // A length between passed the check there and threw OutOfMemoryException.
+        private static readonly int ArrayMaxLength = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription
+            .StartsWith(".NET Framework", StringComparison.Ordinal) ? 0x7FEFFFFF : 0x7FFFFFC7;
+#else
+        private const int ArrayMaxLength = 0x7FFFFFC7;   // Array.MaxLength
+#endif
 
         /// <summary>Total number of increments recorded (sum of all added counts).</summary>
         public long TotalCount { get; private set; }
@@ -86,18 +99,19 @@ namespace ToolBelt.Collections
         public CountMinSketch(int width = 2048, int depth = 5, IEqualityComparer<T>? comparer = null)
         {
             // Past Array.MaxLength the row allocation threw OutOfMemoryException.
-            if (width < 1 || width > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be in [1, Array.MaxLength] (0x7FFFFFC7).");
-            if (depth < 1 || depth > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(depth), depth, "Depth must be in [1, Array.MaxLength] (0x7FFFFFC7).");
+            if (width < 1 || width > ArrayMaxLength) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be in [1, Array.MaxLength] (0x7FFFFFC7; 0x7FEFFFFF on .NET Framework).");
+            if (depth < 1 || depth > ArrayMaxLength) throw new ArgumentOutOfRangeException(nameof(depth), depth, "Depth must be in [1, Array.MaxLength] (0x7FFFFFC7; 0x7FEFFFFF on .NET Framework).");
 
             _width = width;
             _depth = depth;
             _comparer = comparer ?? ValueKeys.For<T>();
+            _wide = comparer is null && Wide64(typeof(T));
             _counts = new long[depth][];
-            _seeds = new uint[depth];
+            _seeds = new ulong[depth];
             for (int i = 0; i < depth; i++)
             {
                 _counts[i] = new long[width];
-                _seeds[i] = unchecked(0x9E3779B1u * (uint)(i + 1)); // distinct per-row mixing constant
+                _seeds[i] = unchecked(0x9E3779B97F4A7C15ul * (ulong)(i + 1)); // distinct per-row mixing constant
             }
         }
 
@@ -105,7 +119,7 @@ namespace ToolBelt.Collections
         public void Add(T item, long amount = 1)
         {
             if (amount < 0) throw new ArgumentOutOfRangeException(nameof(amount), amount, "Amount must be non-negative.");
-            int baseHash = Hash(item);
+            ulong baseHash = Hash(item);
             for (int row = 0; row < _depth; row++)
             {
                 int col = Column(baseHash, row);
@@ -116,7 +130,33 @@ namespace ToolBelt.Collections
 
         // A null item is counted under hash 0, as the default comparer hashes it; a caller's comparer (StringComparer.Ordinal)
         // threw ArgumentNullException for a parameter "obj" the caller never passed.
-        private int Hash(T item) => item is null ? 0 : _comparer.GetHashCode(item);
+        // A long hashes as its two halves XORed, so ordinary keys (i * (2^32 + 1), packed (x << 32) | y grids) shared a
+        // hash code, and so a counter in every row: thousands of keys over-counted by each other's totals.
+        private ulong Hash(T item)
+        {
+            if (item is null) return 0;
+            if (_wide)
+            {
+                switch (item)
+                {
+                    case long l: return unchecked((ulong)l);
+                    case ulong u: return u;
+                    // Equal doubles hash alike: 0.0 and -0.0, and every NaN.
+                    case double d: return d == 0 ? 0 : double.IsNaN(d) ? 0x7FF8000000000000ul : unchecked((ulong)BitConverter.DoubleToInt64Bits(d));
+                    case DateTime t: return unchecked((ulong)t.Ticks);                // equality ignores the kind
+                    case DateTimeOffset o: return unchecked((ulong)o.UtcTicks);       // equality is the instant
+                    case TimeSpan s: return unchecked((ulong)s.Ticks);
+                }
+            }
+            return unchecked((uint)_comparer.GetHashCode(item));
+        }
+
+        private static bool Wide64(Type t)
+        {
+            t = Nullable.GetUnderlyingType(t) ?? t;
+            return t == typeof(long) || t == typeof(ulong) || t == typeof(double) || t == typeof(DateTime)
+                || t == typeof(DateTimeOffset) || t == typeof(TimeSpan);
+        }
 
         // Wrapping made a count negative, under-counting; stopping at long.MaxValue keeps estimates upper bounds.
         private static long Saturating(long count, long amount) => count > long.MaxValue - amount ? long.MaxValue : count + amount;
@@ -124,7 +164,7 @@ namespace ToolBelt.Collections
         /// <summary>Returns the estimated frequency of <paramref name="item"/> (never below the true count).</summary>
         public long Estimate(T item)
         {
-            int baseHash = Hash(item);
+            ulong baseHash = Hash(item);
             long min = long.MaxValue;
             for (int row = 0; row < _depth; row++)
             {
@@ -135,19 +175,19 @@ namespace ToolBelt.Collections
             return min;
         }
 
-        private int Column(int baseHash, int row)
+        private int Column(ulong baseHash, int row)
         {
-            // Mix the item's hash with the row seed through the full MurmurHash3 finalizer, so every input
+            // Mix the item's hash with the row seed through the full 64-bit MurmurHash3 finalizer, so every input
             // bit reaches the low bits that survive the reduction to [0, width).
             unchecked
             {
-                uint h = (uint)baseHash ^ _seeds[row];
-                h ^= h >> 16;
-                h *= 0x85EBCA6Bu;
-                h ^= h >> 13;
-                h *= 0xC2B2AE35u;
-                h ^= h >> 16;
-                return (int)(h % (uint)_width);
+                ulong h = baseHash ^ _seeds[row];
+                h ^= h >> 33;
+                h *= 0xFF51AFD7ED558CCDul;
+                h ^= h >> 33;
+                h *= 0xC4CEB9FE1A85EC53ul;
+                h ^= h >> 33;
+                return (int)(h % (ulong)_width);
             }
         }
     }

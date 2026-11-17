@@ -12,13 +12,20 @@ namespace ToolBelt.Collections
     {
         private readonly long[] _tree; // 1-based; _tree[0] is unused
 
-        private const int ArrayMaxLength = 0x7FFFFFC7;   // Array.MaxLength (not in netstandard2.0)
+#if NETSTANDARD2_0
+        // .NET Framework caps an array of elements wider than a byte at 0x7FEFFFFF; Array.MaxLength (0x7FFFFFC7) is .NET's.
+        // A length between passed the check there and threw OutOfMemoryException.
+        private static readonly int ArrayMaxLength = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription
+            .StartsWith(".NET Framework", StringComparison.Ordinal) ? 0x7FEFFFFF : 0x7FFFFFC7;
+#else
+        private const int ArrayMaxLength = 0x7FFFFFC7;   // Array.MaxLength
+#endif
 
         public FenwickTree(int size)
         {
             // size + 1 past Array.MaxLength threw OutOfMemoryException ("array dimensions exceeded").
             if (size < 0 || size >= ArrayMaxLength)
-                throw new ArgumentOutOfRangeException(nameof(size), size, "Size must be in [0, Array.MaxLength − 1] (0x7FFFFFC6).");
+                throw new ArgumentOutOfRangeException(nameof(size), size, "Size must be in [0, Array.MaxLength − 1] (0x7FFFFFC6; 0x7FEFFFFE on .NET Framework).");
             _tree = new long[size + 1];
         }
 

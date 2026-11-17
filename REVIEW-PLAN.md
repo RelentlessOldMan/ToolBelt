@@ -49,7 +49,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 6 | 3 / 70 | re-queue (3 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 7 | 20 / 147 | re-queue (20 bugs, 1 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 2,950 | ~3 | 6 | 4 / 153 | re-queue (4 bugs, 1 severe) |
-| 9  | Collections | `Collections/*` | 3,400 | ~1 | 6 | 6 / 93 | re-queue (6 bugs, 1 severe) |
+| 9  | Collections | `Collections/*` | 5,200 | ~1 | 7 | 13 / 106 | re-queue (13 bugs, 1 severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 2,300 | ~2 | 6 | 3 / 117 | re-queue (3 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 6 | 4 / 94 | re-queue (4 bugs) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 6 | 14 / 130 | re-queue (14 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); 1 (done, round 107); 3 (done, round 108). Seventh pass, same rule and order (severe count, then bugs in the sixth pass; ties by section number): 7 (done, round 109); 15 (done, round 110); **next: 9**, then 8, 6, 10, 2, 12, 16, 3, 1, 17, 5, 4, 11, 13, 14 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); 1 (done, round 107); 3 (done, round 108). Seventh pass, same rule and order (severe count, then bugs in the sixth pass; ties by section number): 7 (done, round 109); 15 (done, round 110); 9 (done, round 111); **next: 8**, then 6, 10, 2, 12, 16, 3, 1, 17, 5, 4, 11, 13, 14 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -184,11 +184,48 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.24 | 108 | Statistics, sixth pass | 12 | (see tag) |
 | v2026.11.16.25 | 109 | Documents & config, seventh pass | 20 | (see tag) |
 | v2026.11.17.0 | 110 | Windows satellite, seventh pass | 14 | (see tag) |
+| v2026.11.17.1 | 111 | Collections, seventh pass | 22 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 111: Collections, seventh pass (v2026.11.17.1)
+
+Two fresh reviewers (correctness, robustness): 13 bugs, 1 severe, plus one doc fix, so section 9 stays re-queued. The
+regression tests are in `CollectionsReview111Tests` (22: 18 fail on the old code, run by name under a 60 s timeout; the
+.NET Framework array-limit test fails on the old code under net48; three are guards).
+
+- **Severe: CountMinSketch** told items apart by their 32-bit hash code, and a `long` hashes as its halves XORed: 2000
+  keys `i * (2^32 + 1)` each over-counted by 1999, and a packed `(x << 32) | y` grid broke the error bound for every key.
+  With the default comparer, 64-bit keys (long, ulong, double, DateTime, DateTimeOffset, TimeSpan and their nullables)
+  hash from all 64 bits through the 64-bit MurmurHash3 finalizer; the doc says the bound needs distinct hash codes.
+- **Aggregation.Summarize** lost about 7 digits of the standard deviation when the mean is large against the spread
+  (`[1e10 + 4, 1e10 + 1, ...]` gave 2.0000002622604196, not 2): Welford runs on the distance from the first value.
+- **LruCache**: eviction and Remove took the node off the list before the map, so a key whose hash throws on a later
+  call left an orphan entry (the cache past its capacity); the map goes first and a failed eviction undoes the insert.
+- **IndexedPriorityQueue**: every sift hashed each moved key, so a throwing hash mid-sift lost one key and duplicated
+  another; entries are nodes that know their own slot, so sifting hashes nothing. UpdatePriority replaced the stored key
+  with the caller's equal one; the first key is kept.
+- **BiMap.RemoveByKey / RemoveByValue** left a one-sided pair when the second side's hash threw; it is undone, as Add does.
+- **MultiDictionary.Remove / RemoveAll** changed the total and the list before removing the key; the key goes first.
+- **TtlCache**: a `TimeSpan.MaxValue` ttl ("never expires") expired when the clock read `DateTimeOffset.MaxValue`; Remove
+  with a clock that throws removed the entry and then failed.
+- **CartesianProduct.Of** re-read the caller's list after checking it, so a slot set to null later threw
+  NullReferenceException; the list is copied as it is checked.
+- **Combinations and SlidingWindow** over a list that shrank mid-enumeration threw ArgumentOutOfRangeException for an
+  "index" the caller never passed; it is InvalidOperationException, as the BCL's enumerators say.
+- **BloomFilter / CountingBloomFilter** missed the target rate for a few items (3 at 0.01 measured 0.0128): the
+  formulas' size grows to the smallest that meets the target by the exact rate.
+- **.NET Framework array limits**: CountMinSketch, DisjointSet, FenwickTree, CircularBuffer and Deque accepted sizes
+  between 0x7FEFFFFF (Framework's limit for elements wider than a byte) and 0x7FFFFFC7, which threw
+  OutOfMemoryException there; they are ArgumentOutOfRangeException, and Deque and TopN grow to the Framework limit.
+- Doc: **NearestBy** with an infinite key is the limit (+∞ the first largest element, −∞ the first).
+- Hardening: **BiMap.Values** is read from the same map as Keys, so the two are always in step.
+
+Still suspected (BUGLIST R111-1..2): composite keys (tuples) holding NaN or decimals of different scale still hash by
+bits or scale on .NET Framework; TopN's and Deque's growth to the Framework limit is untested (it needs 16 GB).
+
 ### Round 110: Windows satellite, seventh pass (v2026.11.17.0)
 
 Two fresh reviewers (correctness, robustness): 10 bugs, none severe, so section 15 stays re-queued (both reviewers

@@ -26,6 +26,12 @@ namespace ToolBelt.Collections
             _comparer = comparer ?? Comparer<T>.Default;
         }
 
+        // .NET Framework caps an array of elements wider than a byte at 0x7FEFFFFF (Array.MaxLength, 0x7FFFFFC7, is .NET's),
+        // and whether T is one byte is not known here, so a length in between is tried. Its OutOfMemoryException there
+        // (refused before anything is allocated) is the length limit, not memory.
+        private static bool PastFrameworkLimit(int length) => length > 0x7FEFFFFF
+            && System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework", StringComparison.Ordinal);
+
         public int Capacity => _capacity;
 
         public int Count => _count;
@@ -40,7 +46,14 @@ namespace ToolBelt.Collections
                     // Doubling past 2^30 asked for int.MaxValue elements, past Array.MaxLength (OutOfMemoryException).
                     const int MaxLength = 0x7FFFFFC7;
                     if (_heap.Length >= MaxLength) throw new InvalidOperationException("TopN holds at most Array.MaxLength (0x7FFFFFC7) items.");
-                    Array.Resize(ref _heap, (int)Math.Min(Math.Min((long)_heap.Length * 2, _capacity), MaxLength));
+                    int target = (int)Math.Min(Math.Min((long)_heap.Length * 2, _capacity), MaxLength);
+                    try { Array.Resize(ref _heap, target); }
+                    catch (OutOfMemoryException) when (PastFrameworkLimit(target))
+                    {
+                        // .NET Framework's limit for this T (0x7FEFFFFF): grow to it, or report TopN full as on .NET.
+                        if (_heap.Length >= 0x7FEFFFFF) throw new InvalidOperationException("TopN holds at most 0x7FEFFFFF items of this type on .NET Framework.");
+                        Array.Resize(ref _heap, 0x7FEFFFFF);
+                    }
                 }
                 // Every comparison happens before the heap changes, so a comparer that throws leaves it as it was. A throw
                 // mid-sift lost an item, or (at capacity) left a larger item at the root, so later Adds were measured
