@@ -109,6 +109,47 @@ namespace ToolBelt.Visualization
             return double.IsInfinity(max - min) ? 2 * (min / 2 + t * (max / 2 - min / 2)) : min + t * (max - min);
         }
 
+        // A segment to a point whose pixel position overflows (1e300 on a 1e-10 range maps to ±∞) was dropped as a gap by
+        // the renderers. Clipped to the ranges in axis space (log10 on a log axis, the value on a linear one, halved when a
+        // span would overflow), where the pixel map is affine, its ends map to finite pixels. It is clipped from the end
+        // nearer the ranges: from the far end x0 + t·dx cancels (t ≈ 1). False if the segment misses the ranges.
+        internal bool ClipToRanges(ref double x0, ref double y0, ref double x1, ref double y1)
+        {
+            double kx = Halving(x0, x1, XMin, XMax, LogX), ky = Halving(y0, y1, YMin, YMax, LogY);
+            double ax = Axis(x0, LogX, kx), ay = Axis(y0, LogY, ky), bx = Axis(x1, LogX, kx), by = Axis(y1, LogY, ky);
+            if (double.IsNaN(ax) || double.IsNaN(ay) || double.IsNaN(bx) || double.IsNaN(by)
+                || double.IsInfinity(ax) || double.IsInfinity(ay) || double.IsInfinity(bx) || double.IsInfinity(by)) return false;
+            double xlo = Axis(Math.Min(XMin, XMax), LogX, kx), xhi = Axis(Math.Max(XMin, XMax), LogX, kx);
+            double ylo = Axis(Math.Min(YMin, YMax), LogY, ky), yhi = Axis(Math.Max(YMin, YMax), LogY, ky);
+            double Out(double x, double y) => Math.Max(Math.Max(xlo - x, x - xhi) / (xhi - xlo), Math.Max(ylo - y, y - yhi) / (yhi - ylo));
+            bool flip = Out(ax, ay) > Out(bx, by);
+            if (flip) { (ax, bx) = (bx, ax); (ay, by) = (by, ay); }
+            double t0 = 0, t1 = 1, dx = bx - ax, dy = by - ay;
+            if (!Edge(-dx, ax - xlo, ref t0, ref t1) || !Edge(dx, xhi - ax, ref t0, ref t1)
+                || !Edge(-dy, ay - ylo, ref t0, ref t1) || !Edge(dy, yhi - ay, ref t0, ref t1)) return false;
+            double cx0 = Data(ax + t0 * dx, LogX, kx), cy0 = Data(ay + t0 * dy, LogY, ky);
+            double cx1 = Data(t1 == 1 ? bx : ax + t1 * dx, LogX, kx), cy1 = Data(t1 == 1 ? by : ay + t1 * dy, LogY, ky);
+            if (flip) { x0 = cx1; y0 = cy1; x1 = cx0; y1 = cy0; }
+            else { x0 = cx0; y0 = cy0; x1 = cx1; y1 = cy1; }
+            return true;
+        }
+
+        private static double Halving(double a, double b, double min, double max, bool log)
+            => !log && (double.IsInfinity(b - a) || double.IsInfinity(max - min) || double.IsInfinity(b - min) || double.IsInfinity(a - max)) ? 0.5 : 1;
+
+        private static double Axis(double v, bool log, double k) => log ? (v > 0 ? Math.Log10(v) : double.NaN) : v * k;
+
+        private static double Data(double u, bool log, double k) => log ? Math.Pow(10, u) : u / k;
+
+        private static bool Edge(double p, double q, ref double t0, ref double t1)
+        {
+            if (p == 0) return q >= 0;
+            double r = q / p;
+            if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+            else { if (r < t0) return false; if (r < t1) t1 = r; }
+            return true;
+        }
+
         private static void CheckRange(double min, double max, bool log, string name)
         {
             if (double.IsNaN(min) || double.IsNaN(max) || double.IsInfinity(min) || double.IsInfinity(max))

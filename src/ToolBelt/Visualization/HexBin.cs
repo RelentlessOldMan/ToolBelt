@@ -69,6 +69,8 @@ namespace ToolBelt.Visualization
         public static IReadOnlyList<HexCell> Compute(IEnumerable<(double X, double Y)> points, PlotFrame frame, double radius)
         {
             if (points is null) throw new ArgumentNullException(nameof(points));
+            // default(PlotFrame) has no area and maps every point to NaN: no cells and no error.
+            if (!(frame.Width > 0) || !(frame.Height > 0)) throw new ArgumentException("The frame has no area (default(PlotFrame)?).", nameof(frame));
             // An infinite radius put every point in one cell centred at NaN (0·∞).
             if (!(radius > 0) || double.IsInfinity(radius * Sqrt3)) throw new ArgumentOutOfRangeException(nameof(radius), radius, "Radius must be positive and finite.");
             double dx = radius * Sqrt3, dy = radius * 1.5;

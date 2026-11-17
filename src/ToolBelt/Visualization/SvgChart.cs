@@ -151,6 +151,8 @@ namespace ToolBelt.Visualization
             if (!(o.Width > 0) || !(o.Height > 0) || double.IsInfinity(o.Width) || double.IsInfinity(o.Height))
                 throw new ArgumentOutOfRangeException("options", "Width and height must be positive and finite.");
             if (!(o.FontSize > 0) || double.IsInfinity(o.FontSize)) throw new ArgumentOutOfRangeException("options", "FontSize must be positive and finite.");
+            // An undefined axis kind fell to linear ticks with no error.
+            if (!KnownAxis(o.XAxis) || !KnownAxis(o.YAxis)) throw new ArgumentOutOfRangeException("options", "XAxis and YAxis must be Linear, Log or Time.");
             if (!Finite(o.XMin) || !Finite(o.XMax) || !Finite(o.YMin) || !Finite(o.YMax))
                 throw new ArgumentOutOfRangeException("options", "Axis limits must be finite.");
             // A reversed pair was swapped without a word (ErrorBarChart and HeatMap reject it), and a non-positive log
@@ -254,6 +256,8 @@ namespace ToolBelt.Visualization
             return (ticks, min, max);
         }
 
+        internal static bool KnownAxis(AxisKind k) => k >= AxisKind.Linear && k <= AxisKind.Time;
+
         private static bool Finite(double? v) => v is not double d || !double.IsNaN(d) && !double.IsInfinity(d);
 
         private static int CapTicks(int maxTicks, double pixels)
@@ -287,8 +291,10 @@ namespace ToolBelt.Visualization
                 var xs = new List<double>();
                 for (int i = 0; i < s.Y.Count; i++)
                 {
-                    double px = f.MapX(s.X?[i] ?? i);
-                    if (!double.IsNaN(px)) xs.Add(px);
+                    // Only bars that are drawn (the drawing loop's test): a NaN-y sample 0.01 from a bar set the width of
+                    // every bar (1.57 px for bars 157 px apart). A bar past the x range is still drawn, clipped.
+                    double px = f.MapX(s.X?[i] ?? i), py = f.MapY(s.Y[i]);
+                    if (!double.IsNaN(px) && !double.IsNaN(py) && !double.IsInfinity(py)) xs.Add(px);
                 }
                 xs.Sort();
                 for (int i = 1; i < xs.Count; i++)
@@ -327,26 +333,38 @@ namespace ToolBelt.Visualization
                 case PlotStyle.Line:
                 {
                     var path = new PathBuilder();
+                    // A finite sample whose pixel position overflows (1e300 on a 1e-10 range) is still on the line: its
+                    // segments are clipped in data space. It was a gap, so a line to it drew only a dot.
                     bool Plottable(int k)
                     {
                         if (k >= s.Y.Count) return false;
-                        double qx = f.MapX(s.X?[k] ?? k), qy = f.MapY(s.Y[k]);
-                        return !double.IsNaN(qx) && !double.IsNaN(qy) && !double.IsInfinity(qx) && !double.IsInfinity(qy);
+                        double qx = s.X?[k] ?? k, qy = s.Y[k];
+                        return Finite(qx) && Finite(qy) && !double.IsNaN(f.MapX(qx)) && !double.IsNaN(f.MapY(qy));
                     }
-                    bool havePrev = false, penDown = false;
-                    double prevX = 0, prevY = 0, penX = 0, penY = 0;
+                    bool havePrev = false, penDown = false, prevFar = false;
+                    double prevX = 0, prevY = 0, prevDx = 0, prevDy = 0, penX = 0, penY = 0;
                     for (int i = 0; i < s.Y.Count; i++)
                     {
-                        double px = f.MapX(s.X?[i] ?? i), py = f.MapY(s.Y[i]);
-                        if (double.IsNaN(px) || double.IsNaN(py) || double.IsInfinity(px) || double.IsInfinity(py))
+                        double dxv = s.X?[i] ?? i, dyv = s.Y[i];
+                        double px = f.MapX(dxv), py = f.MapY(dyv);
+                        if (double.IsNaN(px) || double.IsNaN(py) || !Finite(dxv) || !Finite(dyv))
                         {
                             havePrev = false; penDown = false; // a gap breaks the line
                             continue;
                         }
+                        bool far = double.IsInfinity(px) || double.IsInfinity(py);
                         if (havePrev)
                         {
                             double ax = prevX, ay = prevY, bx = px, by = py;
-                            if (ClipSegment(ref ax, ref ay, ref bx, ref by, f))
+                            bool hit;
+                            if (far || prevFar)
+                            {
+                                double cx0 = prevDx, cy0 = prevDy, cx1 = dxv, cy1 = dyv;
+                                hit = f.ClipToRanges(ref cx0, ref cy0, ref cx1, ref cy1);
+                                if (hit) { ax = f.MapX(cx0); ay = f.MapY(cy0); bx = f.MapX(cx1); by = f.MapY(cy1); }
+                            }
+                            else hit = ClipSegment(ref ax, ref ay, ref bx, ref by, f);
+                            if (hit)
                             {
                                 if (!penDown || ax != penX || ay != penY) path.MoveTo(ax, ay);
                                 path.LineTo(bx, by);
@@ -354,13 +372,13 @@ namespace ToolBelt.Visualization
                             }
                             else penDown = false;
                         }
-                        else if (Inside(px, py, f) && !Plottable(i + 1))
+                        else if (!far && Inside(px, py, f) && !Plottable(i + 1))
                         {
                             // A lone point still shows (round caps): a single sample, or one between gaps ({NaN, 5, NaN}
                             // drew nothing for the 5).
                             path.MoveTo(px, py).LineTo(px, py);
                         }
-                        prevX = px; prevY = py; havePrev = true;
+                        prevX = px; prevY = py; prevDx = dxv; prevDy = dyv; prevFar = far; havePrev = true;
                     }
                     if (!path.IsEmpty)
                         sb.Append("<path d=\"").Append(path).Append("\" fill=\"none\" ")
@@ -494,7 +512,19 @@ namespace ToolBelt.Visualization
         // ---------- geometry ----------
 
         /// <summary>Liang–Barsky: clips the segment to the plot rectangle; false when nothing remains.</summary>
+        // Clipped from the end nearer the area: from the far end x0 + t·dx cancels (t ≈ 1), so an end 1e17 px out moved the
+        // clipped end by pixels, or past the near end.
         private static bool ClipSegment(ref double x0, ref double y0, ref double x1, ref double y1, PlotFrame f)
+        {
+            double Out(double x, double y) => Math.Max(Math.Max(f.Left - x, x - f.Right), Math.Max(f.Top - y, y - f.Bottom));
+            if (!(Out(x0, y0) > Out(x1, y1))) return ClipFrom(ref x0, ref y0, ref x1, ref y1, f);
+            double ax = x1, ay = y1, bx = x0, by = y0;
+            if (!ClipFrom(ref ax, ref ay, ref bx, ref by, f)) return false;
+            x0 = bx; y0 = by; x1 = ax; y1 = ay;
+            return true;
+        }
+
+        private static bool ClipFrom(ref double x0, ref double y0, ref double x1, ref double y1, PlotFrame f)
         {
             double t0 = 0, t1 = 1, dx = x1 - x0, dy = y1 - y0;
             // Halved when the span overflows (finite points ±1.6e308 apart): 0·∞ was NaN. Edge only uses ratios.

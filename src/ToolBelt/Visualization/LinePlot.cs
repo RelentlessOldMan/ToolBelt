@@ -18,6 +18,8 @@ namespace ToolBelt.Visualization
         public Series(IReadOnlyList<double> y, Rgba color, PlotStyle style = PlotStyle.Line, IReadOnlyList<double>? x = null, string? name = null)
         {
             Y = y ?? throw new ArgumentNullException(nameof(y));
+            // An undefined style drew nothing (no switch case) and set no bar width.
+            if (style < PlotStyle.Line || style > PlotStyle.Bar) throw new ArgumentOutOfRangeException(nameof(style), style, "Unknown plot style.");
             if (x != null && x.Count != y.Count) throw new ArgumentException("x and y must have the same length.", nameof(x));
             X = x;
             Color = color;
@@ -87,7 +89,7 @@ namespace ToolBelt.Visualization
             foreach (Series s in series)
             {
                 bool havePrev = false;
-                double prevX = 0, prevY = 0;
+                double prevX = 0, prevY = 0, prevXv = 0, prevYv = 0;
                 for (int i = 0; i < s.Y.Count; i++)
                 {
                     double xv = s.X?[i] ?? i, yv = s.Y[i];
@@ -96,7 +98,16 @@ namespace ToolBelt.Visualization
                     switch (s.Style)
                     {
                         case PlotStyle.Line:
-                            if (havePrev) image.DrawLineClipped(prevX, prevY, px, py, s.Color, left, top, right, bottom);
+                            if (havePrev && (IsFinite(px) && IsFinite(py) && IsFinite(prevX) && IsFinite(prevY)))
+                                image.DrawLineClipped(prevX, prevY, px, py, s.Color, left, top, right, bottom);
+                            else if (havePrev)
+                            {
+                                // A finite sample whose pixel position overflows (1e300 on a 1e-10 range): DrawLineClipped
+                                // skipped the segment. Clipped to the ranges in data space first, its ends map to pixels.
+                                double ax = prevXv, ay = prevYv, bx = xv, by = yv;
+                                if (frame.ClipToRanges(ref ax, ref ay, ref bx, ref by))
+                                    image.DrawLineClipped(MapX(ax), MapY(ay), MapX(bx), MapY(by), s.Color, left, top, right, bottom);
+                            }
                             else if (!(i + 1 < s.Y.Count && IsFinite(s.X?[i + 1] ?? i + 1) && IsFinite(s.Y[i + 1])))
                             {
                                 // No finite neighbour on either side (one point, or one between gaps): it drew nothing.
@@ -115,7 +126,7 @@ namespace ToolBelt.Visualization
                             }
                             break;
                     }
-                    prevX = px; prevY = py; havePrev = true;
+                    prevX = px; prevY = py; prevXv = xv; prevYv = yv; havePrev = true;
                 }
             }
             return image;

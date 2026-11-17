@@ -39,12 +39,6 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R100-3 | P3 | 7 | suspected | Several SettingsStore instances saving one file at once: 8 threads gave UnauthorizedAccessException once the move retry ran out (no corruption). Documented "save from one place". | review r100 |
 | R100-4 | P3 | 7 | suspected | SettingsStore.Update: if the replace succeeds but restoring attributes then throws, Value is rolled back while the disk holds the new data. | review r100 |
 | R100-5 | P3 | 7 | suspected | SettingsStore's stale-temp cleanup judges age by LastWriteTimeUtc; on a share with a clock skewed by over an hour it could delete a live temp. | review r100 |
-| R101-1 | P3 | 5 | suspected | A raster Callout with a huge dx may lose its arrowhead (the length overflows; a scaled hypot would not). Not reproduced. | review r101 |
-| R101-2 | P3 | 5 | suspected | `HexBin.Compute` accepts `default(PlotFrame)` (zero size) rather than refusing it. | review r101 |
-| R101-3 | P3 | 5 | suspected | BoxPlot with ±∞ in the data: the IQR is ∞, so with WhiskerReach = 0 the fences are 0·∞ = NaN and an infinite point may not be listed as an outlier. Not probed. | review r101 |
-| R101-4 | P3 | 5 | suspected | SvgChart bar width: BarSpacing uses every finite x, but on a log x axis non-positive x are not drawn, so the width may come from points that are not shown. | review r101 |
-| R101-5 | P3 | 5 | suspected | `AxisTicks.Linear(99, 101, maxTicks: 2, loose: true)` gives [0, 200]: the data fills 1% of the axis (follows the tick-count guarantee, but poor). | review r101 |
-| R101-6 | P3 | 5 | suspected | A 1 × 1 colorbar is black horizontally (low end) and white vertically (high end): the degenerate size picks different ends. | review r101 |
 | R102-1 | P3 | 16 | suspected | IncrementalCollection: a CollectionChanged handler that calls ResetAsync during ResetAsync's clear (one handler only) loads a page that the outer reset then overwrites (HasMoreItems, IsLoading). Not reproduced. | review r102 |
 | R102-2 | P3 | 16 | suspected | CountToVisibilityConverter.HasAny: an IEnumerable whose GetEnumerator returns null throws NullReferenceException; a one-shot sequence loses its first element to the check. | review r102 |
 | R102-3 | P3 | 16 | suspected | GlobalHotkeys.Register with a null callback for a gesture this instance already holds throws InvalidOperationException, not ArgumentNullException (Holds is checked first). | review r102 |
@@ -160,3 +154,7 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R120-7 | P3 | 17 | suspected | SaveCsv's replace-by-move drops hard links and the target's permissions, and a path like NUL fails. | review r120 |
 | R120-8 | P3 | 17 | suspected | verify.sh's MathChecks timeout may leave the test process running. | review r120 |
 | R120-9 | P3 | 17 | confirmed | The test projects build with 35 warnings (CA1416 platform calls in IO and Docx tests, nullable CS8602/8605/8621/8714), seen once verify.sh's build line showed the count; a full rebuild prints them. | round 120 gates |
+| R121-1 | P3 | 5 | suspected | HexBin with a radius far below a pixel returns no cells without saying why. | review r121 |
+| R121-2 | P3 | 5 | suspected | An SVG callout label wider than the plot runs past the plot and the canvas. | review r121 |
+| R121-3 | P3 | 5 | suspected | A wide SvgChart legend may spill left of the plot area. | review r121 |
+| R121-4 | P3 | 5 | suspected | Not probed this pass: TimingDiagram, ScatterMatrix and MultiPanel output, LinePlot, BandChart, ErrorBarChart extremes. | review r121 |

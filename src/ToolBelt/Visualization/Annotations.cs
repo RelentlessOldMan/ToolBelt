@@ -55,11 +55,21 @@ namespace ToolBelt.Visualization
 
         /// <summary>A horizontal reference line at data <paramref name="y"/>, labelled at its right end.</summary>
         public Annotations HorizontalLine(double y, string? label = null, Rgba? color = null, LineDash dash = LineDash.Dashed, double width = 1.5)
-            => Add(new Item(Kind.HLine, Finite(y, nameof(y)), 0, 0, 0, label, color ?? DefaultLineColor, dash, Positive(width)));
+            => Add(new Item(Kind.HLine, Finite(y, nameof(y)), 0, 0, 0, label, color ?? DefaultLineColor, Dash(dash), Positive(width)));
 
         /// <summary>A vertical reference line at data <paramref name="x"/>, labelled at its top.</summary>
         public Annotations VerticalLine(double x, string? label = null, Rgba? color = null, LineDash dash = LineDash.Dashed, double width = 1.5)
-            => Add(new Item(Kind.VLine, Finite(x, nameof(x)), 0, 0, 0, label, color ?? DefaultLineColor, dash, Positive(width)));
+            => Add(new Item(Kind.VLine, Finite(x, nameof(x)), 0, 0, 0, label, color ?? DefaultLineColor, Dash(dash), Positive(width)));
+
+        // An undefined dash drew as solid in a raster and as a dotted line in SVG.
+        private static LineDash Dash(LineDash dash)
+            => dash < LineDash.Solid || dash > LineDash.Dotted ? throw new ArgumentOutOfRangeException(nameof(dash), dash, "Unknown dash.") : dash;
+
+        // default(PlotFrame) (zero area, NaN mapping) drew nothing and returned no error; HexBin rejects it.
+        private static void CheckFrame(PlotFrame frame)
+        {
+            if (!(frame.Width > 0) || !(frame.Height > 0)) throw new ArgumentException("The frame has no area (default(PlotFrame)?).", nameof(frame));
+        }
 
         /// <summary>A shaded horizontal band between data y values (e.g. a tolerance zone).</summary>
         public Annotations HorizontalBand(double y1, double y2, string? label = null, Rgba? fill = null)
@@ -120,6 +130,9 @@ namespace ToolBelt.Visualization
         /// </summary>
         public string ToSvg(PlotFrame frame, double fontSize = 11, string fontFamily = "sans-serif", AnnotationLayer layer = AnnotationLayer.All)
         {
+            CheckFrame(frame);
+            // An undefined layer emitted nothing.
+            if (layer < AnnotationLayer.All || layer > AnnotationLayer.Foreground) throw new ArgumentOutOfRangeException(nameof(layer), layer, "Unknown layer.");
             // ∞ failed inside SvgUtils, naming "value".
             if (!(fontSize > 0) || double.IsInfinity(fontSize)) throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be positive and finite.");
             if (fontFamily is null) throw new ArgumentNullException(nameof(fontFamily));
@@ -277,6 +290,7 @@ namespace ToolBelt.Visualization
         public void Draw(ImageBuffer image, PlotFrame frame)
         {
             if (image is null) throw new ArgumentNullException(nameof(image));
+            CheckFrame(frame);
             foreach (Item it in _items)
             {
                 switch (it.Kind)
@@ -345,9 +359,12 @@ namespace ToolBelt.Visualization
 
         private static void RasterArrow(ImageBuffer image, double tailX, double tailY, double tipX, double tipY, Rgba color, double gap)
         {
-            double len = Math.Sqrt((tipX - tailX) * (tipX - tailX) + (tipY - tailY) * (tipY - tailY));
-            if (len < 1e-9) return;
-            double ux = (tipX - tailX) / len, uy = (tipY - tailY) / len;
+            // Scaled, from halved deltas: the squares overflowed for dx = 1e200 (len = ∞, a NaN direction, no arrow).
+            double dx = tipX * 0.5 - tailX * 0.5, dy = tipY * 0.5 - tailY * 0.5, sc = Math.Max(Math.Abs(dx), Math.Abs(dy));
+            if (!(sc * 2 >= 1e-9) || double.IsInfinity(sc)) return;
+            double hyp = Math.Sqrt((dx / sc) * (dx / sc) + (dy / sc) * (dy / sc));
+            if (2 * sc * hyp < 1e-9) return;
+            double ux = dx / sc / hyp, uy = dy / sc / hyp;
             double hx = tipX - ux * gap, hy = tipY - uy * gap;
             StyledLine(image, tailX, tailY, hx, hy, color, LineDash.Solid, 1);
             var head = ArrowHead(hx, hy, ux, uy);
@@ -364,18 +381,27 @@ namespace ToolBelt.Visualization
         {
             if (double.IsNaN(fx0) || double.IsNaN(fy0) || double.IsNaN(fx1) || double.IsNaN(fy1)) return;
             thickness = Math.Min(thickness, image.Width + image.Height);
-            double m = thickness + 1, ddx = fx1 - fx0, ddy = fy1 - fy0, t0 = 0, t1 = 1;
+            double m = thickness + 1;
+            // Clipped from the end nearer the image: from the far end x0 + t·dx cancels (t ≈ 1), so a callout whose start
+            // was 1e200 px off drew its line through the wrong pixels or not at all. The drawing direction is kept.
+            double Out(double x, double y) => Math.Max(Math.Max(-x, x - (image.Width - 1)), Math.Max(-y, y - (image.Height - 1)));
+            bool flip = Out(fx0, fy0) > Out(fx1, fy1);
+            double nx = flip ? fx1 : fx0, ny = flip ? fy1 : fy0, ex = flip ? fx0 : fx1, ey = flip ? fy0 : fy1;
+            double ddx = ex - nx, ddy = ey - ny, t0 = 0, t1 = 1;
             if (double.IsInfinity(ddx) || double.IsInfinity(ddy)) return;
-            if (!Clip(-ddx, fx0 + m, ref t0, ref t1) || !Clip(ddx, image.Width - 1 + m - fx0, ref t0, ref t1)
-                || !Clip(-ddy, fy0 + m, ref t0, ref t1) || !Clip(ddy, image.Height - 1 + m - fy0, ref t0, ref t1))
+            if (!Clip(-ddx, nx + m, ref t0, ref t1) || !Clip(ddx, image.Width - 1 + m - nx, ref t0, ref t1)
+                || !Clip(-ddy, ny + m, ref t0, ref t1) || !Clip(ddy, image.Height - 1 + m - ny, ref t0, ref t1))
                 return;
             int on = dash == LineDash.Dashed ? 6 : (dash == LineDash.Dotted ? 1 : int.MaxValue);
             int off = dash == LineDash.Dashed ? 4 : (dash == LineDash.Dotted ? 2 : 0);
-            int x0 = Px(fx0 + t0 * ddx), y0 = Px(fy0 + t0 * ddy), x1 = Px(fx0 + t1 * ddx), y1 = Px(fy0 + t1 * ddy);
+            int na = Px(t0 == 0 ? nx : nx + t0 * ddx), nb = Px(t0 == 0 ? ny : ny + t0 * ddy);
+            int ea = Px(t1 == 1 ? ex : nx + t1 * ddx), eb = Px(t1 == 1 ? ey : ny + t1 * ddy);
+            int x0 = flip ? ea : na, y0 = flip ? eb : nb, x1 = flip ? na : ea, y1 = flip ? nb : eb;
             int dx = Math.Abs(x1 - x0), dy = -Math.Abs(y1 - y0);
             int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
             // Keep the dash phase of the part cut off the start.
-            int step = dash == LineDash.Solid ? 0 : (int)(Math.Round(t0 * Math.Max(Math.Abs(ddx), Math.Abs(ddy))) % (on + off));
+            double cut = flip ? 1 - t1 : t0;
+            int step = dash == LineDash.Solid ? 0 : (int)(Math.Round(cut * Math.Max(Math.Abs(ddx), Math.Abs(ddy))) % (on + off));
             int err = dx + dy, half = (thickness - 1) / 2;
             bool stamped = false;
             int lastX = 0, lastY = 0;
@@ -418,11 +444,14 @@ namespace ToolBelt.Visualization
             return new[] { (tipX, tipY), (bx + nx, by + ny), (bx - nx, by - ny) };
         }
 
+        // Source over destination. The destination's alpha was ignored, so a band on a transparent canvas came out as its
+        // colour faded toward black (31,119,180 at 48 became 6,22,34), and two half-transparent layers kept alpha 128.
         private static Rgba Blend(Rgba dst, Rgba src)
         {
-            double a = src.A / 255.0;
-            byte Mix(byte d, byte s) => (byte)Math.Round(s * a + d * (1 - a));
-            return new Rgba(Mix(dst.R, src.R), Mix(dst.G, src.G), Mix(dst.B, src.B), (byte)Math.Max(dst.A, src.A));
+            double sa = src.A / 255.0, da = dst.A / 255.0 * (1 - sa), outA = sa + da;
+            if (outA <= 0) return new Rgba(0, 0, 0, 0);
+            byte Mix(byte d, byte s) => (byte)Math.Round((s * sa + d * da) / outA);
+            return new Rgba(Mix(dst.R, src.R), Mix(dst.G, src.G), Mix(dst.B, src.B), (byte)Math.Round(outA * 255));
         }
 
         private static Rgba Opaque(Rgba c) => new Rgba(c.R, c.G, c.B, 255);

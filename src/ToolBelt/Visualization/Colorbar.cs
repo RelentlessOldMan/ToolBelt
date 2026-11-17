@@ -24,7 +24,8 @@ namespace ToolBelt.Visualization
             {
                 for (int y = 0; y < height; y++)
                 {
-                    double t = height == 1 ? 1.0 : (double)(height - 1 - y) / (height - 1);
+                    // A one-pixel bar shows the map's middle: vertical took the top (1) and horizontal the bottom (0).
+                    double t = height == 1 ? 0.5 : (double)(height - 1 - y) / (height - 1);
                     Rgba c = map.Map(t);
                     for (int x = 0; x < width; x++) image.SetPixel(x, y, c);
                 }
@@ -33,7 +34,7 @@ namespace ToolBelt.Visualization
             {
                 for (int x = 0; x < width; x++)
                 {
-                    double t = width == 1 ? 0.0 : (double)x / (width - 1);
+                    double t = width == 1 ? 0.5 : (double)x / (width - 1);
                     Rgba c = map.Map(t);
                     for (int y = 0; y < height; y++) image.SetPixel(x, y, c);
                 }

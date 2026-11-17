@@ -169,6 +169,8 @@ namespace ToolBelt.Visualization
             for (int i = 0; i < n; i++)
             {
                 opts[i] = (panels[i].Options ?? new SvgChartOptions()).Clone();
+                if (!SvgChart.KnownAxis(opts[i].XAxis) || !SvgChart.KnownAxis(opts[i].YAxis))
+                    throw new ArgumentOutOfRangeException(nameof(panels), $"Panel {i}: XAxis and YAxis must be Linear, Log or Time.");
                 opts[i].Width = o.PanelWidth;
                 opts[i].Height = o.PanelHeight;
             }

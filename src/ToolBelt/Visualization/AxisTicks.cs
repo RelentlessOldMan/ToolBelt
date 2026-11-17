@@ -213,7 +213,7 @@ namespace ToolBelt.Visualization
             if (Math.Abs(seconds) >= 9007199254740992.0) return seconds.ToString("0.###e+0", CultureInfo.InvariantCulture) + "s";
             // Rounded before splitting: the fraction rounded on its own carried into the seconds (65.9996 printed
             // "1:051.000"), and a fraction just below zero printed "1:06-.000".
-            double a = Math.Round(Math.Abs(seconds), decimals, MidpointRounding.AwayFromZero);
+            double a = RoundAt(Math.Abs(seconds), decimals, MidpointRounding.AwayFromZero);
             string sign = seconds < 0 && a > 0 ? "-" : "";
             if (span < 60)
                 return sign + a.ToString(decimals == 0 ? "0" : "0." + new string('0', decimals), CultureInfo.InvariantCulture) + "s";
@@ -305,8 +305,19 @@ namespace ToolBelt.Visualization
 
         private static double Clean(double value, int decimals)
         {
-            double v = Math.Round(value, decimals);
+            double v = RoundAt(value, decimals, MidpointRounding.ToEven);
             return v == 0 ? 0 : v; // no negative zero
+        }
+
+        // Math.Round(v, d) scales by 10^d, which is inexact once |v|·10^d passes 2^52: ticks at 1e15 + 0.5 came out
+        // 1e15 + 0.375 and 1e12 + 0.0005 rounded to 1e12. Past that only the fraction (exact: v − trunc(v)) is rounded.
+        private static double RoundAt(double v, int decimals, MidpointRounding mode)
+        {
+            double a = Math.Abs(v);
+            if (a >= 4503599627370496.0) return v; // 2^52: no fraction left
+            if (a * Math.Pow(10, decimals) < 4503599627370496.0) return Math.Round(v, decimals, mode);
+            double whole = Math.Truncate(v);
+            return whole + Math.Round(v - whole, decimals, mode);
         }
 
         // The tick is multiple × 10^exponent, exactly.

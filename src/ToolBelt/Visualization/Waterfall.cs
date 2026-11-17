@@ -317,8 +317,11 @@ namespace ToolBelt.Visualization
                 for (int i = 0; i < l.ValueTicks.Count; i++)
                 {
                     double v = l.ValueTicks.Values[i];
-                    // Halved: the span of finite values near ±double.MaxValue overflowed to ∞ (0/∞, ∞/∞).
-                    double py = f.Bottom - (0.5 * v - 0.5 * l.VMin) / (0.5 * l.VMax - 0.5 * l.VMin) * f.Height;
+                    // Halved only when the span overflows (values near ±double.MaxValue, 0/∞): halving always made a
+                    // subnormal span 0, so the ticks of a 0..5e-324 range were placed at NaN.
+                    double py = double.IsInfinity(range)
+                        ? f.Bottom - (0.5 * v - 0.5 * l.VMin) / (0.5 * l.VMax - 0.5 * l.VMin) * f.Height
+                        : f.Bottom - (v - l.VMin) / range * f.Height;
                     Tick(sb, x + BarWidth, py, x + BarWidth + 4, py, axis);
                     Text(sb, x + BarWidth + 6, py + fs * 0.35, l.ValueTicks.Labels[i], "start", ink);
                 }
