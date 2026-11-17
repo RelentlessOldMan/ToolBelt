@@ -51,6 +51,7 @@ namespace ToolBelt.IO
                     if (isEmptyDirectory) name += "/";
                     if (filter != null && !filter(name)) continue;
                     if (isEmptyDirectory) writer.WriteEntry(new PaxTarEntry(TarEntryType.Directory, name) { ModificationTime = Directory.GetLastWriteTimeUtc(Exact(path)) });
+                    else if (OperatingSystem.IsWindows()) WriteWindowsFile(writer, Exact(path), name);
                     else writer.WriteEntry(Exact(path), name);
                     onEntry?.Invoke(name);
                 }
@@ -61,6 +62,14 @@ namespace ToolBelt.IO
                 // Don't leave a partial archive behind.
                 try { if (File.Exists(temp)) File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             }
+        }
+
+        // TarWriter gives every Windows file mode 0755, so each one came out executable on Unix; Windows has no execute bit
+        // to keep, so a file is written as 0644 (the entry's default), as tar does there.
+        private static void WriteWindowsFile(TarWriter writer, string path, string name)
+        {
+            using var data = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            writer.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, name) { ModificationTime = File.GetLastWriteTimeUtc(path), DataStream = data });
         }
 
         /// <summary>
@@ -94,7 +103,11 @@ namespace ToolBelt.IO
                 if (!IsExtractable(entry.EntryType)) continue;
                 string target = SafeTarget(rootWithSep, entry.Name);
                 EnsureNoLinks(rootWithSep, target, entry.Name);
-                switch (entry.EntryType)
+                // Pre-POSIX (V7) tars have no directory type: a directory is an empty old-style file whose name ends in '/',
+                // as GNU tar and Python read it. It was refused as "a file named like a directory", so nothing extracted.
+                bool v7Directory = entry.EntryType == TarEntryType.V7RegularFile && entry.Length == 0
+                    && entry.Name.EndsWith("/", StringComparison.Ordinal);
+                switch (v7Directory ? TarEntryType.Directory : entry.EntryType)
                 {
                     case TarEntryType.Directory:
                         Directory.CreateDirectory(target);

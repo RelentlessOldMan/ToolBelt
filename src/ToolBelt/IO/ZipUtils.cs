@@ -231,6 +231,8 @@ namespace ToolBelt.IO
                     {
                         // GetEntry finds only one of several same-named entries; every one is left out.
                         if (string.Equals(e.FullName, entryName, StringComparison.Ordinal)) continue;
+                        // CreateEntry refuses an empty name that a valid zip can hold; update mode keeps the entry as it is.
+                        if (e.FullName.Length == 0) return false;
                         bool stored = e.CompressedLength == e.Length && e.Length > 0;
                         ZipArchiveEntry copy = output.CreateEntry(e.FullName, stored ? CompressionLevel.NoCompression : CompressionLevel.Optimal);
                         copy.LastWriteTime = e.LastWriteTime;

@@ -855,6 +855,7 @@ tests/
       IOReview58ApiTests.cs (fourth pass: cancellable delete, line-length and archive total caps)
       IOReview75Tests.cs     (fifth pass: deep-tree delete and copy, streaming zip replace, invariant CSV floats, Win32 wildcards, reparse tags)
       IOReview94Tests.cs     (round 94 review regressions: mixed tar metadata headers, temp-folder cleanup, files over folders)
+      IOReview112Tests.cs    (round 112 review regressions: CSV decimal separators, undefined overwrite policies, empty zip names, blank nullable fields, V7 tar directories, Windows tar modes)
       CoverageGapTests.cs   (behaviour behind coverage holes found by a coverlet run)
     Numerics/
       AngleTests.cs

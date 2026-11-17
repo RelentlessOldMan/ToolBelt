@@ -108,6 +108,9 @@ namespace ToolBelt.IO
         public static CopyResult Copy(string source, string destination, CopyOptions? options = null)
         {
             options ??= new CopyOptions();
+            // An undefined policy fell to "replace" and overwrote every existing file.
+            if (!Enum.IsDefined(typeof(OverwritePolicy), options.Overwrite))
+                throw new ArgumentOutOfRangeException(nameof(options), options.Overwrite, "Not a defined OverwritePolicy.");
             string src = FullDirectory(source, nameof(source));
             string dst = FullDirectory(destination, nameof(destination));
             if (!Directory.Exists(src)) throw new DirectoryNotFoundException($"Source directory '{source}' does not exist.");
@@ -183,7 +186,9 @@ namespace ToolBelt.IO
                                 OverwritePolicy.Skip => false,
                                 OverwritePolicy.Fail => throw new IOException($"Destination file '{to}' already exists."),
                                 OverwritePolicy.IfNewer => File.GetLastWriteTimeUtc(Exact(file)) > File.GetLastWriteTimeUtc(Exact(to)),
-                                _ => true,
+                                OverwritePolicy.Overwrite => true,
+                                // An undefined policy is checked up front; never treat an unknown value as "replace".
+                                _ => throw new InvalidOperationException("Unknown overwrite policy."),
                             };
                             if (!replace) { skipped++; continue; }
                         }

@@ -19,6 +19,11 @@ namespace ToolBelt.IO
         public CsvDialect(char delimiter = ',', char decimalSeparator = '.', bool hasHeader = true)
         {
             if (delimiter == decimalSeparator) throw new ArgumentException("The delimiter and the decimal separator must differ.", nameof(decimalSeparator));
+            // A separator that a formatted number already holds (a digit, 'E', a sign, the letters of NaN and Infinity) or
+            // that a field cannot carry unquoted made FormatNumber's output unreadable: 1.5 with '1' wrote "115".
+            if (char.IsLetterOrDigit(decimalSeparator) || char.IsWhiteSpace(decimalSeparator) || char.IsControl(decimalSeparator)
+                || char.IsSurrogate(decimalSeparator) || decimalSeparator == '+' || decimalSeparator == '-' || decimalSeparator == '"')
+                throw new ArgumentException("The decimal separator cannot be a letter, digit, sign, quote, whitespace or control character.", nameof(decimalSeparator));
             if (delimiter == '"' || delimiter == '\r' || delimiter == '\n') throw new ArgumentException("Invalid delimiter.", nameof(delimiter));
             Delimiter = delimiter;
             DecimalSeparator = decimalSeparator;

@@ -132,8 +132,9 @@ namespace ToolBelt.IO
             Type? underlying = Nullable.GetUnderlyingType(type);
             Type t = underlying ?? type;
             if (t == typeof(string)) { value = text; return true; }
-            if (text.Length == 0 && (underlying != null || !type.IsValueType)) return true;   // empty -> null
             string s = text.Trim();
+            // Empty -> null. After the trim, as values are read: " 5 " was 5 but "  " was an error, not null.
+            if (s.Length == 0 && (underlying != null || !type.IsValueType)) return true;
             CultureInfo inv = CultureInfo.InvariantCulture;
             try
             {

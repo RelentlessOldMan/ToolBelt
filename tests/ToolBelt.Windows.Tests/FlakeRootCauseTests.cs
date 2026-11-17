@@ -16,6 +16,21 @@ namespace ToolBelt.Windows.Tests
     {
         private static int Pings() => Process.GetProcessesByName("PING").Length;
 
+        private static int[] PingIds() => Process.GetProcessesByName("PING").Select(p => { using (p) return p.Id; }).ToArray();
+
+        // Pings started since `before` that are still running after up to `seconds`: a killed process can stay listed a while
+        // under load (300 ms fixed was not always enough during a full verify), and one that escaped the job lives 30 s.
+        private static int NewPingsAfter(int[] before, double seconds)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(seconds);
+            while (true)
+            {
+                int left = PingIds().Count(id => Array.IndexOf(before, id) < 0);
+                if (left == 0 || DateTime.UtcNow >= deadline) return left;
+                Thread.Sleep(100);
+            }
+        }
+
         private static void KillPings()
         {
             foreach (var p in Process.GetProcessesByName("PING"))
@@ -29,7 +44,7 @@ namespace ToolBelt.Windows.Tests
         // assignment (a preemption or GC pause), cmd's ping survived kill-on-close in 10 of 10 runs.
         public void Start_ChildrenStartedAtOnceStayInTheJob()
         {
-            int before = Pings();
+            int[] before = PingIds();
             try
             {
                 using (var job = new JobObject(killOnClose: true))
@@ -38,10 +53,9 @@ namespace ToolBelt.Windows.Tests
                     Thread.Sleep(500);                                  // cmd has started ping by now
                     Check.True(job.QueryAccounting().ActiveProcesses >= 2, "cmd and its ping are in the job");
                 }
-                Thread.Sleep(300);
-                Check.Equal(before, Pings());
+                Check.Equal(0, NewPingsAfter(before, 10));
             }
-            finally { if (Pings() > before) KillPings(); }
+            finally { if (Pings() > before.Length) KillPings(); }
         }
 
         public void Start_ReportsExitCodeAndRefusesOverTheLimitBeforeRunning()

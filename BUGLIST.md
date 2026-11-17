@@ -108,3 +108,8 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R110-4 | P3 | 15 | suspected | IsNetworkDrive on a device spelling of a real mapped drive is untested (no mapped drive available to the reviewers). | review r110 |
 | R111-1 | P3 | 9 | suspected | Composite keys (tuples, object keys) holding a NaN or decimals of different scale still hash by bits or scale on .NET Framework, so equal keys count separately; the value-hashed comparers cover only plain double, float and decimal. | review r111 |
 | R111-2 | P3 | 9 | suspected | Deque and TopN growth to .NET Framework's 0x7FEFFFFF limit is untested (it needs a 16 GB array). | review r111 |
+| R112-1 | P3 | 8 | suspected | JsonFile's JSON Lines readers count lines in an int, so an error past line 2^31 reports a negative line number. | review r112 |
+| R112-2 | P3 | 8 | suspected | ZipUtils' streaming rewrite copies each entry's LastWriteTime unguarded; a date outside 1980-2107 would throw ArgumentOutOfRangeException instead of falling back. | review r112 |
+| R112-3 | P3 | 8 | suspected | Clearing ReadOnly before a delete may follow a symlink and change its target's attributes. | review r112 |
+| R112-4 | P3 | 8 | suspected | Zip entry lookups by name pick one of several same-named entries. | review r112 |
+| R112-5 | P3 | 8 | suspected | The tar metadata guard may keep a stale size when two PAX headers come before one entry. | review r112 |
