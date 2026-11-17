@@ -80,7 +80,9 @@ namespace ToolBelt.Visualization
             if (offset < 14 + headerSize || offset >= data.Length) throw new InvalidDataException("Implausible BMP pixel-data offset.");
             int w = Le32(data, 18), rawH = Le32(data, 22);
             int bpp = Le16(data, 28), compression = Le32(data, 30);
-            if (w <= 0 || rawH == 0 || w > 1 << 15 || Math.Abs((long)rawH) > 1 << 15) throw new InvalidDataException($"Implausible BMP size {w}x{rawH}.");
+            // No cap on either side alone: Encode writes 40000 x 1, which a 32768 cap refused. The pixel count is checked below,
+            // and the file must hold every row.
+            if (w <= 0 || rawH == 0 || rawH == int.MinValue) throw new InvalidDataException($"Implausible BMP size {w}x{rawH}.");
             bool topDown = rawH < 0;
             int h = Math.Abs(rawH);
             // 32768 × 32768 passed the size check but not ImageBuffer's, which threw ArgumentOutOfRangeException.
@@ -91,6 +93,8 @@ namespace ToolBelt.Visualization
             if (bpp == 32 && compression == 3)
             {
                 if (data.Length < 66 || (headerSize >= 56 && data.Length < 70)) throw new InvalidDataException("Truncated BMP channel masks.");
+                // After a 40-byte header the masks follow it; a pixel offset inside them read mask bytes as pixels.
+                if (offset < Math.Max(66, 14 + headerSize)) throw new InvalidDataException("BMP channel masks overlap the pixel data.");
                 uint r = unchecked((uint)Le32(data, 54)), g = unchecked((uint)Le32(data, 58)), b = unchecked((uint)Le32(data, 62));
                 if (r != 0x00FF0000 || g != 0x0000FF00 || b != 0x000000FF) throw new InvalidDataException("Unsupported BMP channel masks.");
                 hasAlpha = headerSize >= 56 && unchecked((uint)Le32(data, 66)) == 0xFF000000;
@@ -112,13 +116,15 @@ namespace ToolBelt.Visualization
                 Array.Copy(data, palStart, palette, 0, Math.Min(colors, 256) * 4);
             }
 
-            int stride = (w * bpp / 8 + 3) & ~3;
-            if (offset + (long)stride * h > data.Length) throw new InvalidDataException("Truncated BMP pixel data.");
+            // In long: w x 32 wraps int for a wide image.
+            long wideStride = ((long)w * bpp / 8 + 3) & ~3L;
+            if (offset + wideStride * h > data.Length) throw new InvalidDataException("Truncated BMP pixel data.");
+            int stride = (int)wideStride;
             var image = new ImageBuffer(w, h);
             byte[] px = image.Pixels;
             for (int y = 0; y < h; y++)
             {
-                int row = offset + (topDown ? y : h - 1 - y) * stride;
+                int row = (int)(offset + (long)(topDown ? y : h - 1 - y) * stride);
                 for (int x = 0; x < w; x++)
                 {
                     int d = (y * w + x) * 4;

@@ -8,7 +8,7 @@ namespace ToolBelt.Binary
     /// <summary>
     /// RFC 4648 Base32 encoding and decoding (the standard <c>A–Z 2–7</c> alphabet). Encoding pads to a
     /// multiple of eight characters with <c>'='</c> by default. Decoding is case-insensitive, tolerates
-    /// padding and interior whitespace, and rejects any other character, data after padding, and anything no encoder
+    /// padding and interior whitespace (any Unicode whitespace, so a pasted no-break space is skipped too), and rejects any other character, data after padding, and anything no encoder
     /// can produce: 1, 3 or 6 symbols in the final group, partial padding, or non-zero unused bits in the last symbol
     /// (so each byte string has exactly one accepted spelling, up to case, padding and whitespace).
     /// </summary>

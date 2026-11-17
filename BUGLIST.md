@@ -113,3 +113,6 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R112-3 | P3 | 8 | suspected | Clearing ReadOnly before a delete may follow a symlink and change its target's attributes. | review r112 |
 | R112-4 | P3 | 8 | suspected | Zip entry lookups by name pick one of several same-named entries. | review r112 |
 | R112-5 | P3 | 8 | suspected | The tar metadata guard may keep a stale size when two PAX headers come before one entry. | review r112 |
+| R113-1 | P3 | 6 | suspected | Base32 and Crockford Decode pre-size their output from the input length, so a huge whitespace- or hyphen-only string allocates about 0.6 bytes per character for nothing. | review r113 |
+| R113-2 | P3 | 6 | suspected | ImageBuffer.DrawLineClipped rounds the clipped endpoints half-to-even, so pixels inside the clip can differ from the unclipped DrawLine ((0,0)-(4,1) clipped at x=2). | review r113 |
+| R113-3 | P3 | 6 | suspected | Bmp.Decode reads BI_BITFIELDS masks at 54 for non-standard header sizes 41-51. | review r113 |

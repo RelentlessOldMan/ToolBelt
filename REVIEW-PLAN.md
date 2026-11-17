@@ -46,7 +46,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 6 | 11 / 133 | re-queue (11 bugs, none severe) |
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 6 | 8 / 150 | re-queue (8 bugs, none severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 6 | 9 / 136 | re-queue (9 bugs, none severe) |
-| 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 2,300 | ~3 | 6 | 3 / 70 | re-queue (3 bugs, 1 severe) |
+| 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 3,400 | ~3 | 7 | 5 / 76 | re-queue (5 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 7 | 20 / 147 | re-queue (20 bugs, 1 severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 4,900 | ~3 | 7 | 6 / 159 | re-queue (6 bugs, none severe) |
 | 9  | Collections | `Collections/*` | 5,200 | ~1 | 7 | 13 / 106 | re-queue (13 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); 1 (done, round 107); 3 (done, round 108). Seventh pass, same rule and order (severe count, then bugs in the sixth pass; ties by section number): 7 (done, round 109); 15 (done, round 110); 9 (done, round 111); 8 (done, round 112); **next: 6**, then 10, 2, 12, 16, 3, 1, 17, 5, 4, 11, 13, 14 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); 1 (done, round 107); 3 (done, round 108). Seventh pass, same rule and order (severe count, then bugs in the sixth pass; ties by section number): 7 (done, round 109); 15 (done, round 110); 9 (done, round 111); 8 (done, round 112); 6 (done, round 113); **next: 10**, then 2, 12, 16, 3, 1, 17, 5, 4, 11, 13, 14 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -186,11 +186,36 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.17.0 | 110 | Windows satellite, seventh pass | 14 | (see tag) |
 | v2026.11.17.1 | 111 | Collections, seventh pass | 22 | (see tag) |
 | v2026.11.17.2 | 112 | IO, seventh pass | 8 | (see tag) |
+| v2026.11.17.3 | 113 | Binary formats & images, seventh pass | 6 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 113: Binary formats & images, seventh pass (v2026.11.17.3)
+
+Two fresh reviewers (correctness, robustness): 5 bugs, 1 severe, so section 6 stays re-queued. The regression tests
+are in `BinaryImagesReview113Tests` (6: 5 fail on the old code, run by name under a 60 s timeout; one is a guard).
+
+- **PngReader.Decode(Stream)** (severe): the ancillary limit added up only each chunk's declared length, so an endless
+  run of valid empty chunks (`00000000 tEXt CRC`) was never refused; each was kept, at about 27 bytes of memory per
+  byte read (40 MB of them took 1.1 GB), until memory ran out. Empty IDAT chunks did the same against the image-data
+  limit. Each chunk now counts its 12 bytes of framing too.
+- **PngReader.Decode(Stream)** kept each `Read` as its own array, so a stream returning one byte at a time took about
+  50 times the file (a 4 MB PNG allocated 207 MB), breaking the documented memory bound. Reads are copied into 64 KiB
+  blocks.
+- **Bmp.Decode** refused any side over 32768 as "implausible", so files `Bmp.Encode` writes (40000 x 1, 1 x 40000)
+  did not read back. The side cap is gone; the pixel-count and truncation checks stay, and the stride is worked out in
+  long.
+- **Bmp.Decode** read a BI_BITFIELDS file with a 40-byte header and a pixel offset of 54 by taking the channel masks
+  (at 54-65) as the first pixels; it is refused ("masks overlap the pixel data").
+- **SvgDocument.Polyline** drew a null stroke black, where Line and Text throw; it is ArgumentNullException (`stroke`).
+
+Doc fix: Base32's decode skips any Unicode whitespace (a pasted no-break space too), which its doc now says.
+
+Rejected: Base58.Decode is quadratic at its default length cap, as its doc says (the overload caps it). Still
+suspected (BUGLIST R113-1..3).
+
 ### Round 112: IO, seventh pass (v2026.11.17.2)
 
 Two fresh reviewers (correctness, robustness): 6 bugs, none severe (both found the CsvDialect one), so section 8 stays

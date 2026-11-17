@@ -81,7 +81,8 @@ namespace ToolBelt.Visualization
 
         /// <summary>Draws an open polyline through the given points.</summary>
         public SvgDocument Polyline(IEnumerable<(double X, double Y)> points, string stroke = "black", double strokeWidth = 1)
-            => Poly("polyline", points, null, stroke, strokeWidth);
+            // A null stroke was drawn black, where Line and Text throw.
+            => stroke is null ? throw new ArgumentNullException(nameof(stroke)) : Poly("polyline", points, null, stroke, strokeWidth);
 
         /// <summary>Draws a closed, optionally filled polygon.</summary>
         public SvgDocument Polygon(IEnumerable<(double X, double Y)> points,
@@ -156,7 +157,7 @@ namespace ToolBelt.Visualization
             var e = new StringBuilder();
             e.Append('<').Append(tag).Append(" points=\"").Append(sb).Append('"');
             // A polyline defaults to no fill; a polygon honors the fill argument.
-            if (tag == "polyline") AppendPaint(e, "none", stroke ?? "black", strokeWidth);
+            if (tag == "polyline") AppendPaint(e, "none", stroke, strokeWidth);
             else AppendPaint(e, fill, stroke, strokeWidth);
             _body.Append(e).Append("/>\n");
             return this;

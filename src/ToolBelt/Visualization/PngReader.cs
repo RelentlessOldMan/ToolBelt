@@ -84,9 +84,11 @@ namespace ToolBelt.Visualization
                     else if (!Is(header, "PLTE") && !trns && !Is(header, "IHDR") && !Is(header, "IEND"))
                         throw new InvalidDataException($"Unknown critical PNG chunk {System.Text.Encoding.ASCII.GetString(header, 4, 4)}.");
                 }
-                if (skip && (ancillary += length) > MaxAncillaryBytes)
+                // Each chunk counts its 12 bytes of framing: empty chunks, which counted nothing, were kept without limit (40 MB of
+                // them took 1.1 GB).
+                if (skip && (ancillary += length + 12) > MaxAncillaryBytes)
                     throw new InvalidDataException($"PNG ancillary chunks pass {MaxAncillaryBytes} bytes.");
-                if (idat && (data += length) > dataLimit)
+                if (idat && (data += length + 12) > dataLimit)
                     throw new InvalidDataException("PNG image data is far larger than the image it describes.");
                 if (!skip && ms.Length + length + 12 > 0x7FFFFFC7) throw new InvalidDataException("PNG stream is too large (over 2 GB).");
                 uint crc = Crc32Update(0xFFFFFFFFu, header, 4, 4);
@@ -123,17 +125,24 @@ namespace ToolBelt.Visualization
         private static bool Is(byte[] header, string type) =>
             header[4] == type[0] && header[5] == type[1] && header[6] == type[2] && header[7] == type[3];
 
+        // Fixed-size blocks: an array per write cost an object for every Read, so a stream returning one byte at a time took
+        // about 50 times the file in memory.
         private sealed class Parts
         {
-            private readonly List<byte[]> _parts = new List<byte[]>();
+            private const int BlockSize = 64 * 1024;
+            private readonly List<byte[]> _blocks = new List<byte[]>();
+            private int _used = BlockSize;
             public long Length { get; private set; }
 
             public void Write(byte[] data, int offset, int count)
             {
-                var part = new byte[count];
-                Array.Copy(data, offset, part, 0, count);
-                _parts.Add(part);
-                Length += count;
+                while (count > 0)
+                {
+                    if (_used == BlockSize) { _blocks.Add(new byte[BlockSize]); _used = 0; }
+                    int n = Math.Min(count, BlockSize - _used);
+                    Array.Copy(data, offset, _blocks[_blocks.Count - 1], _used, n);
+                    _used += n; offset += n; count -= n; Length += n;
+                }
             }
 
             public void WriteByte(byte value) => Write(new[] { value }, 0, 1);
@@ -141,8 +150,13 @@ namespace ToolBelt.Visualization
             public byte[] ToArray()
             {
                 var all = new byte[Length];
-                int at = 0;
-                foreach (var part in _parts) { Array.Copy(part, 0, all, at, part.Length); at += part.Length; }
+                long at = 0;
+                foreach (var block in _blocks)
+                {
+                    int n = (int)Math.Min(BlockSize, Length - at);
+                    Array.Copy(block, 0, all, at, n);
+                    at += n;
+                }
                 return all;
             }
         }
