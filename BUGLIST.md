@@ -141,3 +141,9 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R116-8 | P3 | 12 | suspected | Logger.Dispose racing Log can lose an event already accepted. | review r116 |
 | R116-9 | P3 | 12 | suspected | FirstChanceMonitor.ThrottleWindow is not validated. | review r116 |
 | R116-10 | P3 | 12 | suspected | ConsoleSpinner.Stop(finalLine) throws on a broken writer. | review r116 |
+| R117-1 | P3 | 16 | suspected | NumericRangeValidationRule passes "1e400" (overflows to infinity) when a bound is infinite, and the infinity symbol depends on the culture. | review r117 |
+| R117-2 | P3 | 16 | suspected | CountToVisibilityConverter gives Collapsed for a non-zero Complex such as (0,5). | review r117 |
+| R117-3 | P3 | 16 | suspected | Text committed through an IME may bypass NumericInputBehavior's checks (not probed). | review r117 |
+| R117-4 | P3 | 16 | suspected | RecordingDialogService in Strict mode does not record a call that throws for want of a queued answer. | review r117 |
+| R117-5 | P3 | 16 | suspected | ThemeManager on an STA thread that never pumps accepts FollowSystem and queues work that never runs. | review r117 |
+| R117-6 | P3 | 16 | suspected | FileDropBehavior's drop re-checks every file on disk, skipping the per-drag cache. | review r117 |

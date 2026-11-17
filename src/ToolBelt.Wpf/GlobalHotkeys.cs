@@ -46,7 +46,10 @@ namespace ToolBelt.Wpf
         {
             gesture = default;
             if (string.IsNullOrWhiteSpace(text)) return false;
-            string[] parts = text!.Split('+');
+            // KeyConverter's case-insensitive fallback folded look-alikes: "Ctrl+\u017F" (long s) registered Ctrl+S.
+            foreach (char c in text!)
+                if (c > '\u007E') return false;
+            string[] parts = text.Split('+');
             var mods = ModifierKeys.None;
             for (int i = 0; i < parts.Length - 1; i++)
             {

@@ -250,11 +250,27 @@ namespace ToolBelt.Wpf
             => value is null || (value is string s && s.Trim().Length == 0) ? new ValidationResult(false, Message) : ValidationResult.ValidResult;
     }
 
-    /// <summary>Binding rule: the text parses as a number (in the binding culture) within [Minimum, Maximum].</summary>
+    /// <summary>
+    /// Binding rule: the text parses as a number (in the binding culture) within [Minimum, Maximum]. A NaN bound is
+    /// rejected when set (it compared false, so that bound silently stopped applying); a Minimum above the Maximum is an
+    /// empty range, which no value passes.
+    /// </summary>
     public sealed class NumericRangeValidationRule : ValidationRule
     {
-        public double Minimum { get; set; } = double.MinValue;
-        public double Maximum { get; set; } = double.MaxValue;
+        private double _minimum = double.MinValue, _maximum = double.MaxValue;
+
+        public double Minimum
+        {
+            get => _minimum;
+            set => _minimum = double.IsNaN(value) ? throw new ArgumentOutOfRangeException(nameof(value), value, "The minimum must not be NaN.") : value;
+        }
+
+        public double Maximum
+        {
+            get => _maximum;
+            set => _maximum = double.IsNaN(value) ? throw new ArgumentOutOfRangeException(nameof(value), value, "The maximum must not be NaN.") : value;
+        }
+
         public bool AllowEmpty { get; set; }
         public string? Message { get; set; }
 

@@ -81,7 +81,7 @@ namespace ToolBelt.Wpf
             // A cancelled token started a fetch anyway, and a loader that ignored its token appended the page.
             if (cancellationToken.IsCancellationRequested) return Task.FromCanceled<int>(cancellationToken);
             LoadState? load = _load;
-            if (load != null && !load.Task.IsCompleted)
+            if (load != null && !load.Task.IsCompleted && !load.Finished)
                 return load.TryJoin() ? Follow(load, cancellationToken) : LoadAfterAsync(load.Task, cancellationToken);
             if (!HasMoreItems) return Task.FromResult(0);
             // Publish the in-flight load before the loader runs: a loader that completes synchronously adds its items (and
@@ -104,6 +104,8 @@ namespace ToolBelt.Wpf
             public LoadState(Task<int> task) => Task = task;
             public readonly Task<int> Task;
             public readonly CancellationTokenSource Cts = new CancellationTokenSource();
+            // Its page is appended and the properties settled; only their change notifications are still being raised.
+            public volatile bool Finished;
             private readonly object _gate = new object();
             private int _waiters;
             private bool _cancelling;
@@ -220,6 +222,7 @@ namespace ToolBelt.Wpf
         {
             CancellationTokenSource cts = load.Cts;
             Exception? failure = null;
+            bool cancelled = false, noMore = false;
             try
             {
                 // Inside the try: a PropertyChanged handler that threw here left IsLoading true for good.
@@ -233,20 +236,19 @@ namespace ToolBelt.Wpf
                     Add(item);
                     if (generation != _generation) return 0; // a CollectionChanged handler reset the list: drop the rest
                 }
-                LastError = null;
-                if (page.Count < PageSize) HasMoreItems = false;
+                noMore = page.Count < PageSize;
                 return page.Count;
             }
             catch (OperationCanceledException oce) when (generation != _generation || cts.IsCancellationRequested)
             {
                 if (generation != _generation) return 0; // superseded by a reset
                 failure = oce;
+                cancelled = true;   // not recorded in LastError
                 throw;
             }
             catch (Exception ex) when (generation == _generation)
             {
                 failure = ex;
-                LastError = ex;
                 throw;
             }
             catch (Exception) when (generation != _generation)
@@ -255,14 +257,33 @@ namespace ToolBelt.Wpf
             }
             finally
             {
-                // The token source is not disposed: late cancels must not throw. A handler that threw here replaced the load's
-                // own exception.
-                if (generation == _generation)
-                {
-                    try { IsLoading = false; }
-                    catch (Exception handlerError) when (failure != null) { throw new AggregateException(failure, handlerError); }
-                }
+                // The token source is not disposed: late cancels must not throw.
+                if (generation == _generation) Settle(load, failure, cancelled, noMore);
             }
+        }
+
+        // Every property settles before any change is raised, and the load counts as finished from then: a handler that
+        // loaded more from IsLoading, LastError or HasMoreItems joined this load and got its count (or its failure) instead
+        // of the next page. A handler that throws here joins the load's own exception (it replaced it).
+        private void Settle(LoadState load, Exception? failure, bool cancelled, bool noMore)
+        {
+            bool errorChanged = false, moreChanged = false, loadingChanged = _isLoading;
+            if (!cancelled)
+            {
+                errorChanged = !ReferenceEquals(_lastError, failure);
+                _lastError = failure;
+            }
+            if (failure == null && noMore && _hasMoreItems) { _hasMoreItems = false; moreChanged = true; }
+            _isLoading = false;
+            load.Finished = true;
+            var raised = new List<Exception>();
+            if (errorChanged) Step(raised, () => OnPropertyChanged(new PropertyChangedEventArgs(nameof(LastError))));
+            if (moreChanged) Step(raised, () => OnPropertyChanged(new PropertyChangedEventArgs(nameof(HasMoreItems))));
+            if (loadingChanged) Step(raised, () => OnPropertyChanged(new PropertyChangedEventArgs(nameof(IsLoading))));
+            if (raised.Count == 0) return;
+            if (failure != null) { raised.Insert(0, failure); throw new AggregateException(raised); }
+            if (raised.Count == 1) ExceptionDispatchInfo.Capture(raised[0]).Throw();
+            throw new AggregateException(raised);
         }
 
         private void Set<TValue>(ref TValue field, TValue value, string name)

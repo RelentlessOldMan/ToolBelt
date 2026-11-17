@@ -40,14 +40,16 @@ namespace ToolBelt.Wpf
         private sealed class Registration
         {
             public readonly Dictionary<Type, List<Delegate>> Handlers = new Dictionary<Type, List<Delegate>>();
-            // The types whose index holds this registration, so registering again does not add it twice.
-            public readonly HashSet<Type> Indexed = new HashSet<Type>();
+            // Its node in each type's index, so registering again does not add it twice and unregistering one type removes
+            // it in constant time: a scan of the index, under the lock, made unregistering n recipients quadratic.
+            public readonly Dictionary<Type, LinkedListNode<WeakReference<Registration>>> Indexed =
+                new Dictionary<Type, LinkedListNode<WeakReference<Registration>>>();
             public bool Removed;
         }
 
         private sealed class TypeIndex
         {
-            public readonly List<WeakReference<Registration>> Entries = new List<WeakReference<Registration>>();
+            public readonly LinkedList<WeakReference<Registration>> Entries = new LinkedList<WeakReference<Registration>>();
             public int PruneAt = 16;
         }
 
@@ -75,10 +77,10 @@ namespace ToolBelt.Wpf
                     registration.Handlers[type] = list;
                 }
                 list.Add(handler);
-                if (registration.Indexed.Add(type))
+                if (!registration.Indexed.ContainsKey(type))
                 {
                     if (!_byType.TryGetValue(type, out var index)) _byType[type] = index = new TypeIndex();
-                    index.Entries.Add(new WeakReference<Registration>(registration));
+                    registration.Indexed[type] = index.Entries.AddLast(new WeakReference<Registration>(registration));
                     // Pruned as it doubles, so recipients collected without ever being sent to don't pile up.
                     if (index.Entries.Count >= index.PruneAt)
                     {
@@ -104,8 +106,16 @@ namespace ToolBelt.Wpf
                 }
                 // Dropped from the type's index now, so a re-registration always goes last: the stale entry kept its old
                 // slot until a Send pruned it, so the order depended on whether one had run in between.
-                else if (registration.Indexed.Remove(typeof(TMessage)) && _byType.TryGetValue(typeof(TMessage), out var index))
-                    index.Entries.RemoveAll(w => w.TryGetTarget(out var r) && ReferenceEquals(r, registration));
+                else if (registration.Indexed.TryGetValue(typeof(TMessage), out var node))
+                {
+                    registration.Indexed.Remove(typeof(TMessage));
+                    LinkedList<WeakReference<Registration>>? entries = node.List;
+                    if (entries != null)
+                    {
+                        entries.Remove(node);
+                        if (entries.Count == 0) _byType.Remove(typeof(TMessage));
+                    }
+                }
                 return true;
             }
         }
@@ -150,22 +160,24 @@ namespace ToolBelt.Wpf
         // live entries' handlers when asked.
         private void Walk(Type type, TypeIndex index, List<Delegate>? handlers)
         {
-            List<WeakReference<Registration>> entries = index.Entries;
-            int kept = 0;
-            for (int i = 0; i < entries.Count; i++)
+            LinkedList<WeakReference<Registration>> entries = index.Entries;
+            for (LinkedListNode<WeakReference<Registration>>? node = entries.First, next; node != null; node = next)
             {
-                WeakReference<Registration> entry = entries[i];
-                if (!entry.TryGetTarget(out Registration? registration) || registration.Removed) continue;
+                next = node.Next;
+                if (!node.Value.TryGetTarget(out Registration? registration) || registration.Removed)
+                {
+                    entries.Remove(node);
+                    continue;
+                }
                 if (!registration.Handlers.TryGetValue(type, out var list))
                 {
                     registration.Indexed.Remove(type);
+                    entries.Remove(node);
                     continue;
                 }
-                entries[kept++] = entry;
                 handlers?.AddRange(list);
             }
-            entries.RemoveRange(kept, entries.Count - kept);
-            if (kept == 0) _byType.Remove(type);
+            if (entries.Count == 0) _byType.Remove(type);
         }
 
         /// <summary>Removes all registrations.</summary>

@@ -13,8 +13,21 @@ namespace ToolBelt.Wpf
     /// <summary>The numeric constraints applied by <see cref="NumericInputBehavior"/>.</summary>
     public sealed class NumericInputRules
     {
-        public double Minimum { get; set; } = double.NegativeInfinity;
-        public double Maximum { get; set; } = double.PositiveInfinity;
+        private double _minimum = double.NegativeInfinity, _maximum = double.PositiveInfinity;
+
+        // A NaN bound compared false: the clamp and stepping ignored it while the keystroke filter refused a minus sign, so
+        // "-5" could not be typed yet StepValue and Coerce produced it. Rejected, as WPF's RangeBase does.
+        public double Minimum
+        {
+            get => _minimum;
+            set => _minimum = double.IsNaN(value) ? throw new ArgumentOutOfRangeException(nameof(value), value, "The minimum must not be NaN.") : value;
+        }
+
+        public double Maximum
+        {
+            get => _maximum;
+            set => _maximum = double.IsNaN(value) ? throw new ArgumentOutOfRangeException(nameof(value), value, "The maximum must not be NaN.") : value;
+        }
 
         /// <summary>
         /// Digits allowed after the decimal separator; 0 means whole numbers only. Values round to at most 15; up to 99 are
@@ -64,9 +77,11 @@ namespace ToolBelt.Wpf
         public static readonly DependencyProperty IsEnabledProperty = DependencyProperty.RegisterAttached(
             "IsEnabled", typeof(bool), typeof(NumericInputBehavior), new PropertyMetadata(false, OnIsEnabledChanged));
         public static readonly DependencyProperty MinimumProperty = DependencyProperty.RegisterAttached(
-            "Minimum", typeof(double), typeof(NumericInputBehavior), new PropertyMetadata(double.NegativeInfinity));
+            "Minimum", typeof(double), typeof(NumericInputBehavior), new PropertyMetadata(double.NegativeInfinity), NotNaN);
         public static readonly DependencyProperty MaximumProperty = DependencyProperty.RegisterAttached(
-            "Maximum", typeof(double), typeof(NumericInputBehavior), new PropertyMetadata(double.PositiveInfinity));
+            "Maximum", typeof(double), typeof(NumericInputBehavior), new PropertyMetadata(double.PositiveInfinity), NotNaN);
+
+        private static bool NotNaN(object value) => !double.IsNaN((double)value);
         public static readonly DependencyProperty DecimalPlacesProperty = DependencyProperty.RegisterAttached(
             "DecimalPlaces", typeof(int), typeof(NumericInputBehavior), new PropertyMetadata(0));
         public static readonly DependencyProperty StepProperty = DependencyProperty.RegisterAttached(

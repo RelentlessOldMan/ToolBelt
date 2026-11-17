@@ -42,7 +42,7 @@ namespace ToolBelt.Wpf
 
         /// <summary>
         /// The dropped file paths that pass the <paramref name="extensions"/> filter (case-insensitive, on the end of the
-        /// name, so ".tar.gz" works; "*.*" or "*" accepts every file). With a filter, folders are excluded — even one whose name ends in a listed extension;
+        /// name, so ".tar.gz" works; "*.*" or "*" accepts every file, "*." or "." a file with no extension). With a filter, folders are excluded — even one whose name ends in a listed extension;
         /// without one, every path in the drop is returned, folders included (a null entry never is). The array is always
         /// a new one. Empty when the drop holds no files, or when its source fails to render them.
         /// </summary>
@@ -96,7 +96,11 @@ namespace ToolBelt.Wpf
         {
             string name = Path.GetFileName(path);
             foreach (string e in accepted)
-                if (name.EndsWith(e, StringComparison.OrdinalIgnoreCase)) return true;
+            {
+                // "*." is the Windows filter for no extension; it matched only names ending in a dot, which Windows trims.
+                if (e == ".") { if (Path.GetExtension(name).Length == 0) return true; }
+                else if (name.EndsWith(e, StringComparison.OrdinalIgnoreCase)) return true;
+            }
             return false;
         }
 
