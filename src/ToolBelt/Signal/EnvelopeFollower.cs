@@ -60,17 +60,24 @@ namespace ToolBelt.Signal
             if (samples is null) throw new ArgumentNullException(nameof(samples));
             var f = new EnvelopeFollower(sampleRate, attackSeconds, releaseSeconds);
             var result = new double[samples.Length];
+            // Checked here so the error names this method's argument and the bad element ("sample" named Next's).
+            for (int i = 0; i < samples.Length; i++)
+                if (double.IsNaN(samples[i]) || double.IsInfinity(samples[i]))
+                    throw new ArgumentOutOfRangeException(nameof(samples), samples[i], $"samples[{i}] is {samples[i]}; samples must be finite.");
             for (int i = 0; i < samples.Length; i++) result[i] = f.Next(samples[i]);
             return result;
         }
 
         // 1 − a for the one-pole smoothing coefficient a = e^(−1/(τ·fs)), whose step response reaches 1 − 1/e after τ seconds;
-        // −expm1(−x) by its series where 1 − e^(−x) would cancel.
+        // −expm1(−x) where 1 − e^(−x) would cancel. Below 1 it is 2u/(1 + u) with u = tanh(x/2), which has no cancellation: the
+        // series stopped at 1e-5, and just above it 1 − e^(−x) lost five digits (1.0000000000000001e-5 came out 2e-12 off).
         private static double Coefficient(double tau, double fs)
         {
             if (tau == 0) return 1;
             double x = 1 / (tau * fs);
-            return x < 1e-5 ? x * (1 - x / 2 * (1 - x / 3)) : 1 - Math.Exp(-x);
+            if (x >= 1) return 1 - Math.Exp(-x);
+            double u = Math.Tanh(x / 2);
+            return 2 * u / (1 + u);
         }
     }
 }

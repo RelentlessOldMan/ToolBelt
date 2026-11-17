@@ -105,17 +105,18 @@ namespace ToolBelt.Signal
             double lowRef = Lerp(lo, hi, lowPct), highRef = Lerp(lo, hi, highPct);
             double endRef = rising ? highRef : lowRef, startRef = rising ? lowRef : highRef;
             string edge = rising ? "rising" : "falling";
-            double t2 = FindCrossing(samples, endRef, rising, reach: true);
-            if (t2 < 0) throw new InvalidOperationException($"No {edge} edge crosses the {(rising ? "high" : "low")} reference.");
+            int j2 = FindCrossing(samples, endRef, rising, reach: true);
+            if (j2 < 0) throw new InvalidOperationException($"No {edge} edge crosses the {(rising ? "high" : "low")} reference.");
             int searched = 0;
-            while (t2 >= 0)
+            while (j2 >= 0)
             {
                 // The first start-reference crossing in the record paired a glitch long before the edge with the edge's end.
                 // Each search stops where the last one began: back to index 0 every time, many partial edges took O(n²).
-                double t1 = FindLastCrossing(samples, startRef, (int)Math.Floor(t2), rising, searched);
-                if (t1 >= 0) return (t2 - t1) / sampleRate;
-                searched = (int)Math.Floor(t2) + 1;
-                t2 = FindCrossing(samples, endRef, rising, reach: true, searched);
+                // By segment index, not the floor of the crossing time: 999 + (1 − 2e-14) rounds to 1000.
+                int j1 = FindLastCrossing(samples, startRef, j2, rising, searched);
+                if (j1 >= 0) return Between(samples, j1, startRef, j2, endRef) / sampleRate;
+                searched = j2 + 1;
+                j2 = FindCrossing(samples, endRef, rising, reach: true, searched);
             }
             throw new InvalidOperationException($"No {edge} edge crosses the {(rising ? "low" : "high")} reference.");
         }
@@ -130,11 +131,13 @@ namespace ToolBelt.Signal
             samples = Scaled(samples);
             var (lo, hi) = Levels(samples);
             double mid = lo / 2 + hi / 2;                                       // (lo + hi) / 2 overflowed
-            double t1 = FindCrossing(samples, mid, rising: true, reach: false);
-            if (t1 < 0) throw new InvalidOperationException("No rising mid-level crossing.");
-            double t2 = FindCrossing(samples, mid, rising: false, reach: false, (int)Math.Floor(t1) + 1);
-            if (t2 < 0) throw new InvalidOperationException("No falling mid-level crossing after the pulse.");
-            return (t2 - t1) / sampleRate;
+            int j1 = FindCrossing(samples, mid, rising: true, reach: false);
+            if (j1 < 0) throw new InvalidOperationException("No rising mid-level crossing.");
+            // From the segment after the rising one: the floor of its time skipped a segment when the time rounded up to the
+            // next integer (999 + (1 − 2e-14) is 1000), so a runt there measured 599.5 samples for 4e-14.
+            int j2 = FindCrossing(samples, mid, rising: false, reach: false, j1 + 1);
+            if (j2 < 0) throw new InvalidOperationException("No falling mid-level crossing after the pulse.");
+            return Between(samples, j1, mid, j2, mid) / sampleRate;
         }
 
         /// <summary>The fraction of the record spent above the mid state level, in [0, 1].</summary>
@@ -150,22 +153,27 @@ namespace ToolBelt.Signal
 
         private static double Lerp(double lo, double hi, double p) => p == 1 ? hi : (1 - p) * lo + p * hi;
 
-        // Fractional sample index of the first crossing of `level` at/after `start`, or -1. `rising` selects an upward or
-        // downward crossing; `reach` counts arriving exactly at the level (a 100% reference is reached by a flat top).
-        private static double FindCrossing(double[] s, double level, bool rising, bool reach, int start = 0)
+        // The segment (start sample index) of the first crossing of `level` at/after `start`, or -1. `rising` selects an
+        // upward or downward crossing; `reach` counts arriving exactly at the level (a 100% reference is reached by a flat top).
+        private static int FindCrossing(double[] s, double level, bool rising, bool reach, int start = 0)
         {
             for (int i = Math.Max(0, start); i < s.Length - 1; i++)
-                if (Crosses(s[i], s[i + 1], level, rising, reach)) return i + Fraction(s[i], s[i + 1], level);
+                if (Crosses(s[i], s[i + 1], level, rising, reach)) return i;
             return -1;
         }
 
-        // The last crossing (leaving the level) in a segment starting at or before `end` and at or after `begin`, or -1.
-        private static double FindLastCrossing(double[] s, double level, int end, bool rising, int begin)
+        // The segment of the last crossing (leaving the level) starting at or before `end` and at or after `begin`, or -1.
+        private static int FindLastCrossing(double[] s, double level, int end, bool rising, int begin)
         {
             for (int i = Math.Min(end, s.Length - 2); i >= begin; i--)
-                if (Crosses(s[i], s[i + 1], level, rising, reach: false)) return i + Fraction(s[i], s[i + 1], level);
+                if (Crosses(s[i], s[i + 1], level, rising, reach: false)) return i;
             return -1;
         }
+
+        // Samples from segment i's crossing of `from` to segment j's crossing of `to`: the whole segments and the fractions
+        // apart, so the fractions are not rounded to the precision of a large index first.
+        private static double Between(double[] s, int i, double from, int j, double to)
+            => (j - i) + (Fraction(s[j], s[j + 1], to) - Fraction(s[i], s[i + 1], from));
 
         private static bool Crosses(double a, double b, double level, bool rising, bool reach)
             => rising ? (reach ? a < level && b >= level : a <= level && b > level)

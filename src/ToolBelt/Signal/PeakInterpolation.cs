@@ -39,8 +39,18 @@ namespace ToolBelt.Signal
                 var (o, p) = Vertex(left / 4, center / 4, right / 4);
                 return (o, p * 4);
             }
+            // Subnormal values: 0.5·(left − right) lost its bit and the differences rounded, so (ε, 2ε, 0) had offset −0 for
+            // −1/6. Scaled up by 2^600 (exact) the vertex is found as for normal values, and its height scaled back.
+            double peak = Math.Max(Math.Abs(left), Math.Max(Math.Abs(center), Math.Abs(right)));
+            if (peak > 0 && peak < Small)
+            {
+                var (o, p) = Vertex(left * Up, center * Up, right * Up);
+                return (o, p * Down);
+            }
             return Vertex(left, center, right);
         }
+
+        private static readonly double Up = Math.Pow(2, 600), Down = Math.Pow(2, -600), Small = Math.Pow(2, -400);
 
         private static (double Offset, double Peak) Vertex(double left, double center, double right)
         {

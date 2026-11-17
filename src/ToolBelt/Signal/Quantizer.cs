@@ -98,7 +98,12 @@ namespace ToolBelt.Signal
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
             var result = new double[samples.Length];
-            for (int i = 0; i < samples.Length; i++) result[i] = Quantize(samples[i]);
+            for (int i = 0; i < samples.Length; i++)
+            {
+                // A NaN element was refused naming "value", the single-value overload's argument.
+                if (double.IsNaN(samples[i])) throw new ArgumentOutOfRangeException(nameof(samples), samples[i], $"samples[{i}] is NaN; NaN has no quantizer code.");
+                result[i] = Quantize(samples[i]);
+            }
             return result;
         }
 

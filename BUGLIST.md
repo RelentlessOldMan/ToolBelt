@@ -58,3 +58,9 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R103-5 | P3 | 12 | suspected | ConsoleSpinner: the constructor's first draw ignores only IOException and ObjectDisposedException; any other writer exception escapes after the token source and loop are set up, leaking both. | review r103 |
 | R103-6 | P3 | 12 | suspected | HealthCheck: an abandoned probe's token source is disposed when its check returns; a probe reading token.WaitHandle later gets ObjectDisposedException. | review r103 |
 | R103-7 | P3 | 12 | suspected | DiskSpace: DriveInfo.GetDrives exceptions (an unreadable mount table off Windows) are not caught. | review r103 |
+| R104-1 | P3 | 2 | suspected | SavitzkyGolay: each edge sample recomputes a fit row in O(w·m), so edges cost O(w²·m); w = 10001 at order 100 is about 1e10 operations. | review r104 |
+| R104-2 | P3 | 2 | suspected | WelchPsd, Multitaper: ScaleB below 2^-1000 multiplies by 2^-1000 and then the rest; a first step that lands subnormal rounds twice (one subnormal ulp). | review r104 |
+| R104-3 | P3 | 2 | suspected | Fft.Inverse for lengths that are not a power of two multiplies by a rounded 1/N after the Bluestein transform's scale-back, so a subnormal result can round twice. | review r104 |
+| R104-4 | P3 | 2 | suspected | FrequencyGrid.NearestBin: Math.Round's ties-to-even sends exact halfway frequencies to alternating sides (2.5 to 2, 3.5 to 4). | review r104 |
+| R104-5 | P3 | 2 | suspected | Hampel, MedianFilter: O(n·w) inserts and MAD merges; quadratic for n ≈ w ≈ 1e6. | review r104 |
+| R104-6 | P3 | 2 | suspected | Goertzel: past f/fs = 2^53 the alias f mod fs keeps no meaningful phase per sample (1e20 Hz at 1 Hz returns an arbitrary magnitude); refusing that range may be better. | review r104 |

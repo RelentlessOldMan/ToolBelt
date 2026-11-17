@@ -7,8 +7,9 @@ namespace ToolBelt.Signal
     /// <summary>One cycle of a periodic capture, from one rising crossing to the next.</summary>
     public sealed class Cycle
     {
-        internal Cycle(double start, double period, double highTime, double maximum, double minimum, double periodSamples)
+        internal Cycle(double start, double period, double highTime, double maximum, double minimum, double periodSamples, double highSamples)
         {
+            HighSamples = highSamples;
             Start = start;
             Period = period;
             PeriodSamples = periodSamples;
@@ -31,7 +32,10 @@ namespace ToolBelt.Signal
         /// <summary>Seconds above the level (rising to falling crossing).</summary>
         public double HighTime { get; }
 
-        public double DutyCycle => HighTime / Period;
+        // In samples: in seconds, both overflowed at 1e-306 Hz and the duty cycle was ∞/∞ = NaN.
+        public double DutyCycle => HighSamples / PeriodSamples;
+
+        private double HighSamples { get; }
 
         public double Maximum { get; }
         public double Minimum { get; }
@@ -181,7 +185,7 @@ namespace ToolBelt.Signal
                     cmax = Math.Max(cmax, samples[i]);
                     cmin = Math.Min(cmin, samples[i]);
                 }
-                cycles.Add(new Cycle(start / sampleRate, (end - start) / sampleRate, high / sampleRate, cmax * unscale, cmin * unscale, end - start));
+                cycles.Add(new Cycle(start / sampleRate, (end - start) / sampleRate, high / sampleRate, cmax * unscale, cmin * unscale, end - start, high));
             }
             return new CycleStatistics(cycles, lvl * unscale, sampleRate);
         }

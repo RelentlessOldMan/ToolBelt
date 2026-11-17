@@ -92,10 +92,14 @@ namespace ToolBelt.Signal
                     df = frequencies[hi] / 2 - frequencies[lo] / 2;
                 }
                 double omega = 2 * Math.PI * df;
-                tau[i] = double.IsInfinity(omega) ? -(dp / df) / (2 * Math.PI) : -dp / omega;
+                // A subnormal Δf lost bits in 2π·Δf (Δf = 3ε gave a delay 6% off): it is scaled up by 2^600 (exact) first.
+                if (omega < 2.2250738585072014e-308) tau[i] = -(dp / (2 * Math.PI * (df * Up))) * Up;
+                else tau[i] = double.IsInfinity(omega) ? -(dp / df) / (2 * Math.PI) : -dp / omega;
             }
             return tau;
         }
+
+        private static readonly double Up = Math.Pow(2, 600);
 
         /// <summary>Wraps a single angle into the principal range (−π, π].</summary>
         public static double Wrap(double angle)

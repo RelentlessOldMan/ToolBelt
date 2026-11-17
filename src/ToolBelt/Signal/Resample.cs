@@ -103,11 +103,17 @@ namespace ToolBelt.Signal
         }
 
         // The difference form returns a constant signal exactly (a·(1 − t) + b·t rippled by an ulp); the weighted form is
-        // the fallback where b − a overflows.
+        // the fallback where b − a overflows. Equal ends are returned as they are (two +∞ samples gave ∞ − ∞ = NaN between
+        // them). Subnormal ends rounded d·t and then the sum (Linear([ε, 2ε], 3) had ε for 1.5ε, so 2ε): they are
+        // interpolated scaled up by 2^600 (exact) and scaled back, one rounding.
         private static double Lerp(double a, double b, double t)
         {
+            if (a == b) return a;
+            if (Math.Abs(a) < Small && Math.Abs(b) < Small) return Lerp(a * Up, b * Up, t) * Down;
             double d = b - a;
             return double.IsInfinity(d) ? a * (1 - t) + b * t : a + d * t;
         }
+
+        private static readonly double Up = Math.Pow(2, 600), Down = Math.Pow(2, -600), Small = Math.Pow(2, -400);
     }
 }

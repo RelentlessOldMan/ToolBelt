@@ -45,12 +45,14 @@ namespace ToolBelt.Signal
             if (spectrum.Length == 0) return Array.Empty<Complex>();
             CheckLength(spectrum.Length, nameof(spectrum));
             var data = (Complex[])spectrum.Clone();
-            Transform(data, inverse: true, nameof(spectrum));
             double scale = 1.0 / data.Length;
+            // A power-of-two transform applies 1/N with its own scale-back (both powers of two, so one rounding): a subnormal
+            // result was rounded by the 2^-600 and again by 1/N (−10ε for −10.53ε).
+            bool scaled = Transform(data, inverse: true, nameof(spectrum), scale);
             bool finite = true;
             for (int i = 0; i < data.Length; i++)
             {
-                data[i] = Scale(data[i], scale);
+                if (!scaled) data[i] = Scale(data[i], scale);
                 finite &= IsFinite(data[i]);
             }
             // The unscaled sum overflowed ([1e308, 1e308] gave ∞ + NaN·i); scaling first can't, but would lose denormals,
@@ -87,11 +89,12 @@ namespace ToolBelt.Signal
                 throw new ArgumentException($"A length-{n} transform that is not a power of two is too long (Bluestein needs 2n − 1 ≤ 2^30); pad it to a power of two.", paramName);
         }
 
-        // Unnormalized transform in place; dispatches by length.
-        private static void Transform(Complex[] data, bool inverse, string paramName)
+        // Unnormalized transform in place; dispatches by length. A power-of-two transform also multiplies by post, a power of
+        // two, and returns true; otherwise post is the caller's to apply.
+        private static bool Transform(Complex[] data, bool inverse, string paramName, double post = 1)
         {
             int n = data.Length;
-            if (n <= 1) return;
+            if (n <= 1) { if (post != 1) for (int k = 0; k < n; k++) data[k] = Scale(data[k], post); return true; }
             if ((n & (n - 1)) == 0)
             {
                 // Subnormal inputs lost bits in the twiddle products ([7ε, 3ε, 5ε, 0, 0, 0, 0, 0] was 8% off in bins 1 and 7),
@@ -104,9 +107,12 @@ namespace ToolBelt.Signal
                     : max >= 1.3407807929942597e154 && !double.IsInfinity(max) ? Math.Pow(2, -512) : 1;  // 2^512
                 if (down != 1) for (int k = 0; k < n; k++) data[k] = Scale(data[k], down);
                 Radix2(data, inverse);
-                if (down != 1) for (int k = 0; k < n; k++) data[k] = Scale(data[k], 1 / down);
+                double back = 1 / down * post;                                          // exact: powers of two
+                if (back != 1) for (int k = 0; k < n; k++) data[k] = Scale(data[k], back);
+                return true;
             }
-            else Bluestein(data, inverse, paramName);
+            Bluestein(data, inverse, paramName);
+            return false;
         }
 
         // Iterative in-place radix-2 Cooley–Tukey. Requires a power-of-two length. Unnormalized.

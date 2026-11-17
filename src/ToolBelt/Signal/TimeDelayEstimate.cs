@@ -1,5 +1,6 @@
 // ToolBelt drop-in — self-contained; depends on ToolBelt.Signal.Fft.
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 
 namespace ToolBelt.Signal
@@ -47,6 +48,9 @@ namespace ToolBelt.Signal
             var corr = Fft.Inverse(prod);
 
             var (lag, value) = FindPeak(corr, reference.Length - 1, delayed.Length - 1);
+            bool raw;
+            (lag, value, raw) = Refine(corr, reference, delayed, sa, sb, lag, value);
+            if (raw) return (lag, value);
             // The scales' product first: value·sa overflowed for a 1e308 reference against a 1e-300 copy (∞ for 1e9). Where the
             // product itself overflows or goes subnormal, both scales are large or both small and the order doesn't matter.
             double scale = sa * sb;
@@ -125,6 +129,55 @@ namespace ToolBelt.Signal
         // The correlation array holds lag L at index L for L>=0 and lag L at index m+L for L<0.
         // Valid lags span [-maxNegative, maxPositive] = [-(reference-1), delayed-1]. Ties (all-zero input, say) go to the
         // lag nearest zero.
+        // The FFT's rounding broke exact ties against the documented "nearest zero" rule ([−1] against
+        // [−1, −1, 1, 2, 1, 2, −1] gave lag 1 at 1.0000000000000002 though lags 0 and 1 are both 1). Lags within the FFT's
+        // error of the peak are summed directly and compared again; with more than a few such lags the FFT's pick stands.
+        // Where no product or sum can overflow or underflow the sums are of the samples themselves (raw: the value needs no
+        // scaling back; dividing by the peaks first rounded the 14 of an integer correlation to 13.999999999999998).
+        private static (int Lag, double Value, bool Raw) Refine(Complex[] corr, double[] reference, double[] delayed, double sa, double sb, int lag, double value)
+        {
+            // corr is of the scaled samples, so the tolerance is too.
+            double norms = Math.Sqrt(SumSquares(reference, sa)) * Math.Sqrt(SumSquares(delayed, sb));
+            double tolerance = 1e-12 * norms * Math.Max(1, Math.Log(corr.Length, 2));
+            int m = corr.Length;
+            var candidates = new List<int>();
+            for (int k = -(reference.Length - 1); k <= delayed.Length - 1; k++)
+            {
+                if (corr[k >= 0 ? k : m + k].Real < value - tolerance) continue;
+                candidates.Add(k);
+                if (candidates.Count > MaxRefined) return (lag, value, false);
+            }
+            const double Low = 1e-140, High = 1e140;
+            bool raw = sa > Low && sa < High && sb > Low && sb < High;
+            if (raw) sa = sb = 1;
+            int bestLag = 0;
+            double best = double.NegativeInfinity;
+            foreach (int k in candidates)
+            {
+                double v = Direct(reference, delayed, sa, sb, k);
+                if (v > best || (v == best && Math.Abs(k) < Math.Abs(bestLag))) { best = v; bestLag = k; }
+            }
+            return (bestLag, best, raw);
+        }
+
+        private const int MaxRefined = 64;
+
+        // sum_l delayed[l + k]·reference[l] on the scaled samples.
+        private static double Direct(double[] reference, double[] delayed, double sa, double sb, int k)
+        {
+            double sum = 0;
+            int from = Math.Max(0, -k), to = Math.Min(reference.Length, delayed.Length - k);
+            for (int l = from; l < to; l++) sum += reference[l] / sa * (delayed[l + k] / sb);
+            return sum;
+        }
+
+        private static double SumSquares(double[] x, double scale)
+        {
+            double sum = 0;
+            foreach (double v in x) { double s = v / scale; sum += s * s; }
+            return sum;
+        }
+
         private static (int Lag, double Value) FindPeak(Complex[] corr, int maxNegative, int maxPositive)
         {
             int m = corr.Length;

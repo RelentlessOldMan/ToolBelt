@@ -41,6 +41,7 @@ namespace ToolBelt.Signal
                 double sum = 0;
                 for (int k = 0; k < windowSize; k++) sum += c[k] * data[start + k];
                 if (double.IsInfinity(sum) || double.IsNaN(sum)) sum = Rescaled(c, data, start, sum);
+                else if (Math.Abs(sum) < Tiny) sum = ScaledUp(c, data, start, sum);
                 result[i] = sum;
             }
             return result;
@@ -110,6 +111,22 @@ namespace ToolBelt.Signal
             double down = Math.Pow(2, -e), s = 0;
             for (int k = 0; k < c.Length; k++) s += c[k] * (data[start + k] * down);
             return s * Math.Pow(2, e / 2) * Math.Pow(2, e - e / 2);
+        }
+
+        // Subnormal data: each weighted sample was rounded on the subnormal grid, so a constant ε came out 0 inside the
+        // record and 3ε as 4ε at the edges. A window whose peak is below 2^-400 is summed again scaled up by 2^600
+        // (exact) and scaled back, one rounding.
+        private const double Tiny = 1.0020841800044864E-292;                 // 2^-969
+        private static readonly double Up = Math.Pow(2, 600), Down = Math.Pow(2, -600), Small = Math.Pow(2, -400);
+
+        private static double ScaledUp(double[] c, IReadOnlyList<double> data, int start, double sum)
+        {
+            double peak = 0;
+            for (int k = 0; k < c.Length; k++) peak = Math.Max(peak, Math.Abs(data[start + k]));
+            if (peak == 0 || !(peak < Small)) return sum;
+            double s = 0;
+            for (int k = 0; k < c.Length; k++) s += c[k] * (data[start + k] * Up);
+            return s * Down;
         }
 
         private static double Hypot(double x, double y)

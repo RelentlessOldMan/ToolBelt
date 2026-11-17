@@ -59,17 +59,27 @@ namespace ToolBelt.Signal
                 int mid = count / 2;
                 double median = count % 2 != 0 ? window[mid] : Midpoint(window[mid - 1], window[mid]);
                 double mad = Mad(window, count, median, ref scratch);
-                double sigma = MadToSigma * mad;
-
                 // When the window is essentially constant, sigma collapses to 0 and the threshold with
                 // it — so any point that differs from the median is (correctly) flagged as an outlier.
-                if (double.IsNaN(samples[i]) || Math.Abs(samples[i] - median) > nSigmas * sigma)
+                if (double.IsNaN(samples[i]) || Outlier(samples[i], median, mad, nSigmas))
                 {
                     result[i] = median;
                     replaced++;
                 }
             }
             return result;
+        }
+
+        // |x − median| > nσ·1.4826·MAD. Near double.MaxValue the threshold overflowed to ∞ (nothing flagged) or, with nσ = 0,
+        // to 0·∞ = NaN; the deviation could overflow too. Then both sides are compared in quarters, which is exact there.
+        private static bool Outlier(double x, double median, double mad, double nSigmas)
+        {
+            double deviation = Math.Abs(x - median);
+            if (nSigmas == 0) return deviation > 0;                              // a threshold of 0 even where MAD is ∞
+            double threshold = nSigmas * (MadToSigma * mad);
+            if (!double.IsInfinity(deviation) && !double.IsInfinity(threshold) && !double.IsNaN(threshold)) return deviation > threshold;
+            if (double.IsInfinity(x) || double.IsInfinity(median) || double.IsInfinity(mad)) return deviation > threshold;
+            return Math.Abs(x / 4 - median / 4) > nSigmas * (MadToSigma * (mad / 4));
         }
 
         // MAD = median of |x − median| over the sorted window. The deviations of the values below the median grow leftward

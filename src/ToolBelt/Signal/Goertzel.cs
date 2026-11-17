@@ -29,6 +29,9 @@ namespace ToolBelt.Signal
                 throw new ArgumentOutOfRangeException(nameof(targetFrequency), targetFrequency, "Target frequency must be finite.");
             double omega = 2.0 * Math.PI * targetFrequency / sampleRate;
             if (double.IsInfinity(omega)) omega = 2.0 * Math.PI * (targetFrequency / sampleRate);   // 2π·f overflowed first
+            // f/fs overflowed too (1e300 Hz at 1e-10 Hz), so cos(∞) made the result NaN. The
+            // frequency is an alias of f mod fs (exact), the same tone at these samples.
+            if (double.IsInfinity(omega)) omega = 2.0 * Math.PI * (targetFrequency % sampleRate / sampleRate);
             double cosine = Math.Cos(omega);
             double coeff = 2.0 * cosine;
 
