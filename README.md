@@ -873,6 +873,7 @@ tests/
       StatisticsReview3Tests.cs      (third-pass regressions: sums near MaxValue, regression scaling, F density at large df, Γ accuracy)
       StatisticsReview4Tests.cs      (fourth-pass regressions: data on an offset, tight gamma/log-normal fits, exact KS p, far tails, huge counts)
       StatisticsReview87Tests.cs     (round 87: far lower-tail quantiles, confidences next to 1, subnormal chi-square/F, digamma series, offset CUSUM)
+      StatisticsReview108Tests.cs    (round 108: small-x chi-square pdf, F tails under a huge d2, corrected two-pass sds, per-group ANOVA and gauge floors, permutation ties, undefined enums, overflowing Theil-Sen)
       HugeShapeTests.cs              (round 46: incomplete beta at shapes near MaxValue and subnormal; drop-in copies agree)
       DifferentialHarnessTests.cs    (round 47: tiny-shape tails and prefixes, huge-other-shape prefix, from the mpmath harness)
       NumericsCoreReviewTests.cs     (review regressions: QR fit, cancellation-free roots, extreme magnitudes, NaN rejection, fast primes)

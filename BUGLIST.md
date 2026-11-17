@@ -88,3 +88,9 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R107-1 | P3 | 1 | suspected | FopdtModel.StepResponse at a NaN time returns a value rather than NaN or a throw. | review r107 |
 | R107-2 | P3 | 1 | suspected | PidController ScaledOutput may lose precision when the output range is extreme (near double.MaxValue wide). | review r107 |
 | R107-3 | P3 | 1 | suspected | FopdtModel.FitStep's error message for an unusable step does not say which input is at fault. | review r107 |
+| R108-1 | P3 | 3 | suspected | ControlChart.Individuals and BlandAltman limits can be ±∞ for finite data near double.MaxValue. | review r108 |
+| R108-2 | P3 | 3 | suspected | FitWeibull reports "All values are equal" for distinct values only a few ulps apart. | review r108 |
+| R108-3 | P3 | 3 | suspected | ChiSquareQuantile at tiny df and p > 0.5 returns 1e-323 where 0 may be right; at df ≥ 1e17 the round trip loses digits. | review r108 |
+| R108-4 | P3 | 3 | suspected | F upper tail at d1 near 1e-308 under a huge d2: −Expm1 of the leading term may lose relative precision. | review r108 |
+| R108-5 | P3 | 3 | suspected | KolmogorovSmirnovTwoSample uses the asymptotic p even at n = 3 (0.033 where the exact p is 0.1); documented as asymptotic. | review r108 |
+| R108-6 | P3 | 3 | suspected | GaugeRR uses int products for degrees of freedom; very large studies could overflow them. | review r108 |

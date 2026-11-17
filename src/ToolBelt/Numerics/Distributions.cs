@@ -197,7 +197,11 @@ namespace ToolBelt.Numerics
             if (x == 0) return k < 2 ? double.PositiveInfinity : (k == 2 ? 0.5 : 0);
             if (double.IsPositiveInfinity(x)) return 0;
             if (x < MinNormal) return Math.Exp(Math.Log(k / 2) + (k / 2 - 1) * (Math.Log(x) - Ln2) - LnGamma1p(k / 2) - Ln2);
-            return GammaFront(k / 2, x / 2) / x; // ½(x/2)^(a−1)e^(−x/2)/Γ(a) = [ (x/2)^a e^(−x/2)/Γ(a) ] / x
+            // ½(x/2)^(a−1)e^(−x/2)/Γ(a) = [ (x/2)^a e^(−x/2)/Γ(a) ] / x. For a ≥ 1 the bracket underflows (or goes subnormal)
+            // a factor x before the density does: pdf(1e-300, 3) was 0, not 4e-151. There the quotient is taken in logs.
+            double front = GammaFront(k / 2, x / 2);
+            if (front < 1e-290 && k >= 2) return Math.Exp(LnPrefix(k / 2, x / 2) - Math.Log(x));
+            return front / x;
         }
 
         public static double ChiSquareCdf(double x, double degreesOfFreedom)
@@ -273,6 +277,15 @@ namespace ToolBelt.Numerics
                     return Math.Exp(m / 2 * (Math.Log(m) - Math.Log(n + mx)) + (m / 2 - 1) * Math.Log(x) - LnBeta(m / 2, n / 2));
                 p = sn / (sn + sd);
                 q = sd / (sn + sd);
+            }
+            else if (p < MinNormal && !double.IsInfinity(n + mx))
+            {
+                // p = d1·x/(d1·x + d2) underflows under a huge d2 (the density was 0): as in FMasses, the leading term in
+                // logs while d1·x < 1e-17, else the gamma limit, whose density in z = b·y is the χ² density in 2z.
+                if (mx < 1e-17)
+                    return Math.Exp(m / 2 * (Math.Log(mx) - Math.Log(n + mx)) - Math.Log(x) - LnBeta(m / 2, n / 2));
+                double g = n / (n + mx);
+                return ChiSquarePdf(mx * g, m) * m * g * g;
             }
             // The failure count n/2 is passed itself: recovered as (m + n − 2)/2 − (m − 2)/2 it was lost once m dwarfed n
             // (density 1e10 too large at m = 1e17, n = 3, which sent FQuantile's Newton steps astray).
@@ -470,6 +483,20 @@ namespace ToolBelt.Numerics
                 }
                 double l = d1 / 2 * (Math.Log(d1) + Math.Log(x) - Math.Log(den)) - Math.Log(d1 / 2) - LnBeta(d1 / 2, d2 / 2);
                 return (Math.Exp(l), -Expm1(l));
+            }
+            if (num / den < MinNormal && !double.IsInfinity(den))
+            {
+                // y = d1·x/(d1·x + d2) underflows under a huge d2, and I_y(a, b) came out 0 (FCdf(4.94e-24, 0.5, 1e300) = 0,
+                // not 1.16e-6). Here b = d2/2 > d1·x/(2·MinNormal): either d1·x < 1e-17 and I_y is its leading term
+                // y^a/(a·B(a, b)) in logs (the factor (1 − y)^b and the series are 1 − O(d1·x)), or b > 1e290 and I_y is the
+                // gamma limit P(a, b·y) to O(1/b).
+                if (num < 1e-17)
+                {
+                    double l = d1 / 2 * (Math.Log(num) - Math.Log(den)) - Math.Log(d1 / 2) - LnBeta(d1 / 2, d2 / 2);
+                    return (Math.Exp(l), -Expm1(l));
+                }
+                GammaPQ(d1 / 2, num / 2 * (d2 / den), out double gp, out double gq);
+                return (gp, gq);
             }
             BetaI(num / den, d2 / den, d1 / 2, d2 / 2, out double lower, out double upper);
             return (lower, upper);

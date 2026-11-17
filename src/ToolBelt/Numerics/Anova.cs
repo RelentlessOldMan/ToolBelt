@@ -113,11 +113,21 @@ namespace ToolBelt.Numerics
                 double groupOffset = groupSum / g.Length;
                 double d = groupOffset - grandOffset;
                 ssBetween += g.Length * d * d;
+                // Within a group, about the group's own first value, with the two-pass correction Σe² − (Σe)²/n and a
+                // rounding floor of its own: about c, and floored by the largest offset of any group, the spread of a group
+                // near 0 next to a group at 1e7 was lost (SSW 2e-14 read as 0, F = ∞).
+                double ci = g[0] / s, localSum = 0, localMax = 0;
+                for (int j = 0; j < g.Length; j++) localSum += g[j] / s - ci;
+                double localMean = localSum / g.Length, ss = 0, se = 0;
                 for (int j = 0; j < g.Length; j++)
                 {
-                    double e = g[j] / s - c - groupOffset;
-                    ssWithin += e * e;
+                    double u = g[j] / s - ci, e = u - localMean;
+                    localMax = Math.Max(localMax, Math.Abs(u));
+                    ss += e * e;
+                    se += e;
                 }
+                ss = Math.Max(0, ss - se * se / g.Length);
+                if (ss > g.Length * (1e-14 * localMax) * (1e-14 * localMax)) ssWithin += ss;
             }
             double grandMean = c + grandOffset;
 
@@ -127,11 +137,12 @@ namespace ToolBelt.Numerics
             double msW = ssWithin / dfW;
 
             // Sums of squares at rounding level are zero: data like {0.1, 0.1, 0.1} leave ~1e-34 of round-off in the
-            // group mean's residuals, and a ratio of two such crumbs is a meaningless F (and p). The sums are built from
-            // the offsets, so their round-off scales with the largest offset: scaled by the largest reading, the floor
-            // zeroed real variation of data on an offset (groups at 1e9 a few ulps apart gave F = 0 or ∞).
+            // group mean's residuals, and a ratio of two such crumbs is a meaningless F (and p). The between sum is built
+            // from the offsets from c, so its round-off scales with the largest offset: scaled by the largest reading, the
+            // floor zeroed real variation of data on an offset (groups at 1e9 a few ulps apart gave F = 0 or ∞). Each
+            // group's within sum was floored by its own spread above.
             double floor = total * (1e-14 * maxOffset) * (1e-14 * maxOffset);
-            if (ssWithin <= floor) { ssWithin = 0; msW = 0; }
+            if (ssWithin == 0) msW = 0;
             if (ssBetween <= floor) { ssBetween = 0; msB = 0; }
 
             double f, p;
@@ -182,6 +193,13 @@ namespace ToolBelt.Numerics
             if (double.IsPositiveInfinity(f)) return 0.0;
             // P(F > f) = 1 − I_y(df1/2, df2/2) with y = df1·f/(df1·f + df2), the complement computed directly.
             double num = df1 * f, den = num + df2;
+            // y underflows under a huge df2 (the tail was 1 where it is Q(a, b·y)): as Distributions' FMasses.
+            if (num / den < 2.2250738585072014E-308 && !double.IsInfinity(den))
+            {
+                if (num < 1e-17) return -Expm1(df1 / 2 * (Math.Log(num) - Math.Log(den)) - Math.Log(df1 / 2) - LnBeta(df1 / 2, df2 / 2));
+                GammaPQ(df1 / 2, num / 2 * (df2 / den), out _, out double gq);
+                return gq;
+            }
             BetaI(num / den, df2 / den, df1 / 2, df2 / 2, out _, out double upper);
             return upper;
         }

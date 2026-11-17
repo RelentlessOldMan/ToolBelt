@@ -278,19 +278,37 @@ namespace ToolBelt.Numerics
             return x;
         }
 
-        // Mean and MLE standard deviation, scaled by the largest magnitude so sums and squares of values near 1e308 do not
-        // overflow (nor squares near 1e-170 underflow).
+        // Mean and MLE standard deviation, in units of the largest magnitude p (a power of two, so normal-range data give
+        // the same bits; sums and squares of values near 1e308 do not overflow, nor squares near 1e-170 underflow). The
+        // mean is taken about the first value, so a constant sample has exactly zero spread, and the deviations are summed
+        // with the two-pass correction Σd² − (Σd)²/n. Divided by max|v| itself, every value was rounded, and with neither
+        // the pivot nor the correction the sd of data on 1e6 with a spread of 1e-5 was 5.8e-6 relative off.
         private static (double Mean, double Sd) MeanSd(double[] x)
         {
-            double scale = 0;
-            foreach (double v in x) scale = Math.Max(scale, Math.Abs(v));
-            if (scale == 0) return (0, 0);
-            double mean = 0;
-            foreach (double v in x) mean += v / scale;
-            mean /= x.Length;
-            double ss = 0;
-            foreach (double v in x) { double d = v / scale - mean; ss += d * d; }
-            return (mean * scale, Math.Sqrt(ss / x.Length) * scale);
+            int n = x.Length;
+            double big = 0;
+            foreach (double v in x) big = Math.Max(big, Math.Abs(v));
+            if (big == 0) return (0, 0);
+            double p = Pow2Scale(big), x0 = x[0] / p, shift = 0;
+            foreach (double v in x) shift += v / p - x0;
+            double mean = x0 + shift / n;
+            double max = 0;
+            foreach (double v in x) max = Math.Max(max, Math.Abs(v / p - mean));
+            if (max == 0) return (mean * p, 0);
+            double s = Pow2Scale(max), ss = 0, sd = 0;
+            foreach (double v in x) { double d = (v / p - mean) / s; ss += d * d; sd += d; }
+            ss = Math.Max(0, ss - sd * sd / n);
+            return (mean * p, Math.Sqrt(ss / n) * s * p);
+        }
+
+        // The power of two at or below m (m > 0, finite): dividing by it is exact.
+        private static double Pow2Scale(double m)
+        {
+            // At most 2^1023: the logarithm of a value near double.MaxValue rounds up to 1024.
+            double p = Math.Pow(2, Math.Min(1023, Math.Floor(Math.Log(m) / Math.Log(2))));
+            while (p > m) p /= 2;
+            while (p * 2 <= m) p *= 2;
+            return p;
         }
 
         // ln(1 + d) − d, accurate for small d.

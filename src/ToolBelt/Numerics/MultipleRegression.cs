@@ -371,9 +371,21 @@ namespace ToolBelt.Numerics
                     if (x[j] != x[i]) slopes[count++] = Slope(x[i], y[i], x[j], y[j]);
             if (count == 0) throw new ArgumentException("Need at least two distinct x values.", nameof(x));
             double slope = Median(slopes, count);
+            // A pairwise slope past double.MaxValue is ±∞, and the median of −∞ and +∞ (or the intercept ∞·0) was NaN for
+            // finite data: such a fit has no finite line, so it is refused.
+            if (double.IsNaN(slope) || double.IsInfinity(slope))
+                throw new ArgumentException("The median slope overflows a double (x values too close for the spread of y).", nameof(x));
             var intercepts = new double[x.Count];
-            for (int i = 0; i < x.Count; i++) intercepts[i] = y[i] - slope * x[i];
-            return (slope, Median(intercepts, intercepts.Length));
+            for (int i = 0; i < x.Count; i++)
+            {
+                double fit = slope * x[i];
+                // slope·x past double.MaxValue with y − slope·x in range: from the halves.
+                intercepts[i] = double.IsInfinity(fit) ? 2 * (y[i] / 2 - slope / 2 * x[i]) : y[i] - fit;
+            }
+            double intercept = Median(intercepts, intercepts.Length);
+            if (double.IsNaN(intercept))
+                throw new ArgumentException("The intercept overflows a double.", nameof(y));
+            return (slope, intercept);
         }
 
         // .NET Framework caps one array at 2 GB (about 268 million doubles, 23,170 points) unless the app sets

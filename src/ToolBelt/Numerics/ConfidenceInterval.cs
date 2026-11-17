@@ -94,8 +94,11 @@ namespace ToolBelt.Numerics
             double mean = x0 + shift / n;
             double max = 0;
             for (int i = 0; i < n; i++) max = Math.Max(max, Math.Abs(x[i] / p - mean));
-            double s = Pow2Scale(max), ss = 0;
-            for (int i = 0; i < n; i++) { double d = (x[i] / p - mean) / s; ss += d * d; }
+            // The corrected two-pass sum Σd² − (Σd)²/n, as HypothesisTests: the mean is rounded to an ulp of the data's
+            // offset, and that error, squared, stayed in Σd² (sd 7.5e-11 relative off for data on 1e6 with a spread of 1e-5).
+            double s = Pow2Scale(max), ss = 0, sd = 0;
+            for (int i = 0; i < n; i++) { double d = (x[i] / p - mean) / s; ss += d * d; sd += d; }
+            ss = Math.Max(0, ss - sd * sd / n);
             return (mean * p, Math.Sqrt(ss / (n - 1)) * s * p);
         }
 

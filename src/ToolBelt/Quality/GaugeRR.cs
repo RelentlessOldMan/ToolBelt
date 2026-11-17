@@ -204,44 +204,67 @@ namespace ToolBelt.Quality
             // outright, readings near 1e-160 underflowed to "no variation" and readings near 1e+160 overflowed to NaN.
             double s = Pow2Scale(maxAbs);
             // As offsets from the first reading c, as Anova does: summed outright, readings on a large offset (a 25.4 mm
-            // part measured to 1e-5) lost their variation to cancellation between the means.
-            double c = measurements[0, 0, 0] / s, maxOffset = 0;
+            // part measured to 1e-5) lost their variation to cancellation between the means. The effects inside a part
+            // (operator, interaction) are taken from offsets from that part's own first reading, and repeatability from
+            // each cell's own first reading, with the two-pass correction: about the one c, a part near 1 with 1e-12 of
+            // variation next to parts at 1000 had its repeatability and operator effect rounded (and floored) to zero.
+            double c = measurements[0, 0, 0] / s, maxOffset = 0, ssRep = 0;
+            var local = new double[p, o];     // cell mean about the part's own first reading
+            var localMax = new double[p];
             for (int i = 0; i < p; i++)
+            {
+                double ci = measurements[i, 0, 0] / s;
                 for (int j = 0; j < o; j++)
                 {
-                    double sum = 0;
+                    double cij = measurements[i, j, 0] / s, sum = 0, lsum = 0, cellMax = 0;
                     for (int k = 0; k < r; k++)
                     {
-                        double d = measurements[i, j, k] / s - c;
-                        sum += d;
-                        maxOffset = Math.Max(maxOffset, Math.Abs(d));
+                        double v = measurements[i, j, k] / s;
+                        sum += v - c;
+                        lsum += v - cij;
+                        maxOffset = Math.Max(maxOffset, Math.Abs(v - c));
+                        localMax[i] = Math.Max(localMax[i], Math.Abs(v - ci));
+                        cellMax = Math.Max(cellMax, Math.Abs(v - cij));
                     }
+                    double lmean = lsum / r, ss = 0, se = 0;
+                    for (int k = 0; k < r; k++) { double e = measurements[i, j, k] / s - cij - lmean; ss += e * e; se += e; }
+                    ss = Math.Max(0, ss - se * se / r);
+                    // Sums of squares at rounding level are zero (identical readings of 0.1 leave ~1e-34 of round-off), so
+                    // they cannot produce F ratios or variance shares out of noise; each cell's floor follows its own spread.
+                    if (ss > r * Sq(1e-14 * cellMax)) ssRep += ss;
+                    double lo = 0;
+                    for (int k = 0; k < r; k++) lo += measurements[i, j, k] / s - ci;
+                    local[i, j] = lo / r;
                     cell[i, j] = sum / r;
                     partMean[i] += cell[i, j] / o;
-                    opMean[j] += cell[i, j] / p;
                     grand += cell[i, j] / (p * o);
                 }
+            }
 
-            double ssPart = 0, ssOp = 0, ssInt = 0, ssRep = 0;
+            double ssPart = 0, ssOp = 0, ssInt = 0;
             for (int i = 0; i < p; i++) ssPart += Sq(partMean[i] - grand);
             ssPart *= o * r;
-            for (int j = 0; j < o; j++) ssOp += Sq(opMean[j] - grand);
-            ssOp *= p * r;
+            // Operator effects as means of within-part differences, which are small numbers carried at full precision.
+            var localPart = new double[p];
+            for (int i = 0; i < p; i++)
+            {
+                for (int j = 0; j < o; j++) localPart[i] += local[i, j] / o;
+                for (int j = 0; j < o; j++) opMean[j] += (local[i, j] - localPart[i]) / p;
+            }
+            double opSum = 0;
+            for (int j = 0; j < o; j++) { ssOp += Sq(opMean[j]); opSum += opMean[j]; }
+            ssOp = Math.Max(0, ssOp - opSum * opSum / o) * p * r;
             for (int i = 0; i < p; i++)
                 for (int j = 0; j < o; j++)
-                {
-                    ssInt += Sq(cell[i, j] - partMean[i] - opMean[j] + grand);
-                    for (int k = 0; k < r; k++) ssRep += Sq(measurements[i, j, k] / s - c - cell[i, j]);
-                }
+                    ssInt += Sq(local[i, j] - localPart[i] - opMean[j]);
             ssInt *= r;
-            // Sums of squares at rounding level are zero (identical readings of 0.1 leave ~1e-34 of round-off), so they
-            // cannot produce F ratios or variance shares out of noise. The round-off scales with the offsets the sums are
-            // built from; scaled by the largest reading, the floor zeroed real repeatability of readings on an offset.
-            double floor = p * o * r * Sq(1e-14 * maxOffset);
+            // The part sum is built from the offsets from c, so its round-off scales with the largest offset; the operator
+            // and interaction sums from the offsets inside each part, so theirs with each part's own spread.
+            double floor = p * o * r * Sq(1e-14 * maxOffset), withinFloor = 0;
+            for (int i = 0; i < p; i++) withinFloor += o * r * Sq(1e-14 * localMax[i]);
             if (ssPart <= floor) ssPart = 0;
-            if (ssOp <= floor) ssOp = 0;
-            if (ssInt <= floor) ssInt = 0;
-            if (ssRep <= floor) ssRep = 0;
+            if (ssOp <= withinFloor) ssOp = 0;
+            if (ssInt <= withinFloor) ssInt = 0;
             double ssTotal = ssPart + ssOp + ssInt + ssRep;
             if (ssTotal == 0)
                 throw new ArgumentException("Every measurement is the same: the study has no variation to apportion.", nameof(measurements));
@@ -347,6 +370,13 @@ namespace ToolBelt.Quality
             if (double.IsPositiveInfinity(f)) return (f, 0);
             // P(F > f) = 1 − I_y(df1/2, df2/2) with y = df1·f/(df1·f + df2), the complement computed directly.
             double num = df1 * f, den = num + df2;
+            // y underflows under a huge df2: as Distributions' FMasses.
+            if (num / den < 2.2250738585072014E-308 && !double.IsInfinity(den))
+            {
+                if (num < 1e-17) return (f, -Expm1(df1 / 2.0 * (Math.Log(num) - Math.Log(den)) - Math.Log(df1 / 2.0) - LnBeta(df1 / 2.0, df2 / 2.0)));
+                GammaPQ(df1 / 2.0, num / 2 * (df2 / den), out _, out double gq);
+                return (f, gq);
+            }
             BetaI(num / den, df2 / den, df1 / 2.0, df2 / 2.0, out _, out double upper);
             return (f, upper);
         }

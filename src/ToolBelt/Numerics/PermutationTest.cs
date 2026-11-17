@@ -72,6 +72,7 @@ namespace ToolBelt.Numerics
             if (a.Count == 0 || b.Count == 0) throw new ArgumentException("Both samples must be non-empty.", a.Count == 0 ? nameof(a) : nameof(b));
             // Capped as Bootstrap caps resamples: the null distribution is one array.
             if (permutations < 1 || permutations > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(permutations), permutations, "Must be 1 to Array.MaxLength (0x7FFFFFC7).");
+            RequireAlternative(alternative);
             statistic ??= MeanDifference;
             RequireFinite(a, nameof(a));
             RequireFinite(b, nameof(b));
@@ -133,6 +134,7 @@ namespace ToolBelt.Numerics
             if (random is null) throw new ArgumentNullException(nameof(random));
             if (first.Count != second.Count) throw new ArgumentException("Paired samples must have the same length.", nameof(second));
             if (first.Count == 0) throw new ArgumentException("Samples must be non-empty.", nameof(first));
+            RequireAlternative(alternative);
             // Capped as Bootstrap caps resamples: the null distribution is one array.
             if (permutations < 1 || permutations > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(permutations), permutations, "Must be 1 to Array.MaxLength (0x7FFFFFC7).");
             RequireFinite(first, nameof(first));
@@ -173,23 +175,35 @@ namespace ToolBelt.Numerics
         /// <summary>mean(a) − mean(b), the default two-sample statistic.</summary>
         public static double MeanDifference(IReadOnlyList<double> a, IReadOnlyList<double> b) => Mean(a) - Mean(b);
 
+        // An undefined value was silently run as TwoSided.
+        private static void RequireAlternative(Alternative alternative)
+        {
+            if (alternative != Alternative.TwoSided && alternative != Alternative.Greater && alternative != Alternative.Less)
+                throw new ArgumentOutOfRangeException(nameof(alternative), alternative, "Not a defined Alternative.");
+        }
+
         private static PermutationResult Result(double observed, double[] nulls, bool exact, Alternative alternative)
         {
             // A tolerance relative to the statistic's own scale, so rearrangements equal to the observed value up to rounding
             // count as "as extreme" — whatever the units (an absolute 1e-12 would call everything a tie for data near 1e-13).
-            // Infinite values take no part in the scale (an infinite tolerance made everything a tie, p = 1); a NaN would fail
-            // every comparison (p = 0), so it is refused.
+            // The scale is per comparison: the larger of the two values and the median finite |statistic| (the typical size,
+            // for an observed value that is rounding noise about zero). Scaled by the largest statistic of all, one huge
+            // rearrangement (a variance ratio near 1e12) made every value a tie (p = 1 for a true 9/21). Infinite values take
+            // no part in the scale; a NaN would fail every comparison (p = 0), so it is refused.
             if (double.IsNaN(observed)) throw new InvalidOperationException("The statistic returned NaN on the observed data.");
-            double scale = double.IsInfinity(observed) ? 0 : Math.Abs(observed);
+            var finite = new List<double>(nulls.Length);
             foreach (double s in nulls)
             {
                 if (double.IsNaN(s)) throw new InvalidOperationException("The statistic returned NaN on a rearrangement.");
-                if (!double.IsInfinity(s)) scale = Math.Max(scale, Math.Abs(s));
+                if (!double.IsInfinity(s)) finite.Add(Math.Abs(s));
             }
-            double tol = 1e-12 * scale;
+            finite.Sort();
+            double typical = finite.Count == 0 ? 0 : finite[finite.Count / 2];
+            double obsScale = double.IsInfinity(observed) ? 0 : Math.Abs(observed);
             int greater = 0, less = 0;
             foreach (double s in nulls)
             {
+                double tol = double.IsInfinity(s) ? 0 : 1e-12 * Math.Max(typical, Math.Max(obsScale, Math.Abs(s)));
                 if (s >= observed - tol) greater++;
                 if (s <= observed + tol) less++;
             }

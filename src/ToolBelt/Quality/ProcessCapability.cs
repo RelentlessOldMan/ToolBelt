@@ -55,6 +55,9 @@ namespace ToolBelt.Quality
             if (double.IsNaN(lowerSpec)) throw new ArgumentOutOfRangeException(nameof(lowerSpec), lowerSpec, "Spec limit is NaN.");
             if (double.IsNaN(upperSpec)) throw new ArgumentOutOfRangeException(nameof(upperSpec), upperSpec, "Spec limit is NaN.");
             if (lowerSpec >= upperSpec) throw new ArgumentException("lowerSpec must be less than upperSpec.", nameof(upperSpec));
+            // An undefined value was silently run as the within-subgroup estimator.
+            if (estimator != SigmaEstimator.Overall && estimator != SigmaEstimator.WithinSubgroup)
+                throw new ArgumentOutOfRangeException(nameof(estimator), estimator, "Not a defined SigmaEstimator.");
             for (int i = 0; i < sample.Count; i++)
                 if (double.IsNaN(sample[i]) || double.IsInfinity(sample[i]))
                     throw new ArgumentException($"Value [{i}] is not finite.", nameof(sample));
@@ -94,8 +97,11 @@ namespace ToolBelt.Quality
         // Both in units of p.
         private static double OverallSigma(IReadOnlyList<double> sample, double p, double mean)
         {
-            double sumSq = 0;
-            for (int i = 0; i < sample.Count; i++) { double d = sample[i] / p - mean; sumSq += d * d; }
+            // The corrected two-pass sum Σd² − (Σd)²/n: the rounding of the mean, squared, stayed in Σd² (σ 7.5e-11 relative
+            // off for data on 1e6 with a spread of 1e-5).
+            double sumSq = 0, sum = 0;
+            for (int i = 0; i < sample.Count; i++) { double d = sample[i] / p - mean; sumSq += d * d; sum += d; }
+            sumSq = Math.Max(0, sumSq - sum * sum / sample.Count);
             return Math.Sqrt(sumSq / (sample.Count - 1));
         }
 
