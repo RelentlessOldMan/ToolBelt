@@ -48,11 +48,20 @@ namespace ToolBelt.Threading
             cancellationToken.ThrowIfCancellationRequested();   // an attempt that ignored it made the call succeed
             bool hedges = hedgeDelay != Timeout.InfiniteTimeSpan && hedgeDelay.TotalMilliseconds <= int.MaxValue;
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var running = new List<Task<T>>();
+            var all = new List<Task<T>>();
+            var finished = new Finished<T>();
+            int inFlight = 0;
             var failures = new List<Exception>();
+            void Launch(int n)
+            {
+                var task = Start(() => attempt(n, cts.Token));
+                all.Add(task);
+                inFlight++;
+                finished.Watch(task);
+            }
             try
             {
-                running.Add(Start(() => attempt(0, cts.Token)));
+                Launch(0);
                 int started = 1;
                 // One timer per hedge, started with the attempt before it: a failure in between used to restart it.
                 Task? timer = null;
@@ -71,7 +80,9 @@ namespace ToolBelt.Threading
                 {
                     while (true)
                     {
-                        var waitFor = new List<Task>(running);
+                        // One wait on "an attempt finished" and the timer: a WhenAny over every running attempt, rebuilt each
+                        // time, made many attempts quadratic (8000 hedges took 3.9 s).
+                        Task next = finished.Next();
                         if (started < maxAttempts && hedges)
                         {
                             if (timer is null)
@@ -79,33 +90,29 @@ namespace ToolBelt.Threading
                                 timerCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
                                 timer = Task.Delay(hedgeDelay, timerCts.Token);
                             }
-                            waitFor.Add(timer);
+                            if (await Task.WhenAny(next, timer).ConfigureAwait(false) == timer && !next.IsCompleted)
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+                                DropTimer();
+                                Launch(started++);
+                                continue;
+                            }
                         }
-                        if (waitFor.Count == 0) throw new AggregateException("Every attempt failed.", failures);
-                        Task done = await Task.WhenAny(waitFor).ConfigureAwait(false);
-                        if (done == timer)
-                        {
-                            cancellationToken.ThrowIfCancellationRequested();
-                            DropTimer();
-                            int n = started++;
-                            running.Add(Start(() => attempt(n, cts.Token)));
-                            continue;
-                        }
-                        var finished = (Task<T>)done;
-                        running.Remove(finished);
-                        if (finished.Status == TaskStatus.RanToCompletion) return finished.Result;
-                        // Read before the cancellation check: removed from running, the finally no longer observed it, so a
-                        // fault that met a cancel went unobserved.
-                        Exception failure = Unwrap(finished);
+                        else if (inFlight == 0) throw new AggregateException("Every attempt failed.", failures);
+                        else await next.ConfigureAwait(false);
+                        var done = finished.Take();
+                        inFlight--;
+                        if (done.Status == TaskStatus.RanToCompletion) return done.Result;
+                        // Read before the cancellation check, so a fault that met a cancel is observed.
+                        Exception failure = Unwrap(done);
                         cancellationToken.ThrowIfCancellationRequested();
                         failures.Add(failure);
-                        if (running.Count == 0 && started >= maxAttempts) throw new AggregateException("Every attempt failed.", failures);
-                        if (running.Count == 0)
+                        if (inFlight == 0 && started >= maxAttempts) throw new AggregateException("Every attempt failed.", failures);
+                        if (inFlight == 0)
                         {
                             // Nothing in flight: start the next hedge immediately rather than waiting out the delay.
                             DropTimer();
-                            int n = started++;
-                            running.Add(Start(() => attempt(n, cts.Token)));
+                            Launch(started++);
                         }
                     }
                 }
@@ -114,8 +121,44 @@ namespace ToolBelt.Threading
             finally
             {
                 CancelLosers(cts);
-                await Quietly(running).ConfigureAwait(false);
+                await Quietly(all).ConfigureAwait(false);
             }
+        }
+
+        // Attempts in the order they finish, each handed over once: a WhenAny over the pending ones per round, and a
+        // List.Remove, made a race quadratic in its attempts (40000 failing attempts took 11 s).
+        private sealed class Finished<T>
+        {
+            private readonly object _gate = new object();
+            private readonly Queue<Task<T>> _done = new Queue<Task<T>>();
+            private TaskCompletionSource<bool>? _waiter;
+
+            public void Watch(Task<T> task) =>
+                task.ContinueWith(Arrived, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+
+            private void Arrived(Task<T> task)
+            {
+                TaskCompletionSource<bool>? waiter;
+                lock (_gate)
+                {
+                    _done.Enqueue(task);
+                    waiter = _waiter;
+                    _waiter = null;
+                }
+                waiter?.TrySetResult(true);
+            }
+
+            // Completes once an attempt is ready to Take (at once if one is).
+            public Task Next()
+            {
+                lock (_gate)
+                {
+                    if (_done.Count > 0) return Task.CompletedTask;
+                    return (_waiter ??= new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+                }
+            }
+
+            public Task<T> Take() { lock (_gate) return _done.Dequeue(); }
         }
 
         private static async Task<T> Race<T>(IEnumerable<Func<CancellationToken, Task<T>>> attempts, Func<T, bool>? accept,
@@ -129,15 +172,16 @@ namespace ToolBelt.Threading
             cancellationToken.ThrowIfCancellationRequested();
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var running = factories.Select(f => Start(() => f(cts.Token))).ToList();
-            var all = running.ToList();
+            var all = factories.Select(f => Start(() => f(cts.Token))).ToList();
+            var finished = new Finished<T>();
+            foreach (var task in all) finished.Watch(task);
             var failures = new List<Exception>();
             try
             {
-                while (running.Count > 0)
+                for (int left = all.Count; left > 0; left--)
                 {
-                    var done = await Task.WhenAny(running).ConfigureAwait(false);
-                    running.Remove(done);
+                    await finished.Next().ConfigureAwait(false);
+                    var done = finished.Take();
                     if (!successOnly)
                     {
                         // The caller's token, not the linked one the attempt saw.

@@ -127,6 +127,14 @@ namespace ToolBelt.Resilience
                 // filter taken as false, so a predicate's own bug vanished and the operation's exception came out instead.
                 catch (Exception ex) when (attempt < policy.MaxAttempts)
                 {
+                    // The caller cancelled: stop now, with the operation's own cancellation if it threw one. It went through
+                    // ShouldRetry and a backoff, and came out as the delay's TaskCanceledException (or waited out a delay that
+                    // ignored the token).
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        if (ex is OperationCanceledException) throw;
+                        throw new OperationCanceledException(cancellationToken);
+                    }
                     if (!policy.ShouldRetry(ex)) throw;
                     var delay = policy.DelayForAttempt(attempt);
                     // A custom delay returning null threw NullReferenceException here, and the operation's exception was lost.

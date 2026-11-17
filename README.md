@@ -975,6 +975,7 @@ tests/
       ConcurrencyReview4Tests.cs (fourth-pass regressions: draining after decode errors, grandchild-held pipes, cancelled races and events, observed faults, exact retry ticks)
       ConcurrencyReview81Tests.cs (fifth pass: stdin encoder failures, unterminated output, parallel event cancels, observed faults, hedge timers, pool clearing)
       ConcurrencyReview97Tests.cs (sixth pass: completing a pipeline from its consumer, drop policies after Dispose, one fault observer per task)
+      ConcurrencyReview114Tests.cs (seventh pass: consumer re-queuing into a full pipeline, completing and disposing from consumer-started work, calls after Dispose, producers blocked during Dispose on .NET Framework, caller cancels in Retry, linear races and hedges)
       FlakeRootCauseTests.cs  (round 46: pipeline, async log sink and process readers run off the thread pool)
       CallbackReview54Tests.cs (round 54, cross-cutting: throwing comparers, hashes, clocks, handlers, error sinks and token callbacks)
       CancelDisposeReview55Tests.cs (round 55, cross-cutting: the caller's token, cancelled tokens honoured, Dispose racing the work)

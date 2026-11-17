@@ -116,3 +116,11 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R113-1 | P3 | 6 | suspected | Base32 and Crockford Decode pre-size their output from the input length, so a huge whitespace- or hyphen-only string allocates about 0.6 bytes per character for nothing. | review r113 |
 | R113-2 | P3 | 6 | suspected | ImageBuffer.DrawLineClipped rounds the clipped endpoints half-to-even, so pixels inside the clip can differ from the unclipped DrawLine ((0,0)-(4,1) clipped at x=2). | review r113 |
 | R113-3 | P3 | 6 | suspected | Bmp.Decode reads BI_BITFIELDS masks at 54 for non-standard header sizes 41-51. | review r113 |
+| R114-1 | P3 | 10 | suspected | PauseToken's wait returns success for an already-cancelled token while unpaused. | review r114 |
+| R114-2 | P3 | 10 | suspected | AsyncEvent.InvokeParallelAsync runs handlers that finish synchronously one after another, not in parallel. | review r114 |
+| R114-3 | P3 | 10 | suspected | ProcessRunner adds a WhenAll continuation per poll while waiting for output to drain. | review r114 |
+| R114-4 | P3 | 10 | suspected | AsyncLazy callers block for the synchronous part of the factory. | review r114 |
+| R114-5 | P3 | 10 | suspected | A custom Retry DelayAsync that throws synchronously replaces the operation's exception. | review r114 |
+| R114-6 | P3 | 10 | suspected | ProcessRunner.RunAsync can report a timeout and a cancel landing together as a cancel. | review r114 |
+| R114-7 | P3 | 10 | suspected | TokenBucket's capacity check does not match the tolerance it grants with. | review r114 |
+| R114-8 | P3 | 10 | suspected | WhichExe resolves a drive-relative name like `C:tool.exe` against that drive's current directory. | review r114 |
