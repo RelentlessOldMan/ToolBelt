@@ -66,6 +66,7 @@ namespace ToolBelt.Windows
         /// </summary>
         public static StorageDevice Describe(string path)
         {
+            if (path is null) throw new ArgumentNullException(nameof(path));
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path is required.", nameof(path));
             string full = Path.GetFullPath(path);
             // \\?\C:\x and \\.\C: are device-path spellings of a local drive.
@@ -131,6 +132,7 @@ namespace ToolBelt.Windows
         /// </summary>
         public static string? GetUncPath(string path)
         {
+            if (path is null) throw new ArgumentNullException(nameof(path));
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path is required.", nameof(path));
             string full = Path.GetFullPath(path);
             // Device paths are local unless they name a UNC share: \\?\UNC\server\share (or \\.\UNC\…) → \\server\share;

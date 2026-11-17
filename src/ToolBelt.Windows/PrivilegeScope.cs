@@ -37,6 +37,7 @@ namespace ToolBelt.Windows
         /// <summary>Enables <paramref name="privilegeName"/> on the process token until disposed.</summary>
         public static PrivilegeScope Enable(string privilegeName)
         {
+            if (privilegeName is null) throw new ArgumentNullException(nameof(privilegeName));
             if (string.IsNullOrWhiteSpace(privilegeName)) throw new ArgumentException("Privilege name is required.", nameof(privilegeName));
             LUID luid = Lookup(privilegeName);
             using var token = OpenToken(TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY);
@@ -80,6 +81,7 @@ namespace ToolBelt.Windows
 
         private static bool? Query(string privilegeName)
         {
+            if (privilegeName is null) throw new ArgumentNullException(nameof(privilegeName));
             if (string.IsNullOrWhiteSpace(privilegeName)) throw new ArgumentException("Privilege name is required.", nameof(privilegeName));
             LUID luid = Lookup(privilegeName);
             using var token = OpenToken(TOKEN_QUERY);

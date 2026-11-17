@@ -74,6 +74,7 @@ namespace ToolBelt.Windows
             subKey = subKey.TrimStart('\\');   // a leading backslash read as absent but failed to write
             if (name is null) throw new ArgumentNullException(nameof(name));
             using RegistryKey baseKey = OpenBase(hive);
+            if (name.IndexOf('\0') >= 0) return defaultValue;   // no value has such a name; Win32 read the name up to the NUL
             using RegistryKey? key = OpenForRead(baseKey, subKey, out _);
             return key?.GetValue(name, defaultValue) ?? defaultValue;
         }
@@ -81,9 +82,11 @@ namespace ToolBelt.Windows
         // Opens a subkey for reading; a key that exists but this account may not read (HKLM\SECURITY, other users' hives)
         // threw SecurityException out of every read helper. It reads as null, with denied telling the two cases apart. A
         // path no key can have (a segment over 255 characters) reads as absent too: it threw naming "name".
+        // A NUL reads as absent too: Win32 ends the path there, so "a\0b" opened "a".
         private static RegistryKey? OpenForRead(RegistryKey baseKey, string subKey, out bool denied)
         {
             denied = false;
+            if (subKey.IndexOf('\0') >= 0) return null;
             try { return baseKey.OpenSubKey(subKey, writable: false); }
             catch (Exception ex) when (ex is System.Security.SecurityException || ex is UnauthorizedAccessException)
             {
@@ -101,8 +104,10 @@ namespace ToolBelt.Windows
         }
 
         // For writes and deletes: an over-long segment threw ArgumentException naming "name", the value-name parameter.
+        // A NUL is refused: Win32 ends the path there, so DeleteKey(@"App\victim" + "\0other") deleted all of App\victim.
         private static T ForSubKey<T>(string subKey, Func<T> f)
         {
+            if (subKey.IndexOf('\0') >= 0) throw new ArgumentException("A registry key path may not contain a NUL character.", nameof(subKey));
             try { return f(); }
             catch (ArgumentException ex) when (ex.ParamName != nameof(subKey) && !(ex is ArgumentNullException))
             {
@@ -113,7 +118,8 @@ namespace ToolBelt.Windows
         /// <summary>
         /// Writes a value, creating the subkey if necessary. A <c>uint</c> or <c>ulong</c> is stored as the DWORD or QWORD
         /// with the same bits (when <paramref name="kind"/> is <see cref="RegistryValueKind.Unknown"/> or that kind), so it
-        /// reads back through <see cref="GetValue{T}"/> unchanged.
+        /// reads back through <see cref="GetValue{T}"/> unchanged. Other numbers, dates and enums stored as text are
+        /// written in the invariant culture, as <see cref="GetValue{T}"/> reads them.
         /// </summary>
         public static void SetValue(RegistryHive hive, string subKey, string name, object value,
             RegistryValueKind kind = RegistryValueKind.Unknown)
@@ -122,12 +128,19 @@ namespace ToolBelt.Windows
             subKey = subKey.TrimStart('\\');   // a leading backslash read as absent but failed to write
             if (name is null) throw new ArgumentNullException(nameof(name));
             if (value is null) throw new ArgumentNullException(nameof(value));
+            // Win32 ends a value name at a NUL, so "real\0shadow" overwrote "real".
+            if (name.IndexOf('\0') >= 0) throw new ArgumentException("A value name may not contain a NUL character.", nameof(name));
             // RegistryKey range-checks a DWORD against int and a QWORD against long, and stored an unknown-kind uint as text:
             // 0x80000000u threw, or became REG_SZ "2147483648", although GetValue reads DWORDs as unsigned.
             if (value is uint u && (kind == RegistryValueKind.Unknown || kind == RegistryValueKind.DWord))
             { value = unchecked((int)u); kind = RegistryValueKind.DWord; }
             else if (value is ulong ul && (kind == RegistryValueKind.Unknown || kind == RegistryValueKind.QWord))
             { value = unchecked((long)ul); kind = RegistryValueKind.QWord; }
+            // Anything else stored as text went through ToString() in the current culture, but GetValue<T> parses it
+            // invariantly: under de-DE 1.5 was written "1,5" and read back as 15 (and -5L under sv-SE had a Unicode minus).
+            else if (value is IFormattable formattable && ((kind == RegistryValueKind.Unknown && !(value is int))
+                || kind == RegistryValueKind.String || kind == RegistryValueKind.ExpandString))
+            { value = formattable.ToString(null, CultureInfo.InvariantCulture); if (kind == RegistryValueKind.Unknown) kind = RegistryValueKind.String; }
             using RegistryKey baseKey = OpenBase(hive);
             using RegistryKey key = ForSubKey(subKey, () => baseKey.CreateSubKey(subKey, writable: true))
                 ?? throw new InvalidOperationException($"Could not open or create subkey '{subKey}'.");
@@ -143,6 +156,8 @@ namespace ToolBelt.Windows
             if (subKey is null) throw new ArgumentNullException(nameof(subKey));
             subKey = subKey.TrimStart('\\');   // a leading backslash read as absent but failed to write
             if (name is null) throw new ArgumentNullException(nameof(name));
+            // Win32 ends a value name at a NUL, so this deleted the value named up to it.
+            if (name.IndexOf('\0') >= 0) throw new ArgumentException("A value name may not contain a NUL character.", nameof(name));
             using RegistryKey baseKey = OpenBase(hive);
             using RegistryKey? key = ForSubKey(subKey, () => baseKey.OpenSubKey(subKey, writable: true));
             if (key is null) return false;
@@ -164,6 +179,8 @@ namespace ToolBelt.Windows
             // RegistryKey refuses "" but not "\": its hive guard runs before it trims the backslashes, so DeleteKey(hive, @"\")
             // deleted everything in the hive.
             if (subKey.Trim('\\').Length == 0) throw new ArgumentException("The subkey must name a key below the hive.", nameof(subKey));
+            // Before the delete as well as the open: "\0" got past the guard above and named the hive itself.
+            if (subKey.IndexOf('\0') >= 0) throw new ArgumentException("A registry key path may not contain a NUL character.", nameof(subKey));
             using RegistryKey baseKey = OpenBase(hive);
             using (RegistryKey? existing = ForSubKey(subKey, () => baseKey.OpenSubKey(subKey)))
                 if (existing is null) return false;

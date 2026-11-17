@@ -99,6 +99,10 @@ namespace ToolBelt.Windows
             if (shortcutPath is null) throw new ArgumentNullException(nameof(shortcutPath));
             CheckPath(shortcutPath, nameof(shortcutPath));
 
+            // A file shorter than the 76-byte link header (an empty one after a failed write) loaded as a shortcut with no
+            // target, where text or random bytes are refused.
+            var file = new System.IO.FileInfo(shortcutPath);
+            if (file.Exists && file.Length < 0x4C) throw new System.IO.InvalidDataException("The file is not a readable shortcut.");
             IShellLinkW link = NewShellLink();
             try
             {

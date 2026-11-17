@@ -50,11 +50,14 @@ namespace ToolBelt.Windows
         /// <summary>True if this instance currently owns the gate.</summary>
         public bool IsOwned { get; private set; }
 
+        /// <summary>The longest name <see cref="TryAcquire(string)"/> takes.</summary>
+        public const int MaxNameLength = 32000;
+
         /// <summary>
         /// Attempts to acquire the gate named <paramref name="name"/> without blocking. Always returns an
         /// instance; check <see cref="IsOwned"/> to see whether this caller won the gate. A backslash may appear only after a
         /// namespace prefix (<c>Local\</c>, <c>Global\</c> or <c>Session\&lt;n&gt;\</c>); spelt exactly so (the kernel matches them case-sensitively); any other throws
-        /// <see cref="ArgumentException"/>.
+        /// <see cref="ArgumentException"/>, as does a name longer than <see cref="MaxNameLength"/>.
         /// </summary>
         public static SingleInstance TryAcquire(string name)
         {
@@ -62,6 +65,10 @@ namespace ToolBelt.Windows
             if (name.Length == 0) throw new ArgumentException("Name must not be empty.", nameof(name));
             // The kernel ends the name at a NUL, so names that differ only after one would share a gate.
             if (name.IndexOf('\0') >= 0) throw new ArgumentException("Name must not contain a NUL character.", nameof(name));
+            // A kernel object path holds at most 32767 characters, the session's object directory included: longer names
+            // were cut short, so two different ones shared a gate and the second reported "already running".
+            if (name.Length > MaxNameLength)
+                throw new ArgumentException($"Name may be at most {MaxNameLength} characters.", nameof(name));
             // Any other backslash names a kernel directory that doesn't exist (DirectoryNotFoundException from the mutex).
             string bare = StripNamespace(name);
             if (bare.IndexOf('\\') >= 0)

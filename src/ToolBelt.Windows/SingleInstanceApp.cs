@@ -106,6 +106,7 @@ namespace ToolBelt.Windows
         /// </summary>
         public static SingleInstanceApp Start(string appId, IReadOnlyList<string> args, TimeSpan? forwardTimeout = null)
         {
+            if (appId is null) throw new ArgumentNullException(nameof(appId));
             if (string.IsNullOrWhiteSpace(appId) || appId.IndexOfAny(new[] { '\\', '/' }) >= 0)
                 throw new ArgumentException("App id is required and may not contain slashes.", nameof(appId));
             // A NUL ends the kernel object names early (dropping the per-user part) and breaks the pipe name.
@@ -126,12 +127,16 @@ namespace ToolBelt.Windows
             using (var self = System.Diagnostics.Process.GetCurrentProcess())
                 session = self.SessionId;
             // ".2": the wire format (UTF-16 strings) changed, so a launch never talks to an older primary's listener.
-            string pipe = "ToolBelt.SingleInstance.2." + appId + "." + session + "." + user;
             // Pipe names ignore case but mutex names don't: "App" and "app" shared a pipe yet both became primary, and the
-            // second's launches went to the first. The gate now ignores case too, so the two ids are one instance.
-            string gateName = @"Local\ToolBelt.SingleInstance." + appId.ToUpperInvariant() + "." + user;
+            // second's launches went to the first. Both names use one folded id: the kernel's case table is not
+            // ToUpperInvariant's (it leaves U+017F and Georgian alone), so "...s" and "...ſ" shared a gate but not a pipe
+            // and the second launch was lost.
+            string folded = appId.ToUpperInvariant();
+            string pipe = "ToolBelt.SingleInstance.2." + folded + "." + session + "." + user;
+            string gateName = @"Local\ToolBelt.SingleInstance." + folded + "." + user;
             var gate = SingleInstance.TryAcquire(gateName);
             if (gate.IsOwned) return new SingleInstanceApp(gate, pipe, primary: true, forwarded: false);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             bool forwarded = Forward(pipe, args, timeout);
             if (!forwarded)
             {
@@ -140,8 +145,11 @@ namespace ToolBelt.Windows
                 gate.Dispose();
                 gate = SingleInstance.TryAcquire(gateName);
                 if (gate.IsOwned) return new SingleInstanceApp(gate, pipe, primary: true, forwarded: false);
-                // Another launch took over first: it is the primary now, so forward to it rather than lose this launch.
-                forwarded = Forward(pipe, args, timeout);
+                // Another launch took over first: it is the primary now, so forward to it rather than lose this launch. With
+                // what is left of the timeout: a second full wait took a launch to twice the forward timeout.
+                TimeSpan left = timeout == Timeout.InfiniteTimeSpan || timeout == TimeSpan.MaxValue ? timeout
+                    : clock.Elapsed >= timeout ? TimeSpan.Zero : timeout - clock.Elapsed;
+                forwarded = Forward(pipe, args, left);
             }
             return new SingleInstanceApp(gate, pipe, primary: false, forwarded);
         }

@@ -78,3 +78,10 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R105-12 | P3 | 17 | suspected | test.ps1: Kill() on Windows PowerShell 5.1 kills only the runner, not processes it started. | review r105 |
 | R105-13 | P3 | 17 | suspected | coverage.ps1 has no timeout; a hung run blocks forever, and killing it can leave an instrumented ToolBelt.dll in the test bin folder. | review r105 |
 | R105-14 | P3 | 17 | suspected | gen-incomplete-references.py: a reference row that now fails is dropped (the previous good row is lost) and the script still exits 0. | review r105 |
+| R106-1 | P3 | 15 | suspected | SingleInstanceApp: two ids the kernel's case table folds alike but ToUpperInvariant does not (and the reverse, e.g. U+A7C0/U+A7C1) may share a pipe but not a gate, so both become primary. | review r106 |
+| R106-2 | P3 | 15 | suspected | DpiInfo.Monitors throws where MonitorInfo falls back when the monitor API fails. | review r106 |
+| R106-3 | P3 | 15 | suspected | DpiInfo maps an unknown (-1) awareness context to PerMonitor rather than Unaware/unknown. | review r106 |
+| R106-4 | P3 | 15 | suspected | ClipboardUtils.SetText: text with a NUL is cut at it by CF_UNICODETEXT readers, silently. | review r106 |
+| R106-5 | P3 | 15 | suspected | ShortcutUtils: fields at or past the 260-character limits may be cut or refused inconsistently between Create and Read. | review r106 |
+| R106-6 | P3 | 15 | suspected | ShortcutUtils.Read of a truncated .lnk (past the header) can return partial data rather than throw. | review r106 |
+| R106-7 | P3 | 15 | suspected | JobObject: Start("   ") and AssignProcess(IntPtr.Zero) throw Win32Exception rather than ArgumentException. | review r106 |
