@@ -118,9 +118,10 @@ namespace ToolBelt.Diagnostics
 
         /// <summary>
         /// True if the failure is likely transient (worth retrying): timeouts, I/O, socket and HTTP request
-        /// failures, except an HTTP client error (a 4xx status other than 408 and 429). Programmer errors (argument, null-reference, invalid-operation), cancellation, and I/O failures
-        /// that a retry cannot fix (file, directory or drive not found, path too long, end of stream, a failed
-        /// assembly load) are not.
+        /// failures, except an HTTP client error (a 4xx status other than 408 and 429) or an FTP permanent error (a 5xx
+        /// reply). Cancellation is not transient. A programmer error (argument, null-reference, invalid-operation) or an
+        /// I/O failure that a retry cannot fix (file, directory or drive not found, path too long, end of stream, a
+        /// failed assembly load) anywhere in the exception makes it not transient.
         /// </summary>
         public static bool IsTransient(Exception exception)
         {
@@ -142,29 +143,41 @@ namespace ToolBelt.Diagnostics
                     string typeName = e.GetType().FullName ?? string.Empty;
                     if (typeName == "System.Net.Http.HttpRequestException" || typeName == "System.Net.WebException")
                     {
-                        // A client error (400, 401, 403, 404…) won't change on a retry; 408 and 429 might.
-                        int? status = HttpStatus(e);
-                        if (status >= 400 && status < 500 && status != 408 && status != 429) return false;
+                        // A client error (400, 401, 403, 404…) won't change on a retry; 408 and 429 might. An FTP reply
+                        // was read as an HTTP status: 550 (file unavailable) was transient and 450 (busy) was not.
+                        int? status = Status(e, out bool ftp);
+                        if (ftp ? status >= 500 && status < 600 : status >= 400 && status < 500 && status != 408 && status != 429)
+                            return false;
                         transient = true;
                     }
                     else if (typeName == "System.Net.Sockets.SocketException")
                         transient = true;
+                    // A programmer error was skipped, so whatever it wrapped or sat beside decided: an ArgumentException
+                    // around an IOException was transient, and a retry policy retried a bad argument. (WebException is an
+                    // InvalidOperationException, so it is taken first.)
+                    else if (e is ArgumentException || e is NullReferenceException || e is InvalidOperationException)
+                        return false;
                 }
             }
             return transient;
         }
 
-        // The HTTP status, by reflection so the core takes no networking dependency: HttpRequestException.StatusCode
-        // (.NET 5 on), or a WebException's Response.StatusCode.
-        private static int? HttpStatus(Exception e)
+        // The HTTP or FTP status, by reflection so the core takes no networking dependency: HttpRequestException.StatusCode
+        // (.NET 5 on), or a WebException's Response.StatusCode, told apart by its enum type (an FtpWebResponse's is
+        // FtpStatusCode). Any other status is unknown.
+        private static int? Status(Exception e, out bool ftp)
         {
+            ftp = false;
             try
             {
                 object? source = e;
                 if (e.GetType().FullName == "System.Net.WebException")
                     source = e.GetType().GetProperty("Response")?.GetValue(e);
                 object? code = source?.GetType().GetProperty("StatusCode")?.GetValue(source);
-                return code is Enum ? Convert.ToInt32(code, System.Globalization.CultureInfo.InvariantCulture) : (int?)null;
+                string? kind = code?.GetType().FullName;
+                if (kind != "System.Net.HttpStatusCode" && kind != "System.Net.FtpStatusCode") return null;
+                ftp = kind == "System.Net.FtpStatusCode";
+                return Convert.ToInt32(code, System.Globalization.CultureInfo.InvariantCulture);
             }
             catch (Exception) { return null; }   // a response that throws on access: no status known
         }

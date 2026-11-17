@@ -65,7 +65,8 @@ namespace ToolBelt.Logging
                 if (_disposed) return;
                 _disposed = true;
                 try { _writer.Flush(); } catch { /* best-effort */ }
-                if (_ownsWriter) _writer.Dispose();
+                // Disposing flushes again: a writer whose flush failed threw out of Dispose.
+                if (_ownsWriter) { try { _writer.Dispose(); } catch { /* best-effort */ } }
             }
         }
     }

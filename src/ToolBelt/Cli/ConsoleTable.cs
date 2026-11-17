@@ -64,6 +64,9 @@ namespace ToolBelt.Cli
         {
             if (unchecked((uint)index >= (uint)_alignments.Length))
                 throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be in [0, {_alignments.Length}).");
+            // An undefined value was kept and rendered as Left.
+            if (alignment != ColumnAlignment.Left && alignment != ColumnAlignment.Right)
+                throw new ArgumentOutOfRangeException(nameof(alignment), alignment, "Alignment must be Left or Right.");
             _alignments[index] = alignment;
             return this;
         }

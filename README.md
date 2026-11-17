@@ -1072,6 +1072,7 @@ tests/
       LoggingReview4Tests.cs (fourth-pass regressions: rate-limiter deadlock, syslog IPv6 and stalled collectors, null events, metrics sample cap, health status, ANSI resets, column-aware spinner, progress floor)
       LoggingDiagnosticsCliReview78Tests.cs (fifth pass: out-of-order scopes, linear scope and delimiter costs, throwing Messages, disposed decorators, bounded signatures, emoji widths)
       LoggingReview103Tests.cs (sixth pass: cross-consumer re-entry, concurrent health checks, summary order, later SGR resets, scopes disposed elsewhere, disposed sinks, unencodable lines, one-line spinner, undefined enums)
+      LoggingReview116Tests.cs (seventh pass: wide spinner characters, kept colour sequences, a guarded Tick, undefined table alignment, FTP replies and programmer errors in IsTransient, sinks after Dispose, broken owned writers, failed reopens after rotation)
   ToolBelt.Windows.Tests/   Windows-only integration tests for the platform satellite (net8.0-windows)
     PowerStatusTests.cs
     SingleInstanceTests.cs

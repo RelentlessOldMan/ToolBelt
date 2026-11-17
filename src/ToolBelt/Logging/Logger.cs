@@ -12,7 +12,8 @@ namespace ToolBelt.Logging
     public sealed class Logger : IDisposable
     {
         private readonly List<ILogSink> _sinks = new List<ILogSink>();
-        private readonly object _gate = new object();
+        // Shared with every ForCategory child; holds whether the owning logger is disposed.
+        private readonly Gate _gate = new Gate();
         private readonly Func<DateTimeOffset> _clock;
         private readonly bool _ownsSinks;
 
@@ -24,7 +25,9 @@ namespace ToolBelt.Logging
             _ownsSinks = true;
         }
 
-        private Logger(string category, LogLevel minimumLevel, Func<DateTimeOffset> clock, List<ILogSink> sharedSinks, object gate)
+        private sealed class Gate { public bool Disposed; }
+
+        private Logger(string category, LogLevel minimumLevel, Func<DateTimeOffset> clock, List<ILogSink> sharedSinks, Gate gate)
         {
             Category = category;
             MinimumLevel = minimumLevel;
@@ -39,11 +42,19 @@ namespace ToolBelt.Logging
         /// <summary>Events below this level are ignored.</summary>
         public LogLevel MinimumLevel { get; set; }
 
-        /// <summary>Registers a sink. Returns this for chaining.</summary>
+        /// <summary>
+        /// Registers a sink. Returns this for chaining. Throws <see cref="ObjectDisposedException"/> once the logger (or,
+        /// for a <see cref="ForCategory"/> logger, the one it came from) is disposed; the sink stays the caller's.
+        /// </summary>
         public Logger AddSink(ILogSink sink)
         {
             if (sink is null) throw new ArgumentNullException(nameof(sink));
-            lock (_gate) _sinks.Add(sink);
+            lock (_gate)
+            {
+                // A sink added after Dispose was kept and never disposed (a FileSink's handle leaked).
+                if (_gate.Disposed) throw new ObjectDisposedException(nameof(Logger));
+                _sinks.Add(sink);
+            }
             return this;
         }
 
@@ -87,7 +98,13 @@ namespace ToolBelt.Logging
         {
             if (!_ownsSinks) return;
             ILogSink[] snapshot;
-            lock (_gate) { snapshot = _sinks.ToArray(); _sinks.Clear(); }
+            lock (_gate)
+            {
+                if (_gate.Disposed) return;
+                _gate.Disposed = true;
+                snapshot = _sinks.ToArray();
+                _sinks.Clear();
+            }
             foreach (ILogSink sink in snapshot)
             {
                 try { sink.Dispose(); } catch { /* best-effort */ }

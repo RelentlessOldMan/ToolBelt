@@ -135,7 +135,10 @@ namespace ToolBelt.Logging
                 // the current file; the next write past the limit tries again.
             }
 
-            Open(); // a fresh primary file, or the current one again if the rotation failed
+            // A fresh primary file, or the current one again if the rotation failed. The event is already written: a
+            // failed reopen threw out of Emit, and a caller retrying on failure wrote it twice. The next Emit reopens.
+            try { Open(); }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
         }
 
         // Backups numbered past maxFiles (left by a sink that kept more, or after a gap in the run) were kept for good.

@@ -58,7 +58,9 @@ namespace ToolBelt.Cli
                 {
                     try
                     {
-                        while (!_cts.IsCancellationRequested)
+                        // Tick no longer throws on a broken writer, so the loop stops on the flag Quietly sets: it spun on
+                        // a closed pipe until Dispose.
+                        while (!_cts.IsCancellationRequested && !_broken)
                         {
                             await Task.Delay(period, _cts.Token).ConfigureAwait(false);
                             Tick();
@@ -100,7 +102,7 @@ namespace ToolBelt.Cli
             {
                 if (_disposed || !_interactive) return;
                 _frame = (_frame + 1) % _frames.Length;
-                Draw();
+                Quietly(Draw);   // a broken writer threw out of Tick, though the class promises drawing never throws
             }
         }
 
@@ -155,16 +157,33 @@ namespace ToolBelt.Cli
             _lastWidth = columns;
         }
 
+        // Control characters become spaces, except an SGR colour sequence (ESC [ digits and semicolons m), which is kept:
+        // its ESC became a space, so an AnsiStyle message showed "[32m" as text.
         internal static string OneLine(string s)
         {
             char[]? chars = null;
             for (int i = 0; i < s.Length; i++)
             {
                 char c = s[i];
-                if (char.IsControl(c) || c == '\u2028' || c == '\u2029')
+                int sgr = Sgr(s, i);
+                if (sgr > 0) i += sgr - 1;
+                else if (char.IsControl(c) || c == '\u2028' || c == '\u2029')
                     (chars ??= s.ToCharArray())[i] = ' ';
             }
             return chars == null ? s : new string(chars);
+        }
+
+        // The length of the SGR sequence at i, or 0.
+        private static int Sgr(string s, int i)
+        {
+            if (s[i] != '\u001B' || i + 1 >= s.Length || s[i + 1] != '[') return 0;
+            for (int j = i + 2; j < s.Length; j++)
+            {
+                char c = s[j];
+                if (c == 'm') return j - i + 1;
+                if ((c < '0' || c > '9') && c != ';') return 0;
+            }
+            return 0;
         }
 
         // The line cut to a number of screen columns. It was cut in UTF-16 units: a cut inside a surrogate pair left half
@@ -172,11 +191,13 @@ namespace ToolBelt.Cli
         internal static string Fit(string line, int maxColumns)
         {
             int used = 0;
+            bool styled = false;
             for (int i = 0; i < line.Length;)
             {
                 int n = Units(line, i);
                 int w = Width(line, i, n);
-                if (used + w > maxColumns) return line.Substring(0, i);
+                if (used + w > maxColumns) return styled ? line.Substring(0, i) + "\u001B[0m" : line.Substring(0, i);   // no colour left on
+                if (line[i] == '\u001B') styled = true;
                 used += w;
                 i += n;
             }
@@ -191,14 +212,21 @@ namespace ToolBelt.Cli
         }
 
         private static int Units(string s, int i)
-            => char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]) ? 2 : 1;
+        {
+            if (s[i] == '\u001B') return Math.Max(1, Sgr(s, i));   // a colour sequence is one unit of no width
+            return char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]) ? 2 : 1;
+        }
 
         // Columns for one character: none for marks, format characters, Hangul medial and final jamo (they join the
         // initial one) and emoji skin-tone modifiers; two for an East Asian wide character, a BMP emoji shown as an emoji
         // (U+2705, U+26A1, U+2B50), an astral emoji or symbol (U+1F000-1FAFF) or a CJK extension (planes 2 and 3); else
-        // one. Every astral character counted two (U+1D400, a narrow letter, too), and BMP emoji counted one.
+        // one. Every astral character counted two (U+1D400, a narrow letter, too), and BMP emoji counted one. A symbol
+        // followed by U+FE0F (emoji presentation, as in U+2764 U+FE0F) is two; the selector itself is none. Missing wide
+        // ranges counted one: vertical and small forms (U+FE10, U+FE50), Hangul Jamo Extended-A (U+A960), Tangut,
+        // Khitan and the ideographic symbols (U+16FE0-18DFF), and the kana supplements (U+1AFF0-1B2FF).
         private static int Width(string s, int i, int n)
         {
+            if (s[i] == '\u001B') return 0;   // an SGR sequence (Units measured it)
             UnicodeCategory category = CharUnicodeInfo.GetUnicodeCategory(s, i);
             if (category == UnicodeCategory.NonSpacingMark || category == UnicodeCategory.EnclosingMark || category == UnicodeCategory.Format)
                 return 0;
@@ -206,17 +234,21 @@ namespace ToolBelt.Cli
             {
                 int cp = char.ConvertToUtf32(s[i], s[i + 1]);
                 if (cp >= 0x1F3FB && cp <= 0x1F3FF) return 0;
-                return (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x20000 && cp <= 0x3FFFD) ? 2 : 1;
+                return (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x20000 && cp <= 0x3FFFD)
+                    || (cp >= 0x16FE0 && cp <= 0x18DFF) || (cp >= 0x1AFF0 && cp <= 0x1B2FF) || EmojiStyle(s, i + 2, category) ? 2 : 1;
             }
             char ch = s[i];
             if (ch >= '\u1160' && ch <= '\u11FF') return 0;
-            if ((ch >= '\u1100' && ch <= '\u115F') || (ch >= '\u2E80' && ch <= '\uA4CF') || (ch >= '\uAC00' && ch <= '\uD7A3')
-                || (ch >= '\uF900' && ch <= '\uFAFF') || (ch >= '\uFE30' && ch <= '\uFE4F') || (ch >= '\uFF00' && ch <= '\uFF60')
-                || (ch >= '\uFFE0' && ch <= '\uFFE6')) return 2;
+            if ((ch >= '\u1100' && ch <= '\u115F') || (ch >= '\u2E80' && ch <= '\uA4CF') || (ch >= '\uA960' && ch <= '\uA97F')
+                || (ch >= '\uAC00' && ch <= '\uD7A3') || (ch >= '\uF900' && ch <= '\uFAFF') || (ch >= '\uFE10' && ch <= '\uFE19')
+                || (ch >= '\uFE30' && ch <= '\uFE6F') || (ch >= '\uFF00' && ch <= '\uFF60') || (ch >= '\uFFE0' && ch <= '\uFFE6')) return 2;
             for (int k = 0; k < WideEmoji.Length; k += 2)
                 if (ch >= WideEmoji[k] && ch <= WideEmoji[k + 1]) return 2;
-            return 1;
+            return EmojiStyle(s, i + 1, category) ? 2 : 1;
         }
+
+        private static bool EmojiStyle(string s, int next, UnicodeCategory category)
+            => next < s.Length && s[next] == '\uFE0F' && category == UnicodeCategory.OtherSymbol;
 
         // The BMP characters with Emoji_Presentation (East Asian Width W), as inclusive ranges.
         private static readonly char[] WideEmoji =
@@ -235,8 +267,10 @@ namespace ToolBelt.Cli
         private void Quietly(Action write)
         {
             try { write(); }
-            catch (IOException) { }
-            catch (ObjectDisposedException) { }
+            catch (IOException) { _broken = true; }
+            catch (ObjectDisposedException) { _broken = true; }
         }
+
+        private volatile bool _broken; // a write failed: the background loop stops animating
     }
 }

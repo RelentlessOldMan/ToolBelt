@@ -131,3 +131,13 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R115-5 | P3 | 2 | suspected | Welch and Multitaper scale with ScaleB after the sum, which may round subnormal results twice. | review r115 |
 | R115-6 | P3 | 2 | suspected | An IReadOnlyList input that changes between reads gives inconsistent results. | review r115 |
 | R115-7 | P3 | 2 | suspected | SavitzkyGolay still sums per row for an edge window holding non-finite values. | review r115 |
+| R116-1 | P3 | 12 | suspected | ConsoleTable pads ANSI-styled cells by their escape characters, misaligning columns. | review r116 |
+| R116-2 | P3 | 12 | suspected | ConsoleSpinner may still count some astral wide ranges (beyond those fixed in round 116) as one column. | review r116 |
+| R116-3 | P3 | 12 | suspected | AnsiStyle.Wrap ignores partial resets (22, 39, 49) inside the wrapped text. | review r116 |
+| R116-4 | P3 | 12 | suspected | ProgressBar's fixed 1e-9 completion tolerance is not scaled to the total. | review r116 |
+| R116-5 | P3 | 12 | suspected | Benchmark allocation counts are coarse on .NET Framework. | review r116 |
+| R116-6 | P3 | 12 | suspected | StructuredTextFormatter is O(message x delimiter): 3.4 s for a 100k message with a 16k delimiter. | review r116 |
+| R116-7 | P3 | 12 | suspected | A throwing Logger clock escapes Log. | review r116 |
+| R116-8 | P3 | 12 | suspected | Logger.Dispose racing Log can lose an event already accepted. | review r116 |
+| R116-9 | P3 | 12 | suspected | FirstChanceMonitor.ThrottleWindow is not validated. | review r116 |
+| R116-10 | P3 | 12 | suspected | ConsoleSpinner.Stop(finalLine) throws on a broken writer. | review r116 |
