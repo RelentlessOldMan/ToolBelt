@@ -234,7 +234,8 @@ namespace ToolBelt.Signal
             double w0 = 2 * Math.PI * (frequency / sampleRate);   // the ratio first: π·f overflowed past fs ≈ 5e307
             double inner = (a + 1 / a) * (1 / slope - 1) + 2;
             if (double.IsInfinity(inner)) throw new ArgumentOutOfRangeException(nameof(slope), slope, "Slope is too small to represent.");
-            if (inner < 0) throw new ArgumentOutOfRangeException(nameof(slope), slope, "Slope too steep for this gain (the shelf would not be monotonic).");
+            // At exactly 0 the poles sit on the unit circle; that fell through to the gain check, which blamed gainDb.
+            if (!(inner > 0)) throw new ArgumentOutOfRangeException(nameof(slope), slope, "Slope too steep for this gain (the shelf's poles would reach the unit circle).");
             double alpha = Math.Sin(w0) / 2 * Math.Sqrt(inner);
             return (a, Math.Cos(w0), 2 * Math.Sqrt(a) * alpha);
         }
@@ -322,7 +323,7 @@ namespace ToolBelt.Signal
     /// <item><b>Chebyshev I</b>: ripple in the passband buys a steeper transition.</item>
     /// <item><b>Chebyshev II</b> (inverse Chebyshev): flat passband, ripple in the stop band, which never rises above the stated attenuation.</item>
     /// <item><b>Elliptic</b> (Cauer): ripple in both bands; the steepest transition for a given order.</item>
-    /// <item><b>Bessel</b>: the flattest group delay — pulses and steps keep their shape, with almost no overshoot — at the cost of the slowest roll-off.</item>
+    /// <item><b>Bessel</b>: the flattest group delay — pulses and steps keep their shape, with little overshoot (about 1% at low orders) — at the cost of the slowest roll-off.</item>
     /// </list>
     /// Use <see cref="Process"/> for streaming, <see cref="Filter"/> for a one-shot causal pass, and
     /// <see cref="FiltFilt"/> for zero-phase offline filtering. Not thread-safe.
@@ -443,15 +444,14 @@ namespace ToolBelt.Signal
         public void Reset(double value)
         {
             if (!Biquad.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value), value, "Value must be finite.");
-            var (z1, z2) = SteadyState();
             for (int shift = 0; ; shift += ShiftStep)
             {
-                double v = value * Pow2(-shift);
+                var (z1, z2) = SteadyState(value * Pow2(-shift));
                 bool finite = true;
                 for (int s = 0; s < _sections.Length; s++)
                 {
-                    _z1[s] = z1[s] * v;
-                    _z2[s] = z2[s] * v;
+                    _z1[s] = z1[s];
+                    _z2[s] = z2[s];
                     finite &= Biquad.IsFinite(_z1[s]) && Biquad.IsFinite(_z2[s]);
                 }
                 if (finite || shift >= MaxShift)
@@ -531,7 +531,6 @@ namespace ToolBelt.Signal
             // n + 2·pad wrapped in int (an OverflowException in the checked build) for a long signal with a long pad.
             if ((long)n + 2L * pad > 0x7FFFFFC7)
                 throw new ArgumentOutOfRangeException(nameof(padLength), pad, "The padded signal (length + 2 × pad) is longer than the largest array.");
-            var (zi1, zi2) = SteadyState();
             double[] Pass(IReadOnlyList<double> x, double scale)
             {
                 var ext = new double[n + 2 * pad];
@@ -541,9 +540,11 @@ namespace ToolBelt.Signal
                 for (int i = 0; i < n; i++) ext[pad + i] = x[i] * scale;
                 for (int i = 0; i < pad; i++) ext[pad + n + i] = last + (last - x[n - 2 - i] * scale);
 
-                Run(ext, Scaled(zi1, ext[0]), Scaled(zi2, ext[0]));
+                var (f1, f2) = SteadyState(ext[0]);
+                Run(ext, f1, f2);
                 Array.Reverse(ext);
-                Run(ext, Scaled(zi1, ext[0]), Scaled(zi2, ext[0]));
+                var (r1, r2) = SteadyState(ext[0]);
+                Run(ext, r1, r2);
                 Array.Reverse(ext);
 
                 var result = new double[n];
@@ -574,9 +575,20 @@ namespace ToolBelt.Signal
         /// <summary>The complex frequency response of the whole cascade at <paramref name="frequency"/> Hz.</summary>
         public Complex Response(double frequency, double sampleRate)
         {
+            // Kept as h·2^e: the product of the sections overflowed (∞ − ∞ = NaN parts) or underflowed where |H| fits.
             Complex h = Complex.One;
-            foreach (var s in _sections) h *= s.Response(frequency, sampleRate);
-            return h;
+            int e = 0;
+            foreach (var s in _sections)
+            {
+                Complex r = s.Response(frequency, sampleRate);
+                int er = Exponent(Math.Max(Math.Abs(r.Real), Math.Abs(r.Imaginary)));
+                h *= new Complex(ScaleB(r.Real, -er), ScaleB(r.Imaginary, -er));
+                e += er;
+                int eh = Exponent(Math.Max(Math.Abs(h.Real), Math.Abs(h.Imaginary)));
+                h = new Complex(ScaleB(h.Real, -eh), ScaleB(h.Imaginary, -eh));
+                e += eh;
+            }
+            return new Complex(ScaleB(h.Real, e), ScaleB(h.Imaginary, e));
         }
 
         /// <summary>|H| in decibels at <paramref name="frequency"/> Hz (−∞ at an exact zero).</summary>
@@ -677,7 +689,8 @@ namespace ToolBelt.Signal
 
         /// <summary>
         /// Bessel (Thomson) low-pass: maximally flat group delay, so the passband is delayed without dispersion and a step
-        /// comes through with well under 1% overshoot. Roll-off is the gentlest of the classic families.
+        /// comes through with little overshoot: about 1% at orders 4 to 5 with the cutoff at or below 0.1·fs, more at higher
+        /// orders and cutoffs (about 5% at order 8, 0.2·fs). Roll-off is the gentlest of the classic families.
         /// <paramref name="normalization"/> picks what <paramref name="cutoff"/> means (SciPy's default: phase). The
         /// bilinear transform warps the flat delay somewhat as the cutoff approaches Nyquist; keep it well below.
         /// </summary>
@@ -965,12 +978,15 @@ namespace ToolBelt.Signal
             }
         }
 
-        // Per-section state for a unit step held forever, scaled by the DC gain of the sections before it (SciPy sosfilt_zi).
-        private (double[] Z1, double[] Z2) SteadyState()
+        // Per-section state for the input value held forever, scaled by the DC gain of the sections before it (SciPy
+        // sosfilt_zi times the value). The running scale is kept as m·2^e: the product of the gains overflowed (∞ · 0
+        // made the state NaN) or underflowed to 0 where the state itself fits.
+        private (double[] Z1, double[] Z2) SteadyState(double value)
         {
             var z1 = new double[_sections.Length];
             var z2 = new double[_sections.Length];
-            double scale = 1;
+            int e = Exponent(Math.Abs(value));
+            double m = ScaleB(value, -e);
             for (int s = 0; s < _sections.Length; s++)
             {
                 var q = _sections[s];
@@ -980,11 +996,34 @@ namespace ToolBelt.Signal
                 // inside the circle (design rejects |p| ≥ 1), and a high-pass's DC gain there is exactly 0.
                 double gain = numerator == 0 ? 0 : numerator / denominator;
                 if (double.IsNaN(gain) || double.IsInfinity(gain)) break;
-                z2[s] = scale * (q.B2 - q.A2 * gain);
-                z1[s] = scale * (q.B1 - q.A1 * gain) + z2[s];
-                scale *= gain;
+                double m2 = m * (q.B2 - q.A2 * gain);
+                double m1 = m * (q.B1 - q.A1 * gain) + m2;
+                z2[s] = ScaleB(m2, e);
+                z1[s] = ScaleB(m1, e);
+                int eg = Exponent(Math.Abs(gain));
+                m *= ScaleB(gain, -eg);
+                int em = Exponent(Math.Abs(m));
+                m = ScaleB(m, -em);
+                e += eg + em;
             }
             return (z1, z2);
+        }
+
+        // The binary exponent of a finite non-zero x (0 for zero or non-finite), so x·2^-e lies in [1, 2).
+        private static int Exponent(double x)
+        {
+            if (x == 0 || double.IsNaN(x) || double.IsInfinity(x)) return 0;
+            int bias = 0;
+            if (x < MinNormal) { x *= 1.8014398509481984E16; bias = 54; }            // 2^54
+            return (int)((BitConverter.DoubleToInt64Bits(x) >> 52) & 0x7FF) - 1023 - bias;
+        }
+
+        // x·2^n for any n, in steps of at most 2^±1000 so no intermediate power overflows.
+        private static double ScaleB(double x, int n)
+        {
+            while (n > 1000 && x != 0 && !double.IsInfinity(x)) { x *= Pow2(1000); n -= 1000; }
+            while (n < -1000 && x != 0 && !double.IsInfinity(x)) { x *= Pow2(-1000); n += 1000; }
+            return x * Pow2(Math.Max(-1022, Math.Min(1023, n)));
         }
 
         private int DefaultPadLength()
@@ -992,13 +1031,6 @@ namespace ToolBelt.Signal
             int b2Zeros = _sections.Count(s => s.B2 == 0), a2Zeros = _sections.Count(s => s.A2 == 0);
             // In long: past about 358 million sections 3·(2S + 1) went negative, blamed on a padLength never passed.
             return (int)Math.Min(int.MaxValue, 3L * (2L * _sections.Length + 1 - Math.Min(b2Zeros, a2Zeros)));
-        }
-
-        private static double[] Scaled(double[] v, double k)
-        {
-            var r = new double[v.Length];
-            for (int i = 0; i < v.Length; i++) r[i] = v[i] * k;
-            return r;
         }
 
         private static void CheckOrder(int order, int max = 40)

@@ -71,8 +71,11 @@ namespace ToolBelt.Control
             if (inputStep == 0 || double.IsNaN(inputStep) || double.IsInfinity(inputStep)) throw new ArgumentOutOfRangeException(nameof(inputStep), inputStep, "The input step must be non-zero and finite.");
             for (int i = 0; i < n; i++)
             {
-                if (double.IsNaN(values[i]) || double.IsInfinity(values[i]) || double.IsNaN(times[i]) || double.IsInfinity(times[i]))
+                if (double.IsNaN(values[i]) || double.IsInfinity(values[i]))
                     throw new ArgumentException($"Sample {i} is not finite.", nameof(values));
+                // A non-finite time was blamed on values.
+                if (double.IsNaN(times[i]) || double.IsInfinity(times[i]))
+                    throw new ArgumentException($"Time {i} is not finite.", nameof(times));
                 if (i > 0 && !(times[i] > times[i - 1])) throw new ArgumentException("Times must be strictly increasing.", nameof(times));
             }
             if (initialValue is double iv && (double.IsNaN(iv) || double.IsInfinity(iv))) throw new ArgumentOutOfRangeException(nameof(initialValue), iv, "The initial value must be finite.");

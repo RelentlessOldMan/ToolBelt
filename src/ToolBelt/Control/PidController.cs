@@ -66,11 +66,18 @@ namespace ToolBelt.Control
             // integral's contribution, ki·error, so reverse-acting (negative) gains unwind too. Skipping the whole step
             // instead stalled the loop short of the limit whenever one step would cross it (an I-only controller with
             // error·ki·dt past the limit never moved).
-            double integral = _integral + error * dt;
+            // An error past double.MaxValue (setpoint and measurement far apart) made error·dt ∞ even where the step fits,
+            // so the integral never moved: the step is formed from the halved difference.
+            double step = double.IsInfinity(error) ? (Setpoint * 0.5 - measurement * 0.5) * dt * 2 : error * dt;
+            double integral = _integral + step;
             double tentative = proportional + _ki * integral + derivative;
             // P and D overflowing with opposite signs made this NaN, so neither windup test fired and the integral took
-            // the whole step past the limit.
-            if (double.IsNaN(tentative)) tentative = ScaledOutput(measurement, dt, integral);
+            // the whole step past the limit; an overflowed term made it ∞ where the true output is inside the limits.
+            if (double.IsNaN(tentative) || double.IsInfinity(tentative))
+            {
+                double scaled = ScaledOutput(measurement, dt, integral);
+                if (!double.IsNaN(scaled)) tentative = scaled;
+            }
             double push = _ki * error;
             bool windupHigh = tentative > _max && push > 0;
             bool windupLow = tentative < _min && push < 0;
@@ -80,7 +87,11 @@ namespace ToolBelt.Control
             {
                 // The integral that puts the output exactly at the limit, taken only if it moves with the step (when the
                 // output was already past the limit, it stays). This also covers an error·dt that overflowed.
-                double atLimit = ((windupHigh ? _max : _min) - proportional - derivative) / _ki;
+                double limit = windupHigh ? _max : _min;
+                double atLimit = (limit - proportional - derivative) / _ki;
+                // With P or D overflowed the difference is formed in units of 2^-600 (∞ there was always discarded).
+                if (double.IsNaN(atLimit) || double.IsInfinity(atLimit))
+                    atLimit = (limit * Scale - ScaledProportional(measurement) - ScaledDerivative(measurement, dt)) / _ki / Scale;
                 if (!double.IsNaN(atLimit) && !double.IsInfinity(atLimit) && (atLimit - _integral) * error > 0)
                     _integral = atLimit;
             }
@@ -114,17 +125,21 @@ namespace ToolBelt.Control
             _hasLast = false;
         }
 
-        private double ScaledOutput(double measurement, double dt, double integral)
+        private const double Scale = 2.4099198651028841e-181;                    // 2^-600
+
+        private double ScaledOutput(double measurement, double dt, double integral) =>
+            (ScaledProportional(measurement) + _ki * Scale * integral + ScaledDerivative(measurement, dt)) / Scale;
+
+        private double ScaledProportional(double measurement) =>
+            _kp == 0 ? 0 : _kp * (Setpoint * Scale - measurement * Scale);
+
+        private double ScaledDerivative(double measurement, double dt)
         {
-            const double S = 2.4099198651028841e-181;                           // 2^-600
-            double p = _kp == 0 ? 0 : _kp * (Setpoint * S - measurement * S);
-            double d = 0;
-            if (_hasLast && _kd != 0)
-                d = _derivativeOnMeasurement
-                    ? -_kd * (measurement * S - _lastMeasurement * S) / dt
-                    : _kd * ((Setpoint * S - measurement * S) - (_lastSetpoint * S - _lastMeasurement * S)) / dt;
-            double sum = p + _ki * S * integral + d;
-            return sum / S;
+            const double S = Scale;
+            if (!_hasLast || _kd == 0) return 0;
+            return _derivativeOnMeasurement
+                ? -_kd * (measurement * S - _lastMeasurement * S) / dt
+                : _kd * ((Setpoint * S - measurement * S) - (_lastSetpoint * S - _lastMeasurement * S)) / dt;
         }
 
         private static void CheckFinite(double v, string name)

@@ -151,3 +151,4 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R118-2 | P3 | 3 | suspected | The two-sample Kolmogorov-Smirnov p-value is Stephens' asymptotic form and may be poor at small n. | review r118 |
 | R118-3 | P3 | 3 | suspected | MultipleRegression standard errors are NaN at zero residual degrees of freedom (may be by design; undocumented). | review r118 |
 | R118-4 | P3 | 3 | suspected | Bgrat's ln R adds the Stirling corrections' difference in order, the pattern fixed in round 118; no wrong value found (tiny b agreed with mpmath to 1e-15). | review r118 |
+| R119-1 | P3 | 1 | suspected | PidController: a derivative kick on a setpoint step (derivative on error) can push the tentative output past a limit and freeze integration for that step; undocumented. | review r119 |

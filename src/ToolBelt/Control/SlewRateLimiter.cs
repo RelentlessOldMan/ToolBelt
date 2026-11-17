@@ -47,6 +47,17 @@ namespace ToolBelt.Control
             // An unlimited (∞) rate stays unlimited even for dt = 0, where ∞ × 0 would be NaN.
             double up = double.IsPositiveInfinity(_maxRise) ? _maxRise : _maxRise * dt;
             double down = double.IsPositiveInfinity(_maxFall) ? _maxFall : _maxFall * dt;
+            if (double.IsInfinity(delta) || double.IsInfinity(up) || double.IsInfinity(down))
+            {
+                // The gap or a finite rate's step overflowed (both ∞ compared as no limit, so the output jumped to the
+                // target): compared in halves, and the step taken in two halves.
+                double halfDelta = target * 0.5 - Value * 0.5;
+                double halfUp = double.IsPositiveInfinity(_maxRise) ? _maxRise : _maxRise * 0.5 * dt;
+                double halfDown = double.IsPositiveInfinity(_maxFall) ? _maxFall : _maxFall * 0.5 * dt;
+                IsLimiting = halfDelta > halfUp || halfDelta < -halfDown;
+                Value = halfDelta > halfUp ? Value + halfUp + halfUp : halfDelta < -halfDown ? Value - halfDown - halfDown : target;
+                return Value;
+            }
             IsLimiting = delta > up || delta < -down;
             Value = delta > up ? Value + up : delta < -down ? Value - down : target;
             return Value;

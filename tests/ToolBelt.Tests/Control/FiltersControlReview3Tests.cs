@@ -304,8 +304,9 @@ namespace ToolBelt.Tests.Control
         public void Pid_ZeroGainTimesOverflowIsZero()
         {
             // 0 · ∞ (an error or change that overflowed) made the output NaN.
+            // The integral step error·dt is 3.4e8 (round 119: it was dropped as ∞ and the output stayed 0).
             var pi = new PidController(0, 1, 0) { Setpoint = 1.7e308 };
-            Check.Equal(0.0, pi.Update(-1.7e308, 1e-300));
+            Check.Close(3.4e8, pi.Update(-1.7e308, 1e-300), 1e-12 * 3.4e8);
             // The error overflowed to ∞, so a tiny gain gave ∞ instead of 3.4e8.
             var pd = new PidController(1e-300, 0, 0) { Setpoint = 1.7e308 };
             Check.Close(3.4e8, pd.Update(-1.7e308, 1), 1e-12 * 3.4e8);

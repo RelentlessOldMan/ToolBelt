@@ -82,10 +82,13 @@ namespace ToolBelt.Control
             if (times.Count != n) throw new ArgumentException("Times and values must have the same length.", nameof(times));
             if (n < 2) throw new ArgumentException("At least two samples are required.", nameof(values));
             if (!(settlingBand > 0 && settlingBand < 1)) throw new ArgumentOutOfRangeException(nameof(settlingBand), settlingBand, "The settling band must be in (0, 1).");
-            if (!(riseLow >= 0 && riseLow < riseHigh && riseHigh <= 1)) throw new ArgumentOutOfRangeException(nameof(riseLow), riseLow, "Rise levels must satisfy 0 ≤ low < high ≤ 1.");
+            // A bad riseHigh (above 1, or NaN) was blamed on riseLow.
+            if (!(riseLow >= 0 && riseLow < 1)) throw new ArgumentOutOfRangeException(nameof(riseLow), riseLow, "Rise levels must satisfy 0 ≤ low < high ≤ 1.");
+            if (!(riseHigh > riseLow && riseHigh <= 1)) throw new ArgumentOutOfRangeException(nameof(riseHigh), riseHigh, "Rise levels must satisfy 0 ≤ low < high ≤ 1.");
             for (int i = 0; i < n; i++)
             {
-                if (!IsFinite(values[i]) || !IsFinite(times[i])) throw new ArgumentException($"Sample {i} is not finite.", nameof(values));
+                if (!IsFinite(values[i])) throw new ArgumentException($"Sample {i} is not finite.", nameof(values));
+                if (!IsFinite(times[i])) throw new ArgumentException($"Time {i} is not finite.", nameof(times));
                 if (i > 0 && !(times[i] > times[i - 1])) throw new ArgumentException("Times must be strictly increasing.", nameof(times));
             }
 
