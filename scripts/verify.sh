@@ -15,7 +15,8 @@ rc=0
 
 dotnet build ToolBelt.sln -c Release --nologo -p:UseSharedCompilation=false > "$LOG/verify-build.log" 2>&1 || rc=1
 grep -E "warning|error" "$LOG/verify-build.log" | sort -u | tail -8
-echo "build: $(tail -3 "$LOG/verify-build.log" | grep -E 'Warn|Error|Time' | tr '\n' ' ')"
+# The counts and the time from the whole log: tail -3 always cut the Warning(s) line off.
+echo "build: $(grep -E '^ *[0-9]+ (Warning|Error)\(s\)|Time Elapsed' "$LOG/verify-build.log" | sed 's/^ *//' | tr '\n' ' ')"
 [ $rc -eq 0 ] || { echo "build failed; see $LOG/verify-build.log"; exit 1; }
 
 # Each suite's own framework: a leftover folder from another TFM would otherwise be picked up first.

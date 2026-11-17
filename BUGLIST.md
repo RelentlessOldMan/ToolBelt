@@ -68,7 +68,6 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R105-2 | P3 | 17 | suspected | ControlExtensions.InvokeIfRequired: the handle can be destroyed between the InvokeRequired check and Invoke. | review r105 |
 | R105-3 | P3 | 17 | suspected | SetSelectedEnum: with ComboBoxStyle.DropDown, the edit text typed earlier stays after the selection changes. | review r105 |
 | R105-4 | P3 | 17 | suspected | CommandBinding: posting a CanExecuteChanged update throws once the UI thread has exited. | review r105 |
-| R105-5 | P3 | 17 | suspected | DataGridView CSV export: "-Infinity" and "-NaN" cells are left unescaped (a leading "-" is a formula prefix to spreadsheets). | review r105 |
 | R105-6 | P3 | 17 | suspected | PlotPictureBox: pressing the right button during a left-button pan ends the pan. | review r105 |
 | R105-7 | P3 | 17 | suspected | PlotPictureBox.ZoomAt with factor 1 while the zoom is above MaxZoom (a limit lowered since) still changes the zoom. | review r105 |
 | R105-8 | P3 | 17 | suspected | FormStatePersistence: the documentation of what is restored is looser than the code. | review r105 |
@@ -152,3 +151,12 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R118-3 | P3 | 3 | suspected | MultipleRegression standard errors are NaN at zero residual degrees of freedom (may be by design; undocumented). | review r118 |
 | R118-4 | P3 | 3 | suspected | Bgrat's ln R adds the Stirling corrections' difference in order, the pattern fixed in round 118; no wrong value found (tiny b agreed with mpmath to 1e-15). | review r118 |
 | R119-1 | P3 | 1 | suspected | PidController: a derivative kick on a setpoint step (derivative on error) can push the tentative output past a limit and freeze integration for that step; undocumented. | review r119 |
+| R120-1 | P3 | 17 | suspected | gen-distribution-references.py: the F-series comment says "a few hundred terms", which may not match the loop's bound. | review r120 |
+| R120-2 | P3 | 17 | suspected | bump-version.ps1 may accept an impossible date in the current version (no check that the date parses). | review r120 |
+| R120-3 | P3 | 17 | suspected | FormState.TryParse may accept text Serialize never writes (looser than its format). | review r120 |
+| R120-4 | P3 | 17 | suspected | WaitCursorScope raises its counter before the cursor setter, so a throwing setter may leave the count off by one. | review r120 |
+| R120-5 | P3 | 17 | suspected | SelectionToTsv does no formula escaping, unlike ToCsv(escapeFormulas). | review r120 |
+| R120-6 | P3 | 17 | suspected | FormState.Apply on an MDI child may place it against the screen rather than the parent's client area. | review r120 |
+| R120-7 | P3 | 17 | suspected | SaveCsv's replace-by-move drops hard links and the target's permissions, and a path like NUL fails. | review r120 |
+| R120-8 | P3 | 17 | suspected | verify.sh's MathChecks timeout may leave the test process running. | review r120 |
+| R120-9 | P3 | 17 | confirmed | The test projects build with 35 warnings (CA1416 platform calls in IO and Docx tests, nullable CS8602/8605/8621/8714), seen once verify.sh's build line showed the count; a full rebuild prints them. | round 120 gates |

@@ -39,6 +39,13 @@ namespace ToolBelt.WinForms
             get => _image;
             set
             {
+                if (value is not null)
+                {
+                    // A disposed image was stored before FitToView threw (an ArgumentException with no name), so every
+                    // later paint failed too.
+                    try { _ = value.Width; }
+                    catch (ArgumentException) { throw new ArgumentException("The image is disposed.", nameof(value)); }
+                }
                 _image = value;
                 _userAdjusted = false;
                 FitToView();
@@ -140,6 +147,9 @@ namespace ToolBelt.WinForms
             if (!float.IsFinite(offset.X) || !float.IsFinite(offset.Y)) throw new ArgumentOutOfRangeException(nameof(offset), offset, "Must be finite.");
             if (!float.IsFinite(at.X) || !float.IsFinite(at.Y)) throw new ArgumentOutOfRangeException(nameof(at), at, "Must be finite.");
             if (!(factor > 0) || double.IsInfinity(factor)) throw new ArgumentOutOfRangeException(nameof(factor), factor, "Factor must be positive.");
+            // NaN or negative limits were taken silently (the view never moved) where the instance setters reject them.
+            if (!(minZoom >= 0) || double.IsInfinity(minZoom)) throw new ArgumentOutOfRangeException(nameof(minZoom), minZoom, "The minimum zoom must be non-negative and finite.");
+            if (!(maxZoom > 0)) throw new ArgumentOutOfRangeException(nameof(maxZoom), maxZoom, "The maximum zoom must be positive.");
             var (z, ox, oy) = ZoomAboutCore(zoom, offset.X, offset.Y, at.X, at.Y, factor, minZoom, maxZoom);
             return z == zoom && ox == offset.X && oy == offset.Y ? (zoom, offset) : (z, new PointF((float)ox, (float)oy));
         }

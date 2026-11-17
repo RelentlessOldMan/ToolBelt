@@ -23,6 +23,8 @@ MARK=.toolbelt-checked-wt
 export DOTNET_CLI_USE_MSBUILD_SERVER=0
 # Two runs on the default folder reset and rebuilt it under each other.
 LOCK="$WT.lock"
+# A missing parent folder made the lock's mkdir fail, reported as another run holding it.
+mkdir -p "$(dirname "$LOCK")" || { echo "cannot create $(dirname "$LOCK")"; exit 2; }
 mkdir "$LOCK" 2>/dev/null || { echo "another checked build is using $WT ($LOCK exists; remove it if none is running)"; exit 2; }
 trap 'rmdir "$LOCK"' EXIT
 

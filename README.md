@@ -1149,6 +1149,7 @@ tests/
     WinFormsReview4Tests.cs (round 60 review regressions: shortcut keys, reusable ToolStripBuilder, command leaks, image cells, deep-zoom pans, disposed posts)
     WinFormsReview88Tests.cs (round 88: sided modifier keys, formatting no key, header sizing with hidden headers, empty working areas, bound combos, lost capture, all-or-nothing builders)
     WinFormsReview105Tests.cs (round 105: wheel marked handled, re-fit inside ViewChanged, capture released by a handler, builders disposing a failed item, side-effect-free FindItem, far-apart working areas, README discovery names)
+    WinFormsReview120Tests.cs (round 120: one-column and formula-escaped CSV, unformattable cells and non-string headers, long SaveCsv names, a dead UI thread, disposed plot images, zoom limits, script summary and locks)
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
                             fits, root-finding, statistics)

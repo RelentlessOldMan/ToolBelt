@@ -91,7 +91,7 @@ namespace ToolBelt.WinForms
 
             var sb = new StringBuilder();
             if (includeHeaders)
-                sb.Append(string.Join("\t", span.Select(c => TsvField(c.HeaderText)))).Append("\r\n");
+                sb.Append(string.Join("\t", span.Select(c => TsvField(HeaderText(c))))).Append("\r\n");
             for (int r = firstRow; r <= lastRow; r++)
             {
                 DataGridViewRow row = grid.Rows[r];
@@ -135,12 +135,19 @@ namespace ToolBelt.WinForms
                 .Where(c => !visibleColumnsOnly || c.Visible)
                 .OrderBy(c => c.DisplayIndex).ToList();
             string sep = delimiter.ToString();
+            // One empty field alone on a line is written "": a blank line is skipped by CSV readers, so an empty cell in a
+            // one-column grid lost its row (and an empty header made the first row the header).
+            string Line(IEnumerable<string> fields)
+            {
+                string line = string.Join(sep, fields);
+                return (line.Length == 0 && columns.Count == 1 ? "\"\"" : line) + "\r\n";
+            }
             if (includeHeaders)
-                writer.Write(string.Join(sep, columns.Select(c => CsvField(c.HeaderText, delimiter, escapeFormulas))) + "\r\n");
+                writer.Write(Line(columns.Select(c => CsvField(HeaderText(c), delimiter, escapeFormulas))));
             foreach (DataGridViewRow row in grid.Rows)
             {
                 if (row.IsNewRow) continue;
-                writer.Write(string.Join(sep, columns.Select(c => CsvField(Text(row.Cells[c.Index]), delimiter, escapeFormulas))) + "\r\n");
+                writer.Write(Line(columns.Select(c => CsvField(Text(row.Cells[c.Index]), delimiter, escapeFormulas))));
             }
         }
 
@@ -164,7 +171,11 @@ namespace ToolBelt.WinForms
             if (path is null) throw new ArgumentNullException(nameof(path));
             if (delimiter == '"' || delimiter == '\r' || delimiter == '\n') throw new ArgumentException("Invalid delimiter.", nameof(delimiter));
             string full = Path.GetFullPath(path);
-            string temp = full + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp";
+            // The temp file sits beside the target; its name is shortened when the target's plus the 13-character suffix
+            // would pass the 255-character file-name limit (an IOException for names a direct write handles).
+            string suffix = "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp";
+            string name = Path.GetFileName(full);
+            string temp = name.Length + suffix.Length <= 255 ? full + suffix : Path.Combine(Path.GetDirectoryName(full)!, "~csv" + suffix);
             try
             {
                 using (var writer = new StreamWriter(temp, false, encoding ?? new UTF8Encoding(encoderShouldEmitUTF8Identifier: true)))
@@ -180,22 +191,49 @@ namespace ToolBelt.WinForms
 
         // An image cell's formatted value is a Bitmap, decoded afresh (and never disposed) on every read, whose text is just
         // "System.Drawing.Bitmap": such a cell exports as an empty field without being read.
+        // A cell that cannot be formatted (a combo value missing from its Items) raised DataError, and with no handler the
+        // grid showed its modal error dialog, once per cell: an export blocked until someone closed it, then wrote some
+        // other text. The read is made with a handler attached, and such a cell exports its value's text.
         private static string Text(DataGridViewCell cell)
         {
             if (cell is DataGridViewImageCell) return string.Empty;
-            object? value = cell.FormattedValue;
+            object? value;
+            DataGridView? grid = cell.DataGridView;
+            if (grid is null) value = cell.FormattedValue;
+            else
+            {
+                bool failed = false;
+                DataGridViewDataErrorEventHandler handler = (s, e) => { failed = true; e.ThrowException = false; };
+                grid.DataError += handler;
+                try { value = cell.FormattedValue; }
+                finally { grid.DataError -= handler; }
+                if (failed) return Convert.ToString(cell.Value, CultureInfo.CurrentCulture) ?? string.Empty;
+            }
             return value is Image ? string.Empty : value?.ToString() ?? string.Empty;
         }
 
+        // HeaderText is empty for a header whose value is not a string (HeaderCell.Value = 42), which the grid shows as "42".
+        private static string HeaderText(DataGridViewColumn column) =>
+            column.HeaderCell.Value is null or string ? column.HeaderText : Text(column.HeaderCell);
+
         private static string CsvField(string value, char delimiter, bool escapeFormulas)
         {
-            if (escapeFormulas && value.Length > 0 && "=+-@\t\r".IndexOf(value[0]) >= 0
-                && !double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
-                && !double.TryParse(value, NumberStyles.Float, CultureInfo.CurrentCulture, out _))
+            if (escapeFormulas && value.Length > 0 && "=+-@\t\r".IndexOf(value[0]) >= 0 && !IsSignedNumber(value))
                 value = "'" + value;
             bool quote = value.IndexOf(delimiter) >= 0 || value.IndexOf('"') >= 0 || value.IndexOf('\r') >= 0 || value.IndexOf('\n') >= 0
                 || (value.Length > 0 && (char.IsWhiteSpace(value[0]) || char.IsWhiteSpace(value[value.Length - 1])));
             return quote ? "\"" + value.Replace("\"", "\"\"") + "\"" : value;
+        }
+
+        // A finite number with a leading sign, the one formula-looking field left alone. NumberStyles.Float let through a
+        // leading tab or CR, and TryParse accepts "-Infinity", "-NaN", "-∞" and an overflowing "-1e400" (as ±∞), all of
+        // which reached the spreadsheet unescaped.
+        private static bool IsSignedNumber(string value)
+        {
+            if (value[0] != '-' && value[0] != '+') return false;
+            const NumberStyles style = NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent;
+            return (double.TryParse(value, style, CultureInfo.InvariantCulture, out double v) || double.TryParse(value, style, CultureInfo.CurrentCulture, out v))
+                && !double.IsNaN(v) && !double.IsInfinity(v);
         }
 
         private static string TsvField(string value)

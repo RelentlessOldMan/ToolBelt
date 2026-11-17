@@ -23,7 +23,9 @@ while [ $# -gt 0 ] && [ "$1" != "--" ]; do folders+=("$1"); shift; done
 for f in "${folders[@]}"; do
   [ -d "tests/ToolBelt.Tests/$f" ] || { echo "no test folder tests/ToolBelt.Tests/$f"; exit 2; }
 done
-# Two runs sharing the folder overwrote each other's csproj and binaries mid-build.
+# Two runs sharing the folder overwrote each other's csproj and binaries mid-build. A missing parent ($TMPDIR) made
+# the lock's mkdir fail, reported as another run holding it.
+mkdir -p "$(dirname "$LOCK")" || { echo "cannot create $(dirname "$LOCK")"; exit 2; }
 mkdir "$LOCK" 2>/dev/null || { echo "another net48 run is using $DIR ($LOCK exists; remove it if none is running)"; exit 2; }
 trap 'rmdir "$LOCK"' EXIT
 mkdir -p "$DIR"

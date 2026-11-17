@@ -29,7 +29,11 @@ namespace ToolBelt.WinForms
             if (action is null) throw new ArgumentNullException(nameof(action));
             ThrowIfDisposed(control);
             if (control.InvokeRequired)
-                control.Invoke(action);
+            {
+                bool ran = false;
+                control.Invoke(new Action(() => { ran = true; action(); }));
+                if (!ran) throw UiThreadGone(control);
+            }
             else if (NoUiThread(control))
                 throw NoHandle(control);
             else
@@ -43,7 +47,13 @@ namespace ToolBelt.WinForms
             if (func is null) throw new ArgumentNullException(nameof(func));
             ThrowIfDisposed(control);
             if (control.InvokeRequired)
-                return (T)control.Invoke(func);
+            {
+                bool ran = false;
+                T result = default!;
+                control.Invoke(new Action(() => { ran = true; result = func(); }));
+                if (!ran) throw UiThreadGone(control);
+                return result;
+            }
             if (NoUiThread(control)) throw NoHandle(control);
             return func();
         }
@@ -76,6 +86,11 @@ namespace ToolBelt.WinForms
         // the UI thread", so there is nowhere safe to run the delegate.
         private static bool NoUiThread(Control control)
             => !control.IsHandleCreated && Thread.CurrentThread.GetApartmentState() != ApartmentState.STA;
+
+        // The thread that created the handle has exited: Control.Invoke returned without running the delegate (the void
+        // overload did nothing, the generic one threw NullReferenceException unboxing a null result).
+        private static InvalidOperationException UiThreadGone(Control control) =>
+            new InvalidOperationException($"The UI thread of {control.GetType().Name} '{control.Name}' has exited; the delegate did not run.");
 
         private static InvalidOperationException NoHandle(Control control)
             => new InvalidOperationException($"{control.GetType().Name} has no window handle (closed, or not yet shown), so there is no UI thread to marshal to.");
