@@ -34,6 +34,10 @@ namespace ToolBelt.Configuration
     /// A settings path that is a symbolic link is written through to its target; a save keeps the file's Hidden and System
     /// attributes, fails at once on a read-only file, waits about half a second for another reader of the file to let go,
     /// and removes temp files that a crashed save left behind more than an hour ago.
+    /// A file that is not valid UTF-8 counts as corrupt, and one reached through a symbolic link is moved aside at its
+    /// target. A value the type would reject when loaded back (setters that check each other) makes a save throw
+    /// <see cref="InvalidOperationException"/>, as do Save, Update and Reset called from inside an Update's change. A path
+    /// that is a directory makes <see cref="LoadFrom"/> throw <see cref="ArgumentException"/>.
     /// Not thread-safe — save from one place.
     /// </summary>
     public sealed class SettingsStore<T> where T : class, new()
@@ -80,11 +84,13 @@ namespace ToolBelt.Configuration
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
             string full = System.IO.Path.GetFullPath(path);
+            // A directory is no settings file: it loaded as "no file yet", and Save then failed with an access error.
+            if (Directory.Exists(full)) throw new ArgumentException($"'{full}' is a directory, not a settings file.", nameof(path));
             if (!File.Exists(full)) return new SettingsStore<T>(full, new T(), null);
-            string text;
+            byte[] bytes;
             try
             {
-                text = File.ReadAllText(full, Encoding.UTF8);
+                bytes = File.ReadAllBytes(full);
             }
             catch (FileNotFoundException)
             {
@@ -99,6 +105,11 @@ namespace ToolBelt.Configuration
             }
             try
             {
+                // Strict UTF-8: a file in another encoding (Latin-1 "café") loaded with U+FFFD in place of its bytes, and
+                // the next save made that permanent. It is set aside like any other unreadable file.
+                string text;
+                using (var reader = new StreamReader(new MemoryStream(bytes), Strict, detectEncodingFromByteOrderMarks: true))
+                    text = reader.ReadToEnd();
                 T? value = JsonSerializer.Deserialize<T>(text, Options);
                 return new SettingsStore<T>(full, value ?? new T(), null);
             }
@@ -111,11 +122,14 @@ namespace ToolBelt.Configuration
                 // so it is the program's fault, not the file's: a valid file was moved aside on every launch.
                 if ((ex is NotSupportedException || ex is InvalidOperationException) && IsSerializerFault(ex)) throw;
                 // Unique name (never overwrite an earlier preserved copy); if the move itself fails, still start with defaults.
-                string aside = AsideName(full, ".corrupt-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture)
+                // A symbolic link's target is moved, not the link: the link was renamed, still pointing at the corrupt file,
+                // and the next save put a plain file where it had been.
+                string real = LinkTarget(full);
+                string aside = AsideName(real, ".corrupt-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture)
                                + "-" + Guid.NewGuid().ToString("N").Substring(0, 6));
                 try
                 {
-                    File.Move(full, aside);
+                    File.Move(real, aside);
                     return new SettingsStore<T>(full, new T(), $"Settings file was unreadable ({ex.Message}); moved to '{aside}' and defaults were used.");
                 }
                 catch (Exception moveEx) when (moveEx is IOException || moveEx is UnauthorizedAccessException)
@@ -124,6 +138,17 @@ namespace ToolBelt.Configuration
                         $"Settings file was unreadable ({ex.Message}) and could not be moved aside ({moveEx.Message}); defaults were used and saving will overwrite it.");
                 }
             }
+        }
+
+        private static readonly UTF8Encoding Strict = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
+        // The file a path names, through any symbolic links (the path itself when it is no link).
+        private static string LinkTarget(string path)
+        {
+            var file = new FileInfo(path);
+            if (file.Directory is { Exists: true } && file.LinkTarget != null
+                && file.ResolveLinkTarget(returnFinalTarget: true) is FileSystemInfo resolved) return resolved.FullName;
+            return path;
         }
 
         // Thrown by System.Text.Json itself (not by the settings type's own code, which a bad value can trigger).
@@ -147,8 +172,19 @@ namespace ToolBelt.Configuration
         /// <see cref="Update"/> whose change failed and could not be undone.</summary>
         public void Save()
         {
+            ThrowIfUpdating();
             ThrowIfCannotSave();
             Write(Value);
+        }
+
+        // Set while an Update's change runs. A nested Update or Save wrote the outer change half-done, and when the outer
+        // change then threw, Value was rolled back but the file kept what the caller saw fail.
+        private bool _updating;
+
+        private void ThrowIfUpdating()
+        {
+            if (_updating)
+                throw new InvalidOperationException("The settings can't be saved, updated or reset from inside an Update's change; it saves when it returns.");
         }
 
         private void ThrowIfCannotSave()
@@ -163,10 +199,7 @@ namespace ToolBelt.Configuration
         {
             // Written through a symbolic link to its target: the move replaced the link itself with a plain file, and the
             // target kept the old settings.
-            string target = Path;
-            var file = new FileInfo(Path);
-            if (file.Directory is { Exists: true } && file.LinkTarget != null
-                && file.ResolveLinkTarget(returnFinalTarget: true) is FileSystemInfo resolved) target = resolved.FullName;
+            string target = LinkTarget(Path);
             string dir = System.IO.Path.GetDirectoryName(target)!;
             Directory.CreateDirectory(dir);
             // A fixed-length name: the file's own name plus 14 characters failed for names near the 255-character limit.
@@ -189,7 +222,13 @@ namespace ToolBelt.Configuration
             {
                 throw new NotSupportedException($"These settings could not be loaded back ({ex.Message}), so they were not saved.", ex);
             }
-            catch (Exception ex) when (!(ex is OutOfMemoryException || ex is StackOverflowException)) { }
+            catch (Exception ex) when (!(ex is OutOfMemoryException || ex is StackOverflowException))
+            {
+                // A value the type itself rejects on load (setters that check each other, run in file order) was saved,
+                // and the next load moved the file aside as corrupt: every setting was lost.
+                if (ex is TargetInvocationException && ex.InnerException != null) ex = ex.InnerException;
+                throw new InvalidOperationException($"These settings would be rejected when loaded back ({ex.Message}), so they were not saved.", ex);
+            }
             try
             {
                 using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
@@ -263,13 +302,16 @@ namespace ToolBelt.Configuration
         public void Update(Action<T> change)
         {
             if (change is null) throw new ArgumentNullException(nameof(change));
+            ThrowIfUpdating();
             // Checked first: a change run on a store that then refused to save left Value changed but never saved.
             ThrowIfCannotSave();
             // A change that threw partway left Value half-changed, and the next Save wrote that.
             string before = JsonSerializer.Serialize(Value, Options);
             try
             {
-                change(Value);
+                _updating = true;
+                try { change(Value); }
+                finally { _updating = false; }
                 Write(Value);
             }
             catch
@@ -297,6 +339,7 @@ namespace ToolBelt.Configuration
         /// <see cref="Value"/> is unchanged.</summary>
         public void Reset()
         {
+            ThrowIfUpdating();
             var fresh = new T();
             Write(fresh);
             Value = fresh;

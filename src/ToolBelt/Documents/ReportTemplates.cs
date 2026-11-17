@@ -11,7 +11,12 @@ namespace ToolBelt.Documents
         public ReportFigure(string caption, string? svg = null, byte[]? png = null)
         {
             Caption = caption ?? throw new ArgumentNullException(nameof(caption));
-            if (string.IsNullOrWhiteSpace(svg) && (png is null || png.Length == 0))
+            // An XML declaration alone is no markup (as ReportBuilder.Figure judges it): it was accepted here and failed
+            // only when the report was built as HTML.
+            string? markup = svg?.TrimStart();
+            if (markup != null && markup.StartsWith("<?xml", StringComparison.Ordinal) && markup.IndexOf("?>", StringComparison.Ordinal) is int end && end >= 0)
+                markup = markup.Substring(end + 2);
+            if (string.IsNullOrWhiteSpace(markup) && (png is null || png.Length == 0))
                 throw new ArgumentException("A figure needs SVG markup or PNG bytes.", nameof(svg));
             Svg = svg;
             Png = png;
@@ -94,13 +99,23 @@ namespace ToolBelt.Documents
             if (metadata is null) throw new ArgumentNullException(nameof(metadata));
             if (results is null) throw new ArgumentNullException(nameof(results));
             var report = new ReportBuilder(title);
-            foreach (var kv in metadata) report.Metadata(kv.Key, kv.Value);
+            AddMetadata(report, metadata);
             report.Callout(passed ? CalloutKind.Success : CalloutKind.Error, passed ? "Run PASSED." : "Run FAILED.");
             report.TableOfContents();
             report.Heading("Results").Properties(results);
             AddFigures(report, figures);
             if (!string.IsNullOrWhiteSpace(notes)) report.Heading("Notes").Paragraph(notes!);
             return report;
+        }
+
+        // A null key named the builder's internal parameter ("key"); it names the caller's.
+        private static void AddMetadata(ReportBuilder report, IEnumerable<KeyValuePair<string, string>> metadata)
+        {
+            foreach (var kv in metadata)
+            {
+                if (kv.Key is null) throw new ArgumentException("Metadata keys must not be null.", nameof(metadata));
+                report.Metadata(kv.Key, kv.Value);
+            }
         }
 
         /// <summary>
@@ -120,6 +135,10 @@ namespace ToolBelt.Documents
             if (labelB is null) throw new ArgumentNullException(nameof(labelB));
             if (rows is null) throw new ArgumentNullException(nameof(rows));
             if (!(flagPercent >= 0)) throw new ArgumentOutOfRangeException(nameof(flagPercent), flagPercent, "Must be non-negative.");
+            if (numberFormat is null) throw new ArgumentNullException(nameof(numberFormat));
+            // Tried up front: an integer-only format ("X", "D") threw a bare FormatException partway through the build.
+            try { 1.5.ToString(numberFormat, CultureInfo.InvariantCulture); }
+            catch (FormatException ex) { throw new ArgumentException($"'{numberFormat}' is not a numeric format for a double.", nameof(numberFormat), ex); }
             var list = new List<ComparisonRow>();
             foreach (var r in rows) list.Add(r ?? throw new ArgumentException("Rows must not contain null.", nameof(rows)));
 
@@ -179,7 +198,7 @@ namespace ToolBelt.Documents
             foreach (var c in checks) list.Add(c ?? throw new ArgumentException("Checks must not contain null.", nameof(checks)));
 
             var report = new ReportBuilder(title);
-            if (metadata != null) foreach (var kv in metadata) report.Metadata(kv.Key, kv.Value);
+            if (metadata != null) AddMetadata(report, metadata);
 
             int failed = 0;
             foreach (var c in list) if (!c.Passed) failed++;

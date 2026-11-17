@@ -81,7 +81,8 @@ namespace ToolBelt.Configuration
         public TimeSpan? GetTimeSpan(string name) => Parse(name, ParseDuration, "a duration such as 30s, 5m, 1.5h, 250ms or 00:05:00");
 
         public TEnum GetEnum<TEnum>(string name, TEnum defaultValue) where TEnum : struct, Enum
-            => Parse(name, s => Enum.TryParse(s, true, out TEnum v) && IsValidEnum(v) ? v : (TEnum?)null,
+            => Parse(name, s => (s.IndexOf(',') < 0 || typeof(TEnum).GetCustomAttribute<FlagsAttribute>() != null)
+                    && Enum.TryParse(s, true, out TEnum v) && IsValidEnum(v) ? v : (TEnum?)null,
                 "one of " + string.Join(", ", Enum.GetNames(typeof(TEnum)))) ?? defaultValue;
 
         /// <summary>A delimited list (default ',' or ';'), items trimmed, empties dropped; empty list when unset.</summary>
@@ -131,7 +132,8 @@ namespace ToolBelt.Configuration
             return parse(raw.Trim()) ?? throw new FormatException($"Environment variable '{name}' is '{raw}', which is not {expected}.");
         }
 
-        // Defined, or (for a [Flags] type) made only of defined bits — so "Read, Write" is accepted.
+        // Defined, or (for a [Flags] type) made only of defined bits — so "Read, Write" is accepted. A comma list is refused
+        // for a plain enum above: Enum.TryParse ORs the names, so "Red, Green" read as Blue (1 | 2).
         private static bool IsValidEnum<TEnum>(TEnum value) where TEnum : struct, Enum
         {
             if (Enum.IsDefined(typeof(TEnum), value)) return true;
@@ -159,24 +161,68 @@ namespace ToolBelt.Configuration
             }
         }
 
-        internal static TimeSpan? ParseDuration(string s)
+        // Negative durations are refused here, as before (a timeout or interval read from the environment).
+        internal static TimeSpan? ParseDuration(string s) => TryParseDurationCore(s, allowNegative: false, out TimeSpan t) ? t : (TimeSpan?)null;
+
+        // One duration grammar, copied verbatim in ConfigBinder and EnvironmentVariables (the same value often reaches
+        // both, and "1.5h" or "5 s" worked in one but not the other, "1m 30s" the reverse): a colon form ("00:05:00",
+        // "1.02:00:00"), or one or more terms of a decimal number and a unit (d, h, m, s, ms, any case), as in "1h 30m",
+        // "1.5h", "5 s" or "250ms". A bare number has no unit and fails. Ticks are truncated toward zero.
+        private static bool TryParseDurationCore(string s, bool allowNegative, out TimeSpan value)
         {
-            string[] units = { "ms", "s", "m", "h", "d" };
-            foreach (string unit in units)
+            value = TimeSpan.Zero;
+            s = s.Trim();
+            if (s.Length == 0) return false;
+            if (s.IndexOf(':') >= 0)
+                return TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out value) && (allowNegative || value >= TimeSpan.Zero);
+            int i = 0;
+            bool negative = s[0] == '-';
+            if (negative) { if (!allowNegative) return false; i++; }
+            else if (s[0] == '+') i++;
+            decimal ticks = 0;
+            bool sawTerm = false;
+            while (i < s.Length)
             {
-                if (!s.EndsWith(unit, StringComparison.OrdinalIgnoreCase)) continue;
-                string number = s.Substring(0, s.Length - unit.Length).Trim();
-                if (unit == "s" && number.EndsWith("m", StringComparison.OrdinalIgnoreCase)) continue;   // "ms" handled first
-                if (!double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) || !(v >= 0) || double.IsInfinity(v)) return null;   // !(v >= 0) also rejects NaN
-                double ms = unit switch { "ms" => v, "s" => v * 1e3, "m" => v * 6e4, "h" => v * 3.6e6, _ => v * 8.64e7 };
-                // Whole ticks, computed here: .NET Framework's FromMilliseconds rounds to whole ms (0.5ms became 0) and
-                // overflowed on the maximum itself.
-                double ticks = Math.Floor(ms * TimeSpan.TicksPerMillisecond);
-                return ticks >= 9.2233720368547758e18 ? (TimeSpan?)null : TimeSpan.FromTicks((long)ticks);
+                if (char.IsWhiteSpace(s[i])) { i++; continue; }
+                int start = i;
+                while (i < s.Length && (s[i] >= '0' && s[i] <= '9' || s[i] == '.')) i++;
+                // An exponent ("1e3s"): an 'e' followed by a digit, or a sign and a digit.
+                if (i > start && i < s.Length && (s[i] == 'e' || s[i] == 'E'))
+                {
+                    int j = i + 1;
+                    if (j < s.Length && (s[j] == '+' || s[j] == '-')) j++;
+                    if (j < s.Length && s[j] >= '0' && s[j] <= '9')
+                    {
+                        i = j;
+                        while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;
+                    }
+                }
+                if (!double.TryParse(s.Substring(start, i - start), NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent,
+                        CultureInfo.InvariantCulture, out double number) || double.IsInfinity(number)) return false;
+                while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
+                int unitStart = i;
+                while (i < s.Length && char.IsLetter(s[i])) i++;
+                long perUnit = s.Substring(unitStart, i - unitStart).ToLowerInvariant() switch
+                {
+                    "d" => TimeSpan.TicksPerDay,
+                    "h" => TimeSpan.TicksPerHour,
+                    "m" => TimeSpan.TicksPerMinute,
+                    "s" => TimeSpan.TicksPerSecond,
+                    "ms" => TimeSpan.TicksPerMillisecond,
+                    _ => -1,                                                    // includes a bare number (no unit)
+                };
+                if (perUnit < 0) return false;
+                // In double first: past decimal's range it is far past TimeSpan's too.
+                double t = number * perUnit;
+                if (!(t < 9.2233720368547758e18)) return false;
+                ticks += (decimal)t;
+                if (ticks > long.MaxValue) return false;
+                sawTerm = true;
             }
-            // Only a colon form ("00:05:00", "1.02:00:00"): a bare "30" would parse as 30 days.
-            return s.IndexOf(':') >= 0 && TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out TimeSpan t) && t >= TimeSpan.Zero
-                ? t : (TimeSpan?)null;
+            if (!sawTerm) return false;
+            long whole = (long)decimal.Truncate(ticks);
+            value = TimeSpan.FromTicks(negative ? -whole : whole);
+            return true;
         }
     }
 }

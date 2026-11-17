@@ -67,7 +67,8 @@ namespace ToolBelt.Documents
         {
             if (!(margin >= 0) || double.IsInfinity(margin)) throw new ArgumentOutOfRangeException(nameof(margin), margin, "Margin must be finite and non-negative.");
             // Bounded: Num writes a size of 1e300 as 301 digits, and a heading of 1.5·MaxValue overflowed to ∞.
-            if (!(fontSize > 0) || fontSize > MaxFontSize) throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be positive and at most 10,000 points.");
+            // At least 0.000001, so the sizes derived from it (0.9 of it for code and tables) stay writable.
+            if (!(fontSize >= 1e-6) || fontSize > MaxFontSize) throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be at least 0.000001 and at most 10,000 points.");
             (_pageWidth, _pageHeight) = pageSize == PdfPageSize.A4 ? (595.0, 842.0) : (612.0, 792.0);
             if (margin * 2 >= _pageWidth || margin * 2 >= _pageHeight)
                 throw new ArgumentOutOfRangeException(nameof(margin), margin, "Margins leave no room for content.");
@@ -181,7 +182,9 @@ namespace ToolBelt.Documents
                 {
                     len = Math.Min(perLine, raw.Length - start);
                     // Never split a surrogate pair across lines (an emoji is one '?', not two).
-                    if (len > 1 && start + len < raw.Length && char.IsHighSurrogate(raw[start + len - 1]) && char.IsLowSurrogate(raw[start + len])) len--;
+                    // One char a line takes the pair whole: the guard skipped that case, and the emoji became two '?'.
+                    if (start + len < raw.Length && char.IsHighSurrogate(raw[start + len - 1]) && char.IsLowSurrogate(raw[start + len]))
+                        len = len > 1 ? len - 1 : 2;
                     string piece = raw.Length == 0 ? "" : raw.Substring(start, len);
                     // Room for the whole bar, not just the text: the last line's bar ran into the bottom margin.
                     EnsureRoom(s * 1.3);
@@ -349,6 +352,7 @@ namespace ToolBelt.Documents
         public double Measure(string text, double size, bool bold = false)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
+            RequireSize(size, nameof(size));   // a NaN or negative size measured as NaN or a negative width
             int[]? table = Widths(bold);
             double units = 0;
             for (int i = 0; i < text.Length; i++)
@@ -555,7 +559,7 @@ namespace ToolBelt.Documents
         private void EmitText(string text, double x, double baseline, double size, string font)
         {
             // The size keeps its small digits: Num wrote a 0.0001-point size as "0 Tf".
-            _current.Content.Append("BT /").Append(font).Append(' ').Append(size.ToString("0.##########", CultureInfo.InvariantCulture)).Append(" Tf ")
+            _current.Content.Append("BT /").Append(font).Append(' ').Append(size.ToString("0.############", CultureInfo.InvariantCulture)).Append(" Tf ")
                     .Append(Num(x)).Append(' ').Append(Num(baseline)).Append(" Td (").Append(Escape(text)).Append(") Tj ET\n");
         }
 
@@ -698,11 +702,15 @@ namespace ToolBelt.Documents
 
         private static double RequireSize(double size, string name)
         {
-            if (!(size > 0) || size > MaxFontSize) throw new ArgumentOutOfRangeException(name, size, "Size must be positive and at most 10,000 points.");
+            if (!(size >= MinFontSize) || size > MaxFontSize) throw new ArgumentOutOfRangeException(name, size, "Size must be at least 0.0000001 and at most 10,000 points.");
             return size;
         }
 
         private const double MaxFontSize = 10000;
+
+        // The smallest size the content stream writes with six significant digits (12 decimals; PDF numbers have no exponent): a
+        // 1e-11-point size passed validation, laid out at 1e-11 and was written as "0 Tf".
+        private const double MinFontSize = 1e-7;
 
         private static bool HasNonPositive(IReadOnlyList<double> values)
         {

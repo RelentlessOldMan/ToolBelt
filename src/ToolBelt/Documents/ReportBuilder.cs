@@ -132,10 +132,13 @@ namespace ToolBelt.Documents
         public ReportBuilder Figure(string caption, string? svg = null, byte[]? png = null)
         {
             if (caption is null) throw new ArgumentNullException(nameof(caption));
-            if (string.IsNullOrWhiteSpace(svg) && (png is null || png.Length == 0))
+            // Checked after the declaration is stripped: an SVG of only "<?xml ...?>" was accepted, became "", and ToHtml
+            // then fell back to the missing PNG (ArgumentNullException "inArray").
+            string? markup = StripXmlDeclaration(svg);
+            if (string.IsNullOrWhiteSpace(markup) && (png is null || png.Length == 0))
                 throw new ArgumentException("A figure needs SVG markup or PNG bytes.", nameof(svg));
             // A copy: the caller refilling its buffer (one PNG encoder buffer reused per chart) changed every figure.
-            return Add(new Block(Kind.Figure) { Caption = caption, Svg = StripXmlDeclaration(svg), Png = (byte[]?)png?.Clone() });
+            return Add(new Block(Kind.Figure) { Caption = caption, Svg = markup, Png = (byte[]?)png?.Clone() });
         }
 
         /// <summary>A preformatted code or log block.</summary>
@@ -323,8 +326,9 @@ namespace ToolBelt.Documents
         public byte[] ToPdf(PdfPageSize pageSize = PdfPageSize.Letter, double fontSize = 10)
         {
             // The title is 1.9× the body, and PdfWriter takes at most 10,000 points: past 5,263 it failed as "size".
-            if (!(fontSize > 0) || fontSize * 1.9 > 10000)
-                throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be positive and at most 10,000 / 1.9 points.");
+            // At least 0.000001: the smallest derived size (a fraction of it) must still be one PdfWriter can write.
+            if (!(fontSize >= 1e-6) || fontSize * 1.9 > 10000)
+                throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be at least 0.000001 and at most 10,000 / 1.9 points.");
             var pdf = new PdfWriter(pageSize, 54, PdfFont.Helvetica, fontSize) { Title = Title, PageNumbers = true };
             var headings = CollectHeadings(new Anchors());
 

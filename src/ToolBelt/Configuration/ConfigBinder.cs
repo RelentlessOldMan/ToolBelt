@@ -62,6 +62,8 @@ namespace ToolBelt.Configuration
             var spelled = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var kv in values)
             {
+                // The dictionary's own ArgumentNullException("key") escaped; ConfigLayers says this.
+                if (kv.Key is null) throw new ArgumentException("A source holds a null key.", nameof(values));
                 // "Port=1" beside "PORT=2" kept whichever came last, without a word. The same value twice is no conflict.
                 if (spelled.TryGetValue(kv.Key, out string? first) && lookup[kv.Key] != kv.Value)
                     errors.Add($"'{first}' and '{kv.Key}' are the same key in different casing, with different values.");
@@ -71,7 +73,11 @@ namespace ToolBelt.Configuration
 
             var result = new T();
             object boxed = result!;
-            BindInto(boxed, typeof(T), lookup, new List<string>(lookup.Keys), "", separator, errors, 0);
+            // A null value is unset, so its key is no section member either: "Port:0" = null on an int was "nested keys
+            // cannot be bound", and "Server:Port" = null created a Server that was meant to stay at its default.
+            var scope = new List<string>();
+            foreach (var kv in lookup) if (kv.Value != null) scope.Add(kv.Key);
+            BindInto(boxed, typeof(T), lookup, scope, "", separator, errors, 0);
             if (errors.Count > 0) throw new ConfigBindingException(errors);
             return (T)boxed;
         }
@@ -384,8 +390,11 @@ namespace ToolBelt.Configuration
             try { parsed = Enum.Parse(enumType, s, ignoreCase: true); }
             catch (Exception ex) when (ex is ArgumentException || ex is OverflowException) { return false; }
 
+            bool flags = enumType.GetCustomAttribute<FlagsAttribute>() != null;
+            // Enum.Parse ORs comma-separated names whatever the type: "Red, Green" of a plain enum bound as Blue (1 | 2).
+            if (!flags && s.IndexOf(',') >= 0) return false;
             if (Enum.IsDefined(enumType, parsed)) { value = parsed; return true; }
-            if (enumType.GetCustomAttribute<FlagsAttribute>() == null) return false;
+            if (!flags) return false;
             ulong bits = ToBits(parsed), allowed = 0;
             foreach (object member in Enum.GetValues(enumType)) allowed |= ToBits(member);
             if ((bits & ~allowed) != 0) return false;
@@ -401,24 +410,44 @@ namespace ToolBelt.Configuration
             });
 
         // "1m 30s", "250ms", "2d" (integer terms, optionally negative), or a TimeSpan string containing a colon.
-        private static bool TryParseDuration(string s, out TimeSpan value)
+        private static bool TryParseDuration(string s, out TimeSpan value) => TryParseDurationCore(s, allowNegative: true, out value);
+
+        // One duration grammar, copied verbatim in ConfigBinder and EnvironmentVariables (the same value often reaches
+        // both, and "1.5h" or "5 s" worked in one but not the other, "1m 30s" the reverse): a colon form ("00:05:00",
+        // "1.02:00:00"), or one or more terms of a decimal number and a unit (d, h, m, s, ms, any case), as in "1h 30m",
+        // "1.5h", "5 s" or "250ms". A bare number has no unit and fails. Ticks are truncated toward zero.
+        private static bool TryParseDurationCore(string s, bool allowNegative, out TimeSpan value)
         {
             value = TimeSpan.Zero;
+            s = s.Trim();
             if (s.Length == 0) return false;
-            if (s.IndexOf(':') >= 0) return TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out value);
-
+            if (s.IndexOf(':') >= 0)
+                return TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out value) && (allowNegative || value >= TimeSpan.Zero);
             int i = 0;
             bool negative = s[0] == '-';
-            if (negative) i++;
-            long ticks = 0;
+            if (negative) { if (!allowNegative) return false; i++; }
+            else if (s[0] == '+') i++;
+            decimal ticks = 0;
             bool sawTerm = false;
             while (i < s.Length)
             {
                 if (char.IsWhiteSpace(s[i])) { i++; continue; }
                 int start = i;
-                while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;
-                if (i == start) return false;
-                if (!long.TryParse(s.Substring(start, i - start), NumberStyles.None, CultureInfo.InvariantCulture, out long number)) return false;
+                while (i < s.Length && (s[i] >= '0' && s[i] <= '9' || s[i] == '.')) i++;
+                // An exponent ("1e3s"): an 'e' followed by a digit, or a sign and a digit.
+                if (i > start && i < s.Length && (s[i] == 'e' || s[i] == 'E'))
+                {
+                    int j = i + 1;
+                    if (j < s.Length && (s[j] == '+' || s[j] == '-')) j++;
+                    if (j < s.Length && s[j] >= '0' && s[j] <= '9')
+                    {
+                        i = j;
+                        while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;
+                    }
+                }
+                if (!double.TryParse(s.Substring(start, i - start), NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent,
+                        CultureInfo.InvariantCulture, out double number) || double.IsInfinity(number)) return false;
+                while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
                 int unitStart = i;
                 while (i < s.Length && char.IsLetter(s[i])) i++;
                 long perUnit = s.Substring(unitStart, i - unitStart).ToLowerInvariant() switch
@@ -431,12 +460,16 @@ namespace ToolBelt.Configuration
                     _ => -1,                                                    // includes a bare number (no unit)
                 };
                 if (perUnit < 0) return false;
-                try { ticks = checked(ticks + number * perUnit); }
-                catch (OverflowException) { return false; }
+                // In double first: past decimal's range it is far past TimeSpan's too.
+                double t = number * perUnit;
+                if (!(t < 9.2233720368547758e18)) return false;
+                ticks += (decimal)t;
+                if (ticks > long.MaxValue) return false;
                 sawTerm = true;
             }
             if (!sawTerm) return false;
-            value = TimeSpan.FromTicks(negative ? -ticks : ticks);
+            long whole = (long)decimal.Truncate(ticks);
+            value = TimeSpan.FromTicks(negative ? -whole : whole);
             return true;
         }
 

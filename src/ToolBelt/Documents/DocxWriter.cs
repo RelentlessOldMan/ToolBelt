@@ -323,8 +323,9 @@ namespace ToolBelt.Documents
                 if (hasProps)
                     WriteEntry(zip, "docProps/core.xml", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
                         + "<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">"
-                        + (Title != null ? "<dc:title>" + Escape(Title) + "</dc:title>" : "")
-                        + (Author != null ? "<dc:creator>" + Escape(Author) + "</dc:creator>" : "")
+                        // A raw CR is read back as LF by every XML parser: it is written as a character reference.
+                        + (Title != null ? "<dc:title>" + Escape(Title).Replace("\r", "&#13;") + "</dc:title>" : "")
+                        + (Author != null ? "<dc:creator>" + Escape(Author).Replace("\r", "&#13;") + "</dc:creator>" : "")
                         + "</cp:coreProperties>");
             }
             return ms.ToArray();
@@ -341,7 +342,8 @@ namespace ToolBelt.Documents
         {
             var sb = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:ftr xmlns:w=\"" + W + "\"><w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>");
             const string Small = "<w:rPr><w:color w:val=\"666666\"/><w:sz w:val=\"18\"/></w:rPr>";
-            if (_footer != null) sb.Append("<w:r>").Append(Small).Append(Text(_footerPageNumbers ? _footer + "   ·   " : _footer)).Append("</w:r>");
+            // An empty text is none: Footer("") with page numbers began with a dangling "   ·   ".
+            if (_footer is { Length: > 0 } footer) sb.Append("<w:r>").Append(Small).Append(Text(_footerPageNumbers ? footer + "   ·   " : footer)).Append("</w:r>");
             if (_footerPageNumbers)
                 sb.Append("<w:r>").Append(Small).Append(Text("Page ")).Append("</w:r>")
                   .Append("<w:fldSimple w:instr=\" PAGE \"><w:r>").Append(Small).Append("<w:t>1</w:t></w:r></w:fldSimple>")

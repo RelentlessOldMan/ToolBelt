@@ -94,3 +94,11 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R108-4 | P3 | 3 | suspected | F upper tail at d1 near 1e-308 under a huge d2: −Expm1 of the leading term may lose relative precision. | review r108 |
 | R108-5 | P3 | 3 | suspected | KolmogorovSmirnovTwoSample uses the asymptotic p even at n = 3 (0.033 where the exact p is 0.1); documented as asymptotic. | review r108 |
 | R108-6 | P3 | 3 | suspected | GaugeRR uses int products for degrees of freedom; very large studies could overflow them. | review r108 |
+| R109-1 | P3 | 7 | suspected | ReportBuilder's heading slug lowers with ToLowerInvariant, which on .NET Framework leaves supplementary letters (Deseret) as they are: anchors may differ between builds. | review r109 |
+| R109-2 | P3 | 7 | suspected | DocxWriter checks only a PNG's 24-byte header, so a truncated PNG is embedded and Word reports damage (ToPdf rejects it). | review r109 |
+| R109-3 | P3 | 7 | suspected | DocxWriter table grid width 9360/columns is 0 past 9360 columns. | review r109 |
+| R109-4 | P3 | 7 | suspected | ReportTemplates.Comparison accepts flagPercent = ∞, which turns flagging off silently. | review r109 |
+| R109-5 | P3 | 7 | suspected | HtmlReport.CodeBlock with a language holding a space writes two CSS classes. | review r109 |
+| R109-6 | P3 | 7 | suspected | Two processes saving one SettingsStore file at once can still lose one writer's update after the retries. | review r109 |
+| R109-7 | P3 | 7 | suspected | PdfWriter.Code wraps by UTF-16 count, so a line with emoji wraps early. | review r109 |
+| R109-8 | P3 | 7 | suspected | HtmlReport passes U+0000 and lone surrogates through into the HTML text. | review r109 |

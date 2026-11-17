@@ -158,17 +158,22 @@ namespace ToolBelt.Documents
             string block = markdown.Trim();
             Block(block);
             // Raw Markdown that ends in a list (a hand-built table of contents) is a list too: the next list must not join it.
-            _lastMarker = ListMarker(block.Substring(block.LastIndexOfAny(new[] { '\n', '\r' }) + 1).TrimStart());
+            // The list may end in a continuation or lazy line ("- a\n  b", "- a\nlazy"), so the last item line anywhere in
+            // the block sets the marker; only the last line was looked at, and the next list joined it.
+            _lastMarker = '\0';
+            var lines = block.Replace("\r\n", "\n").Split('\n', '\r');
+            for (int i = lines.Length - 1; i >= 0 && _lastMarker == '\0'; i--) _lastMarker = ListMarker(lines[i].Trim());
             return this;
         }
 
         // The marker of a list item line ("- x" → '-', "3. x" → '.'), else '\0'.
         private static char ListMarker(string line)
         {
-            if (line.Length >= 2 && (line[0] == '-' || line[0] == '*' || line[0] == '+') && (line[1] == ' ' || line[1] == '\t')) return line[0];
+            // An empty item ("-", "1.") is an item too.
+            if (line.Length >= 1 && (line[0] == '-' || line[0] == '*' || line[0] == '+') && (line.Length == 1 || line[1] == ' ' || line[1] == '\t')) return line[0];
             int i = 0;
             while (i < line.Length && i < 9 && line[i] >= '0' && line[i] <= '9') i++;
-            if (i > 0 && i + 1 < line.Length && (line[i] == '.' || line[i] == ')') && (line[i + 1] == ' ' || line[i + 1] == '\t')) return line[i];
+            if (i > 0 && i < line.Length && (line[i] == '.' || line[i] == ')') && (i + 1 == line.Length || line[i + 1] == ' ' || line[i + 1] == '\t')) return line[i];
             return '\0';
         }
 
@@ -188,11 +193,24 @@ namespace ToolBelt.Documents
             return text.Substring(0, lead) + marker + Escape(core) + marker + text.Substring(lead + core.Length);
         }
 
+        private static bool RuleChars(string text)
+        {
+            int end = text.IndexOf('\n');
+            if (end < 0) end = text.Length;
+            if (end == 0 || (text[0] != '-' && text[0] != '*' && text[0] != '_')) return false;
+            for (int i = 0; i < end; i++)
+                if (text[i] != text[0] && text[i] != ' ' && text[i] != '\t') return false;
+            return true;
+        }
+
         // A multi-line item: continuation lines are indented to the item's content column, so a blank line inside it
         // continues the item rather than ending the list.
         private static string ItemText(string? item, int indent)
         {
             string text = (item ?? "").Trim().Replace("\r\n", "\n").Replace('\r', '\n');
+            // A first line made only of '-', '*' or '_' joins the marker into a thematic break ("- --", "* **") or is one
+            // itself ("- ***"), or is a nested empty item ("- -"): the item became <hr> and its text was lost.
+            if (RuleChars(text)) text = "\\" + text;
             if (text.IndexOf('\n') < 0) return text;
             string pad = new string(' ', indent);
             var lines = text.Split('\n');
