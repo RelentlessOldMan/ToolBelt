@@ -43,6 +43,9 @@ namespace ToolBelt.Numerics
         public static (double Value, double Uncertainty, int Decimals) Round(double value, double uncertainty, UncertaintyRule rule = UncertaintyRule.ParticleDataGroup)
         {
             if (double.IsNaN(value) || double.IsInfinity(value)) throw new ArgumentOutOfRangeException(nameof(value), value, "Value must be finite.");
+            // An undefined rule took the PDG digit counts without PDG's 950–999 step.
+            if (rule != UncertaintyRule.ParticleDataGroup && rule != UncertaintyRule.TwoSignificantDigits && rule != UncertaintyRule.OneSignificantDigit)
+                throw new ArgumentOutOfRangeException(nameof(rule), rule, "Unknown uncertainty rule.");
             if (!(uncertainty > 0) || double.IsInfinity(uncertainty)) throw new ArgumentOutOfRangeException(nameof(uncertainty), uncertainty, "Uncertainty must be positive and finite.");
             // Rounding 1e300 to 1e-300's decimal place overflowed 10³⁰¹ and returned NaN.
             if (uncertainty < Math.Abs(value) * 1e-17)
@@ -95,6 +98,9 @@ namespace ToolBelt.Numerics
         public static string Format(double value, double uncertainty, UncertaintyStyle style = UncertaintyStyle.PlusMinus,
             UncertaintyRule rule = UncertaintyRule.ParticleDataGroup)
         {
+            // An undefined style wrote PlusMinus.
+            if (style != UncertaintyStyle.PlusMinus && style != UncertaintyStyle.Parenthetical)
+                throw new ArgumentOutOfRangeException(nameof(style), style, "Unknown uncertainty style.");
             var (v, u, decimals) = Round(value, uncertainty, rule);
             if (decimals <= 6 && decimals >= -6 && Math.Abs(v) < 1e7)
                 return Compose(v, u, Math.Max(decimals, 0), style, null);

@@ -49,6 +49,10 @@ namespace ToolBelt.Numerics
             if (!(p >= 0 && p <= 1)) throw new ArgumentOutOfRangeException(nameof(p), p, "Probability must be in [0, 1].");
             if (_sorted.Length == 1) return _sorted[0];
             double position = p * (_sorted.Length - 1);
+            // p·(n − 1) rounds: p = 0.29 over 101 samples ranked 28.999999999999996, where Percentile(29) ranks 29. A p that
+            // is the nearest double to k / (n − 1) is rank k.
+            double k = Math.Round(position);
+            if (k / (_sorted.Length - 1) == p) position = k;
             int lower = (int)Math.Floor(position);
             int upper = (int)Math.Ceiling(position);
             if (lower == upper) return _sorted[lower];

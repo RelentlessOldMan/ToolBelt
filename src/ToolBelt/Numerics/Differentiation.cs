@@ -149,13 +149,21 @@ namespace ToolBelt.Numerics
         private static double QuadraticDerivative(double at, double x0, double x1, double x2,
             double f0, double f1, double f2)
         {
+            double d = Quadratic(at, x0, x1, x2, f0, f1, f2);
+            if (!double.IsNaN(d) && !double.IsInfinity(d)) return d;
+            return Finite(f0) && Finite(f1) && Finite(f2) ? WideNewton(at, x0, x1, x2, f0, f1, f2) : d;
+        }
+
+        private static double Quadratic(double at, double x0, double x1, double x2,
+            double f0, double f1, double f2)
+        {
             // Newton's divided differences first: f[x0,x1] + f[x0,x1,x2]·((at − x0) + (at − x1)) is exactly 0 for constant
             // data, where the Lagrange weights left round-off (a flat 0.1 gave −4e-16). The forms below handle overflow.
             // Points spread past double.MaxValue ({−1e308, 0, 1e308}) overflowed every spacing and gave NaN at the ends: the
             // derivative in x is half the one in x/2, and halving such positions is exact.
             double spread = Math.Max(Math.Max(x0, x1), x2) - Math.Min(Math.Min(x0, x1), x2);
             if (double.IsInfinity(spread))
-                return 0.5 * QuadraticDerivative(0.5 * at, 0.5 * x0, 0.5 * x1, 0.5 * x2, f0, f1, f2);
+                return 0.5 * Quadratic(0.5 * at, 0.5 * x0, 0.5 * x1, 0.5 * x2, f0, f1, f2);
             {
                 double s01 = (f1 - f0) / (x1 - x0), s12 = (f2 - f1) / (x2 - x1);
                 // The positions as fractions of x2 − x0 first: divided last, the curvature term underflowed for wide grids.
@@ -181,6 +189,70 @@ namespace ToolBelt.Numerics
                  + f1 * (((at - x0) + (at - x2)) / (x1 - x0) / (x1 - x2))
                  + f2 * (((at - x0) + (at - x1)) / (x2 - x0) / (x2 - x1));
         }
+
+        // A slope past double range (1e308 across 1e-306 at the end of a 1e308-wide grid) overflowed the Newton form and the
+        // Lagrange weights alike, so the end derivative was ∞ − ∞ = NaN. Its two terms Δf₀₁·(1 − r)/Δx₀₁ and Δf₁₂·r/Δx₁₂
+        // are formed as mantissa and exponent, where nothing overflows, and added last: a signed ∞ past double range.
+        private static double WideNewton(double at, double x0, double x1, double x2, double f0, double f1, double f2)
+        {
+            double spread = Math.Max(Math.Max(x0, x1), x2) - Math.Min(Math.Min(x0, x1), x2);
+            if (double.IsInfinity(spread)) // as in Quadratic: halving such positions is exact
+                return 0.5 * WideNewton(0.5 * at, 0.5 * x0, 0.5 * x1, 0.5 * x2, f0, f1, f2);
+            // r = pb / s and 1 − r = pa / s, each from its own differences: 1 − r cancelled to 0 at at = x1 when x1 − x0
+            // rounded to x2 − x0, dropping the term that overflowed.
+            double s = x2 - x0, pa = (x2 - at) + (x1 - at), pb = (at - x0) + (at - x1);
+            if (double.IsInfinity(pa) || double.IsInfinity(pb))
+            {
+                pa = 0.5 * (x2 - at) + 0.5 * (x1 - at);
+                pb = 0.5 * (at - x0) + 0.5 * (at - x1);
+                s *= 0.5;
+            }
+            double a = Term(f0, f1, pa, s, x1 - x0, out int ea);
+            double b = Term(f1, f2, pb, s, x2 - x1, out int eb);
+            if (a == 0) return Ldexp(b, eb);
+            if (b == 0) return Ldexp(a, ea);
+            int e = Math.Max(ea, eb);
+            return Ldexp(Ldexp(a, ea - e) + Ldexp(b, eb - e), e);
+        }
+
+        // (g − f)·p/(q·den) as m·2^e with |m| in (0.25, 4); g − f is halved only when it overflows (±1e308 apart).
+        private static double Term(double f, double g, double p, double q, double den, out int e)
+        {
+            double df = g - f;
+            int half = 0;
+            if (double.IsInfinity(df)) { df = 0.5 * g - 0.5 * f; half = 1; }
+            e = 0;
+            if (df == 0 || p == 0) return 0;
+            double m = Frexp(df, out int en) * Frexp(p, out int ep) / (Frexp(q, out int eq) * Frexp(den, out int ed));
+            e = en + half + ep - eq - ed;
+            return m;
+        }
+
+        // v = m·2^e with 1 ≤ |m| < 2, for finite non-zero v (subnormals included).
+        private static double Frexp(double v, out int e)
+        {
+            int bias = 0;
+            if (Math.Abs(v) < 2.2250738585072014E-308) { v *= 18446744073709551616.0; bias = 64; } // 2⁶⁴
+            long bits = BitConverter.DoubleToInt64Bits(v);
+            e = (int)((bits >> 52) & 0x7FF) - 1023 - bias;
+            return BitConverter.Int64BitsToDouble((bits & unchecked((long)0x800FFFFFFFFFFFFFUL)) | (1023L << 52));
+        }
+
+        // v·2^e rounded once: a normal result is exact, a subnormal one rounds in the last multiply only.
+        private static double Ldexp(double v, int e)
+        {
+            if (v == 0) return v;
+            double m = Frexp(v, out int k);
+            long p = (long)e + k;
+            if (p > 1023) return m * double.PositiveInfinity;
+            if (p >= -1022) return m * Pow2((int)p);
+            if (p < -1100) return m * 0.0;
+            return m * Pow2((int)p + 1022) * Pow2(-1022);
+        }
+
+        private static double Pow2(int e) => BitConverter.Int64BitsToDouble((long)(e + 1023) << 52); // −1022 ≤ e ≤ 1023
+
+        private static bool Finite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
 
         private static bool Normal(double v)
         {

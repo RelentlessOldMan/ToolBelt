@@ -44,7 +44,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 1  | Filters & control | `Signal/IirFilter`, `Signal/FirFilter`, `Control/*` (Waves 87/88/88b, never reviewed) | 2,100 | — | 7 | 9 / 91 | re-queue (9 bugs, none severe) |
 | 2  | Signal analysis | rest of `Signal/*` (FFT, Welch, multitaper, Hilbert, resample, pulse/cycle measurements, unwrap…) | 1,850 | ~2 | 7 | 6 / 125 | re-queue (6 bugs, none severe) |
 | 3  | Statistics | `Numerics/` Distributions, SpecialFunctions, HypothesisTests, Anova, Multiple/LinearRegression, DistributionFit, PermutationTest, Bootstrap, ConfidenceInterval, Correlation, ChangePoint, Trend; `Quality/*` | 3,300 | ~10 | 7 | 5 / 138 | re-queue (5 bugs, none severe) |
-| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 6 | 8 / 150 | re-queue (8 bugs, none severe) |
+| 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 7 | 12 / 162 | re-queue (12 bugs, none severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 7 | 9 / 145 | re-queue (9 bugs, none severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 3,400 | ~3 | 7 | 5 / 76 | re-queue (5 bugs, 1 severe) |
 | 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 7 | 20 / 147 | re-queue (20 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); 1 (done, round 107); 3 (done, round 108). Seventh pass, same rule and order (severe count, then bugs in the sixth pass; ties by section number): 7 (done, round 109); 15 (done, round 110); 9 (done, round 111); 8 (done, round 112); 6 (done, round 113); 10 (done, round 114); 2 (done, round 115); 12 (done, round 116); 16 (done, round 117); 3 (done, round 118); 1 (done, round 119); 17 (done, round 120); 5 (done, round 121); **next: 4**, then 11, 13, 14 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); 1 (done, round 107); 3 (done, round 108). Seventh pass, same rule and order (severe count, then bugs in the sixth pass; ties by section number): 7 (done, round 109); 15 (done, round 110); 9 (done, round 111); 8 (done, round 112); 6 (done, round 113); 10 (done, round 114); 2 (done, round 115); 12 (done, round 116); 16 (done, round 117); 3 (done, round 118); 1 (done, round 119); 17 (done, round 120); 5 (done, round 121); 4 (done, round 122); **next: 11**, then 13, 14 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -195,11 +195,42 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.17.9 | 119 | Filters & control, seventh pass | 8 | (see tag) |
 | v2026.11.17.10 | 120 | WinForms + tooling + docs, seventh pass | 10 | (see tag) |
 | v2026.11.17.11 | 121 | Charts, seventh pass | 9 | (see tag) |
+| v2026.11.17.12 | 122 | Numerics core, seventh pass | 12 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 122: Numerics core, seventh pass (v2026.11.17.12)
+
+Two fresh reviewers (correctness, robustness): 12 bugs, none severe, so section 4 stays re-queued. The regression tests
+are in `NumericsCoreReview122Tests` (9, all failing on the old code, run by name under a 60 s timeout), graded against
+exact BigInteger sums and derivatives over randomized full-range data.
+
+- **Lerp ends**: `Interpolation.Lerp`, `Remap` and `Vector2.Lerp` computed a + (b − a)·t, so t = 1 lost a small b next
+  to a large a (`Lerp(1e16, 1, 1)` was 0). The ends are exact and an interior t stays between a and b.
+- **EmpiricalDistribution.Quantile** ranked p·(n − 1), so p = 0.29 over 101 samples fell between ranks (28.999999999999996)
+  where `Percentile` gives 29. A p that is the nearest double to k / (n − 1) is rank k.
+- **Angle with ±∞** (the logged suspect R95-2) normalized to NaN everywhere; a `LerpDegrees` step that overflowed did too.
+  They throw, naming degrees, from, to or t. NaN still passes through.
+- **MovingAverage** kept one compensation term, which cannot hold three magnitudes: after 1e300 and 1e200 left a window
+  of three, {1, 1, 1} averaged 0, and a window of 1000 stayed wrong until the next lap's rebuild. The running sum is
+  exact (Shewchuk's partials, as `math.fsum`).
+- **Means.Harmonic** was never held in [min, max] as the class promises: near-equal data landed an ulp above the largest
+  value, and values near double.MaxValue gave ∞.
+- **Undefined enums**: an `Extrapolation` cast from 42 behaved as Linear, an undefined `UncertaintyRule` took the PDG
+  digit counts without PDG's 950–999 step, and an undefined `UncertaintyStyle` wrote PlusMinus. They throw (policy, rule,
+  style).
+- **MinMaxScaler.Scale** with a NaN data bound returned NaN for every value, where a NaN target bound throws.
+- **LinearAlgebra.Multiply** of 100000x0 by 0x100000 threw OutOfMemoryException; a product past Array.MaxLength names b.
+- **Integration.Trapezoid** (both overloads) summed finite panels past double range as ±∞, so opposite ones gave NaN
+  (1819 of 20000 wide-range cases). They are summed again scaled by 2⁻¹¹⁰⁰: a signed ∞, or the value when they cancel.
+- **Differentiation.Sample** gave NaN where a slope passed double range next to a tiny spacing (∞ − ∞ in every form; 511
+  of 20000 cases). Such a derivative is formed as mantissa and exponent: a signed ∞ past double range.
+- **Integration's summary** promised Simpson's rule over uneven spacing, which does not exist.
+
+Still suspected: R95-1 and R95-3, and BUGLIST R122-1 to R122-5.
+
 ### Round 121: Charts, seventh pass (v2026.11.17.11)
 
 Two fresh reviewers (correctness, robustness): 9 bugs, none severe, so section 5 stays re-queued. The regression tests

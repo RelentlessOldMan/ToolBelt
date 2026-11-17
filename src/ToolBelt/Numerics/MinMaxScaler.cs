@@ -42,6 +42,9 @@ namespace ToolBelt.Numerics
         public static double Scale(double value, double dataMin, double dataMax, double newMin, double newMax)
         {
             CheckBounds(newMin, newMax);
+            // A NaN data bound returned NaN for every value, where a NaN target bound throws.
+            if (double.IsNaN(dataMin)) throw new ArgumentOutOfRangeException(nameof(dataMin), dataMin, "Data bound is NaN.");
+            if (double.IsNaN(dataMax)) throw new ArgumentOutOfRangeException(nameof(dataMax), dataMax, "Data bound is NaN.");
             if (dataMax == dataMin)
                 return newMin; // constant input: no spread to preserve
             double num = value - dataMin, den = dataMax - dataMin;

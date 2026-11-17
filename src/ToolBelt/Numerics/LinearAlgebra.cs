@@ -40,6 +40,9 @@ namespace ToolBelt.Numerics
             RequireZeroBased(b, nameof(b));
             int ar = a.GetLength(0), ac = a.GetLength(1), br = b.GetLength(0), bc = b.GetLength(1);
             if (ac != br) throw new ArgumentException($"Cannot multiply {ar}x{ac} by {br}x{bc}.", nameof(b));
+            // 100000x0 by 0x100000 threw OutOfMemoryException: the product has more elements than an array can hold.
+            if ((long)ar * bc > 0x7FFFFFC7)
+                throw new ArgumentException($"The {ar}x{bc} product has more than Array.MaxLength elements.", nameof(b));
             var result = new double[ar, bc];
             for (int i = 0; i < ar; i++)
                 for (int k = 0; k < ac; k++)

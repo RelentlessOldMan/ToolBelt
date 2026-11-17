@@ -21,7 +21,6 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R94-3 | P3 | 8 | suspected | `AtomicFile` with a backup fails on names of 252 characters or more ("<name>.bak" passes the 255-character limit); the original is kept, but the write is refused. Undocumented. | review r94 |
 | R94-4 | P3 | 8 | suspected | A zip made on Unix with a directory entry ending in a backslash is extracted as a file; on Unix, extraction treats a backslash as a separator while creation keeps it as a name character. | review r94 |
 | R95-1 | P3 | 4 | suspected | `RandomUtils.NextGamma` with a subnormal shape below 1 and a zero draw computes `Math.Pow(1, ∞)`, which is 1 on .NET Core but may be NaN on .NET Framework 4.8. Not run there. | review r95 |
-| R95-2 | P3 | 4 | suspected | `Angle` normalisation of ±∞ returns NaN rather than throwing; whether the contract allows it was not judged. | review r95 |
 | R95-3 | P3 | 4 | suspected | `Primes.Sieve(int.MaxValue)` and `Polynomial.Fit` at its n·m cap run out of memory (OutOfMemoryException) instead of rejecting the size; neither limit is documented. | review r95 |
 | R96-1 | P3 | 9 | suspected | `TtlCache`: an entry that never expires (or whose expiry was capped at `DateTimeOffset.MaxValue`) counts as expired when an injected clock returns `MaxValue`. | review r96 |
 | R96-2 | P3 | 9 | suspected | `ReservoirSampler` and `WeightedWithoutReplacement`: a seeded `Random`'s NextDouble has 31-bit resolution, which quantises skip lengths after about k·2^31 items. Effect looks negligible; not measured. | review r96 |
@@ -158,3 +157,8 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R121-2 | P3 | 5 | suspected | An SVG callout label wider than the plot runs past the plot and the canvas. | review r121 |
 | R121-3 | P3 | 5 | suspected | A wide SvgChart legend may spill left of the plot area. | review r121 |
 | R121-4 | P3 | 5 | suspected | Not probed this pass: TimingDiagram, ScatterMatrix and MultiPanel output, LinePlot, BandChart, ErrorBarChart extremes. | review r121 |
+| R122-1 | P3 | 4 | suspected | `AkimaSpline` (and makima) return −∞ inside a segment for knots and values spanning 1e307 to 1e308; a cubic may genuinely overshoot there, not separated. | review r122 |
+| R122-2 | P3 | 4 | suspected | `Integration.CumulativeTrapezoid` keeps a plain running sum, so panels past double range may give NaN where `Trapezoid` now does not. Not probed. | review r122 |
+| R122-3 | P3 | 4 | suspected | `RoundToMultiple(0.15, 0.1)` gives 0.1 where `RoundToSignificantDigits` rounds 0.15 to 0.2; whether the multiple's decimal reading is owed was not judged. | review r122 |
+| R122-4 | P3 | 4 | suspected | `BaseConverter` with surrogate-pair alphabet characters, and `Polynomial` roots returned as −0, were read but not probed. | review r122 |
+| R122-5 | P3 | 4 | suspected | Not run on .NET Framework 4.8 by the reviewers: `Primes` MulMod without UInt128; no thread-safety stress. | review r122 |

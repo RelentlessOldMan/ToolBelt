@@ -32,6 +32,9 @@ namespace ToolBelt.Numerics
             if (y is null) throw new ArgumentNullException(nameof(y));
             if (x.Count != y.Count) throw new ArgumentException("x and y must have the same length.", nameof(y));
             if (x.Count < 2) throw new ArgumentException("At least two points are required.", nameof(x));
+            // An undefined policy ((Extrapolation)42) behaved as Linear.
+            if (policy != Extrapolation.Clamp && policy != Extrapolation.Linear && policy != Extrapolation.Throw)
+                throw new ArgumentOutOfRangeException(nameof(policy), policy, "Unknown extrapolation policy.");
 
             _x = new double[x.Count];
             _y = new double[y.Count];

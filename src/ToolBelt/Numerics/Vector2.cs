@@ -89,11 +89,18 @@ namespace ToolBelt.Numerics
 
         private static double Lerp(double a, double b, double t)
         {
-            double d = b - a;
+            // The ends are exact and an interior t stays between them: a + (b − a)·1 lost a small b next to a large a
+            // (Lerp(1e16, 1, 1) gave 0).
+            if (t == 0) return a;
+            if (t == 1) return b;
+            double d = b - a, r;
             // Finite ends of opposite sign can overflow b − a (−1e308 to 1e308): interpolate the halves instead.
             if (double.IsInfinity(d) && !double.IsInfinity(a) && !double.IsInfinity(b))
-                return 2 * (0.5 * a + (0.5 * b - 0.5 * a) * t);
-            return a + d * t;
+                r = 2 * (0.5 * a + (0.5 * b - 0.5 * a) * t);
+            else
+                r = a + d * t;
+            if (t > 0 && t < 1) r = Math.Min(Math.Max(r, Math.Min(a, b)), Math.Max(a, b));
+            return r;
         }
 
         public bool ApproximatelyEquals(Vector2 other, double tolerance = 1e-9)

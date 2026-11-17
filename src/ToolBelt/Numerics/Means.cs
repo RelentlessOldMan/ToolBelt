@@ -77,18 +77,21 @@ namespace ToolBelt.Numerics
         public static double Harmonic(IReadOnlyList<double> values)
         {
             Require(values);
-            double min = double.PositiveInfinity;
+            double min = double.PositiveInfinity, max = 0;
             for (int i = 0; i < values.Count; i++)
             {
                 if (!(values[i] > 0))
                     throw new ArgumentException("Harmonic mean requires strictly positive values.", nameof(values));
                 if (values[i] < min) min = values[i];
+                if (values[i] > max) max = values[i];
             }
             if (double.IsPositiveInfinity(min)) return min;
             // Reciprocals scaled by the smallest value lie in (0, 1]: 1/x overflowed for a subnormal x.
             double sumScaled = 0;
             for (int i = 0; i < values.Count; i++) sumScaled += min / values[i];
-            return min * (values.Count / sumScaled);
+            // Held in [min, max] as the other means are: near-equal values landed an ulp above the largest, and near
+            // double.MaxValue overflowed to ∞.
+            return Math.Min(Math.Max(min * (values.Count / sumScaled), min), max);
         }
 
         /// <summary>Root mean square (quadratic mean).</summary>

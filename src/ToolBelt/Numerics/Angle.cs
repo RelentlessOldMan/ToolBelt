@@ -13,6 +13,7 @@ namespace ToolBelt.Numerics
         /// <summary>Normalizes to the range [0, 360).</summary>
         public static double NormalizeDegrees(double degrees)
         {
+            Finite(degrees, nameof(degrees));
             double d = degrees % 360.0 + 0.0; // + 0.0 turns −0 (from −0 or −360) into +0
             if (d < 0) d += 360.0;
             return d == 360.0 ? 0.0 : d; // guard the -0-rounds-to-360 edge
@@ -21,6 +22,7 @@ namespace ToolBelt.Numerics
         /// <summary>Normalizes to the range (-180, 180].</summary>
         public static double NormalizeSignedDegrees(double degrees)
         {
+            Finite(degrees, nameof(degrees));
             // Straight from the remainder (exact), and each step below is exact too: going through [0, 360) rounded a
             // small negative angle to 360, so −1e-15 came out 0.
             double d = degrees % 360.0;
@@ -33,11 +35,27 @@ namespace ToolBelt.Numerics
         // Each angle is reduced (exactly) before the subtraction: to − from overflowed for 1.7e308 and −1.7e308 (NaN) and
         // lost the small part of a large angle (3.6e17 to 10 was 0, not 10).
         public static double DifferenceDegrees(double from, double to)
-            => NormalizeSignedDegrees(to % 360.0 - from % 360.0);
+        {
+            Finite(from, nameof(from));
+            Finite(to, nameof(to));
+            return NormalizeSignedDegrees(to % 360.0 - from % 360.0);
+        }
 
         /// <summary>Interpolates from <paramref name="from"/> toward <paramref name="to"/> along the shortest arc, result in [0, 360).</summary>
         public static double LerpDegrees(double from, double to, double t)
-            => NormalizeDegrees(from % 360.0 + DifferenceDegrees(from, to) * t);
+        {
+            double step = DifferenceDegrees(from, to) * t;
+            if (double.IsInfinity(step))
+                throw new ArgumentOutOfRangeException(nameof(t), t, "The step from from toward to overflows.");
+            return NormalizeDegrees(from % 360.0 + step);
+        }
+
+        // ±∞ has no direction: every normalization of it was NaN. NaN still passes through.
+        private static void Finite(double degrees, string name)
+        {
+            if (double.IsInfinity(degrees))
+                throw new ArgumentOutOfRangeException(name, degrees, "Angle must not be infinite.");
+        }
 
         public static double DegreesToRadians(double degrees) => degrees * (Math.PI / 180.0);
 

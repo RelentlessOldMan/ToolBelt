@@ -5,8 +5,8 @@ namespace ToolBelt.Numerics
 {
     /// <summary>
     /// A simple moving average over the most recent <c>windowSize</c> samples. Backed by a ring buffer
-    /// and a compensated running sum, so each <see cref="Add"/> is amortised O(1); the sum is rebuilt from the
-    /// window once per lap, so round-off cannot accumulate. Huge finite samples whose sum would overflow
+    /// and an exact running sum (Shewchuk's non-overlapping partials, as Python's math.fsum), so each <see cref="Add"/>
+    /// is amortised O(1) and a sample that leaves the window leaves no round-off behind. Huge finite samples whose sum would overflow
     /// (1e308 + 1e308) are summed scaled down by 2⁻³², so the average stays finite. Infinities and NaN are counted rather than summed,
     /// so they affect the average only while they are inside the window. Before the window fills, the average is over
     /// however many samples have been seen. Not thread-safe.
@@ -16,8 +16,10 @@ namespace ToolBelt.Numerics
         private readonly double[] _buffer;
         private int _next;   // index to write next; equals the oldest slot once full
         private int _count;
-        private double _sum;
-        private double _compensation; // Neumaier running error term
+        // The window's exact sum as non-overlapping partials, smallest first. One compensation term could not hold three
+        // magnitudes: after 1e300 and 1e200 left a window of three, {1, 1, 1} averaged 0.
+        private double[] _partials = new double[4];
+        private int _np;
         private int _nan, _posInf, _negInf; // non-finite samples in the window (kept out of the sum)
         private int _huge;        // finite samples of magnitude 2⁹⁶⁰ or more in the window: only these can overflow the sum
         private const double Huge = 9.7453140114e288; // 2⁹⁶⁰, roughly: below it 2³¹ samples sum to under 2⁹⁹¹
@@ -48,7 +50,7 @@ namespace ToolBelt.Numerics
                 if (_nan > 0 || (_posInf > 0 && _negInf > 0)) return double.NaN;
                 if (_posInf > 0) return double.PositiveInfinity;
                 if (_negInf > 0) return double.NegativeInfinity;
-                double mean = (_sum + _compensation) / _count;
+                double mean = Total() / _count;
                 return _scaled ? mean * Up : mean;
             }
         }
@@ -84,8 +86,7 @@ namespace ToolBelt.Numerics
             Array.Clear(_buffer, 0, _buffer.Length);
             _next = 0;
             _count = 0;
-            _sum = 0;
-            _compensation = 0;
+            _np = 0;
             _nan = _posInf = _negInf = _huge = 0;
             _scaled = _overflowed = false;
         }
@@ -105,19 +106,48 @@ namespace ToolBelt.Numerics
         private void Accumulate(double v)
         {
             if (_scaled) v *= Down;
-            double t = _sum + v;
-            if (double.IsInfinity(t)) _overflowed = true;
-            if (Math.Abs(_sum) >= Math.Abs(v)) _compensation += (_sum - t) + v;
-            else _compensation += (v - t) + _sum;
-            _sum = t;
+            int k = 0;
+            for (int i = 0; i < _np; i++)
+            {
+                double y = _partials[i];
+                if (Math.Abs(v) < Math.Abs(y)) { double s = v; v = y; y = s; }
+                double hi = v + y;
+                if (double.IsInfinity(hi)) { _overflowed = true; _partials[0] = hi; _np = 1; return; } // rebuilt scaled
+                double lo = y - (hi - v);
+                if (lo != 0) _partials[k++] = lo;
+                v = hi;
+            }
+            if (k == _partials.Length) Array.Resize(ref _partials, 2 * k);
+            _partials[k++] = v;
+            _np = k;
+        }
+
+        // The partials' sum rounded once (math.fsum's last step, with its half-way correction).
+        private double Total()
+        {
+            int n = _np;
+            if (n == 0) return 0;
+            double hi = _partials[--n], lo = 0;
+            while (n > 0)
+            {
+                double x = hi, y = _partials[--n];
+                hi = x + y;
+                lo = y - (hi - x);
+                if (lo != 0) break;
+            }
+            if (n > 0 && ((lo < 0 && _partials[n - 1] < 0) || (lo > 0 && _partials[n - 1] > 0)))
+            {
+                double y = lo * 2, x = hi + y;
+                if (y == x - hi) hi = x;
+            }
+            return hi;
         }
 
         private void Rebuild(bool scaled)
         {
             _scaled = scaled;
             _overflowed = false;
-            _sum = 0;
-            _compensation = 0;
+            _np = 0;
             _nan = _posInf = _negInf = _huge = 0;
             for (int i = 0; i < _count; i++) Include(_buffer[i], +1);
             if (_overflowed && !scaled) Rebuild(scaled: true);

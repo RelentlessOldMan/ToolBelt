@@ -5,7 +5,7 @@ using System.Collections.Generic;
 namespace ToolBelt.Numerics
 {
     /// <summary>
-    /// Numerical integration: trapezoid and Simpson rules over sampled data (uniform or uneven spacing),
+    /// Numerical integration: the trapezoid rule over sampled data (uniform or uneven spacing), Simpson's over uniform,
     /// adaptive Simpson over a function, and a cumulative trapezoid for a running integral. Grade against
     /// closed-form integrals of polynomials and sinusoids.
     /// </summary>
@@ -19,7 +19,11 @@ namespace ToolBelt.Numerics
             double sum = 0;
             for (int i = 1; i < y.Count; i++)
                 sum += Panel(y[i - 1], y[i], dx);
-            return sum;
+            if (IsFinite(sum) || !AllFinite(y)) return sum;
+            double scaled = 0, w = dx * Tiny;
+            for (int i = 1; i < y.Count; i++)
+                scaled += (0.5 * y[i - 1] + 0.5 * y[i]) * Tiny * w;
+            return scaled * Big * Big;
         }
 
         /// <summary>Trapezoidal integral of samples at arbitrary ascending x positions.</summary>
@@ -37,7 +41,28 @@ namespace ToolBelt.Numerics
                 else
                     sum += Panel(y[i - 1], y[i], h);
             }
-            return sum;
+            if (IsFinite(sum) || !AllFinite(x) || !AllFinite(y)) return sum;
+            double scaled = 0;
+            for (int i = 1; i < y.Count; i++)
+            {
+                double h = x[i] - x[i - 1];
+                double w = IsFinite(h) ? h * Tiny : (0.5 * x[i] - 0.5 * x[i - 1]) * (2 * Tiny);
+                scaled += (0.5 * y[i - 1] + 0.5 * y[i]) * Tiny * w;
+            }
+            return scaled * Big * Big;
+        }
+
+        // Finite panels past double range (1e308 over a width of 10) were summed as ±∞: two opposite ones gave NaN, and a
+        // larger finite remainder could not outweigh one. Then the panels are summed again scaled by 2⁻¹¹⁰⁰, where neither a
+        // panel nor a sum of 2³¹ of them overflows, and scaled back: a signed ∞ past double range, the value if it cancels.
+        private static readonly double Tiny = BitConverter.Int64BitsToDouble((long)(1023 - 550) << 52); // 2⁻⁵⁵⁰
+        private static readonly double Big = BitConverter.Int64BitsToDouble((long)(1023 + 550) << 52);  // 2⁵⁵⁰
+
+        private static bool AllFinite(IReadOnlyList<double> v)
+        {
+            for (int i = 0; i < v.Count; i++)
+                if (!IsFinite(v[i])) return false;
+            return true;
         }
 
         /// <summary>
