@@ -58,12 +58,35 @@ namespace ToolBelt.Windows
                     if (t == "1") return (T)(object)true;
                     if (t == "0") return (T)(object)false;
                 }
+                // Text SetValue wrote: ChangeType can't make a Guid, TimeSpan, DateTimeOffset, Half, Int128, BigInteger or
+                // DateOnly at all (each read back as the default), and read a DateTime without its kind.
+                if (raw is string s && TryParseText(s, target, out object? parsed)) return (T)parsed!;
                 // ChangeType rejects Nullable<T> targets, so convert to the underlying type (boxing it is a boxed T?).
                 return (T)Convert.ChangeType(raw, target, CultureInfo.InvariantCulture);
             }
             catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentException)
             {
                 return defaultValue;
+            }
+        }
+
+        // A date keeps its kind or offset ("O" is how SetValue writes one); any other type that is not IConvertible but has
+        // a Parse(string, IFormatProvider) (Guid, TimeSpan, Half, Int128, BigInteger, DateOnly, TimeOnly) parses
+        // invariantly. Its FormatException or OverflowException surfaces as itself, so a bad value reads as the default.
+        private static bool TryParseText(string s, Type target, out object? value)
+        {
+            value = null;
+            if (target == typeof(DateTime)) { value = DateTime.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind); return true; }
+            if (target == typeof(DateTimeOffset)) { value = DateTimeOffset.Parse(s, CultureInfo.InvariantCulture); return true; }
+            if (typeof(IConvertible).IsAssignableFrom(target)) return false;
+            System.Reflection.MethodInfo? parse = target.GetMethod("Parse", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
+                null, new[] { typeof(string), typeof(IFormatProvider) }, null);
+            if (parse is null || parse.ReturnType != target) return false;
+            try { value = parse.Invoke(null, new object[] { s, CultureInfo.InvariantCulture }); return true; }
+            catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException != null)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
             }
         }
 
@@ -130,6 +153,9 @@ namespace ToolBelt.Windows
             if (value is null) throw new ArgumentNullException(nameof(value));
             // Win32 ends a value name at a NUL, so "real\0shadow" overwrote "real".
             if (name.IndexOf('\0') >= 0) throw new ArgumentException("A value name may not contain a NUL character.", nameof(name));
+            // RegistryKey threw ArgumentException with no parameter name for a null in a REG_MULTI_SZ array.
+            if (value is string?[] lines && Array.IndexOf(lines, null) >= 0)
+                throw new ArgumentException("A string array may not contain null.", nameof(value));
             // RegistryKey range-checks a DWORD against int and a QWORD against long, and stored an unknown-kind uint as text:
             // 0x80000000u threw, or became REG_SZ "2147483648", although GetValue reads DWORDs as unsigned.
             if (value is uint u && (kind == RegistryValueKind.Unknown || kind == RegistryValueKind.DWord))
@@ -140,7 +166,13 @@ namespace ToolBelt.Windows
             // invariantly: under de-DE 1.5 was written "1,5" and read back as 15 (and -5L under sv-SE had a Unicode minus).
             else if (value is IFormattable formattable && ((kind == RegistryValueKind.Unknown && !(value is int))
                 || kind == RegistryValueKind.String || kind == RegistryValueKind.ExpandString))
-            { value = formattable.ToString(null, CultureInfo.InvariantCulture); if (kind == RegistryValueKind.Unknown) kind = RegistryValueKind.String; }
+            {
+                // Dates and times in a round-trip form: "G" dropped a DateTime's milliseconds and kind.
+                string? format = value is DateTime || value is DateTimeOffset || value is DateOnly || value is TimeOnly ? "O"
+                    : value is TimeSpan ? "c" : null;
+                value = formattable.ToString(format, CultureInfo.InvariantCulture);
+                if (kind == RegistryValueKind.Unknown) kind = RegistryValueKind.String;
+            }
             using RegistryKey baseKey = OpenBase(hive);
             using RegistryKey key = ForSubKey(subKey, () => baseKey.CreateSubKey(subKey, writable: true))
                 ?? throw new InvalidOperationException($"Could not open or create subkey '{subKey}'.");

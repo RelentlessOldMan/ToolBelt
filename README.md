@@ -1078,6 +1078,7 @@ tests/
     WindowsReview4Tests.cs  (fourth-pass regressions: bounded CF_HDROP parsing, lone surrogates forwarded, namespace prefixes, long and file paths for GetSpace, registry flags and leading backslashes, cancellable Measure)
     WindowsReview79Tests.cs (fifth pass: case-insensitive app ids, bounded launch queue, synchronous forward, NUL and empty names rejected, corrupt shortcuts, clipboard text bound)
     WindowsReview106Tests.cs (sixth pass: NULs in registry paths and value names, invariant text values, one folded app id, one forward timeout, long gate names, empty shortcuts, null ParamNames)
+    WindowsReview110Tests.cs (seventh pass: lone surrogates on the clipboard, registry values that read back, Security-log sources, many forwarded arguments, device and UNC path checks, zero job handles)
     FlakeRootCauseTests.cs  (round 46: JobObject.Start keeps grandchildren in the job, refuses over the limit before running)
     DriveAndVolumeInfoTests.cs
     MonitorInfoTests.cs

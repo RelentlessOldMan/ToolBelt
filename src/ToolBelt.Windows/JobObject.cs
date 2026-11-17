@@ -118,6 +118,8 @@ namespace ToolBelt.Windows
         public void AssignProcess(IntPtr processHandle)
         {
             ThrowIfDisposed();
+            // A zero handle failed as a Win32Exception (invalid handle), as if the job had refused a process.
+            if (processHandle == IntPtr.Zero) throw new ArgumentException("A process handle is required.", nameof(processHandle));
             if (!AssignProcessToJobObject(_handle, processHandle))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed.");
         }

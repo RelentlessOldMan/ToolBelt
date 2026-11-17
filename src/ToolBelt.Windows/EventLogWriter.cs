@@ -89,8 +89,17 @@ namespace ToolBelt.Windows
         {
             string path = SourceKey(source, log);
             if (source.Length > MaxKeyNameLength || log.Length > MaxKeyNameLength) return false;   // no such key can exist
-            using RegistryKey? key = Registry.LocalMachine.OpenSubKey(path);
-            return key != null;
+            // A source under the Security log is readable only by administrators: the key is there, so it is registered
+            // (a missing key is reported as absent, not denied). This threw SecurityException without admin rights.
+            try
+            {
+                using RegistryKey? key = Registry.LocalMachine.OpenSubKey(path);
+                return key != null;
+            }
+            catch (Exception ex) when (ex is System.Security.SecurityException || ex is UnauthorizedAccessException)
+            {
+                return true;
+            }
         }
 
         /// <summary>

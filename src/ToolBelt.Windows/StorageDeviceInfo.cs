@@ -79,6 +79,9 @@ namespace ToolBelt.Windows
             // \\?\Volume{…}\ (or \\.\Volume{…}\) names a local volume directly; it was rejected as a network path.
             if (full.StartsWith(@"\\.\Volume{", StringComparison.OrdinalIgnoreCase)) full = @"\\?\" + full.Substring(4);
             bool volumeName = full.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase);
+            // A device path that is neither (\\.\PhysicalDrive0, \\?\GLOBALROOT\…, \\.\pipe\x) was called a network path.
+            if (!volumeName && (full.StartsWith(@"\\?\", StringComparison.Ordinal) || full.StartsWith(@"\\.\", StringComparison.Ordinal)))
+                throw new ArgumentException("Only drive and volume-name device paths are supported.", nameof(path));
             if (!volumeName && full.StartsWith(@"\\", StringComparison.Ordinal)) throw new ArgumentException("Network paths have no local storage device.", nameof(path));
 
             // The volume that holds the path: its drive root, or the mount folder of a volume mounted inside another.
@@ -144,7 +147,14 @@ namespace ToolBelt.Windows
                 full = full.Substring(4);
                 if (full.Length < 2 || full[1] != ':') return null;                    // a volume GUID or device: no network share
             }
-            else if (full.StartsWith(@"\\", StringComparison.Ordinal)) return full;
+            else if (full.StartsWith(@"\\", StringComparison.Ordinal))
+            {
+                // "\\" or "\\server" was returned as a UNC path: one names a server and a share.
+                string[] parts = full.Substring(2).Split('\\');
+                if (parts.Length < 2 || parts[0].Length == 0 || parts[1].Length == 0)
+                    throw new ArgumentException("A UNC path needs a server and a share.", nameof(path));
+                return full;
+            }
             string drive = full.Substring(0, 2);
             int length = 512;
             var sb = new StringBuilder(length);
@@ -163,7 +173,13 @@ namespace ToolBelt.Windows
 
         /// <summary>True if the path is on a mapped network drive (connected or remembered-but-disconnected).</summary>
         public static bool IsNetworkDrive(string path)
-            => !Path.GetFullPath(path ?? throw new ArgumentNullException(nameof(path))).StartsWith(@"\\", StringComparison.Ordinal) && GetUncPath(path) != null;
+            => !IsUncOrDevice(Path.GetFullPath(path ?? throw new ArgumentNullException(nameof(path)))) && GetUncPath(path) != null;
+
+        // \\?\Z:\x and \\.\Z:\x spell a drive letter: a mapped one is a network drive (they read as never one).
+        private static bool IsUncOrDevice(string full)
+            => full.StartsWith(@"\\", StringComparison.Ordinal)
+               && !((full.StartsWith(@"\\?\", StringComparison.Ordinal) || full.StartsWith(@"\\.\", StringComparison.Ordinal))
+                    && full.Length >= 6 && full[5] == ':' && char.IsLetter(full[4]));
 
         private static byte[] Query(SafeFileHandle h, int propertyId, int size, out int returned)
         {

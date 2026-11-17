@@ -102,3 +102,7 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R109-6 | P3 | 7 | suspected | Two processes saving one SettingsStore file at once can still lose one writer's update after the retries. | review r109 |
 | R109-7 | P3 | 7 | suspected | PdfWriter.Code wraps by UTF-16 count, so a line with emoji wraps early. | review r109 |
 | R109-8 | P3 | 7 | suspected | HtmlReport passes U+0000 and lone surrogates through into the HTML text. | review r109 |
+| R110-1 | P3 | 15 | suspected | DpiInfo.Monitors throws when the per-monitor-v2 context is refused, where MonitorInfo falls back to v1 or returns an empty list. | review r110 |
+| R110-2 | P3 | 15 | suspected | Elevation.CurrentIntegrityLevel would read sub-authority -1 for a label SID with none. | review r110 |
+| R110-3 | P3 | 15 | suspected | RegistryUtils.DeleteKey of a path with a 300-character component throws ArgumentException where KeyExists, GetValue and DeleteValue report absent. | review r110 |
+| R110-4 | P3 | 15 | suspected | IsNetworkDrive on a device spelling of a real mapped drive is untested (no mapped drive available to the reviewers). | review r110 |

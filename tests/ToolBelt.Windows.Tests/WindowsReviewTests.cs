@@ -313,7 +313,7 @@ namespace ToolBelt.Windows.Tests
         {
             string id = NewAppId();
             using var app = SingleInstanceApp.Start(id, Array.Empty<string>());
-            var tooMany = new string[1001];
+            var tooMany = new string[32769];   // past the cap (more than a command line can hold)
             for (int i = 0; i < tooMany.Length; i++) tooMany[i] = "a";
             foreach (var args in new[] { tooMany, new[] { new string('z', 40000) } })
             {

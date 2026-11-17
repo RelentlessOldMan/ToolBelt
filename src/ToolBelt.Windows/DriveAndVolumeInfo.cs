@@ -69,6 +69,10 @@ namespace ToolBelt.Windows
             if (path.IndexOf('\0') >= 0) throw new ArgumentException("Path must not contain a NUL character.", nameof(path));
             string query = path;
             if (File.Exists(query)) query = Path.GetDirectoryName(Path.GetFullPath(query)) ?? query;   // the API wants a directory
+            // \\?\C: names the volume device, which the API refuses; Describe takes it as the drive, and so does this.
+            if (query.Length == 6 && (query.StartsWith(@"\\?\", StringComparison.Ordinal) || query.StartsWith(@"\\.\", StringComparison.Ordinal))
+                && query[5] == ':' && char.IsLetter(query[4]))
+                query += @"\";
             if (query.Length >= 248 && !query.StartsWith(@"\\?\", StringComparison.Ordinal))
             {
                 // A long path needs the extended-length form, which takes a full path with a trailing backslash.

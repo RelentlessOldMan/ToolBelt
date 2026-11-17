@@ -88,8 +88,9 @@ namespace ToolBelt.Windows
 
         private static void SetTextCore(string text)
         {
-            // UTF-16 payload including the terminating null.
-            byte[] bytes = Encoding.Unicode.GetBytes(text + '\0');
+            // UTF-16 payload including the terminating null, as raw code units: Encoding.Unicode turned a lone surrogate
+            // into U+FFFD, so the text pasted back was not the text set (the read side copies code units as they are).
+            byte[] bytes = RawUtf16(text + '\0');
             IntPtr hGlobal = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)bytes.Length);
             if (hGlobal == IntPtr.Zero)
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "GlobalAlloc failed.");
@@ -165,11 +166,17 @@ namespace ToolBelt.Windows
                 int end = pos;
                 while (end + unit <= block.Length && (wide ? block[end] | block[end + 1] : block[end]) != 0) end += unit;
                 if (end == pos) break;   // the empty name that ends the list
-                files.Add(wide ? Encoding.Unicode.GetString(block, pos, end - pos) : AnsiString(block, pos, end - pos));
+                // Raw code units, as the file system stores names: a lone surrogate (legal in an NTFS name) became U+FFFD,
+                // naming a file that does not exist.
+                files.Add(wide ? new string(System.Runtime.InteropServices.MemoryMarshal.Cast<byte, char>(block.AsSpan(pos, end - pos)))
+                               : AnsiString(block, pos, end - pos));
                 pos = end + unit;
             }
             return files.ToArray();
         }
+
+        // UTF-16LE bytes of the string's code units as they are (lone surrogates included).
+        private static byte[] RawUtf16(string s) => System.Runtime.InteropServices.MemoryMarshal.AsBytes(s.AsSpan()).ToArray();
 
         // The system ANSI code page, as DragQueryFileA would read it.
         private static string AnsiString(byte[] bytes, int index, int count)
@@ -219,7 +226,7 @@ namespace ToolBelt.Windows
             }
             if (list.Count == 0) throw new ArgumentException("Need at least one path.", nameof(paths));
             // DROPFILES { DWORD pFiles; POINT pt; BOOL fNC; BOOL fWide; } then double-NUL-terminated UTF-16 paths.
-            byte[] names = Encoding.Unicode.GetBytes(string.Join("\0", list) + "\0\0");
+            byte[] names = RawUtf16(string.Join("\0", list) + "\0\0");
             var data = new byte[20 + names.Length];
             BitConverter.GetBytes(20).CopyTo(data, 0);
             BitConverter.GetBytes(1).CopyTo(data, 16);

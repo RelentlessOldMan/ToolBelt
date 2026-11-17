@@ -41,7 +41,8 @@ namespace ToolBelt.Windows
     /// <see cref="SecondInstanceStarted"/> is raised on a thread-pool thread, one launch at a time, in arrival order;
     /// marshal to the UI thread. An exception thrown by a handler is dropped (it cannot reach the launch that caused it).
     /// At most 100 launches wait at a time (before anyone subscribes, or behind a slow handler); a launch past that is
-    /// refused, so the secondary sees <see cref="ForwardedToPrimary"/> false.
+    /// refused, so the secondary sees <see cref="ForwardedToPrimary"/> false. A launch's arguments may total up to 1 MB
+    /// of text (64 KB each), far past what a command line can hold, and any number of them a command line can hold.
     /// The instance name and the pipe are per user, so another account cannot receive this user's launches (though, since
     /// pipe names are machine-wide, one that creates the pipe first can keep them from being forwarded). The pipe accepts
     /// only clients owned by the same account; an elevated and a non-elevated launch of one user can count as
@@ -223,8 +224,9 @@ namespace ToolBelt.Windows
             catch (Exception) { /* closed meanwhile */ }
         }
 
-        // UTF-16 on the wire: the byte limits are twice the UTF-8 ones, so the same text fits as before.
-        private const int MaxArgs = 1000, MaxStringBytes = 64 * 1024, MaxMessageBytes = 2 * 1024 * 1024, MaxAppIdLength = 100;
+        // UTF-16 on the wire: the byte limits are twice the UTF-8 ones, so the same text fits as before. A command line
+        // (32,767 characters) holds at most 16,384 arguments; a cap of 1000 dropped a launch of 1001 short file names.
+        private const int MaxArgs = 32768, MaxStringBytes = 64 * 1024, MaxMessageBytes = 2 * 1024 * 1024, MaxAppIdLength = 100;
 
         private async Task ListenAsync(CancellationToken ct)
         {
