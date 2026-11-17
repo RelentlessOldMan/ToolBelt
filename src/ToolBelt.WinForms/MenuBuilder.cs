@@ -155,7 +155,7 @@ namespace ToolBelt.WinForms
         {
             if (command is null) throw new ArgumentNullException(nameof(command)); // before an item is made and left undisposed
             var item = Create(text, shortcut, image, name);
-            CommandBinding.Bind(item, command, parameter);
+            Built(item, () => CommandBinding.Bind(item, command, parameter));   // a throwing CanExecute left it undisposed
             _items.Add(item);
             return this;
         }
@@ -182,19 +182,37 @@ namespace ToolBelt.WinForms
         {
             if (items is null) throw new ArgumentNullException(nameof(items));
             var menu = Create(text, null, null, name);
-            items(new MenuItemsBuilder(menu.DropDownItems));
+            // Not yet in the parent, so ApplyTo's cleanup never reached it: a throwing callback left the submenu and its
+            // dropdown undisposed.
+            Built(menu, () => items(new MenuItemsBuilder(menu.DropDownItems)));
             _items.Add(menu);
             return this;
+        }
+
+        // Runs the rest of an item's set-up, disposing the item (and what it holds) if that throws.
+        internal static void Built(ToolStripItem item, Action setUp)
+        {
+            try { setUp(); }
+            catch
+            {
+                item.Dispose();
+                throw;
+            }
         }
 
         private static ToolStripMenuItem Create(string text, string? shortcut, Image? image, string? name)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
+            // Parsed before the item is made: a bad shortcut left it undisposed.
+            Keys keys = shortcut != null ? MenuShortcut.Parse(shortcut) : Keys.None;
             var item = new ToolStripMenuItem(text) { Name = name ?? MenuBuilder.PlainText(text), Image = image };
             if (shortcut != null)
             {
-                item.ShortcutKeys = MenuShortcut.Parse(shortcut);
-                item.ShortcutKeyDisplayString = MenuShortcut.Format(item.ShortcutKeys);
+                Built(item, () =>
+                {
+                    item.ShortcutKeys = keys;
+                    item.ShortcutKeyDisplayString = MenuShortcut.Format(item.ShortcutKeys);
+                });
             }
             return item;
         }
@@ -270,7 +288,8 @@ namespace ToolBelt.WinForms
                 foreach (ToolStripItem candidate in items)
                     if (candidate is not ToolStripSeparator && string.Equals(PlainText(candidate.Text ?? "").Trim(), PlainText(segment).Trim(), StringComparison.OrdinalIgnoreCase)) { found = candidate; break; }
                 if (found is null) return null;
-                items = found is ToolStripDropDownItem dd ? dd.DropDownItems : new ToolStripItemCollection(strip, Array.Empty<ToolStripItem>());
+                // HasDropDownItems first: reading DropDownItems on a leaf creates an empty drop-down, so a lookup changed the item.
+                items = found is ToolStripDropDownItem dd && dd.HasDropDownItems ? dd.DropDownItems : new ToolStripItemCollection(strip, Array.Empty<ToolStripItem>());
             }
             return found;
         }
@@ -327,7 +346,8 @@ namespace ToolBelt.WinForms
             _items.Add(() =>
             {
                 var b = CreateButton(text, image, toolTip, name);
-                CommandBinding.Bind(b, command, parameter);
+                // A throwing CanExecute left the button undisposed: created[i] is set only once this returns.
+                MenuItemsBuilder.Built(b, () => CommandBinding.Bind(b, command, parameter));
                 return b;
             });
             return this;
@@ -368,7 +388,7 @@ namespace ToolBelt.WinForms
             _items.Add(() =>
             {
                 var dd = new ToolStripDropDownButton(text, image) { Name = name ?? MenuBuilder.PlainText(text) };
-                items(new MenuItemsBuilder(dd.DropDownItems));
+                MenuItemsBuilder.Built(dd, () => items(new MenuItemsBuilder(dd.DropDownItems)));   // as for Button
                 return dd;
             });
             return this;

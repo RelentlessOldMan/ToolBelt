@@ -15,6 +15,8 @@
 set -o pipefail
 WT=${1:-${TMPDIR:-/tmp}/toolbelt-checked-wt}
 case "$WT" in /* | [A-Za-z]:*) ;; *) WT="$(pwd)/$WT" ;; esac
+# A trailing slash put the lock inside the folder ("dir/.lock"), which mkdir could not make before the folder existed.
+while [ "${#WT}" -gt 1 ] && [ "${WT%/}" != "$WT" ]; do WT=${WT%/}; done
 cd "$(dirname "$0")/.."
 REPO=$(pwd)
 MARK=.toolbelt-checked-wt
@@ -33,6 +35,8 @@ else
 fi
 git -C "$WT" checkout -q -f --detach "$(git rev-parse HEAD)" || exit 1
 git -C "$WT" clean -fdq -- src tests
+# An untracked root build file an earlier run copied in (the repo no longer has it) would otherwise stay and be imported.
+git -C "$WT" clean -fq -- Directory.Build.props Directory.Build.targets global.json
 PATHS=(src tests Directory.Build.props Directory.Build.targets global.json)
 # A failed copy (a full disk, a locked file) once went unnoticed and the old file was checked.
 { git diff -z --name-only --no-renames HEAD -- "${PATHS[@]}"; git ls-files -z --others --exclude-standard -- "${PATHS[@]}"; } |

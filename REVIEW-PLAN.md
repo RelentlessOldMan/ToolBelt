@@ -57,13 +57,13 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 6 | 3 / 141 | re-queue (3 bugs, none severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 5 | 15 / 114 | re-queue (15 bugs, none severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 6 | 13 / 115 | re-queue (13 bugs, none severe) |
-| 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 5 | 17 / 93 | re-queue (17 bugs, none severe) |
+| 17 | WinForms + tooling + docs | `src/ToolBelt.WinForms/*`, `samples/*`, `scripts/*` (reference generators), README accuracy, packaging/build | 2,300 | ~2 | 6 | 10 / 103 | re-queue (10 bugs, none severe) |
 
 After all 17: re-run the sections flagged by the re-review rule, worst first. Re-review order: 4 (done, round 18),
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); **next: 17**, then 15, 1, 3 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); **next: 15**, then 1, 3 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -178,11 +178,40 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.16.18 | 102 | WPF satellite, sixth pass | 13 | (see tag) |
 | v2026.11.16.19 | 103 | Logging, diagnostics, CLI, sixth pass | 15 | (see tag) |
 | v2026.11.16.20 | 104 | Signal analysis, sixth pass | 17 | (see tag) |
+| v2026.11.16.21 | 105 | WinForms, tooling, docs, sixth pass | 9 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 105: WinForms, tooling, docs, sixth pass (v2026.11.16.21)
+
+Two fresh reviewers (correctness, robustness): 10 bugs, none severe, so section 17 stays re-queued. The regression
+tests are in `WinFormsReview105Tests` (9); each fails on the old code, run by name under a 60 s timeout. The two
+checked-build.sh fixes were confirmed by running the old and new script lines in a scratch repo.
+
+- **PlotPictureBox** never marked the wheel handled, so a scrolling parent panel scrolled while the plot zoomed.
+- **PlotPictureBox**: a ViewChanged handler that re-fitted the view was undone, because ZoomAt and PanBy turned auto-fit
+  off after the event returned; the flag is set before the event.
+- **PlotPictureBox** took mouse capture after the MouseDown handlers ran, so one that released it (as a modal dialog
+  does) left the plot holding capture with no button down; capture is taken first.
+- **MenuItemsBuilder** (Submenu, an item with a bad shortcut, Item(ICommand)) and **ToolStripBuilder** (DropDown,
+  Button(ICommand)) left the item being built undisposed, and its command subscription live, when its setup threw.
+- **MenuBuilder.FindItem** read DropDownItems on the leaf it found, which created an empty drop-down; it reads them only
+  when the item has some.
+- **FormStatePersistence.EnsureOnScreen**: the working areas' union overflowed int for areas far apart, so a window
+  straddling two adjacent monitors was moved; the extent is computed in long.
+- **checked-build.sh**: a work-tree argument with a trailing slash put the lock inside the not-yet-made folder, so the
+  run was refused as "in use"; an untracked root build file copied in by an earlier run stayed and was imported.
+- **README**: the discovery table named `Identifiers.Ulid`, which is not a type (`UlidGenerator`). A test now checks
+  that every type name in the discovery rows is declared and every member name is found in the sources.
+
+Still suspected (BUGLIST R105-1..14): WaitCursorScope while the UI thread is blocked; InvokeIfRequired racing handle
+destruction; SetSelectedEnum's leftover DropDown text; CommandBinding.Post after the UI thread exits; CSV export of
+"-Infinity"/"-NaN"; a chorded right button ending a pan; ZoomAt by 1 above MaxZoom; FormStatePersistence's doc;
+bump-version.ps1 (no cap on N, the BOM, a non-atomic write); test.ps1 (a trailing `-Configuration`, Kill on Windows
+PowerShell 5.1); coverage.ps1 with no timeout; the incomplete-function generator dropping a reference row.
+
 ### Round 104: Signal analysis, sixth pass (v2026.11.16.20)
 
 Two fresh reviewers (correctness, robustness): 17 bugs, none severe, so section 2 stays re-queued. The queue listed

@@ -73,7 +73,7 @@ Each division is a coherent namespace (`ToolBelt.<Division>`). The full annotate
 | Hash / checksum bytes | `Binary.Crc32`, `Binary.Fnv1a`, `Binary.Adler32` |
 | Encode binary as text | `Binary.Base32` / `Base58` / `Base64Url` / `Hex` |
 | Encode/decode MIME quoted-printable | `Binary.QuotedPrintable` |
-| Generate a unique id | `Identifiers.Ulid`, `NanoId`, `ShortGuid` |
+| Generate a unique id | `Identifiers.UlidGenerator`, `NanoId`, `ShortGuid` |
 | Retry / rate-limit a flaky call | `Resilience.Retry`, `CircuitBreaker`, `TokenBucketRateLimiter` |
 | Cache with eviction / expiry | `Collections.LruCache`, `TtlCache` |
 | Probabilistic set membership (optionally with deletes) | `Collections.BloomFilter`, `CountingBloomFilter` |
@@ -1134,6 +1134,7 @@ tests/
     WinFormsReview3Tests.cs (round 51 review regressions: zoom overflow, worker-raised CanExecuteChanged, atomic SaveCsv, formula escaping)
     WinFormsReview4Tests.cs (round 60 review regressions: shortcut keys, reusable ToolStripBuilder, command leaks, image cells, deep-zoom pans, disposed posts)
     WinFormsReview88Tests.cs (round 88: sided modifier keys, formatting no key, header sizing with hidden headers, empty working areas, bound combos, lost capture, all-or-nothing builders)
+    WinFormsReview105Tests.cs (round 105: wheel marked handled, re-fit inside ViewChanged, capture released by a handler, builders disposing a failed item, side-effect-free FindItem, far-apart working areas, README discovery names)
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
                             fits, root-finding, statistics)

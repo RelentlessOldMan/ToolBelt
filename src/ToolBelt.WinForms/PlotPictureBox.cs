@@ -89,7 +89,7 @@ namespace ToolBelt.WinForms
                 throw new ArgumentOutOfRangeException(nameof(viewPoint), viewPoint, "Must be finite.");
             if (!(factor > 0) || double.IsInfinity(factor)) throw new ArgumentOutOfRangeException(nameof(factor), factor, "Factor must be positive.");
             var (zoom, ox, oy) = ZoomAboutCore(Zoom, _ox, _oy, viewPoint.X, viewPoint.Y, factor, MinZoom, MaxZoom);
-            if (SetView(zoom, ox, oy)) _userAdjusted = true; // a zoom clamped to no change keeps auto-fit on
+            SetView(zoom, ox, oy, userAdjusts: true); // a zoom clamped to no change keeps auto-fit on
         }
 
         public void PanBy(float dx, float dy)
@@ -99,7 +99,7 @@ namespace ToolBelt.WinForms
             double ox = _ox + dx, oy = _oy + dy;
             if (!(Math.Abs(ox) <= float.MaxValue)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "The offset would overflow.");
             if (!(Math.Abs(oy) <= float.MaxValue)) throw new ArgumentOutOfRangeException(nameof(dy), dy, "The offset would overflow.");
-            if (SetView(Zoom, ox, oy)) _userAdjusted = true;
+            SetView(Zoom, ox, oy, userAdjusts: true);
         }
 
         /// <summary>Fits the image to the control, centred, preserving aspect ratio (and resumes auto-fit on resize).</summary>
@@ -289,15 +289,20 @@ namespace ToolBelt.WinForms
             double notches = Math.Max(-50, Math.Min(50, e.Delta / 120.0)); // a synthetic huge delta must not overflow the power
             double factor = Math.Pow(WheelFactor, notches);
             if (factor > 0 && !double.IsInfinity(factor)) ZoomAt(e.Location, factor);
+            // Handled, as the WPF presenter marks it: otherwise the wheel went on to the parent, so a scrolling panel scrolled
+            // while the plot zoomed.
+            if (e is HandledMouseEventArgs handled) handled.Handled = true;
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
+            // Capture before the handlers: one that releases it (or opens a modal dialog, which takes it) once left the plot
+            // holding capture with no button down, so the next click anywhere in the app went to the plot.
+            if (e.Button == MouseButtons.Left) { _dragFrom = e.Location; Capture = true; }
             base.OnMouseDown(e);
             // Focus on click, not on hover: stealing focus while the pointer merely crosses the plot would interrupt typing
             // elsewhere. (Windows 10+ delivers the wheel to the window under the cursor anyway.)
             if (CanFocus) Focus();
-            if (e.Button == MouseButtons.Left) { _dragFrom = e.Location; Capture = true; }
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
@@ -331,13 +336,15 @@ namespace ToolBelt.WinForms
             if (e.Button == MouseButtons.Left) FitToView();
         }
 
-        // True if the view changed; ViewChanged is raised only then.
-        private bool SetView(double zoom, double ox, double oy)
+        // True if the view changed; ViewChanged is raised only then. A user zoom or pan turns auto-fit off before the event,
+        // so a handler that calls FitToView turns it back on (it was once turned off again after the handler returned).
+        private bool SetView(double zoom, double ox, double oy, bool userAdjusts = false)
         {
             bool changed = zoom != Zoom || ox != _ox || oy != _oy;
             Zoom = zoom;
             _ox = ox;
             _oy = oy;
+            if (changed && userAdjusts) _userAdjusted = true;
             Invalidate();
             if (changed) ViewChanged?.Invoke(this, EventArgs.Empty);
             return changed;

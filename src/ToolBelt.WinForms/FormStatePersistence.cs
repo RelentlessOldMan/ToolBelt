@@ -134,10 +134,15 @@ namespace ToolBelt.WinForms
             var caption = new Rectangle(bounds.X, bounds.Y, bounds.Width, Math.Min(bounds.Height, CaptionHeight));
             int needed = Math.Min(minimumVisible, bounds.Width);
             int neededHeight = Math.Min(MinimumCaptionVisible, caption.Height); // a 1 px sliver of caption cannot be grabbed
-            Rectangle union = workingAreas[0];
+            // The union's extent in long: Rectangle.Union's int width overflowed for areas far apart (negative, so a window
+            // straddling two adjacent monitors was moved).
+            long left = long.MaxValue, top = long.MaxValue, right = long.MinValue, bottom = long.MinValue;
             foreach (Rectangle area in workingAreas)
-                union = Rectangle.Union(union, area);
-            if (bounds.Width <= union.Width && bounds.Height <= union.Height)
+            {
+                left = Math.Min(left, area.X); top = Math.Min(top, area.Y);
+                right = Math.Max(right, (long)area.X + area.Width); bottom = Math.Max(bottom, (long)area.Y + area.Height);
+            }
+            if (bounds.Width <= right - left && bounds.Height <= bottom - top)
                 foreach (Rectangle area in workingAreas)
                 {
                     Rectangle seen = Rectangle.Intersect(caption, area);

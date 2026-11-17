@@ -64,3 +64,17 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R104-4 | P3 | 2 | suspected | FrequencyGrid.NearestBin: Math.Round's ties-to-even sends exact halfway frequencies to alternating sides (2.5 to 2, 3.5 to 4). | review r104 |
 | R104-5 | P3 | 2 | suspected | Hampel, MedianFilter: O(n·w) inserts and MAD merges; quadratic for n ≈ w ≈ 1e6. | review r104 |
 | R104-6 | P3 | 2 | suspected | Goertzel: past f/fs = 2^53 the alias f mod fs keeps no meaningful phase per sample (1e20 Hz at 1 Hz returns an arbitrary magnitude); refusing that range may be better. | review r104 |
+| R105-1 | P3 | 17 | suspected | WaitCursorScope: the wait cursor may never show while the UI thread is blocked (no message is pumped to apply it), and a worker's scope sets it from another thread. | review r105 |
+| R105-2 | P3 | 17 | suspected | ControlExtensions.InvokeIfRequired: the handle can be destroyed between the InvokeRequired check and Invoke. | review r105 |
+| R105-3 | P3 | 17 | suspected | SetSelectedEnum: with ComboBoxStyle.DropDown, the edit text typed earlier stays after the selection changes. | review r105 |
+| R105-4 | P3 | 17 | suspected | CommandBinding: posting a CanExecuteChanged update throws once the UI thread has exited. | review r105 |
+| R105-5 | P3 | 17 | suspected | DataGridView CSV export: "-Infinity" and "-NaN" cells are left unescaped (a leading "-" is a formula prefix to spreadsheets). | review r105 |
+| R105-6 | P3 | 17 | suspected | PlotPictureBox: pressing the right button during a left-button pan ends the pan. | review r105 |
+| R105-7 | P3 | 17 | suspected | PlotPictureBox.ZoomAt with factor 1 while the zoom is above MaxZoom (a limit lowered since) still changes the zoom. | review r105 |
+| R105-8 | P3 | 17 | suspected | FormStatePersistence: the documentation of what is restored is looser than the code. | review r105 |
+| R105-9 | P3 | 17 | suspected | bump-version.ps1: no cap on the day counter N. | review r105 |
+| R105-10 | P3 | 17 | suspected | bump-version.ps1 drops Directory.Build.props' BOM and does not write it atomically. | review r105 |
+| R105-11 | P3 | 17 | suspected | test.ps1: a trailing -Configuration with no value is passed through to the runner. | review r105 |
+| R105-12 | P3 | 17 | suspected | test.ps1: Kill() on Windows PowerShell 5.1 kills only the runner, not processes it started. | review r105 |
+| R105-13 | P3 | 17 | suspected | coverage.ps1 has no timeout; a hung run blocks forever, and killing it can leave an instrumented ToolBelt.dll in the test bin folder. | review r105 |
+| R105-14 | P3 | 17 | suspected | gen-incomplete-references.py: a reference row that now fails is dropped (the previous good row is lost) and the script still exits 0. | review r105 |
