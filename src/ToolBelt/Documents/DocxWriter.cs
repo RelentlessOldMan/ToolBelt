@@ -178,7 +178,8 @@ namespace ToolBelt.Documents
             _body.Append("</w:tblBorders><w:tblCellMar><w:left w:w=\"80\" w:type=\"dxa\"/><w:right w:w=\"80\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr>");
             // The schema requires a grid after tblPr (Word tolerates its absence; strict validators don't). Even columns
             // across the text width; the auto-width table still fits itself to its content.
-            int gridCol = (int)(ContentWidthInches * 1440) / headers.Count;
+            // At least one twip: past 9,360 columns the division gave 0, a width the schema allows but no column has.
+            int gridCol = Math.Max(1, (int)(ContentWidthInches * 1440) / headers.Count);
             _body.Append("<w:tblGrid>");
             for (int c = 0; c < headers.Count; c++) _body.Append("<w:gridCol w:w=\"").Append(gridCol).Append("\"/>");
             _body.Append("</w:tblGrid>");
@@ -317,6 +318,7 @@ namespace ToolBelt.Documents
                 for (int i = 0; i < _images.Count; i++)
                 {
                     var entry = zip.CreateEntry("word/media/image" + (i + 1).ToString(CultureInfo.InvariantCulture) + ".png", CompressionLevel.NoCompression);
+                    entry.LastWriteTime = EntryTime;
                     using var s = entry.Open();
                     s.Write(_images[i], 0, _images[i].Length);
                 }
@@ -440,9 +442,14 @@ namespace ToolBelt.Documents
             return (w, h);
         }
 
+        // Every entry was stamped with the local time of the build, so the same document gave different bytes each second
+        // (and in each time zone). The earliest time a ZIP entry can hold.
+        private static readonly DateTimeOffset EntryTime = new DateTimeOffset(1980, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
         private static void WriteEntry(ZipArchive zip, string name, string content)
         {
             var entry = zip.CreateEntry(name, CompressionLevel.Optimal);
+            entry.LastWriteTime = EntryTime;
             using var stream = entry.Open();
             var bytes = Encoding.UTF8.GetBytes(content);
             stream.Write(bytes, 0, bytes.Length);

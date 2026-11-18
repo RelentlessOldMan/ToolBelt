@@ -69,6 +69,8 @@ namespace ToolBelt.Documents
         {
             if (headers is null) throw new ArgumentNullException(nameof(headers));
             if (rows is null) throw new ArgumentNullException(nameof(rows));
+            // As in the other writers: with no columns every cell was dropped and each row was an empty <tr></tr>.
+            if (headers.Count == 0) throw new ArgumentException("A table needs at least one column.", nameof(headers));
             // A rows enumerable that throws part-way left an unclosed <table> that swallowed everything added after it.
             int mark = _body.Length;
             try { AppendTable(headers, rows); }

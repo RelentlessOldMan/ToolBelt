@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Numerics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
@@ -87,9 +88,13 @@ namespace ToolBelt.Configuration
         private static void BindInto(object obj, Type type, Dictionary<string, string?> values, List<string> scope, string prefix,
             string sep, List<string> errors, int depth)
         {
-            foreach (PropertyInfo prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            PropertyInfo[] props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            foreach (PropertyInfo prop in props)
             {
                 if (prop.GetIndexParameters().Length != 0) continue;
+                // A property hidden with 'new' is listed beside the one hiding it: the key belongs to the most derived. The
+                // base one was bound too, so a derived string X over a base int X failed as "cannot convert 'hello'".
+                if (IsHidden(prop, props)) continue;
                 string key = prefix.Length == 0 ? prop.Name : prefix + sep + prop.Name;
                 Type pt = prop.PropertyType;
 
@@ -402,6 +407,15 @@ namespace ToolBelt.Configuration
             return true;
         }
 
+        private static bool IsHidden(PropertyInfo prop, PropertyInfo[] props)
+        {
+            foreach (PropertyInfo other in props)
+                if (other != prop && other.Name == prop.Name && other.GetIndexParameters().Length == 0
+                    && other.DeclaringType != null && prop.DeclaringType != null && other.DeclaringType.IsSubclassOf(prop.DeclaringType))
+                    return true;
+            return false;
+        }
+
         private static ulong ToBits(object enumValue)
             => unchecked(Type.GetTypeCode(Enum.GetUnderlyingType(enumValue.GetType())) switch
             {
@@ -415,7 +429,8 @@ namespace ToolBelt.Configuration
         // One duration grammar, copied verbatim in ConfigBinder and EnvironmentVariables (the same value often reaches
         // both, and "1.5h" or "5 s" worked in one but not the other, "1m 30s" the reverse): a colon form ("00:05:00",
         // "1.02:00:00"), or one or more terms of a decimal number and a unit (d, h, m, s, ms, any case), as in "1h 30m",
-        // "1.5h", "5 s" or "250ms". A bare number has no unit and fails. Ticks are truncated toward zero.
+        // "1.5h", "5 s" or "250ms". A bare number has no unit and fails. Ticks are truncated toward zero, from the exact
+        // sum of the terms.
         private static bool TryParseDurationCore(string s, bool allowNegative, out TimeSpan value)
         {
             value = TimeSpan.Zero;
@@ -427,7 +442,8 @@ namespace ToolBelt.Configuration
             bool negative = s[0] == '-';
             if (negative) { if (!allowNegative) return false; i++; }
             else if (s[0] == '+') i++;
-            decimal ticks = 0;
+            BigInteger ticks = 0;                                               // the sum so far is ticks / 10^scale
+            int scale = 0;
             bool sawTerm = false;
             while (i < s.Length)
             {
@@ -445,7 +461,8 @@ namespace ToolBelt.Configuration
                         while (i < s.Length && s[i] >= '0' && s[i] <= '9') i++;
                     }
                 }
-                if (!double.TryParse(s.Substring(start, i - start), NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent,
+                string token = s.Substring(start, i - start);
+                if (!double.TryParse(token, NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent,
                         CultureInfo.InvariantCulture, out double number) || double.IsInfinity(number)) return false;
                 while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
                 int unitStart = i;
@@ -460,17 +477,49 @@ namespace ToolBelt.Configuration
                     _ => -1,                                                    // includes a bare number (no unit)
                 };
                 if (perUnit < 0) return false;
-                // In double first: past decimal's range it is far past TimeSpan's too.
+                // In double first, so a term far past TimeSpan's range stops before the exact sum grows; loosely, since the
+                // double rounds "922337203685.4775807s" (the largest TimeSpan) to 2^63. The sum itself is exact: through a
+                // double, "99999999.99999999s" kept 15 digits and rounded up to 10^15 ticks.
                 double t = number * perUnit;
-                if (!(t < 9.2233720368547758e18)) return false;
-                ticks += (decimal)t;
-                if (ticks > long.MaxValue) return false;
+                if (!(t < 1e19)) return false;
+                AddExact(token, perUnit, ref ticks, ref scale);
+                if (ticks > long.MaxValue * BigInteger.Pow(10, scale)) return false;
                 sawTerm = true;
             }
             if (!sawTerm) return false;
-            long whole = (long)decimal.Truncate(ticks);
+            long whole = (long)(ticks / BigInteger.Pow(10, scale));
             value = TimeSpan.FromTicks(negative ? -whole : whole);
             return true;
+
+            // Adds the term's number ("12.5", "1e3", "0.5E-2") times perUnit to sum / 10^scale. Digits more than 400 places
+            // below a unit are cut (worth under 10^-388 of a tick), so a long run of digits costs nothing.
+            static void AddExact(string token, long perUnit, ref BigInteger sum, ref int scale)
+            {
+                int e = token.IndexOfAny(new[] { 'e', 'E' });
+                string mantissa = e < 0 ? token : token.Substring(0, e);
+                long exp = 0;
+                // An exponent too big for a long is negative here (a positive one failed the double check): the term vanishes.
+                if (e >= 0 && !long.TryParse(token.Substring(e + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out exp)) return;
+                int dot = mantissa.IndexOf('.');
+                string digits = (dot < 0 ? mantissa : mantissa.Remove(dot, 1)).TrimStart('0');
+                if (digits.Length == 0) return;
+                long termScale = (dot < 0 ? 0 : mantissa.Length - dot - 1) - exp;      // the number is digits / 10^termScale
+                const int MaxScale = 400;
+                if (termScale > MaxScale)
+                {
+                    long cut = termScale - MaxScale;
+                    if (cut >= digits.Length) return;
+                    digits = digits.Substring(0, digits.Length - (int)cut);
+                    termScale = MaxScale;
+                }
+                BigInteger m = BigInteger.Parse(digits, NumberStyles.None, CultureInfo.InvariantCulture) * perUnit;
+                // The double check bounds the term, so a negative scale is at most about 19 places.
+                if (termScale < 0) { m *= BigInteger.Pow(10, (int)-termScale); termScale = 0; }
+                int ts = (int)termScale;
+                if (ts > scale) { sum *= BigInteger.Pow(10, ts - scale); scale = ts; }
+                else m *= BigInteger.Pow(10, scale - ts);
+                sum += m;
+            }
         }
 
         private static bool TryGetElementType(Type type, out Type elementType)

@@ -98,6 +98,9 @@ namespace ToolBelt.Documents
             for (int c = 0; c < cols; c++)
             {
                 var a = alignments != null && c < alignments.Count ? alignments[c] : MarkdownAlign.None;
+                // An undefined value was written as no alignment.
+                if (a < MarkdownAlign.None || a > MarkdownAlign.Right)
+                    throw new ArgumentOutOfRangeException(nameof(alignments), a, "Unknown alignment.");
                 sb.Append(a switch
                 {
                     MarkdownAlign.Left => " :--- ",
@@ -159,11 +162,31 @@ namespace ToolBelt.Documents
             Block(block);
             // Raw Markdown that ends in a list (a hand-built table of contents) is a list too: the next list must not join it.
             // The list may end in a continuation or lazy line ("- a\n  b", "- a\nlazy"), so the last item line anywhere in
-            // the block sets the marker; only the last line was looked at, and the next list joined it.
+            // the block sets the marker; only the last line was looked at, and the next list joined it. Only an outer item
+            // counts: a nested one ("- a\n  * b") set '*', so the next list took '-' and joined the outer list.
             _lastMarker = '\0';
-            var lines = block.Replace("\r\n", "\n").Split('\n', '\r');
-            for (int i = lines.Length - 1; i >= 0 && _lastMarker == '\0'; i--) _lastMarker = ListMarker(lines[i].Trim());
+            int contentAt = -1;                                                 // where the open outer item's text starts
+            foreach (string line in block.Replace("\r\n", "\n").Split('\n', '\r'))
+            {
+                int indent = 0, k = 0;
+                for (; k < line.Length && (line[k] == ' ' || line[k] == '\t'); k++) indent = line[k] == '\t' ? indent + 4 - indent % 4 : indent + 1;
+                if (k == line.Length) continue;                                 // blank
+                if (contentAt >= 0 && indent >= contentAt) continue;            // inside the open item: nested or continued
+                string rest = line.Substring(k);
+                char marker = indent <= 3 ? ListMarker(rest) : '\0';
+                if (marker != '\0') { _lastMarker = marker; contentAt = indent + ContentOffset(rest); }
+            }
             return this;
+        }
+
+        // Where an item's text starts after its marker: past one to four spaces, else (none, or five or more) one column.
+        private static int ContentOffset(string item)
+        {
+            int p = item[0] == '-' || item[0] == '*' || item[0] == '+' ? 1 : 0;
+            if (p == 0) { while (item[p] >= '0' && item[p] <= '9') p++; p++; }
+            int n = 0;
+            while (p + n < item.Length && item[p + n] == ' ') n++;
+            return n >= 1 && n <= 4 && p + n < item.Length ? p + n : p + 1;
         }
 
         // The marker of a list item line ("- x" → '-', "3. x" → '.'), else '\0'.

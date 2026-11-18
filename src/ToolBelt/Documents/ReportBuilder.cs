@@ -152,6 +152,8 @@ namespace ToolBelt.Documents
         public ReportBuilder Callout(CalloutKind kind, string text)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
+            // An undefined value was rendered as a note.
+            if (kind < CalloutKind.Note || kind > CalloutKind.Error) throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown callout kind.");
             return Add(new Block(Kind.Callout) { Text = text, Callout = kind });
         }
 

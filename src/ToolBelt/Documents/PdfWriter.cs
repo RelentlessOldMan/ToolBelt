@@ -65,6 +65,9 @@ namespace ToolBelt.Documents
         /// <summary>Creates a writer with a page size, uniform margin, base font and body font size.</summary>
         public PdfWriter(PdfPageSize pageSize = PdfPageSize.Letter, double margin = 54, PdfFont font = PdfFont.Courier, double fontSize = 11)
         {
+            // Undefined values were built as Letter and Courier.
+            if (pageSize != PdfPageSize.Letter && pageSize != PdfPageSize.A4) throw new ArgumentOutOfRangeException(nameof(pageSize), pageSize, "Unknown page size.");
+            if (font < PdfFont.Courier || font > PdfFont.TimesRoman) throw new ArgumentOutOfRangeException(nameof(font), font, "Unknown font.");
             if (!(margin >= 0) || double.IsInfinity(margin)) throw new ArgumentOutOfRangeException(nameof(margin), margin, "Margin must be finite and non-negative.");
             // Bounded: Num writes a size of 1e300 as 301 digits, and a heading of 1.5·MaxValue overflowed to ∞.
             // At least 0.000001, so the sizes derived from it (0.9 of it for code and tables) stay writable.

@@ -752,6 +752,7 @@ tests/
       DocumentsConfigReview5Tests.cs (fifth-pass regressions: every get-only collection and private setter reloads, exact Update rollback, binder drops, PDF indents, GitHub anchors)
       DocumentsConfigReview100Tests.cs (round 100: read-only collections and unloadable values in settings, settings ACLs, lone-surrogate chars, PDF column ulp, binder null items, empty indexes, casing clashes and tree cost, env names with NUL)
       DocumentsConfigReview109Tests.cs (round 109: settings that would not load back, nested updates, linked and non-UTF-8 files, non-flags enum lists, null nested values, one duration syntax, Markdown rules and raw lists, empty figures, tiny PDF sizes, DOCX CR and footer)
+      DocumentsConfigReview126Tests.cs (round 126: hidden config properties, exact durations up to TimeSpan.MaxValue, RequireAll names, undefined enums, fixed DOCX entry times, very wide DOCX tables, column-less HTML tables, nested Raw list items)
     Enums/
       EnumExtensionsTests.cs
       EnumReview89Tests.cs (round 89 review regressions: alias descriptions, exact-case parse, ulong flags)
