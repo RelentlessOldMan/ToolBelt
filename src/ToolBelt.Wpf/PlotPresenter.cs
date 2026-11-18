@@ -150,7 +150,9 @@ namespace ToolBelt.Wpf
             Matrix fit = FitMatrix(new Size(src.Width, src.Height), new Size(ActualWidth, ActualHeight));
             double s = Clamp(fit.M11, MinZoom, MaxZoom);
             Matrix m = s != fit.M11 ? FitAtScale(new Size(src.Width, src.Height), new Size(ActualWidth, ActualHeight), s) : fit;
-            return m.HasInverse ? m : _view;   // a 1e10-wide figure fitted to a scale ViewToContent could not invert
+            // A 1e10-wide figure fitted to a scale ViewToContent could not invert; a clamp to 1e308 gave infinite offsets,
+            // which every later pan and zoom then refused.
+            return m.HasInverse && IsFinite(m) ? m : _view;
         }
 
         /// <summary>Shows the figure at 1:1 from the top-left corner.</summary>

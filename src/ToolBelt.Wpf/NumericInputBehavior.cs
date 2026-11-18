@@ -160,11 +160,14 @@ namespace ToolBelt.Wpf
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
             if (rules is null) throw new ArgumentNullException(nameof(rules));
-            if (!double.TryParse(AsciiMinus(text, rules.Format), NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, rules.Format, out double v))
+            if (!double.TryParse(AsciiMinus(text, rules.Format), BoundStyles, rules.Format, out double v))
                 return null;
             if (double.IsInfinity(v) || double.IsNaN(v)) return null;
             return Format(Clamp(Round(v, rules), rules), rules);
         }
+
+        // A bound double is shown by WPF in exponent form when small ("1E-05"): read as no number, a step went to 0.
+        private const NumberStyles BoundStyles = NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent;
 
         /// <summary>
         /// Adds <paramref name="direction"/> × <paramref name="step"/> to the value in <paramref name="text"/> (an empty or
@@ -177,7 +180,7 @@ namespace ToolBelt.Wpf
             if (rules is null) throw new ArgumentNullException(nameof(rules));
             if (!(step > 0) || double.IsInfinity(step)) throw new ArgumentOutOfRangeException(nameof(step), step, "Step must be positive.");
             double v = 0;
-            if (double.TryParse(AsciiMinus(text, rules.Format), NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, rules.Format, out double parsed)
+            if (double.TryParse(AsciiMinus(text, rules.Format), BoundStyles, rules.Format, out double parsed)
                 && !double.IsInfinity(parsed) && !double.IsNaN(parsed))
             {
                 int sign = Math.Sign(direction);
@@ -380,7 +383,9 @@ namespace ToolBelt.Wpf
                 }
             }
             string proposed = text.Substring(0, a) + text.Substring(b);
-            if (!IsAcceptablePartial(proposed, rules)) { e.Handled = true; return; }
+            // A box already holding text the rules refuse (a bound 3.14159 at two decimals, "1E-05") could not be edited
+            // down: every deletion still left it unacceptable. Deleting from it is allowed; losing focus coerces it.
+            if (!IsAcceptablePartial(proposed, rules) && IsAcceptablePartial(text, rules)) { e.Handled = true; return; }
             if (prevWord || nextWord || a != defaultA || b != defaultB)
             {
                 box.Select(a, b - a);          // delete exactly the range that was checked (kept on the undo stack)

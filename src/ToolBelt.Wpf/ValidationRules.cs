@@ -172,7 +172,10 @@ namespace ToolBelt.Wpf
         public RuleBuilder<T> Matches(string pattern, string? message = null)
         {
             if (pattern is null) throw new ArgumentNullException(nameof(pattern));
-            var regex = RegexValidationRule.Build(pattern);
+            Regex regex;
+            // The parser's own exception named no argument.
+            try { regex = RegexValidationRule.Build(pattern); }
+            catch (ArgumentException ex) { throw new ArgumentException("Invalid regular expression: " + ex.Message, nameof(pattern), ex); }
             return Must(v => v is not string s || s.Length == 0 || RegexValidationRule.SafeIsMatch(regex, s), message ?? $"{_property} has an invalid format.");
         }
 
