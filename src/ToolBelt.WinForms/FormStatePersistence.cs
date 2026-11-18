@@ -30,7 +30,10 @@ namespace ToolBelt.WinForms
             CultureInfo.InvariantCulture, "{0},{1},{2},{3},{4}",
             Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height, (int)WindowState);
 
-        /// <summary>Parses a string produced by <see cref="Serialize"/>.</summary>
+        /// <summary>
+        /// Parses a string produced by <see cref="Serialize"/>: exactly its form (no spaces, "+" signs or leading zeros), with
+        /// a positive size whose right and bottom edges stay in <see cref="int"/> range.
+        /// </summary>
         public static bool TryParse(string? text, out FormState state)
         {
             state = default;
@@ -39,20 +42,24 @@ namespace ToolBelt.WinForms
             string[] parts = text!.Split(',');
             if (parts.Length != 5)
                 return false;
-            var ci = CultureInfo.InvariantCulture;
-            if (!int.TryParse(parts[0], NumberStyles.Integer, ci, out int x) ||
-                !int.TryParse(parts[1], NumberStyles.Integer, ci, out int y) ||
-                !int.TryParse(parts[2], NumberStyles.Integer, ci, out int w) ||
-                !int.TryParse(parts[3], NumberStyles.Integer, ci, out int h) ||
-                !int.TryParse(parts[4], NumberStyles.Integer, ci, out int ws))
+            // As Serialize writes them: " 1" and "+2" were taken, and Serialize never writes either.
+            if (!Canonical(parts[0], out int x) || !Canonical(parts[1], out int y) || !Canonical(parts[2], out int w) ||
+                !Canonical(parts[3], out int h) || !Canonical(parts[4], out int ws))
                 return false;
             if (ws != (int)FormWindowState.Normal && ws != (int)FormWindowState.Maximized)
                 return false;
             if (w <= 0 || h <= 0) // a real form always has a positive size; reject 0×0 placements
                 return false;
+            // 2147483647,0,100,100 was taken, and its Right wrapped to -2147483549.
+            if ((long)x + w > int.MaxValue || (long)y + h > int.MaxValue)
+                return false;
             state = new FormState(new Rectangle(x, y, w, h), (FormWindowState)ws);
             return true;
         }
+
+        private static bool Canonical(string s, out int value)
+            => int.TryParse(s, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out value)
+               && s == value.ToString(CultureInfo.InvariantCulture);
 
         public override string ToString() => Serialize();
     }

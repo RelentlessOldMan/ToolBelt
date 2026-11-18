@@ -24,7 +24,9 @@ namespace ToolBelt.WinForms
         /// <summary>
         /// Parses modifiers (Ctrl/Control, Alt, Shift) and one key ("S", "F5", "Delete", "1", "Plus", "PageDown", "/", "-").
         /// "+" and "-" also name the Plus and Minus keys ("Ctrl++", "Ctrl+-"); <see cref="Format"/> writes "Plus" and "Minus".
-        /// Throws <see cref="FormatException"/> for anything a menu item would reject.
+        /// Throws <see cref="FormatException"/> for anything a menu item would reject, and for keys no keystroke produces even
+        /// where a menu item takes them (mouse buttons, sided modifiers such as LShiftKey, internal codes): such a shortcut never
+        /// fires, so <see cref="Format"/>'s text for it does not parse back.
         /// </summary>
         public static Keys Parse(string text)
         {
@@ -274,7 +276,8 @@ namespace ToolBelt.WinForms
         /// <summary>
         /// Finds an item by its path of texts, ignoring mnemonics (in the item's text and in the path, so <c>"&amp;File/&amp;Open"</c>
         /// works too), surrounding spaces and case, e.g. <c>"File/Recent/report.csv"</c>; null if absent.
-        /// Separators are never matched, and an item whose text contains "/" cannot be named.
+        /// Separators, hosted controls (whose text is what the user typed into a text box or combo box) and blank segments are
+        /// never matched, and an item whose text contains "/" cannot be named.
         /// </summary>
         public static ToolStripItem? FindItem(ToolStrip strip, string path)
         {
@@ -285,8 +288,10 @@ namespace ToolBelt.WinForms
             foreach (string segment in path.Split('/'))
             {
                 found = null;
+                string wanted = PlainText(segment).Trim();
+                if (wanted.Length == 0) return null;   // "" found a top-level item with no text
                 foreach (ToolStripItem candidate in items)
-                    if (candidate is not ToolStripSeparator && string.Equals(PlainText(candidate.Text ?? "").Trim(), PlainText(segment).Trim(), StringComparison.OrdinalIgnoreCase)) { found = candidate; break; }
+                    if (candidate is not ToolStripSeparator && candidate is not ToolStripControlHost && string.Equals(PlainText(candidate.Text ?? "").Trim(), wanted, StringComparison.OrdinalIgnoreCase)) { found = candidate; break; }
                 if (found is null) return null;
                 // HasDropDownItems first: reading DropDownItems on a leaf creates an empty drop-down, so a lookup changed the item.
                 items = found is ToolStripDropDownItem dd && dd.HasDropDownItems ? dd.DropDownItems : new ToolStripItemCollection(strip, Array.Empty<ToolStripItem>());

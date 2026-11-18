@@ -79,7 +79,7 @@ namespace ToolBelt.Tests.Framework
                 foreach (var t in tests)
                     Console.WriteLine(t.DisplayName);
                 Console.WriteLine($"\n{tests.Count} test(s).");
-                return 0;
+                return tests.Count == 0 ? NoMatch : 0;   // a mistyped filter listed nothing and exited 0
             }
 
             if (tests.Count == 0)

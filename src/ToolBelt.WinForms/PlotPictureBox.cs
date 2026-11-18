@@ -232,6 +232,9 @@ namespace ToolBelt.WinForms
             g.InterpolationMode = _smooth ? InterpolationMode.HighQualityBicubic : InterpolationMode.NearestNeighbor;
             g.PixelOffsetMode = _smooth ? PixelOffsetMode.HighQuality : PixelOffsetMode.Half; // Half: no half-pixel shift
             double x = _ox, y = _oy, w = image.Width * Zoom, h = image.Height * Zoom;
+            // GDI+'s nearest-neighbour stretch drifts from ContentToView once magnified far enough (a boundary meant for
+            // view x 100 landed at 109 at zoom 2e4, and at 1e6 not at all), so a magnified view maps each pixel itself.
+            if (!_smooth && Zoom > 1) { DrawNearest(g, image, e.ClipRectangle, x, y, Zoom); return; }
             if (Math.Max(Math.Max(Math.Abs(x), Math.Abs(y)), Math.Max(Math.Abs(x + w), Math.Abs(y + h))) <= SafeCoordinate)
             {
                 if (_smooth) DrawSmooth(g, image, new RectangleF((float)x, (float)y, (float)w, (float)h), new RectangleF(0, 0, image.Width, image.Height));
@@ -282,6 +285,55 @@ namespace ToolBelt.WinForms
             g.DrawImage(image, corners, src, GraphicsUnit.Pixel, attributes);
         }
 
+        // Each view pixel shows the source pixel under its centre, as ViewToContent maps it.
+        private static void DrawNearest(Graphics g, Image image, Rectangle clip, double x, double y, double z)
+        {
+            if (clip.Width <= 0 || clip.Height <= 0) return;
+            int c0 = SourceIndex(Math.Floor((clip.Left - x) / z), image.Width), c1 = SourceIndex(Math.Ceiling((clip.Right - x) / z), image.Width);
+            int r0 = SourceIndex(Math.Floor((clip.Top - y) / z), image.Height), r1 = SourceIndex(Math.Ceiling((clip.Bottom - y) / z), image.Height);
+            if (c1 <= c0 || r1 <= r0) return;
+            int sw = c1 - c0, sh = r1 - r0;
+            int[] cols = Indices(clip.Left, clip.Width, x, z, c0, c1), rows = Indices(clip.Top, clip.Height, y, z, r0, r1);
+            var source = new int[sw * sh];
+            using (var pixels = new Bitmap(sw, sh, PixelFormat.Format32bppArgb))
+            {
+                using (var pg = Graphics.FromImage(pixels))
+                {
+                    pg.CompositingMode = CompositingMode.SourceCopy;
+                    pg.DrawImage(image, new Rectangle(0, 0, sw, sh), c0, r0, sw, sh, GraphicsUnit.Pixel);
+                }
+                BitmapData data = pixels.LockBits(new Rectangle(0, 0, sw, sh), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+                try { for (int j = 0; j < sh; j++) Marshal.Copy(data.Scan0 + j * data.Stride, source, j * sw, sw); }
+                finally { pixels.UnlockBits(data); }
+            }
+            var view = new int[clip.Width];
+            using var bmp = new Bitmap(clip.Width, clip.Height, PixelFormat.Format32bppArgb);
+            BitmapData target = bmp.LockBits(new Rectangle(0, 0, clip.Width, clip.Height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                for (int j = 0; j < clip.Height; j++)
+                {
+                    int row = rows[j];
+                    for (int i = 0; i < clip.Width; i++) view[i] = row < 0 || cols[i] < 0 ? 0 : source[row * sw + cols[i]];
+                    Marshal.Copy(view, 0, target.Scan0 + j * target.Stride, clip.Width);
+                }
+            }
+            finally { bmp.UnlockBits(target); }
+            g.DrawImage(bmp, clip, 0, 0, clip.Width, clip.Height, GraphicsUnit.Pixel);   // 1:1, so no resampling
+        }
+
+        // The source index (less first) under the centre of each of count view pixels from start, or -1 outside [first, end).
+        private static int[] Indices(int start, int count, double offset, double z, int first, int end)
+        {
+            var result = new int[count];
+            for (int i = 0; i < count; i++)
+            {
+                double s = Math.Floor((start + i + 0.5 - offset) / z);
+                result[i] = s >= first && s < end ? (int)s - first : -1;
+            }
+            return result;
+        }
+
         private static int SourceIndex(double index, int size) => (int)Math.Max(0, Math.Min(size, index));
 
         private const double SafeCoordinate = 1 << 22;
@@ -298,7 +350,9 @@ namespace ToolBelt.WinForms
             if (_image is null || e.Delta == 0) return;
             double notches = Math.Max(-50, Math.Min(50, e.Delta / 120.0)); // a synthetic huge delta must not overflow the power
             double factor = Math.Pow(WheelFactor, notches);
-            if (factor > 0 && !double.IsInfinity(factor)) ZoomAt(e.Location, factor);
+            // A power that overflows (WheelFactor 1e200, two notches) dropped the turn; held to the double range, it zooms to the limit.
+            factor = Math.Max(double.Epsilon, Math.Min(double.MaxValue, factor));
+            ZoomAt(e.Location, factor);
             // Handled, as the WPF presenter marks it: otherwise the wheel went on to the parent, so a scrolling panel scrolled
             // while the plot zoomed.
             if (e is HandledMouseEventArgs handled) handled.Handled = true;
