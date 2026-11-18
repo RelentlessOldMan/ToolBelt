@@ -111,7 +111,7 @@ namespace ToolBelt.Objects
         }
 
         /// <summary>
-        /// The value of <c>default(T)</c> for a runtime <see cref="Type"/>. Throws <see cref="ArgumentException"/> for a type
+        /// The value of <c>default(T)</c> for a runtime <see cref="Type"/> (a struct's parameterless constructor is not run). Throws <see cref="ArgumentException"/> for a type
         /// that has no values (void, an open generic type, or a by-ref type) or whose default cannot be boxed (a by-ref-like
         /// struct such as <c>Span&lt;T&gt;</c>).
         /// </summary>
@@ -122,10 +122,16 @@ namespace ToolBelt.Objects
                 throw new ArgumentException($"{type} has no default value.", nameof(type));
             if (IsByRefLike(type))
                 throw new ArgumentException($"{type} is a by-ref-like type; its default cannot be boxed.", nameof(type));
+            // default(T), not new T(): Activator ran a struct's explicit parameterless constructor (C# 10), so the
+            // "default" of struct S { int X; S() { X = 42; } } had X = 42, and a constructor that threw escaped TryConvert.
             return type.IsValueType && Nullable.GetUnderlyingType(type) == null
-                ? Activator.CreateInstance(type)
+                ? DefaultOfMethod.MakeGenericMethod(type).Invoke(null, null)
                 : null;
         }
+
+        private static readonly MethodInfo DefaultOfMethod = typeof(TypeUtils).GetMethod(nameof(DefaultOf), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        private static object? DefaultOf<T>() => default(T);
 
         /// <summary>Returns the underlying type of a <see cref="Nullable{T}"/>, or the type itself.</summary>
         public static Type UnwrapNullable(Type type)
@@ -181,7 +187,7 @@ namespace ToolBelt.Objects
                 {
                     if (value is string s)
                     {
-                        result = Enum.Parse(underlying, s, ignoreCase: true);
+                        result = ParseEnum(underlying, s);
                         return true;
                     }
                     // Enum.ToObject reinterprets a double's bits on .NET 8 (1.0 became Sunday) and takes bool and char;
@@ -386,11 +392,21 @@ namespace ToolBelt.Objects
         {
             result = null;
             if (type == typeof(Guid)) result = Guid.Parse(text);
+            // ChangeType parsed "...Z" and "+05:00" text as local time (Kind Local, shifted by the machine's zone), so a
+            // DateTime's own "O" text did not convert back to it.
+            else if (type == typeof(DateTime)) result = DateTime.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
             else if (type == typeof(TimeSpan)) result = TimeSpan.Parse(text, CultureInfo.InvariantCulture);
             else if (type == typeof(DateTimeOffset)) result = DateTimeOffset.Parse(text, CultureInfo.InvariantCulture);
             else if (type == typeof(Version)) result = Version.Parse(text);
             else if (type == typeof(Uri)) result = new Uri(text, UriKind.RelativeOrAbsolute);
             return result != null;
+        }
+
+        // An exact name first, then ignoring case: with names A and a, ignoring case alone turned "a" into A.
+        private static object ParseEnum(Type type, string text)
+        {
+            try { return Enum.Parse(type, text, ignoreCase: false); }
+            catch (ArgumentException) { return Enum.Parse(type, text, ignoreCase: true); }
         }
 
         private static bool EnumNumber(object value, out object? number)

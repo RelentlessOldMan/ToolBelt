@@ -14,7 +14,8 @@ namespace ToolBelt.Objects
     /// <see cref="List{T}"/> of object?; any other bracketed key is a dictionary key. The root is always a dictionary, so
     /// a flattened root list (<c>[0]</c>, <c>[1]</c>) comes back as the keys "0", "1". The result is shaped for JSON
     /// serialization or a config binder. Conflicting paths (<c>a = 1</c> and <c>a.b = 2</c>) throw, naming both.
-    /// Keys containing the separator or brackets cannot be represented — the same limit Flatten has.
+    /// Keys containing the separator cannot be represented — the same limit Flatten has; a bracketed key in quotes
+    /// (<c>["a]b"]</c>, as Flatten writes a key holding ']', edge white space or a leading quote) runs to its closing quote.
     /// </summary>
     public static class UnflattenObject
     {
@@ -109,9 +110,22 @@ namespace ToolBelt.Objects
                 {
                     if (sb.Length > 0) { result.Add((sb.ToString(), false)); sb.Clear(); }
                     else if (expectName && result.Count > 0) throw new FormatException($"Empty segment in '{path}'.");
-                    int close = path.IndexOf(']', i + 1);
-                    if (close < 0) throw new FormatException($"Unclosed '[' in '{path}'.");
-                    result.Add((path.Substring(i + 1, close - i - 1), true));
+                    int close;
+                    if (i + 1 < path.Length && (path[i + 1] == '"' || path[i + 1] == '\''))
+                    {
+                        // A quoted key (as Flatten writes one holding ']', edge white space or a leading quote) runs
+                        // to its closing quote.
+                        int end = path.IndexOf(path[i + 1], i + 2);
+                        if (end < 0 || end + 1 >= path.Length || path[end + 1] != ']') throw new FormatException($"Unclosed quote in '{path}'.");
+                        result.Add((path.Substring(i + 2, end - i - 2), true));
+                        close = end + 1;
+                    }
+                    else
+                    {
+                        close = path.IndexOf(']', i + 1);
+                        if (close < 0) throw new FormatException($"Unclosed '[' in '{path}'.");
+                        result.Add((path.Substring(i + 1, close - i - 1), true));
+                    }
                     i = close + 1;
                     expectName = false;
                     afterIndex = true;

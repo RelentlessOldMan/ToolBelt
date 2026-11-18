@@ -48,8 +48,18 @@ namespace ToolBelt.Objects
         private static Attribute[] Lookup<TAttribute>(MemberInfo member, bool inherit) where TAttribute : Attribute
         {
             if (member is null) throw new ArgumentNullException(nameof(member));
-            return Cache.GetOrAdd((member, typeof(TAttribute), inherit),
-                key => Attribute.GetCustomAttributes(key.Member, key.Attribute, key.Inherit));
+            return Cache.GetOrAdd((member, typeof(TAttribute), inherit), key => Retrieve(key.Member, key.Attribute, key.Inherit));
+        }
+
+        // A custom MemberInfo may return a plain object[] (the base signature allows it), which Attribute.GetCustomAttributes
+        // casts to Attribute[]: InvalidCastException escaped Has, Get and GetAll (.NET Framework converts with `as`, so
+        // the null it returned made a NullReferenceException).
+        private static Attribute[] Retrieve(MemberInfo member, Type attribute, bool inherit)
+        {
+            Attribute[]? found;
+            try { found = Attribute.GetCustomAttributes(member, attribute, inherit); }
+            catch (InvalidCastException) { found = null; }
+            return found ?? member.GetCustomAttributes(attribute, inherit).OfType<Attribute>().ToArray();
         }
     }
 }

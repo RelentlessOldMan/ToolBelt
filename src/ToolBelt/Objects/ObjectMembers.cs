@@ -98,9 +98,19 @@ namespace ToolBelt.Objects
         /// The text of a dictionary key in a path, the way <c>PropertyPath</c> parses it back: floating values in their
         /// shortest round-trip form (.NET Framework's default printed 15 digits, so 0.3 and 0.1 + 0.2 spelled one key),
         /// dates and offsets in the round-trip "O" form (the default dropped fractions of a second), TimeSpan in "c", and
-        /// anything else invariant.
+        /// anything else invariant. A text that holds ']', starts or ends with white space, or starts with a quote is put in
+        /// quotes (one it does not hold): "[a]b]" did not parse, "[ x]" read key "x" and "['y']" key "y". A text holding ']'
+        /// and both quotes cannot be spelled and is left as it is.
         /// </summary>
         public static string KeyText(object? key)
+        {
+            string text = RawKeyText(key);
+            if (text.Length == 0 || (text.IndexOf(']') < 0 && text[0] != '"' && text[0] != '\'' && text.Trim().Length == text.Length))
+                return text;
+            return text.IndexOf('"') < 0 ? "\"" + text + "\"" : text.IndexOf('\'') < 0 ? "'" + text + "'" : text;
+        }
+
+        private static string RawKeyText(object? key)
         {
             switch (key)
             {

@@ -321,7 +321,12 @@ namespace ToolBelt.Objects
                 {
                     // ChangeType took thousands separators for a floating key ("1,5" read key 15) and had no route to
                     // TimeSpan, DateTimeOffset, Version or Uri.
-                    if (underlying.IsEnum) return Enum.Parse(underlying, token, ignoreCase: true);
+                    // An exact name first: with keys A and a, ignoring case alone made "[a]" read and write A.
+                    if (underlying.IsEnum)
+                    {
+                        try { return Enum.Parse(underlying, token, ignoreCase: false); }
+                        catch (ArgumentException) { return Enum.Parse(underlying, token, ignoreCase: true); }
+                    }
                     if (underlying == typeof(Guid)) return Guid.Parse(token);
                     if (underlying == typeof(double)) return double.Parse(token, NumberStyles.Float, inv);
                     if (underlying == typeof(float)) return float.Parse(token, NumberStyles.Float, inv);

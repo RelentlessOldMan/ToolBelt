@@ -35,7 +35,9 @@ namespace ToolBelt.Grids
             unchecked { return Row * 397 ^ Col; }
         }
 
-        public override string ToString() => $"({Row}, {Col})";
+        // Invariant: sv-SE printed a negative row with U+2212, fa-IR and ar-SA with bidi marks.
+        public override string ToString()
+            => "(" + Row.ToString(System.Globalization.CultureInfo.InvariantCulture) + ", " + Col.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")";
     }
 
     /// <summary>

@@ -25,7 +25,9 @@ namespace ToolBelt.Objects
     /// truncated). On a <b>value-type</b> instance the <c>object</c>-based setter writes into the box it is
     /// given (as <see cref="PropertyInfo.SetValue(object, object)"/> does), not into the variable the box was copied
     /// from; the typed setter takes its struct by value, so its write is lost — these accessors are intended for
-    /// reference types. On an interface type, members inherited from base interfaces are found.</para>
+    /// reference types. On an interface type, members inherited from base interfaces are found. An instance or value of
+    /// the wrong type given to an <c>object</c>-based accessor throws <see cref="ArgumentException"/> (ParamName
+    /// "instance" or "value"), as reflection does.</para>
     /// </summary>
     public static class ExpressionAccessor
     {
@@ -134,7 +136,16 @@ namespace ToolBelt.Objects
             var param = Expression.Parameter(typeof(object), "instance");
             MemberExpression member = Member(Expression.Convert(param, type), type, memberName, write: false);
             var box = Expression.Convert(member, typeof(object));
-            return Expression.Lambda<Func<object, object?>>(box, param).Compile();
+            var compiled = Expression.Lambda<Func<object, object?>>(box, param).Compile();
+            // An instance of the wrong type threw InvalidCastException from the cast.
+            return o =>
+            {
+                try { return compiled(o); }
+                catch (InvalidCastException ex) when (o != null && !type.IsInstanceOfType(o))
+                {
+                    throw new ArgumentException($"The instance is a {o.GetType()}, not a {type}.", "instance", ex);
+                }
+            };
         }
 
         private static Action<object, object?> BuildSetter(Type type, string memberName)
@@ -152,7 +163,22 @@ namespace ToolBelt.Objects
                     Expression.Equal(value, Expression.Constant(null)), Expression.Default(member.Type), castValue);
             }
             Expression body = Expression.Assign(member, castValue);
-            return Expression.Lambda<Action<object, object?>>(body, instance, value).Compile();
+            var compiled = Expression.Lambda<Action<object, object?>>(body, instance, value).Compile();
+            Type memberType = member.Type;
+            // A value or instance of the wrong type threw InvalidCastException from the casts; reflection's SetValue
+            // throws ArgumentException for the same misuse.
+            return (o, v) =>
+            {
+                try { compiled(o, v); }
+                catch (InvalidCastException ex) when (o != null && !type.IsInstanceOfType(o))
+                {
+                    throw new ArgumentException($"The instance is a {o.GetType()}, not a {type}.", "instance", ex);
+                }
+                catch (InvalidCastException ex) when (v != null && !memberType.IsInstanceOfType(v))
+                {
+                    throw new ArgumentException($"A {v.GetType()} cannot be stored in {type.Name}.{memberName} ({memberType}).", "value", ex);
+                }
+            };
         }
 
         // The most derived public instance property (not an indexer) or field named exactly memberName: a `new` field
