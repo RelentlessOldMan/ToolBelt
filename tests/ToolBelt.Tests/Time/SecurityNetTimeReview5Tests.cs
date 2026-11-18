@@ -88,9 +88,12 @@ namespace ToolBelt.Tests.Time
             using var s = Scheduler(() => fail ? throw new InvalidOperationException("clock glitch") : now, out Parked loop, errors);
             loop.Start();
             fail = true;
+            loop.InDelay.Reset();
             ScheduledJob job = s.Add("hourly", "0 * * * *", () => { });
+            // Add wakes the loop (round 142), whose pass meets the same glitch; let it park again before the clock heals.
+            Check.True(loop.InDelay.Wait(5000), "the loop parked again");
             fail = false;
-            Check.Equal("<scheduler>", string.Join(",", errors));
+            Check.True(errors.Count >= 1 && errors.All(e => e == "<scheduler>"), string.Join(",", errors));
             int started = 0;
             for (int h = 0; h < 24; h++) { now = now.AddHours(1); started += Tick(s, job); }
             Check.True(started >= 23, $"started {started}");

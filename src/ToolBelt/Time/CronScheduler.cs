@@ -57,6 +57,8 @@ namespace ToolBelt.Time
     public sealed class CronScheduler : IDisposable
     {
         private readonly List<ScheduledJob> _jobs = new List<ScheduledJob>();
+        // Completed by Add after Start, so the loop's wait (up to a minute, worked out before the job existed) ends early.
+        private TaskCompletionSource<bool> _wake = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly List<(ScheduledJob Job, Task Task)> _running = new List<(ScheduledJob, Task)>();
         private readonly HashSet<ScheduledJob> _disposingJobs = new HashSet<ScheduledJob>();   // jobs whose run called Dispose
         private static readonly AsyncLocal<ScheduledJob?> CurrentJob = new AsyncLocal<ScheduledJob?>();   // the job this flow is running, if any
@@ -103,11 +105,13 @@ namespace ToolBelt.Time
             if (action is null) throw new ArgumentNullException(nameof(action));
             var job = new ScheduledJob(name, new CronSchedule(cronExpression), action);
             Exception? failure = null, clockFailure = null;
+            TaskCompletionSource<bool>? wake = null;
             lock (_gate)
             {
                 ThrowIfDisposed();
                 if (_loop != null)
                 {
+                    wake = _wake;
                     // A clock that throws is the scheduler's failure, retried on the next pass; it was the job's, whose
                     // next time then stayed null for good.
                     DateTimeOffset now = default;
@@ -122,6 +126,9 @@ namespace ToolBelt.Time
                 }
                 _jobs.Add(job);
             }
+            // A job added after Start waited out the loop's current wait: "* * * * *" added just before a minute-long wait
+            // first ran a minute late, missing an occurrence.
+            wake?.TrySetResult(true);
             if (clockFailure != null) Report(null, clockFailure);   // outside the lock
             if (failure != null) Report(job, failure);
             return job;
@@ -141,6 +148,7 @@ namespace ToolBelt.Time
 
         public bool Remove(ScheduledJob job)
         {
+            if (job is null) throw new ArgumentNullException(nameof(job));   // was false, unlike Add
             lock (_gate) return _jobs.Remove(job);
         }
 
@@ -264,16 +272,18 @@ namespace ToolBelt.Time
             while (!ct.IsCancellationRequested)
             {
                 TimeSpan wait;
+                Task woken;
                 // Marks the loop's own synchronous call, so a Dispose from onError inside it doesn't wait for the loop.
                 Volatile.Write(ref _loopThread, Environment.CurrentManagedThreadId);
                 try
                 {
+                    lock (_gate) woken = (_wake = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
                     RunDue();
                     lock (_gate)
                     {
                         DateTimeOffset now = _now(), next = DateTimeOffset.MaxValue;
                         foreach (var job in _jobs) if (job.NextRun is DateTimeOffset n && n < next) next = n;
-                        // Re-check at least once a minute so clock changes and newly added jobs are noticed.
+                        // Re-check at least once a minute so clock changes are noticed (an Add after Start wakes the loop itself).
                         wait = next == DateTimeOffset.MaxValue ? TimeSpan.FromMinutes(1) : next - now;
                         if (wait < TimeSpan.Zero) wait = TimeSpan.Zero;
                         if (wait > TimeSpan.FromMinutes(1)) wait = TimeSpan.FromMinutes(1);
@@ -284,9 +294,15 @@ namespace ToolBelt.Time
                     // A clock that threw once stopped the loop for good, unreported.
                     Report(null, ex);
                     wait = RetryAfterFailure;
+                    woken = new TaskCompletionSource<bool>().Task;
                 }
                 finally { Volatile.Write(ref _loopThread, 0); }
-                try { await _delay(wait, ct).ConfigureAwait(false); }
+                try
+                {
+                    Task delay = _delay(wait, ct);
+                    if (delay != null && await Task.WhenAny(delay, woken).ConfigureAwait(false) != delay) continue;
+                    await delay!.ConfigureAwait(false);
+                }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
                 catch (Exception ex)
                 {

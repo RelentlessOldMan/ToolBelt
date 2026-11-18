@@ -33,6 +33,8 @@ namespace ToolBelt.Security
         public static byte[] Bytes(int count)
         {
             if (count < 0) throw new ArgumentOutOfRangeException(nameof(count), count, "Count must be non-negative.");
+            // Past the largest byte array this was an OutOfMemoryException, not the argument error.
+            if (count > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(count), count, "Count is larger than an array can hold.");
             var buffer = new byte[count];
             using var rng = RandomNumberGenerator.Create();
             rng.GetBytes(buffer);

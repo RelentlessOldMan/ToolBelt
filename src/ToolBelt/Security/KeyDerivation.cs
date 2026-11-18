@@ -24,7 +24,8 @@ namespace ToolBelt.Security
         /// <summary>Generates a cryptographically random salt.</summary>
         public static byte[] GenerateSalt(int length = 16)
             => length < 0 ? throw new ArgumentOutOfRangeException(nameof(length), length, "Length must not be negative.")
-                          : CryptoRandom.Bytes(length);
+             : length > 0x7FFFFFC7 ? throw new ArgumentOutOfRangeException(nameof(length), length, "Length is larger than an array can hold.")
+             : CryptoRandom.Bytes(length);
 
         /// <summary>Derives a key from a password, encoded as UTF-8. A lone surrogate throws <see cref="ArgumentException"/>
         /// (the lenient encoding would make it the same password as U+FFFD).</summary>

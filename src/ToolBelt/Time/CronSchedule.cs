@@ -9,7 +9,8 @@ namespace ToolBelt.Time
     /// A standard 5-field cron schedule (<c>minute hour day-of-month month day-of-week</c>) with
     /// next-occurrence calculation. Each field supports <c>*</c>, single values, comma lists
     /// (<c>1,15,30</c>), ranges (<c>9-17</c>), and steps (<c>*/15</c>, <c>0-30/5</c>). Day-of-week is
-    /// 0-6 with 0 = Sunday (7 is also accepted as Sunday). When BOTH day-of-month and day-of-week are
+    /// 0-6 with 0 = Sunday (7 is also accepted as Sunday); a step from a value (<c>1/2</c>) runs to Saturday, so it reaches
+    /// Sunday only when written as a range (<c>1-7/2</c>) or as 7 itself (<c>7/1</c>). When BOTH day-of-month and day-of-week are
     /// restricted, a day matches if EITHER matches (standard cron behavior); as in Vixie cron, a field that starts
     /// with <c>*</c> (including <c>*/2</c>) counts as unrestricted. Resolution is one minute.
     /// <para>
@@ -271,8 +272,10 @@ namespace ToolBelt.Time
                     else
                     {
                         lo = hi = ParseInt(range, field);
-                        if (slash >= 0) // "5/15" means "from 5 to max step 15"
-                            hi = sundayNormalize ? 6 : max;
+                        // "5/15" means "from 5 to max step 15"; over day-of-week, to Saturday (6), so "1/2" is Monday,
+                        // Wednesday, Friday. "7/1" starts past that and is Sunday alone; it was out of range.
+                        if (slash >= 0)
+                            hi = sundayNormalize ? Math.Max(lo, 6) : max;
                     }
                 }
 

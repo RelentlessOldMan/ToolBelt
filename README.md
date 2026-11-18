@@ -1018,6 +1018,7 @@ tests/
       SecurityNetTimeReview5Tests.cs (round 91 review regressions: scheduler clock corrections, IPv4-mapped CIDR matches, strict TCP decoding, download overruns, malformed secrets, rare cron schedules)
       SecurityNetTimeReview6Tests.cs (round 92 review regressions: bad bytes between CR and LF, calendar years in relative times)
       SecurityNetTimeReview7Tests.cs (round 124 review regressions: stale destinations under Resume, wildcard cron jobs after a step back, truncated AEAD blobs, line breaks in secrets keys)
+      SecurityNetTimeReview8Tests.cs (round 142: misplaced resume ranges, argument checks before download, cron 7/N, scheduler wake on Add, lone surrogates on send, empty hosts)
       TimeOfDayRangeTests.cs
       UnixTimeTests.cs
     Visualization/

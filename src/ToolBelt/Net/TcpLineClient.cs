@@ -127,6 +127,13 @@ namespace ToolBelt.Net
             if (line is null) throw new ArgumentNullException(nameof(line));
             if (line.IndexOfAny(new[] { '\r', '\n' }) >= 0)
                 throw new ArgumentException("The line must not contain CR or LF; it would be sent as more than one line.", nameof(line));
+            // A lone surrogate went out as U+FFFD (or '?'), so the peer got other text and the send reported success.
+            for (int i = 0; i < line.Length; i++)
+            {
+                if (char.IsHighSurrogate(line[i]) && i + 1 < line.Length && char.IsLowSurrogate(line[i + 1])) { i++; continue; }
+                if (char.IsSurrogate(line[i]))
+                    throw new ArgumentException($"The line has a lone surrogate at index {i}; it cannot be encoded.", nameof(line));
+            }
             // Encoded directly: a StreamWriter would send the encoding's byte order mark before the first line.
             byte[] bytes = _encoding.GetBytes(line + "\n");
             _stream.Write(bytes, 0, bytes.Length);

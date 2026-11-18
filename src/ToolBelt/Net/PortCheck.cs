@@ -24,6 +24,8 @@ namespace ToolBelt.Net
         public static bool IsReachable(string host, int port, TimeSpan timeout)
         {
             if (host is null) throw new ArgumentNullException(nameof(host));
+            // An empty host was a connect failure caught below, so false: a caller's mistake read as "unreachable".
+            if (host.Trim().Length == 0) throw new ArgumentException("The host is empty.", nameof(host));
             if (port < 0 || port > 65535) throw new ArgumentOutOfRangeException(nameof(port), port, "Port must be in [0, 65535].");
             if (timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "Timeout must be positive.");
 

@@ -39,6 +39,9 @@ namespace ToolBelt.Net
         public static IReadOnlyList<IPAddress> Resolve(string host, TimeSpan timeout)
         {
             if (host is null) throw new ArgumentNullException(nameof(host));
+            // The DNS API takes "" as this machine, so an empty host resolved to the local addresses (LocalAddresses is
+            // the way to ask for those).
+            if (host.Trim().Length == 0) throw new ArgumentException("The host is empty.", nameof(host));
             if (timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "Timeout must be positive.");
 
             Task<IPAddress[]> lookup = Dns.GetHostAddressesAsync(host);

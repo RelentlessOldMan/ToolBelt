@@ -193,7 +193,14 @@ namespace ToolBelt.Security
 
         /// <summary>Loads, or returns an empty store when the file doesn't exist yet.</summary>
         public static SecretsFile LoadOrCreate(string path, string passphrase)
-            => File.Exists(path ?? throw new ArgumentNullException(nameof(path))) ? Load(path, passphrase) : new SecretsFile();
+        {
+            if (path is null) throw new ArgumentNullException(nameof(path));
+            // Checked only when the file existed, so a missing passphrase surfaced later, at the first save.
+            if (passphrase is null) throw new ArgumentNullException(nameof(passphrase));
+            if (passphrase.Length == 0) throw new ArgumentException("A passphrase is required.", nameof(passphrase));
+            if (HasLoneSurrogate(passphrase)) throw new ArgumentException("The passphrase contains an unpaired surrogate.", nameof(passphrase));
+            return File.Exists(path) ? Load(path, passphrase) : new SecretsFile();
+        }
 
         private static byte[] Header(int iterations, byte[] salt, byte[] nonce)
         {

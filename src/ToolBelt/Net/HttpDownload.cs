@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -100,8 +101,19 @@ namespace ToolBelt.Net
                 throw new ArgumentOutOfRangeException(nameof(options), options.ReadTimeout, "ReadTimeout must be positive or Timeout.InfiniteTimeSpan.");
             if (options.RetryBaseDelay < TimeSpan.Zero)
                 throw new ArgumentOutOfRangeException(nameof(options), options.RetryBaseDelay, "RetryBaseDelay must not be negative.");
+            // A checksum that can never match cost a whole download each time (and under Resume discarded the progress).
+            string? expected = options.ExpectedSha256Hex;
+            if (!string.IsNullOrEmpty(expected) && (expected!.Length != 64 || !IsHex(expected)))
+                throw new ArgumentException("ExpectedSha256Hex must be 64 hexadecimal characters.", nameof(options));
             HttpClient client = options.Client ?? Shared.Value;
-            string destination = Path.GetFullPath(destinationPath);
+            // An empty or relative URL failed in SendAsync as InvalidOperationException, after the folder was created.
+            if (client.BaseAddress is null && !Uri.TryCreate(url, UriKind.Absolute, out _))
+                throw new ArgumentException($"'{url}' is not an absolute URL, and the client has no base address.", nameof(url));
+            if (destinationPath.Trim().Length == 0)
+                throw new ArgumentException("The destination path is empty.", nameof(destinationPath));
+            string destination;
+            try { destination = Path.GetFullPath(destinationPath); }
+            catch (ArgumentException ex) { throw new ArgumentException(ex.Message, nameof(destinationPath), ex); }   // was "path"
             string partial = destination + ".part";
 
             try
@@ -207,7 +219,19 @@ namespace ToolBelt.Net
                 total = contentLength;
             }
             else if (status == 206)
-                throw new HttpDownloadException($"Server returned a range starting at byte {range?.From} for {url}; byte {existing} was requested.");
+            {
+                string from = range?.From?.ToString(CultureInfo.InvariantCulture) ?? "(none)";
+                if (existing > 0)
+                {
+                    // Kept, the partial made every later call ask for the same range and fail the same way.
+                    Discard(partial, destination);
+                    throw new HttpDownloadException($"Server returned a range starting at byte {from} for {url}; byte {existing} was requested. The partial file was deleted, so the next download starts over.");
+                }
+                // Without a range asked for, the message read "starting at byte  for".
+                throw new HttpDownloadException(range is null
+                    ? $"Server answered {url} with 206 but no Content-Range, though no range was asked for."
+                    : $"Server returned a range starting at byte {from} for {url}; byte 0 was requested.");
+            }
             else if (status == 416 && existing > 0)
             {
                 Discard(partial, destination);
@@ -278,6 +302,13 @@ namespace ToolBelt.Net
             if (total.HasValue && downloaded != total.Value)
                 throw new IOException($"The response from {url} ended after {downloaded} of {total.Value} bytes.");
             return Local(() => Finish(destination, partial, options, downloaded, total ?? -1, resumed));
+        }
+
+        private static bool IsHex(string s)
+        {
+            foreach (char c in s)
+                if (!(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F')) return false;
+            return true;
         }
 
         // Verifies the partial file if asked, then moves it over the destination.
