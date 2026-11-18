@@ -31,9 +31,15 @@ namespace ToolBelt.Control
         /// <summary>θ, the delay before the output starts to move.</summary>
         public double DeadTime { get; }
 
-        /// <summary>The model's output change at <paramref name="time"/> after an input step of <paramref name="inputStep"/>.</summary>
+        /// <summary>
+        /// The model's output change at <paramref name="time"/> after an input step of <paramref name="inputStep"/>. Throws
+        /// <see cref="ArgumentOutOfRangeException"/> for a NaN time or a non-finite step.
+        /// </summary>
         public double StepResponse(double time, double inputStep = 1)
         {
+            // Unchecked, a NaN came back as NaN, and an infinite step as 0 before the dead time.
+            if (double.IsNaN(time)) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must not be NaN.");
+            if (double.IsNaN(inputStep) || double.IsInfinity(inputStep)) throw new ArgumentOutOfRangeException(nameof(inputStep), inputStep, "Input step must be finite.");
             if (time <= DeadTime) return 0;
             // 1 − e^(−x) lost every digit for a small x (0 at 1e-20 past the dead time), and K·step overflowed before the
             // fraction scaled it down (∞ for K = 1e308, step 10, fraction 1e-10).
@@ -237,7 +243,7 @@ namespace ToolBelt.Control
             }
             double q = tau / theta;                         // τ/(Kθ)·(4/3 + r/4) = (4q/3 + 1/4)/K, and so on
             if (includeDerivative)
-                return Gains((4 * q / 3 + 0.25) / k, theta * ((32 * q + 6) / (13 * q + 8)), 4 * tau / (11 * q + 2));
+                return Gains((4 * q / 3 + 0.25) / k, theta * ((32 * q + 6) / (13 * q + 8)), tau * (4 / (11 * q + 2)));   // 4τ overflowed for τ = 5e307
             return Gains((0.9 * q + 1.0 / 12) / k, theta * ((30 * q + 3) / (9 * q + 20)), 0);
         }
 

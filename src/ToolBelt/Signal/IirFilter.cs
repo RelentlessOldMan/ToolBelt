@@ -101,9 +101,69 @@ namespace ToolBelt.Signal
         public Complex Response(double frequency, double sampleRate)
         {
             CheckResponseArguments(frequency, sampleRate);
-            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * Cycles(frequency, sampleRate));   // z⁻¹
-            Complex z2 = z1 * z1;
-            return (B0 + B1 * z1 + B2 * z2) / (1 + A1 * z1 + A2 * z2);
+            double x = Cycles(frequency, sampleRate);
+            // Each side from its roots where its sum cancels: next to a pole the summed denominator lost its digits.
+            return PolynomialValue(B0, B1, B2, x) / PolynomialValue(1, A1, A2, x);
+        }
+
+        // c0 + c1·z⁻¹ + c2·z⁻² at z = e^(j2πx): directly, or, where that sum cancels (next to a root on the unit circle),
+        // as c0·z⁻²·(z − r1)(z − r2) with each z − r taken exactly. For x < 0 that is the conjugate of the product at |x|,
+        // as the roots of a real polynomial are their own conjugates.
+        private static Complex PolynomialValue(double c0, double c1, double c2, double x)
+        {
+            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * x), z2 = z1 * z1;
+            Complex direct = c0 + c1 * z1 + c2 * z2;
+            if (!Cancels(direct.Magnitude, c0, c1, c2) || !TryRoots(c0, c1, c2, out Complex r1, out Complex r2)) return direct;
+            Complex p = c0 * OffsetOnCircle(x, r1) * OffsetOnCircle(x, r2);
+            if (x - Math.Round(x) < 0) p = Complex.Conjugate(p);
+            p *= z2;
+            return IsFinite(p.Real) && IsFinite(p.Imaginary) ? p : direct;
+        }
+
+        // |c0 + c1·z⁻¹ + c2·z⁻²| at z = e^(j2πx), from the roots as c0·|z − r1|·|z − r2| where the direct sum cancels.
+        private static double PolynomialMagnitude(double c0, double c1, double c2, double x)
+        {
+            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * x), z2 = z1 * z1;
+            double direct = (c0 + c1 * z1 + c2 * z2).Magnitude;
+            if (!Cancels(direct, c0, c1, c2) || !TryRoots(c0, c1, c2, out Complex r1, out Complex r2)) return direct;
+            double factored = Math.Abs(c0) * DistanceOnCircle(x, r1) * DistanceOnCircle(x, r2);
+            return IsFinite(factored) ? factored : direct;
+        }
+
+        private static bool Cancels(double magnitude, double c0, double c1, double c2)
+            => magnitude <= 1e-6 * (Math.Abs(c0) + Math.Abs(c1) + Math.Abs(c2)) && c0 != 0;
+
+        // Roots of c0·z² + c1·z + c2 (|z⁻²·P(z)| = |P| on the circle), the stable way: q = −(c1 + sign(c1)·√disc)/2. The
+        // discriminant is formed from exact products: for a pole pair near z = 1 it is a small difference of two numbers
+        // near 4, and its rounding moved a pole at radius 1 − 4e-12 by 4% of its distance from the circle.
+        private static bool TryRoots(double c0, double c1, double c2, out Complex r1, out Complex r2)
+        {
+            double p1 = c1 * c1, p2 = c0 * (4 * c2);
+            double d = (p1 - p2) + (ProductError(c1, c1, p1) - ProductError(c0, 4 * c2, p2));
+            Complex disc = Complex.Sqrt(new Complex(IsFinite(d) ? d : c1 * c1 - 4 * c0 * c2, 0));
+            if (disc.Real * c1 < 0) disc = -disc;
+            Complex q = -(c1 + disc) / 2;
+            r1 = r2 = Complex.Zero;
+            if (!IsFinite(q.Real) || !IsFinite(q.Imaginary) || q == Complex.Zero) return false;
+            r1 = q / c0;
+            r2 = c2 / q;
+            return true;
+        }
+
+        // a·b − p for p = a·b rounded, exactly (Dekker's product); 0 where the split overflows.
+        private static double ProductError(double a, double b, double p)
+        {
+            Split(a, out double ah, out double al);
+            Split(b, out double bh, out double bl);
+            double e = ((ah * bh - p) + ah * bl + al * bh) + al * bl;
+            return IsFinite(e) ? e : 0;
+        }
+
+        private static void Split(double a, out double hi, out double lo)
+        {
+            double t = 134217729.0 * a;   // 2^27 + 1
+            hi = t - (t - a);
+            lo = a - hi;
         }
 
         /// <summary>Group delay in samples at <paramref name="frequency"/> Hz (see <see cref="IirFilter.GroupDelay"/>).</summary>
@@ -123,12 +183,7 @@ namespace ToolBelt.Signal
             Complex p = c0 + c1 * z1 + c2 * z2;
             double direct = ((c1 * z1 + 2 * c2 * z2) / p).Real;
             double size = Math.Abs(c0) + Math.Abs(c1) + Math.Abs(c2);
-            if (!(p.Magnitude <= 1e-6 * size) || c0 == 0) return direct;
-            Complex disc = Complex.Sqrt(new Complex(c1 * c1 - 4 * c0 * c2, 0));
-            if (disc.Real * c1 < 0) disc = -disc;
-            Complex q = -(c1 + disc) / 2;
-            if (!IsFinite(q.Real) || !IsFinite(q.Imaginary) || q == Complex.Zero) return direct;
-            Complex r1 = q / c0, r2 = c2 / q;
+            if (!(p.Magnitude <= 1e-6 * size) || c0 == 0 || !TryRoots(c0, c1, c2, out Complex r1, out Complex r2)) return direct;
             // The sign of x only conjugates both terms (a real root, or swaps a conjugate pair), so the real part holds.
             double factored = (-r1 / OffsetOnCircle(x, r1)).Real + (-r2 / OffsetOnCircle(x, r2)).Real;
             return IsFinite(factored) ? factored : direct;
@@ -143,19 +198,7 @@ namespace ToolBelt.Signal
         internal double NumeratorMagnitude(double frequency, double sampleRate)
         {
             CheckResponseArguments(frequency, sampleRate);
-            double w = -2 * Math.PI * Cycles(frequency, sampleRate);
-            Complex z1 = Complex.FromPolarCoordinates(1, w), z2 = z1 * z1;
-            double direct = (B0 + B1 * z1 + B2 * z2).Magnitude;
-            double size = Math.Abs(B0) + Math.Abs(B1) + Math.Abs(B2);
-            if (!(direct <= 1e-6 * size) || B0 == 0) return direct;
-            // Roots of B0·z² + B1·z + B2 (|z⁻²·N(z)| = |N| on the circle), the stable way: q = −(B1 + sign(B1)·√disc)/2.
-            Complex disc = Complex.Sqrt(new Complex(B1 * B1 - 4 * B0 * B2, 0));
-            if (disc.Real * B1 < 0) disc = -disc;
-            Complex q = -(B1 + disc) / 2;
-            if (!IsFinite(q.Real) || !IsFinite(q.Imaginary) || q == Complex.Zero) return direct;
-            Complex r1 = q / B0, r2 = B2 / q;
-            double factored = Math.Abs(B0) * DistanceOnCircle(Cycles(frequency, sampleRate), r1) * DistanceOnCircle(Cycles(frequency, sampleRate), r2);
-            return IsFinite(factored) ? factored : direct;
+            return PolynomialMagnitude(B0, B1, B2, Cycles(frequency, sampleRate));
         }
 
         // |e^(j2πx) − r| for a root r of a real polynomial (so the sign of x does not matter). The point is taken relative
@@ -197,11 +240,14 @@ namespace ToolBelt.Signal
             return a * Math.Sqrt(1 + t2 * t2);
         }
 
-        /// <summary>|denominator| 1 + A1·z⁻¹ + A2·z⁻² at <paramref name="frequency"/>.</summary>
+        /// <summary>
+        /// |denominator| 1 + A1·z⁻¹ + A2·z⁻² at <paramref name="frequency"/>, from its roots where the sum cancels: next to
+        /// a pole near the unit circle (an elliptic high-pass's pass-band edge) the summed value was 0.56 dB off.
+        /// </summary>
         internal double DenominatorMagnitude(double frequency, double sampleRate)
         {
-            Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * Cycles(frequency, sampleRate));
-            return (1 + A1 * z1 + A2 * z1 * z1).Magnitude;
+            CheckResponseArguments(frequency, sampleRate);
+            return PolynomialMagnitude(1, A1, A2, Cycles(frequency, sampleRate));
         }
 
         // The frequency in cycles per sample, reduced to [−½, ½] first (IEEERemainder is exact): the plain ratio lost the
@@ -249,7 +295,8 @@ namespace ToolBelt.Signal
         internal static void CheckFrequency(double sampleRate, double frequency)
         {
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
-            if (!(frequency > 0 && frequency < sampleRate / 2)) throw new ArgumentOutOfRangeException(nameof(frequency), frequency, "Frequency must be between 0 and Nyquist (sampleRate / 2), exclusive.");
+            // As a ratio: sampleRate / 2 rounds for a subnormal rate (5ε / 2 is 2ε), which refused 2ε at 5ε.
+            if (!(frequency > 0 && frequency / sampleRate < 0.5)) throw new ArgumentOutOfRangeException(nameof(frequency), frequency, "Frequency must be between 0 and Nyquist (sampleRate / 2), exclusive.");
         }
 
         // A frequency near 0 or Nyquist (or an extreme gain) put a pole within rounding of the unit circle: the quantised
@@ -472,12 +519,20 @@ namespace ToolBelt.Signal
             var output = new double[samples.Count];
             for (int i = 0; i < output.Length; i++) output[i] = samples[i];
             Run(output, new double[_sections.Length], new double[_sections.Length]);
-            if (AllFinite(output) || !AllFinite(samples)) return output;
+            if (AllFinite(output)) return output;
+            // Everything from the first non-finite sample on is non-finite whatever the scale; before it, a non-finite
+            // output is an overflow. (Returning whenever any sample was non-finite left an overflow ahead of a trailing
+            // NaN as ∞.)
+            int end = 0;
+            while (end < output.Length && Biquad.IsFinite(samples[end])) end++;
+            bool overflowed = false;
+            for (int i = 0; i < end && !overflowed; i++) overflowed = !Biquad.IsFinite(output[i]);
+            if (!overflowed) return output;
             // A finite input overflowed: stream it through a fresh copy, which rescales only from the sample that needs it
             // and back once the state is small again. One rescaled pass over the whole buffer lost the low bits of every
             // small output, before the overflow too.
             var fresh = new IirFilter(_sections);
-            for (int i = 0; i < output.Length; i++) output[i] = fresh.Process(samples[i]);
+            for (int i = 0; i < end; i++) output[i] = fresh.Process(samples[i]);
             return output;
         }
 
@@ -1503,7 +1558,8 @@ namespace ToolBelt.Signal
 
         private static void CheckEdge(double f, double fs, string name)
         {
-            if (!(f > 0 && f < fs / 2)) throw new ArgumentOutOfRangeException(name, f, "Edge frequencies must be between 0 and Nyquist (sampleRate / 2), exclusive.");
+            // As a ratio: fs / 2 rounds for a subnormal rate (5ε / 2 is 2ε).
+            if (!(f > 0 && f / fs < 0.5)) throw new ArgumentOutOfRangeException(name, f, "Edge frequencies must be between 0 and Nyquist (sampleRate / 2), exclusive.");
         }
 
         private static (List<Complex>, List<Complex>, Complex) ToLowPass(List<Complex> z, List<Complex> p, Complex logK, double wo)

@@ -97,7 +97,11 @@ namespace ToolBelt.Signal
         private static double[] Rescaled(IReadOnlyList<double> samples, Func<double, double[]> pass)
         {
             double[] result = pass(1);
-            if (AllFinite(result) || !AllFinite(samples)) return result;
+            if (AllFinite(result)) return result;
+            // Outputs a non-finite sample reaches are non-finite at every scale; pass(0) marks them (a finite sample
+            // times 0 is 0, NaN or ∞ times 0 is NaN), and the rest are rescued. Returning whenever any sample was
+            // non-finite left an overflow away from a NaN as ∞.
+            double[]? reached = AllFinite(samples) ? null : pass(0);
             // Only the outputs that came out non-finite are taken from a rescaled pass: an overflow never yields a finite
             // value, so a finite one is exact, and redoing all of them at 2^-64 lost the low bits of small outputs (and
             // made a causal pass depend on later samples).
@@ -108,7 +112,7 @@ namespace ToolBelt.Signal
                 bool done = true;
                 for (int i = 0; i < result.Length; i++)
                 {
-                    if (IsFinite(result[i])) continue;
+                    if (IsFinite(result[i]) || (reached != null && !IsFinite(reached[i]))) continue;
                     if (IsFinite(scaled[i]) || shift >= MaxShift) result[i] = scaled[i] * up;
                     if (!IsFinite(scaled[i])) done = false;
                 }
@@ -206,7 +210,8 @@ namespace ToolBelt.Signal
         /// </summary>
         public static (int Taps, double Beta) KaiserParameters(double attenuationDb, double transitionWidth, double sampleRate)
         {
-            if (!(attenuationDb > 8 && attenuationDb < 1000)) throw new ArgumentOutOfRangeException(nameof(attenuationDb), attenuationDb, "Attenuation must be between 8 and 1000 dB.");
+            // 8 itself is allowed, as kaiserord allows it (it was refused).
+            if (!(attenuationDb >= 8 && attenuationDb < 1000)) throw new ArgumentOutOfRangeException(nameof(attenuationDb), attenuationDb, "Attenuation must be at least 8 dB and below 1000 dB.");
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
             // The ratio, not sampleRate / 2, as Design does: halving a subnormal sample rate rounded it (16 taps at fs =
             // 1.5e-323 where the same ratio at fs = 3 gives 12).

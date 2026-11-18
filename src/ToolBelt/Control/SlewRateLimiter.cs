@@ -47,19 +47,19 @@ namespace ToolBelt.Control
             // An unlimited (∞) rate stays unlimited even for dt = 0, where ∞ × 0 would be NaN.
             double up = double.IsPositiveInfinity(_maxRise) ? _maxRise : _maxRise * dt;
             double down = double.IsPositiveInfinity(_maxFall) ? _maxFall : _maxFall * dt;
-            if (double.IsInfinity(delta) || double.IsInfinity(up) || double.IsInfinity(down))
-            {
-                // The gap or a finite rate's step overflowed (both ∞ compared as no limit, so the output jumped to the
-                // target): compared in halves, and the step taken in two halves.
-                double halfDelta = target * 0.5 - Value * 0.5;
-                double halfUp = double.IsPositiveInfinity(_maxRise) ? _maxRise : _maxRise * 0.5 * dt;
-                double halfDown = double.IsPositiveInfinity(_maxFall) ? _maxFall : _maxFall * 0.5 * dt;
-                IsLimiting = halfDelta > halfUp || halfDelta < -halfDown;
-                Value = halfDelta > halfUp ? Value + halfUp + halfUp : halfDelta < -halfDown ? Value - halfDown - halfDown : target;
-                return Value;
-            }
-            IsLimiting = delta > up || delta < -down;
-            Value = delta > up ? Value + up : delta < -down ? Value - down : target;
+            // A finite rate whose step overflowed (both ∞ compared as no limit, so the output jumped to the target) is
+            // compared and taken in halves. Only that side: halving every step (as an unlimited rise rate once forced) rounded
+            // a subnormal step, so a fall of 3ε went 4ε. An overflowed gap needs no halves: it is past every finite step.
+            bool halvesUp = double.IsInfinity(up) && !double.IsPositiveInfinity(_maxRise);
+            bool halvesDown = double.IsInfinity(down) && !double.IsPositiveInfinity(_maxFall);
+            double halfDelta = target * 0.5 - Value * 0.5;
+            double halfUp = _maxRise * 0.5 * dt, halfDown = _maxFall * 0.5 * dt;
+            bool rising = halvesUp ? halfDelta > halfUp : delta > up;
+            bool falling = !rising && (halvesDown ? halfDelta < -halfDown : delta < -down);
+            IsLimiting = rising || falling;
+            Value = rising ? (halvesUp ? Value + halfUp + halfUp : Value + up)
+                : falling ? (halvesDown ? Value - halfDown - halfDown : Value - down)
+                : target;
             return Value;
         }
 

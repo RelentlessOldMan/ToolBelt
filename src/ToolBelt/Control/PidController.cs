@@ -78,7 +78,8 @@ namespace ToolBelt.Control
                 double scaled = ScaledOutput(measurement, dt, integral);
                 if (!double.IsNaN(scaled)) tentative = scaled;
             }
-            double push = _ki * error;
+            // By signs: ki·error underflowed to 0 at tiny scales (ki 1e-200), so neither test fired and the integral wound up.
+            int push = Math.Sign(_ki) * Math.Sign(error);
             bool windupHigh = tentative > _max && push > 0;
             bool windupLow = tentative < _min && push < 0;
             // Finite inputs can still overflow error·dt or the sum; an infinite integral (or one with ki = 0, where it is
@@ -92,7 +93,8 @@ namespace ToolBelt.Control
                 // With P or D overflowed the difference is formed in units of 2^-600 (∞ there was always discarded).
                 if (double.IsNaN(atLimit) || double.IsInfinity(atLimit))
                     atLimit = (limit * Scale - ScaledProportional(measurement) - ScaledDerivative(measurement, dt)) / _ki / Scale;
-                if (!double.IsNaN(atLimit) && !double.IsInfinity(atLimit) && (atLimit - _integral) * error > 0)
+                // By signs: the product underflowed (5e-201 × 1e-200), so an I-only loop at tiny scales never moved.
+                if (!double.IsNaN(atLimit) && !double.IsInfinity(atLimit) && Math.Sign(atLimit - _integral) * Math.Sign(error) > 0)
                     _integral = atLimit;
             }
             else if (_ki != 0 && !double.IsInfinity(integral))

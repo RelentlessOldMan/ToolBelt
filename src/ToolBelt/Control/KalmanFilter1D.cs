@@ -52,7 +52,11 @@ namespace ToolBelt.Control
                 : predictedCovariance / _measurementNoise / (1 + predictedCovariance / _measurementNoise);
             double estimate = (1 - gain) * Estimate + gain * measurement;
             Estimate = Math.Max(Math.Min(Estimate, measurement), Math.Min(Math.Max(Estimate, measurement), estimate));
-            ErrorCovariance = gain * _measurementNoise;                       // = (1 − K)·P, without 0·∞
+            // = (1 − K)·P = PR/(P + R), without 0·∞. For P < R it is formed from P: K·R lost P when P/R underflowed (P
+            // 1e-30, R 1e300 came out 0, so a filter with no process noise ignored every later measurement).
+            ErrorCovariance = predictedCovariance >= _measurementNoise
+                ? gain * _measurementNoise
+                : predictedCovariance / (1 + predictedCovariance / _measurementNoise);
             LastGain = gain;
             return Estimate;
         }

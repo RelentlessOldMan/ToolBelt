@@ -729,6 +729,7 @@ tests/
       FiltersControlReview83Tests.cs (round 83: section scaling, rescaling near double.MaxValue, group delay at unit-circle zeros, causal flush, PID NaN windup, deadband ties, huge lag cutoffs)
       FiltersControlReview107Tests.cs (round 107: rescaling only what overflowed, FiltFilt split by size, the streaming shift stepping down, aliased responses, extreme Q named, ulp-close Butterworth bands, subnormal Kaiser rates, Simc and Kalman Reset)
       FiltersControlReview119Tests.cs (round 119: PID integral and slew limiter past overflow, IIR steady state and response as mantissa and exponent, argument blame)
+      FiltersControlReview133Tests.cs (round 133: Kaiser at 8 dB, responses next to a pole from exact roots, subnormal Nyquist checks, overflow rescue ahead of a NaN, Kalman and PID at tiny scales, Cohen-Coon at huge tau, StepResponse arguments, the slew limiter's halved path)
     Diagnostics/
       BenchmarkTests.cs
       MetricsRegistryTests.cs
