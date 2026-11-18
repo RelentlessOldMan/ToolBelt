@@ -86,7 +86,8 @@ namespace ToolBelt.Visualization
             bool topDown = rawH < 0;
             int h = Math.Abs(rawH);
             // 32768 × 32768 passed the size check but not ImageBuffer's, which threw ArgumentOutOfRangeException.
-            if ((long)w * h * 4 > 0x7FFFFFC7) throw new InvalidDataException($"BMP image {w}x{h} is too large.");
+            // The pixel count: × 4 overflowed long near int.MaxValue on both sides, and the check passed (IndexOutOfRange).
+            if ((long)w * h > 0x7FFFFFC7 / 4) throw new InvalidDataException($"BMP image {w}x{h} is too large.");
             if (bpp != 24 && bpp != 32 && bpp != 8) throw new InvalidDataException($"Unsupported BMP bit depth {bpp}.");
             if (!(compression == 0 || (compression == 3 && bpp == 32))) throw new InvalidDataException($"Unsupported BMP compression {compression}.");
             bool hasAlpha = false;

@@ -170,7 +170,8 @@ namespace ToolBelt.Visualization
         private static long DataLimit(byte[] ihdr, int at)
         {
             long width = unchecked((uint)Be32(ihdr, at)), height = unchecked((uint)Be32(ihdr, at + 4));
-            if (width == 0 || height == 0 || width * height > MaxPixels) throw new InvalidDataException($"Unsupported PNG size {width}x{height}.");
+            // A division: 0xFFFFFFFF × 0xFFFFFFFF overflowed long and passed, so the stream was read to 2 GB first.
+            if (width == 0 || height == 0 || width > MaxPixels / height) throw new InvalidDataException($"Unsupported PNG size {width}x{height}.");
             int channels = ihdr[at + 9] switch { 0 => 1, 2 => 3, 3 => 1, 4 => 2, _ => 4 };
             long bits = channels * Math.Min((int)ihdr[at + 8], 16);
             long raw = height * (1 + (width * bits + 7) / 8) + 2 * height + 8;

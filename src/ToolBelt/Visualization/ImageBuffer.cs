@@ -44,7 +44,9 @@ namespace ToolBelt.Visualization
             if (height < 1) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
             // width * height * 4 wrapped silently: 65536 × 16384 gave a zero-length buffer behind a "valid" image.
             // The cap is the runtime's largest byte array: just under int.MaxValue threw OutOfMemoryException.
-            if ((long)width * height * 4 > 0x7FFFFFC7)
+            // The pixel count, not the byte count: near int.MaxValue on both sides × 4 overflowed long, and an
+            // int.MaxValue × int.MaxValue image got a 4-byte buffer.
+            if ((long)width * height > 0x7FFFFFC7 / 4)
                 throw new ArgumentOutOfRangeException(nameof(width), $"A {width} × {height} image is too large.");
             Width = width;
             Height = height;

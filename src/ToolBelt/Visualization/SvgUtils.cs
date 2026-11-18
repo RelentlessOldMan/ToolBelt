@@ -15,14 +15,21 @@ namespace ToolBelt.Visualization
     /// </summary>
     public static class SvgUtils
     {
-        /// <summary>Escapes text content (<c>&amp;</c>, <c>&lt;</c>, <c>&gt;</c>).</summary>
+        /// <summary>
+        /// Escapes text content: <c>&amp;</c>, <c>&lt;</c> and <c>&gt;</c>, a carriage return as <c>&amp;#13;</c> (a parser
+        /// turns it into a line feed), and each character XML 1.0 forbids (control characters, unpaired surrogates,
+        /// U+FFFE and U+FFFF) as U+FFFD.
+        /// </summary>
         public static string EscapeText(string text)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
             return Escape(text, attribute: false);
         }
 
-        /// <summary>Escapes an attribute value (text escaping plus both quote characters).</summary>
+        /// <summary>
+        /// Escapes an attribute value: text escaping plus both quote characters, and tab and line feed as character
+        /// references (a parser turns them into spaces).
+        /// </summary>
         public static string EscapeAttribute(string text)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
