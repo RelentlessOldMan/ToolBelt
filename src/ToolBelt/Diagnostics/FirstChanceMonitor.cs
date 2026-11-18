@@ -84,8 +84,16 @@ namespace ToolBelt.Diagnostics
             }
         }
 
-        /// <summary>Minimum time between reports of the same type+message (default 10 s; zero reports everything).</summary>
-        public TimeSpan ThrottleWindow { get; set; } = TimeSpan.FromSeconds(10);
+        /// <summary>Minimum time between reports of the same type+message (default 10 s; zero reports everything; negative throws).</summary>
+        // A negative window was accepted and silently turned throttling off.
+        public TimeSpan ThrottleWindow
+        {
+            get => _throttleWindow;
+            set => _throttleWindow = value >= TimeSpan.Zero ? value
+                : throw new ArgumentOutOfRangeException(nameof(value), value, "The throttle window must not be negative.");
+        }
+
+        private TimeSpan _throttleWindow = TimeSpan.FromSeconds(10);
 
         /// <summary>Optional extra filter: return false to skip an exception entirely.</summary>
         public Func<Exception, bool>? Filter { get; set; }

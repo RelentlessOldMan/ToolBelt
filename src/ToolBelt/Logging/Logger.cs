@@ -7,7 +7,8 @@ namespace ToolBelt.Logging
     /// <summary>
     /// A thread-safe fan-out logger: it timestamps each message (through an injectable clock, so tests are
     /// deterministic), filters by minimum level, tags with a category, and forwards to every registered
-    /// <see cref="ILogSink"/>. A sink that throws is isolated — it never breaks logging or the other sinks.
+    /// <see cref="ILogSink"/>. A sink that throws is isolated — it never breaks logging or the other sinks — and a clock
+    /// that throws gives way to the system clock (<see cref="DateTimeOffset.Now"/>, the default) for that event.
     /// </summary>
     public sealed class Logger : IDisposable
     {
@@ -20,7 +21,7 @@ namespace ToolBelt.Logging
         public Logger(string category = "", LogLevel minimumLevel = LogLevel.Info, Func<DateTimeOffset>? clock = null)
         {
             Category = category ?? string.Empty;
-            MinimumLevel = minimumLevel;
+            MinimumLevel = CheckLevel(minimumLevel, nameof(minimumLevel));
             _clock = clock ?? (() => DateTimeOffset.Now);
             _ownsSinks = true;
         }
@@ -39,8 +40,19 @@ namespace ToolBelt.Logging
 
         public string Category { get; }
 
-        /// <summary>Events below this level are ignored.</summary>
-        public LogLevel MinimumLevel { get; set; }
+        /// <summary>Events below this level are ignored. Must be a defined <see cref="LogLevel"/>.</summary>
+        // An undefined level (99) was accepted and silently dropped every event, Fatal included.
+        public LogLevel MinimumLevel
+        {
+            get => _minimumLevel;
+            set => _minimumLevel = CheckLevel(value, nameof(value));
+        }
+
+        private LogLevel _minimumLevel;
+
+        private static LogLevel CheckLevel(LogLevel level, string paramName)
+            => level >= LogLevel.Trace && level <= LogLevel.Fatal ? level
+             : throw new ArgumentOutOfRangeException(paramName, level, "Level must be a defined LogLevel.");
 
         /// <summary>
         /// Registers a sink. Returns this for chaining. Throws <see cref="ObjectDisposedException"/> once the logger (or,
@@ -68,7 +80,11 @@ namespace ToolBelt.Logging
         public void Log(LogLevel level, string message, Exception? exception = null)
         {
             if (level < MinimumLevel) return;
-            var logEvent = new LogEvent(_clock(), level, EffectiveCategory(), message ?? string.Empty, exception);
+            // A clock that threw sent its exception to the caller of Info (logging sits in catch and finally blocks).
+            DateTimeOffset timestamp;
+            try { timestamp = _clock(); }
+            catch { timestamp = DateTimeOffset.Now; }
+            var logEvent = new LogEvent(timestamp, level, EffectiveCategory(), message ?? string.Empty, exception);
 
             ILogSink[] snapshot;
             lock (_gate) snapshot = _sinks.ToArray();

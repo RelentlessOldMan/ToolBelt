@@ -54,11 +54,17 @@ namespace ToolBelt.Diagnostics
     /// </summary>
     public static class Benchmark
     {
+        /// <summary>The most iterations a run takes: one timing sample is kept per iteration, in one array.</summary>
+        public const int MaxIterations = 0x7FFFFFC7;
+
         public static BenchmarkResult Run(string name, Action action, int iterations = 10000, int warmupIterations = 1000)
         {
             if (name is null) throw new ArgumentNullException(nameof(name));
             if (action is null) throw new ArgumentNullException(nameof(action));
-            if (iterations < 1) throw new ArgumentOutOfRangeException(nameof(iterations), iterations, "Iterations must be positive.");
+            // Every sample is kept (for the median and percentile): past the largest array, int.MaxValue iterations threw
+            // OutOfMemoryException ("Array dimensions exceeded supported range").
+            if (iterations < 1 || iterations > MaxIterations)
+                throw new ArgumentOutOfRangeException(nameof(iterations), iterations, "Iterations must be in [1, " + MaxIterations + "].");
             if (warmupIterations < 0) throw new ArgumentOutOfRangeException(nameof(warmupIterations), warmupIterations, "Warmup must be non-negative.");
 
             for (int i = 0; i < warmupIterations; i++) action();

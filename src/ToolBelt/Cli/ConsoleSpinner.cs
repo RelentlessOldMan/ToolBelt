@@ -134,9 +134,10 @@ namespace ToolBelt.Cli
         /// <summary>Stops and erases the spinner; an output failure (e.g. a closed pipe) is ignored.</summary>
         public void Dispose()
         {
+            // Any writer failure: a writer that threw NotSupportedException escaped (only IOException and
+            // ObjectDisposedException were caught).
             try { Stop(); }
-            catch (IOException) { }
-            catch (ObjectDisposedException) { }
+            catch (Exception) { }
         }
 
         private void Draw()
@@ -214,19 +215,33 @@ namespace ToolBelt.Cli
         private static int Units(string s, int i)
         {
             if (s[i] == '\u001B') return Math.Max(1, Sgr(s, i));   // a colour sequence is one unit of no width
-            return char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]) ? 2 : 1;
+            // A zero-width joiner and the character it joins are one unit of no width, and a pair of regional
+            // indicators (a flag) one unit of two: the family U+1F468 ZWJ U+1F469 ZWJ U+1F467 counted 6, a flag 4.
+            if (s[i] == '\u200D') return i + 1 < s.Length ? 1 + Single(s, i + 1) : 1;
+            int n = Single(s, i);
+            if (n == 2 && IsRegional(s, i) && i + 3 < s.Length && Single(s, i + 2) == 2 && IsRegional(s, i + 2)) return 4;
+            return n;
         }
+
+        private static int Single(string s, int i) => char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]) ? 2 : 1;
+
+        private static bool IsRegional(string s, int i) => s[i] == '\uD83C' && s[i + 1] >= '\uDDE6' && s[i + 1] <= '\uDDFF';
 
         // Columns for one character: none for marks, format characters, Hangul medial and final jamo (they join the
         // initial one) and emoji skin-tone modifiers; two for an East Asian wide character, a BMP emoji shown as an emoji
         // (U+2705, U+26A1, U+2B50), an astral emoji or symbol (U+1F000-1FAFF) or a CJK extension (planes 2 and 3); else
-        // one. Every astral character counted two (U+1D400, a narrow letter, too), and BMP emoji counted one. A symbol
+        // one. Only the wide characters of U+1F000-1FAFF count two (the whole block did: U+1F700, U+1F800, U+1F10B and
+        // U+1F0A1 are narrow), and U+303F and the Yijing hexagrams (U+4DC0) are narrow inside the CJK range; Hangul
+        // Jamo Extended-B (U+D7B0) is medial and final jamo, of no width. A flag (two regional indicators) is two and a
+        // ZWJ with the character it joins none (Units groups them). Every astral character counted two (U+1D400, a
+        // narrow letter, too), and BMP emoji counted one. A symbol
         // followed by U+FE0F (emoji presentation, as in U+2764 U+FE0F) is two; the selector itself is none. Missing wide
         // ranges counted one: vertical and small forms (U+FE10, U+FE50), Hangul Jamo Extended-A (U+A960), Tangut,
         // Khitan and the ideographic symbols (U+16FE0-18DFF), and the kana supplements (U+1AFF0-1B2FF).
         private static int Width(string s, int i, int n)
         {
-            if (s[i] == '\u001B') return 0;   // an SGR sequence (Units measured it)
+            if (s[i] == '\u001B' || s[i] == '\u200D') return 0;   // an SGR sequence, or a joined character (Units measured it)
+            if (n == 4) return 2;   // a flag
             UnicodeCategory category = CharUnicodeInfo.GetUnicodeCategory(s, i);
             if (category == UnicodeCategory.NonSpacingMark || category == UnicodeCategory.EnclosingMark || category == UnicodeCategory.Format)
                 return 0;
@@ -234,17 +249,40 @@ namespace ToolBelt.Cli
             {
                 int cp = char.ConvertToUtf32(s[i], s[i + 1]);
                 if (cp >= 0x1F3FB && cp <= 0x1F3FF) return 0;
-                return (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x20000 && cp <= 0x3FFFD)
+                return WideAstral(cp) || (cp >= 0x20000 && cp <= 0x3FFFD)
                     || (cp >= 0x16FE0 && cp <= 0x18DFF) || (cp >= 0x1AFF0 && cp <= 0x1B2FF) || EmojiStyle(s, i + 2, category) ? 2 : 1;
             }
             char ch = s[i];
-            if (ch >= '\u1160' && ch <= '\u11FF') return 0;
-            if ((ch >= '\u1100' && ch <= '\u115F') || (ch >= '\u2E80' && ch <= '\uA4CF') || (ch >= '\uA960' && ch <= '\uA97F')
+            if ((ch >= '\u1160' && ch <= '\u11FF') || (ch >= '\uD7B0' && ch <= '\uD7FF')) return 0;
+            bool cjk = ch >= '\u2E80' && ch <= '\uA4CF' && ch != '\u303F' && (ch < '\u4DC0' || ch > '\u4DFF');
+            if ((ch >= '\u1100' && ch <= '\u115F') || cjk || (ch >= '\uA960' && ch <= '\uA97F')
                 || (ch >= '\uAC00' && ch <= '\uD7A3') || (ch >= '\uF900' && ch <= '\uFAFF') || (ch >= '\uFE10' && ch <= '\uFE19')
                 || (ch >= '\uFE30' && ch <= '\uFE6F') || (ch >= '\uFF00' && ch <= '\uFF60') || (ch >= '\uFFE0' && ch <= '\uFFE6')) return 2;
             for (int k = 0; k < WideEmoji.Length; k += 2)
                 if (ch >= WideEmoji[k] && ch <= WideEmoji[k + 1]) return 2;
             return EmojiStyle(s, i + 1, category) ? 2 : 1;
+        }
+
+        // The East Asian Width W ranges of U+1F000-1FAFF (Unicode 16), plus the regional indicators (a lone one is
+        // drawn as a letter in a box, two columns on the terminals that draw flags).
+        private static readonly int[] WideAstralRanges =
+        {
+            0x1F004, 0x1F004, 0x1F0CF, 0x1F0CF, 0x1F18E, 0x1F18E, 0x1F191, 0x1F19A, 0x1F1E6, 0x1F1FF, 0x1F200, 0x1F202,
+            0x1F210, 0x1F23B, 0x1F240, 0x1F248, 0x1F250, 0x1F251, 0x1F260, 0x1F265, 0x1F300, 0x1F320, 0x1F32D, 0x1F335,
+            0x1F337, 0x1F37C, 0x1F37E, 0x1F393, 0x1F3A0, 0x1F3CA, 0x1F3CF, 0x1F3D3, 0x1F3E0, 0x1F3F0, 0x1F3F4, 0x1F3F4,
+            0x1F3F8, 0x1F43E, 0x1F440, 0x1F440, 0x1F442, 0x1F4FC, 0x1F4FF, 0x1F53D, 0x1F54B, 0x1F54E, 0x1F550, 0x1F567,
+            0x1F57A, 0x1F57A, 0x1F595, 0x1F596, 0x1F5A4, 0x1F5A4, 0x1F5FB, 0x1F64F, 0x1F680, 0x1F6C5, 0x1F6CC, 0x1F6CC,
+            0x1F6D0, 0x1F6D2, 0x1F6D5, 0x1F6D7, 0x1F6DC, 0x1F6DF, 0x1F6EB, 0x1F6EC, 0x1F6F4, 0x1F6FC, 0x1F7E0, 0x1F7EB,
+            0x1F7F0, 0x1F7F0, 0x1F90C, 0x1F93A, 0x1F93C, 0x1F945, 0x1F947, 0x1F9FF, 0x1FA70, 0x1FA7C, 0x1FA80, 0x1FA89,
+            0x1FA8F, 0x1FAC6, 0x1FACE, 0x1FADC, 0x1FADF, 0x1FAE9, 0x1FAF0, 0x1FAF8,
+        };
+
+        private static bool WideAstral(int cp)
+        {
+            if (cp < 0x1F004 || cp > 0x1FAF8) return false;
+            for (int k = 0; k < WideAstralRanges.Length; k += 2)
+                if (cp >= WideAstralRanges[k] && cp <= WideAstralRanges[k + 1]) return true;
+            return false;
         }
 
         private static bool EmojiStyle(string s, int next, UnicodeCategory category)
@@ -266,9 +304,10 @@ namespace ToolBelt.Cli
         // same failure; the spinner is cosmetic, so drawing fails quietly everywhere.
         private void Quietly(Action write)
         {
+            // Any failure, not only IOException and ObjectDisposedException: a writer that threw NotSupportedException
+            // made the constructor throw.
             try { write(); }
-            catch (IOException) { _broken = true; }
-            catch (ObjectDisposedException) { _broken = true; }
+            catch (Exception) { _broken = true; }
         }
 
         private volatile bool _broken; // a write failed: the background loop stops animating

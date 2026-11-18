@@ -88,6 +88,7 @@ namespace ToolBelt.Cli
             // (only the plain two were matched, so ESC[0;1m ended the outer colour early) or ESC[1;0m (only the first
             // parameter was looked at, but parameters apply in order, so this one ends every style too).
             string open = "\u001b[" + code + "m";
+            int ours = Groups(code, code.Length, setting: true);
             var sb = new StringBuilder(open);
             int i = 0;
             while (i < text.Length)
@@ -110,11 +111,77 @@ namespace ToolBelt.Cli
                         sb.Append(head.IndexOf(';') < 0 ? Reset : "\u001b[" + head + "m").Append(open)
                           .Append("\u001b[").Append(text, k + 1, j + 1 - (k + 1));
                     }
+                    // A partial reset of one of our attributes (22 for bold or dim, 39 for the foreground, 49 for the
+                    // background, ...) ended it for the rest of the text, where a full reset re-applied it. What the
+                    // sequence leaves cancelled (a 39 followed by 32 sets a colour of its own) is put back.
+                    int from = k < 0 ? esc + 2 : k + 1;
+                    int cancelled = from < j ? Cancelled(text, from, j) & ours : 0;
+                    if (cancelled != 0) sb.Append("\u001b[").Append(Select(code, cancelled)).Append('m');
                     i = j + 1;
                 }
                 else { sb.Append(text, i, esc + 2 - i); i = esc + 2; }
             }
             return sb.Append(Reset).ToString();
+        }
+
+        // Attribute groups: bold and dim share a reset (22), as do the two underlines (24).
+        private const int BoldDim = 1, Italic_ = 2, Underline_ = 4, Inverse_ = 8, Fore = 16, Back = 32, Blink = 64, Hidden = 128, Strike = 256;
+
+        private static int SetGroup(int p)
+            => p == 1 || p == 2 ? BoldDim : p == 3 ? Italic_ : p == 4 || p == 21 ? Underline_ : p == 5 || p == 6 ? Blink
+             : p == 7 ? Inverse_ : p == 8 ? Hidden : p == 9 ? Strike
+             : (p >= 30 && p <= 38) || (p >= 90 && p <= 97) ? Fore : (p >= 40 && p <= 48) || (p >= 100 && p <= 107) ? Back : 0;
+
+        private static int ResetGroup(int p)
+            => p == 22 ? BoldDim : p == 23 ? Italic_ : p == 24 ? Underline_ : p == 25 ? Blink : p == 27 ? Inverse_
+             : p == 28 ? Hidden : p == 29 ? Strike : p == 39 ? Fore : p == 49 ? Back : 0;
+
+        // Walks the SGR parameters in [start, end) in order, skipping the arguments of 38, 48 and 58. With setting, the
+        // groups they set; otherwise the groups a partial reset leaves cancelled at the end.
+        private static int Groups(string text, int end, bool setting, int start = 0)
+        {
+            int mask = 0, skip = 0;
+            bool selector = false;
+            for (int p = start; ; )
+            {
+                int q = p;
+                while (q < end && text[q] != ';') q++;
+                int colon = text.IndexOf(':', p, q - p);
+                string param = text.Substring(p, (colon < 0 ? q : colon) - p);
+                if (skip > 0) skip--;
+                else if (selector)
+                {
+                    selector = false;
+                    skip = param == "5" ? 1 : param == "2" ? 3 : 0;
+                }
+                else if (int.TryParse(param, NumberStyles.None, CultureInfo.InvariantCulture, out int n))
+                {
+                    if (colon < 0 && (n == 38 || n == 48 || n == 58)) selector = true;
+                    int set = SetGroup(n);
+                    if (setting) mask |= set;
+                    else if (set != 0) mask &= ~set;
+                    else mask |= ResetGroup(n);
+                }
+                if (q >= end) return mask;
+                p = q + 1;
+            }
+        }
+
+        private static int Cancelled(string text, int start, int end) => Groups(text, end, setting: false, start);
+
+        // Our own parameters in the given groups (a 38;5;n colour stays whole).
+        private static string Select(string code, int groups)
+        {
+            var parts = new List<string>();
+            string[] tokens = code.Split(';');
+            for (int t = 0; t < tokens.Length; t++)
+            {
+                int n = int.Parse(tokens[t], NumberStyles.None, CultureInfo.InvariantCulture);
+                int take = n == 38 || n == 48 ? (tokens[t + 1] == "5" ? 3 : 5) : 1;
+                if ((SetGroup(n) & groups) != 0) parts.Add(string.Join(";", tokens, t, take));
+                t += take - 1;
+            }
+            return string.Join(";", parts);
         }
 
         // Where the last reset parameter (0 or empty) of the SGR parameters in [start, end) ends: the ';' after it, or end.

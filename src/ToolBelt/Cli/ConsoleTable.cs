@@ -15,7 +15,8 @@ namespace ToolBelt.Cli
     /// <summary>
     /// Builds a simple aligned monospace table for console output: a header row, a dashed divider, and
     /// one line per data row, with every column padded to the width of its widest cell. All rendered
-    /// lines have identical length (in UTF-16 characters, so wide CJK or emoji cells may misalign on screen). Cell
+    /// lines have identical length (in UTF-16 characters, so wide CJK or emoji cells may misalign on screen), not
+    /// counting SGR colour sequences (ESC[...m, as <see cref="AnsiStyle"/> writes), which take no width. Cell
     /// values are used verbatim, except that line breaks (CR, LF, NEL, LS, PS, VT, FF) and tabs become spaces (a null cell or header renders as
     /// empty).
     /// </summary>
@@ -76,11 +77,11 @@ namespace ToolBelt.Cli
         {
             var widths = new int[_headers.Length];
             for (int i = 0; i < _headers.Length; i++)
-                widths[i] = _headers[i].Length;
+                widths[i] = Visible(_headers[i]);
             foreach (var row in _rows)
                 for (int i = 0; i < row.Length; i++)
-                    if (row[i].Length > widths[i])
-                        widths[i] = row[i].Length;
+                    if (Visible(row[i]) > widths[i])
+                        widths[i] = Visible(row[i]);
 
             var lines = new List<string>(_rows.Count + 2);
             lines.Add(RenderRow(_headers, widths));
@@ -100,9 +101,9 @@ namespace ToolBelt.Cli
                 if (i > 0)
                     sb.Append(ColumnSeparator);
                 string cell = cells[i];
-                sb.Append(_alignments[i] == ColumnAlignment.Right
-                    ? cell.PadLeft(widths[i])
-                    : cell.PadRight(widths[i]));
+                int pad = widths[i] - Visible(cell);
+                if (_alignments[i] == ColumnAlignment.Right) sb.Append(' ', pad).Append(cell);
+                else sb.Append(cell).Append(' ', pad);
             }
             return sb.ToString();
         }
@@ -122,6 +123,21 @@ namespace ToolBelt.Cli
                 sb.Append(Array.IndexOf(Breaks, cell[i]) >= 0 ? ' ' : cell[i]);
             }
             return sb.ToString();
+        }
+
+        // The length without SGR sequences (ESC [ digits ; : m): a styled cell was padded by its escape characters, so
+        // Bold("x") made its column ten wide and drew one.
+        private static int Visible(string cell)
+        {
+            int n = cell.Length;
+            for (int i = cell.IndexOf('\u001B'); i >= 0 && i + 1 < cell.Length; i = cell.IndexOf('\u001B', i + 1))
+            {
+                if (cell[i + 1] != '[') continue;
+                int j = i + 2;
+                while (j < cell.Length && ((cell[j] >= '0' && cell[j] <= '9') || cell[j] == ';' || cell[j] == ':')) j++;
+                if (j < cell.Length && cell[j] == 'm') { n -= j + 1 - i; i = j; }
+            }
+            return n;
         }
 
         private static string RenderDivider(int[] widths)

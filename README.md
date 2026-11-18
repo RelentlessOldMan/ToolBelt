@@ -245,7 +245,7 @@ src/
       QuotedPrintable.cs    MIME quoted-printable encode/decode (RFC 2045, byte-exact round-trip)
       VarInt.cs             LEB128 var-length ints (unsigned + ZigZag signed)
     Cli/
-      ConsoleTable.cs       aligned ASCII text table (alignment, padding)
+      ConsoleTable.cs       aligned ASCII text table (alignment, padding; colour sequences take no width)
       ProgressBar.cs        render a text progress bar (bar body / bracketed + percent)
       Sparkline.cs          one-line block-character mini chart of a series
       AnsiStyle.cs          16/256/24-bit colour + bold/underline; NO_COLOR / FORCE_COLOR / TERM=dumb aware
@@ -301,7 +301,7 @@ src/
       Deadband.cs           deadband shaping + report-by-exception DeadbandFilter
       FirstOrderLag.cs      time-constant low-pass, exact for any (irregular) update interval
     Diagnostics/
-      Benchmark.cs          micro-benchmark harness (warmup, stats, bytes/op, compare-to-baseline; .NET Framework counts the domain's bytes)
+      Benchmark.cs          micro-benchmark harness (warmup, stats, bytes/op, compare-to-baseline, MaxIterations; .NET Framework counts the domain's bytes)
       MetricsRegistry.cs    named counters / gauges / timers with percentile snapshots (thread-safe, capped samples per timer)
       ScopedTimer.cs        time a using-block to a callback / metrics (injectable clock)
       ExceptionUtils.cs     root-cause / flatten / describe / transient-vs-permanent classify
@@ -1087,6 +1087,7 @@ tests/
       LoggingDiagnosticsCliReview78Tests.cs (fifth pass: out-of-order scopes, linear scope and delimiter costs, throwing Messages, disposed decorators, bounded signatures, emoji widths)
       LoggingReview103Tests.cs (sixth pass: cross-consumer re-entry, concurrent health checks, summary order, later SGR resets, scopes disposed elsewhere, disposed sinks, unencodable lines, one-line spinner, undefined enums)
       LoggingReview116Tests.cs (seventh pass: wide spinner characters, kept colour sequences, a guarded Tick, undefined table alignment, FTP replies and programmer errors in IsTransient, sinks after Dispose, broken owned writers, failed reopens after rotation)
+      LoggingReview135Tests.cs (eighth pass: spinner widths of flags, ZWJ sequences and narrow symbols, any writer failure kept quiet, styled table cells, partial ANSI resets, a throwing logger clock, undefined minimum levels, negative throttle windows, benchmark iteration limits, racing ScopedTimer disposal)
   ToolBelt.Windows.Tests/   Windows-only integration tests for the platform satellite (net8.0-windows)
     PowerStatusTests.cs
     SingleInstanceTests.cs

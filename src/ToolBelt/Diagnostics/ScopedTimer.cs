@@ -1,5 +1,6 @@
 // ToolBelt drop-in — also copy Diagnostics/MetricsRegistry.cs (for ToMetrics).
 using System;
+using System.Threading;
 
 namespace ToolBelt.Diagnostics
 {
@@ -15,7 +16,7 @@ namespace ToolBelt.Diagnostics
         private readonly Func<DateTimeOffset>? _clock;
         private readonly DateTimeOffset _start;
         private readonly long _startTicks;
-        private bool _disposed;
+        private int _disposed;
 
         public ScopedTimer(string name, Action<string, TimeSpan> onComplete, Func<DateTimeOffset>? clock = null)
         {
@@ -37,8 +38,8 @@ namespace ToolBelt.Diagnostics
 
         public void Dispose()
         {
-            if (_disposed) return;
-            _disposed = true;
+            // Claimed atomically: a test-then-set let two racing Dispose calls both report.
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
             TimeSpan elapsed = _clock != null
                 ? _clock() - _start
                 : TimeSpan.FromTicks((long)((System.Diagnostics.Stopwatch.GetTimestamp() - _startTicks) * (10_000_000.0 / System.Diagnostics.Stopwatch.Frequency)));
