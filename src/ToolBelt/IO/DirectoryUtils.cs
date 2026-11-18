@@ -9,7 +9,7 @@ namespace ToolBelt.IO
     /// <summary>What <see cref="DirectoryUtils.Copy"/> does when a destination file already exists.</summary>
     public enum OverwritePolicy
     {
-        /// <summary>Replace it (even if read-only).</summary>
+        /// <summary>Replace it (even if read-only; its other attributes, such as Hidden, are kept).</summary>
         Overwrite,
         /// <summary>Leave it and count the file as skipped.</summary>
         Skip,
@@ -213,18 +213,37 @@ namespace ToolBelt.IO
                 File.Copy(file, temp, overwrite: false);
                 // File.Copy keeps the source's last-write time on Windows, so a fresh one must be set explicitly.
                 File.SetLastWriteTimeUtc(temp, preserveTimestamps ? File.GetLastWriteTimeUtc(file) : DateTime.UtcNow);
-                if (replace) ClearReadOnly(to);
-#if NET6_0_OR_GREATER
-                File.Move(temp, to, overwrite: replace);
-#else
-                if (replace) File.Delete(to);
-                File.Move(temp, to);
-#endif
+                // netstandard2.0 deleted the target and then moved, so a failed move lost both copies.
+                if (replace) MoveOver(temp, to);
+                else File.Move(temp, to);
             }
             finally
             {
                 try { if (File.Exists(temp)) { ClearReadOnly(temp); File.Delete(temp); } }
                 catch (Exception ex) when (IsIoError(ex)) { }
+            }
+        }
+
+        // Replaces target with source, File.Replace whenever the target exists, on every build. File.Move(overwrite) dropped the
+        // target's Hidden and System attributes and refused a target another process had open with FileShare.Delete, which
+        // File.Replace (netstandard2.0) kept and replaced. A read-only target loses the flag for the replace only: when the
+        // replace fails it is put back, so a failed overwrite leaves the file as it was.
+        private static void MoveOver(string source, string target)
+        {
+            if (!File.Exists(target)) { File.Move(source, target); return; }
+            FileAttributes attributes = File.GetAttributes(target);
+            bool readOnly = (attributes & FileAttributes.ReadOnly) != 0;
+            if (readOnly) File.SetAttributes(target, attributes & ~FileAttributes.ReadOnly);
+            try { File.Replace(source, target, destinationBackupFileName: null, ignoreMetadataErrors: true); }
+            catch
+            {
+                if (readOnly)
+                {
+                    try { if (File.Exists(target)) File.SetAttributes(target, attributes); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+                throw;
             }
         }
 

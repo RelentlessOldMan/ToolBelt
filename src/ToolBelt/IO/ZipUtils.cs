@@ -97,10 +97,11 @@ namespace ToolBelt.IO
             string root = Path.GetFullPath(destinationDirectory);
             string rootWithSeparator = root.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
                 ? root : root + Path.DirectorySeparatorChar;
-            Directory.CreateDirectory(root);
 
             using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             using var archive = OpenArchive(fs, ZipArchiveMode.Read);
+            // After the archive opens: a missing or corrupt one left the new (possibly nested) folders behind.
+            Directory.CreateDirectory(root);
             var directoryTimes = new List<(string Path, DateTime Time)>();
             foreach (ZipArchiveEntry entry in EntriesOf(archive))
             {
@@ -146,8 +147,6 @@ namespace ToolBelt.IO
                         }
                     }
                     SetTime(temp, entry.LastWriteTime.DateTime, directory: false);
-                    // A read-only file is not replaced by a move (UnauthorizedAccessException); overwrite means replace it.
-                    if (overwrite) ClearReadOnly(target);
                     if (overwrite) MoveOver(temp, target);
                     else File.Move(temp, target);
                 }
@@ -356,23 +355,28 @@ namespace ToolBelt.IO
         }
 #endif
 
-        // Replaces target with source. Deleting the target and then moving lost it when the move failed: the finally then
-        // deleted the only copy left.
+        // Deleting the target and then moving lost it when the move failed: the finally then deleted the only copy left.
+        // Replaces target with source, File.Replace whenever the target exists, on every build. File.Move(overwrite) dropped the
+        // target's Hidden and System attributes and refused a target another process had open with FileShare.Delete, which
+        // File.Replace (netstandard2.0) kept and replaced. A read-only target loses the flag for the replace only: when the
+        // replace fails it is put back, so a failed overwrite leaves the file as it was.
         private static void MoveOver(string source, string target)
         {
-#if NET6_0_OR_GREATER
-            File.Move(source, target, overwrite: true);
-#else
-            if (File.Exists(target)) File.Replace(source, target, destinationBackupFileName: null, ignoreMetadataErrors: true);
-            else File.Move(source, target);
-#endif
-        }
-
-        private static void ClearReadOnly(string path)
-        {
-            if (!File.Exists(path)) return;
-            FileAttributes attributes = File.GetAttributes(path);
-            if ((attributes & FileAttributes.ReadOnly) != 0) File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+            if (!File.Exists(target)) { File.Move(source, target); return; }
+            FileAttributes attributes = File.GetAttributes(target);
+            bool readOnly = (attributes & FileAttributes.ReadOnly) != 0;
+            if (readOnly) File.SetAttributes(target, attributes & ~FileAttributes.ReadOnly);
+            try { File.Replace(source, target, destinationBackupFileName: null, ignoreMetadataErrors: true); }
+            catch
+            {
+                if (readOnly)
+                {
+                    try { if (File.Exists(target)) File.SetAttributes(target, attributes); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+                throw;
+            }
         }
 
         // ZipArchive.CreateEntry takes any value and fails later, part way through writing.

@@ -89,14 +89,15 @@ namespace ToolBelt.IO
             long budget = maxTotalBytes;
             string root = Path.GetFullPath(destinationDirectory);
             string rootWithSep = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;
-            Directory.CreateDirectory(root);
 
             using var fs = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             using Stream input = UseGzip(archivePath, gzip) ? new GZipStream(fs, CompressionMode.Decompress) : (Stream)fs;
             using var reader = new TarReader(new MetadataGuardStream(input));
             var directoryTimes = new List<(string Path, DateTimeOffset Time)>();
-            TarEntry? entry;
-            while ((entry = NextEntry(reader)) != null)
+            // After the first header reads: a missing or corrupt archive left the new (possibly nested) folders behind.
+            TarEntry? entry = NextEntry(reader);
+            Directory.CreateDirectory(root);
+            for (; entry != null; entry = NextEntry(reader))
             {
                 // PAX/GNU metadata, devices and FIFOs are skipped before their names are checked: a PAX global header is
                 // named with an absolute path ("$TMPDIR/GlobalHead.%p.%n"), which failed the whole extraction.
@@ -183,19 +184,37 @@ namespace ToolBelt.IO
                 SetTime(temp, entry.ModificationTime, directory: false);
                 // The permission bits, less group and other write (as tar does under the usual umask); never setuid or sticky.
                 if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temp, entry.Mode & (UnixFileMode)0b111_101_101);
-                // A read-only file is not replaced by a move (UnauthorizedAccessException); overwrite means replace it.
-                if (overwrite && File.Exists(target))
-                {
-                    FileAttributes attributes = File.GetAttributes(target);
-                    if ((attributes & FileAttributes.ReadOnly) != 0) File.SetAttributes(target, attributes & ~FileAttributes.ReadOnly);
-                }
-                File.Move(temp, target, overwrite);
+                if (overwrite) MoveOver(temp, target);
+                else File.Move(temp, target);
             }
             finally
             {
                 try { if (File.Exists(temp)) File.Delete(temp); }
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
+            }
+        }
+
+        // Replaces target with source, File.Replace whenever the target exists, on every build. File.Move(overwrite) dropped the
+        // target's Hidden and System attributes and refused a target another process had open with FileShare.Delete, which
+        // File.Replace (netstandard2.0) kept and replaced. A read-only target loses the flag for the replace only: when the
+        // replace fails it is put back, so a failed overwrite leaves the file as it was.
+        private static void MoveOver(string source, string target)
+        {
+            if (!File.Exists(target)) { File.Move(source, target); return; }
+            FileAttributes attributes = File.GetAttributes(target);
+            bool readOnly = (attributes & FileAttributes.ReadOnly) != 0;
+            if (readOnly) File.SetAttributes(target, attributes & ~FileAttributes.ReadOnly);
+            try { File.Replace(source, target, destinationBackupFileName: null, ignoreMetadataErrors: true); }
+            catch
+            {
+                if (readOnly)
+                {
+                    try { if (File.Exists(target)) File.SetAttributes(target, attributes); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+                throw;
             }
         }
 

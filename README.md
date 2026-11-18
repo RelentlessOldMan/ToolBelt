@@ -867,6 +867,7 @@ tests/
       IOReview94Tests.cs     (round 94 review regressions: mixed tar metadata headers, temp-folder cleanup, files over folders)
       IOReview112Tests.cs    (round 112 review regressions: CSV decimal separators, undefined overwrite policies, empty zip names, blank nullable fields, V7 tar directories, Windows tar modes)
       IOReview138Tests.cs    (eighth pass: trailing-dot rescans, '*' in watched names, linear retention matching, code-page and mixed zip names, zip comments and Unix modes, Unix-made zip folders, folders holding only the archive)
+      IOReview143Tests.cs    (ninth pass: failed replaces keep read-only, overwrites keep Hidden and replace shared-delete targets, no folders for unreadable archives, whitespace chars and relative Uris in CsvBinder)
       CoverageGapTests.cs   (behaviour behind coverage holes found by a coverlet run)
     Numerics/
       AngleTests.cs

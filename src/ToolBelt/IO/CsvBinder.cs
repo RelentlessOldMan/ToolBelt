@@ -132,6 +132,14 @@ namespace ToolBelt.IO
             Type? underlying = Nullable.GetUnderlyingType(type);
             Type t = underlying ?? type;
             if (t == typeof(string)) { value = text; return true; }
+            // Before the trim: a char? holding ' ' or a tab was written as itself but read back as null.
+            if (t == typeof(char))
+            {
+                if (text.Length == 0 && underlying != null) return true;
+                if (text.Length != 1) return false;
+                value = text[0];
+                return true;
+            }
             string s = text.Trim();
             // Empty -> null. After the trim, as values are read: " 5 " was 5 but "  " was an error, not null.
             if (s.Length == 0 && (underlying != null || !type.IsValueType)) return true;
@@ -158,8 +166,8 @@ namespace ToolBelt.IO
                     value = d;
                     return ok;
                 }
-                if (t == typeof(Uri)) { bool ok = Uri.TryCreate(s, UriKind.RelativeOrAbsolute, out Uri? u); value = u; return ok; }
-                if (t == typeof(char)) { if (text.Length != 1) return false; value = text[0]; return true; }
+                // The untrimmed text, as for a string: a relative Uri " rel " came back as "rel" (an absolute one trims itself).
+                if (t == typeof(Uri)) { bool ok = Uri.TryCreate(text, UriKind.RelativeOrAbsolute, out Uri? u); value = u; return ok; }
                 // Convert.ChangeType allowed thousands separators in these, so "1,5" bound as 15; and an overflow gave
                 // infinity on .NET Core but FormatException on .NET Framework.
                 if (t == typeof(double) || t == typeof(float))
