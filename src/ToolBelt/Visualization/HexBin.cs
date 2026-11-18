@@ -74,6 +74,10 @@ namespace ToolBelt.Visualization
             // An infinite radius put every point in one cell centred at NaN (0·∞).
             if (!(radius > 0) || double.IsInfinity(radius * Sqrt3)) throw new ArgumentOutOfRangeException(nameof(radius), radius, "Radius must be positive and finite.");
             double dx = radius * Sqrt3, dy = radius * 1.5;
+            // Points inside the frame past index 1e9 were skipped as if far outside it: a radius of 1e-9 px on a 500 px
+            // frame returned no cells, and a wide frame lost every point right of 1e9 hexagons.
+            if (frame.Width / dx > 1e9 || frame.Height / dy > 1e9)
+                throw new ArgumentOutOfRangeException(nameof(radius), radius, "The radius is too small for the frame: more than 1e9 hexagons across.");
             var counts = new Dictionary<(int, int), int>();
             foreach (var (x, y) in points)
             {
@@ -151,6 +155,8 @@ namespace ToolBelt.Visualization
             double pw = o.Width - left - right, ph = o.Height - top - bottom;
             if (pw <= 20 || ph <= 20) throw new ArgumentException("Width/Height leave no room for the plot.", nameof(options));
             var frame = new PlotFrame(left, top, pw, ph, xt.Min, xt.Max, yt.Min, yt.Max);
+            if (pw / (o.Radius * Sqrt3) > 1e9 || ph / (o.Radius * 1.5) > 1e9)
+                throw new ArgumentOutOfRangeException(nameof(options), "Width or Height is too large for the radius: more than 1e9 hexagons across.");
             // Points outside the plotted range are left out, so they can't skew the colour scale.
             double x0 = Math.Min(frame.XMin, frame.XMax), x1 = Math.Max(frame.XMin, frame.XMax), y0 = Math.Min(frame.YMin, frame.YMax), y1 = Math.Max(frame.YMin, frame.YMax);
             var cells = Compute(finite.Where(pt => pt.X >= x0 && pt.X <= x1 && pt.Y >= y0 && pt.Y <= y1), frame, o.Radius);
@@ -178,7 +184,7 @@ namespace ToolBelt.Visualization
                 }
                 var clipped = ClipToRect(hex, frame.Left, frame.Top, frame.Right, frame.Bottom);
                 if (clipped.Count < 3) continue;
-                sb.Append("<path d=\"").Append(PathBuilder.FromPoints(clipped, closed: true)).Append("\" ").Append(SvgUtils.FillAttributes(o.Colormap.Map(t)))
+                sb.Append("<path d=\"").Append(PathBuilder.FromPoints(clipped, closed: true)).Append("\" ").Append(SvgUtils.FillAttributes(o.Colormap.MapFraction(t)))
                   .Append("><title>").Append(c.Count.ToString(CultureInfo.InvariantCulture)).Append("</title></path>\n");
             }
             sb.Append("</g>\n");
@@ -190,7 +196,7 @@ namespace ToolBelt.Visualization
             {
                 double t = 1 - (k + 0.5) / steps;
                 sb.Append("<rect x=\"").Append(SvgUtils.Number(sx)).Append("\" y=\"").Append(SvgUtils.Number(sy + sh * k / steps))
-                  .Append("\" width=\"12\" height=\"").Append(SvgUtils.Number(sh / steps + 0.5)).Append("\" ").Append(SvgUtils.FillAttributes(o.Colormap.Map(t))).Append("/>\n");
+                  .Append("\" width=\"12\" height=\"").Append(SvgUtils.Number(sh / steps + 0.5)).Append("\" ").Append(SvgUtils.FillAttributes(o.Colormap.MapFraction(t))).Append("/>\n");
             }
             sb.Append("<rect x=\"").Append(SvgUtils.Number(sx)).Append("\" y=\"").Append(SvgUtils.Number(sy)).Append("\" width=\"12\" height=\"")
               .Append(SvgUtils.Number(sh)).Append("\" fill=\"none\" stroke=\"#444\" stroke-width=\"0.5\"/>\n");

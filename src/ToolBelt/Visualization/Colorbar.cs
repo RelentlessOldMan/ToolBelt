@@ -12,7 +12,7 @@ namespace ToolBelt.Visualization
     {
         /// <summary>
         /// Renders <paramref name="map"/> across the whole image. When <paramref name="vertical"/> is true
-        /// the gradient runs bottom (0) to top (1); otherwise left (0) to right (1). An optional border is
+        /// the gradient runs bottom (the first stop) to top (the last); otherwise left to right. An optional border is
         /// drawn around the strip.
         /// </summary>
         public static ImageBuffer Render(int width, int height, Colormap map, bool vertical = true, Rgba? border = null)
@@ -26,7 +26,8 @@ namespace ToolBelt.Visualization
                 {
                     // A one-pixel bar shows the map's middle: vertical took the top (1) and horizontal the bottom (0).
                     double t = height == 1 ? 0.5 : (double)(height - 1 - y) / (height - 1);
-                    Rgba c = map.Map(t);
+                    // The whole stop range: positions 0 … 1 showed half of a map whose stops span −1 … 1.
+                    Rgba c = map.MapFraction(t);
                     for (int x = 0; x < width; x++) image.SetPixel(x, y, c);
                 }
             }
@@ -35,7 +36,7 @@ namespace ToolBelt.Visualization
                 for (int x = 0; x < width; x++)
                 {
                     double t = width == 1 ? 0.5 : (double)x / (width - 1);
-                    Rgba c = map.Map(t);
+                    Rgba c = map.MapFraction(t);
                     for (int y = 0; y < height; y++) image.SetPixel(x, y, c);
                 }
             }

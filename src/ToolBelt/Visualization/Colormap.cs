@@ -4,7 +4,8 @@ using System;
 namespace ToolBelt.Visualization
 {
     /// <summary>
-    /// Maps a normalized value in [0, 1] to a color by linearly interpolating between color stops. Ships with
+    /// Maps a value to a color by linearly interpolating between color stops (the presets' stops span [0, 1]; the
+    /// renderers map their data range onto the whole stop range with <see cref="MapFraction"/>). Ships with
     /// a few presets, including a perceptually-uniform Viridis <i>approximation</i> (anchor points, not the
     /// full 256-entry table). Construct your own from custom stops.
     /// </summary>
@@ -25,6 +26,25 @@ namespace ToolBelt.Visualization
             Array.Sort(order, (a, b) => { int c = stops[a].Position.CompareTo(stops[b].Position); return c != 0 ? c : a.CompareTo(b); });
             _stops = new (double, Rgba)[stops.Length];
             for (int i = 0; i < order.Length; i++) _stops[i] = stops[order[i]];
+        }
+
+        /// <summary>The first stop's position (0 for the presets).</summary>
+        public double StartPosition => _stops[0].Position;
+
+        /// <summary>The last stop's position (1 for the presets).</summary>
+        public double EndPosition => _stops[_stops.Length - 1].Position;
+
+        /// <summary>
+        /// Maps a fraction of the stop range to a color: 0 is the first stop and 1 the last, whatever their positions
+        /// (clamped; NaN takes the first). For the presets, whose stops span [0, 1], it is the same as <see cref="Map"/>.
+        /// </summary>
+        public Rgba MapFraction(double fraction)
+        {
+            double s = StartPosition, e = EndPosition;
+            if (!(fraction > 0)) return Map(s);
+            if (fraction >= 1) return Map(e);
+            double span = e - s;
+            return Map(double.IsInfinity(span) ? 2 * (s / 2 + fraction * (e / 2 - s / 2)) : s + fraction * span);
         }
 
         /// <summary>Maps <paramref name="t"/> (clamped to the stop range) to a color.</summary>

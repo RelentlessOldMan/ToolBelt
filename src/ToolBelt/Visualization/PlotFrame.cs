@@ -125,10 +125,17 @@ namespace ToolBelt.Visualization
             bool flip = Out(ax, ay) > Out(bx, by);
             if (flip) { (ax, bx) = (bx, ax); (ay, by) = (by, ay); }
             double t0 = 0, t1 = 1, dx = bx - ax, dy = by - ay;
-            if (!Edge(-dx, ax - xlo, ref t0, ref t1) || !Edge(dx, xhi - ax, ref t0, ref t1)
-                || !Edge(-dy, ay - ylo, ref t0, ref t1) || !Edge(dy, yhi - ay, ref t0, ref t1)) return false;
-            double cx0 = Data(ax + t0 * dx, LogX, kx), cy0 = Data(ay + t0 * dy, LogY, ky);
-            double cx1 = Data(t1 == 1 ? bx : ax + t1 * dx, LogX, kx), cy1 = Data(t1 == 1 ? by : ay + t1 * dy, LogY, ky);
+            int e0 = -1, e1 = -1;
+            if (!Edge(-dx, ax - xlo, 0, ref t0, ref t1, ref e0, ref e1) || !Edge(dx, xhi - ax, 1, ref t0, ref t1, ref e0, ref e1)
+                || !Edge(-dy, ay - ylo, 2, ref t0, ref t1, ref e0, ref e1) || !Edge(dy, yhi - ay, 3, ref t0, ref t1, ref e0, ref e1)) return false;
+            double ux0 = ax + t0 * dx, uy0 = ay + t0 * dy;
+            double ux1 = t1 == 1 ? bx : ax + t1 * dx, uy1 = t1 == 1 ? by : ay + t1 * dy;
+            // An end cut at an edge lies on it: t underflowed to 0 when the range was tiny against the jump (5e-301 over
+            // 1e300), which left that end at the start and drew a point.
+            Snap(e0, ref ux0, ref uy0, xlo, xhi, ylo, yhi);
+            Snap(e1, ref ux1, ref uy1, xlo, xhi, ylo, yhi);
+            double cx0 = Data(ux0, LogX, kx), cy0 = Data(uy0, LogY, ky);
+            double cx1 = Data(ux1, LogX, kx), cy1 = Data(uy1, LogY, ky);
             if (flip) { x0 = cx1; y0 = cy1; x1 = cx0; y1 = cy0; }
             else { x0 = cx0; y0 = cy0; x1 = cx1; y1 = cy1; }
             return true;
@@ -141,12 +148,20 @@ namespace ToolBelt.Visualization
 
         private static double Data(double u, bool log, double k) => log ? Math.Pow(10, u) : u / k;
 
-        private static bool Edge(double p, double q, ref double t0, ref double t1)
+        private static void Snap(int edge, ref double x, ref double y, double xlo, double xhi, double ylo, double yhi)
+        {
+            if (edge == 0) x = xlo;
+            else if (edge == 1) x = xhi;
+            else if (edge == 2) y = ylo;
+            else if (edge == 3) y = yhi;
+        }
+
+        private static bool Edge(double p, double q, int edge, ref double t0, ref double t1, ref int e0, ref int e1)
         {
             if (p == 0) return q >= 0;
             double r = q / p;
-            if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
-            else { if (r < t0) return false; if (r < t1) t1 = r; }
+            if (p < 0) { if (r > t1) return false; if (r > t0) { t0 = r; e0 = edge; } }
+            else { if (r < t0) return false; if (r < t1) { t1 = r; e1 = edge; } }
             return true;
         }
 

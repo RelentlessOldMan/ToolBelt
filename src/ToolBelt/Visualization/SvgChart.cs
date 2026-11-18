@@ -127,6 +127,14 @@ namespace ToolBelt.Visualization
         public static PlotFrame Layout(IReadOnlyList<Series> series, SvgChartOptions? options = null)
             => ComputeLayout(series, options ?? new SvgChartOptions()).Frame;
 
+        // As Layout, also saying which axes fell to the placeholder range (no limits and no usable data).
+        internal static PlotFrame LayoutWithPlaceholders(IReadOnlyList<Series> series, SvgChartOptions options, out bool xPlaceholder, out bool yPlaceholder)
+        {
+            ChartLayout l = ComputeLayout(series, options);
+            xPlaceholder = l.XPlaceholder; yPlaceholder = l.YPlaceholder;
+            return l.Frame;
+        }
+
         // ---------- layout ----------
 
         private sealed class ChartLayout
@@ -135,6 +143,7 @@ namespace ToolBelt.Visualization
             public TickSet XTicks = null!;
             public TickSet YTicks = null!;
             public double BarWidth;
+            public bool XPlaceholder, YPlaceholder;
         }
 
         private static ChartLayout ComputeLayout(IReadOnlyList<Series> series, SvgChartOptions o)
@@ -157,7 +166,8 @@ namespace ToolBelt.Visualization
                 throw new ArgumentOutOfRangeException("options", "Axis limits must be finite.");
             // A reversed pair was swapped without a word (ErrorBarChart and HeatMap reject it), and a non-positive log
             // limit failed naming "explicitMin", a private helper's parameter.
-            if (o.XMin > o.XMax || o.YMin > o.YMax) throw new ArgumentException("An axis minimum is above its maximum.", "options");
+            // An equal pair drew every point on the centre line, data outside it included (the siblings reject it too).
+            if (o.XMin >= o.XMax || o.YMin >= o.YMax) throw new ArgumentException("An axis minimum is not below its maximum.", "options");
             if (o.XAxis == AxisKind.Log && (o.XMin <= 0 || o.XMax <= 0) || o.YAxis == AxisKind.Log && (o.YMin <= 0 || o.YMax <= 0))
                 throw new ArgumentOutOfRangeException("options", "A log axis needs strictly positive limits.");
             if (o.FontFamily is null) throw new ArgumentException("FontFamily must not be null.", "options");
@@ -206,11 +216,14 @@ namespace ToolBelt.Visualization
             if (o.ShowYTickLabels)
                 foreach (string l in yTicks.Labels) maxYLabel = Math.Max(maxYLabel, SvgUtils.EstimateTextWidth(l, fs));
             double lastXLabel = o.ShowXTickLabels && xTicks.Count > 0 ? SvgUtils.EstimateTextWidth(xTicks.Labels[xTicks.Count - 1], fs) : 0;
+            double firstXLabel = o.ShowXTickLabels && xTicks.Count > 0 ? SvgUtils.EstimateTextWidth(xTicks.Labels[0], fs) : 0;
 
             double top = 12 + (string.IsNullOrEmpty(o.Title) ? 0 : fs * 1.35 + 8);
             double left = 10 + (string.IsNullOrEmpty(o.YLabel) ? 0 : fs + 8) + (o.ShowYTickLabels ? maxYLabel + 9 : 0);
             double bottom = 10 + (o.ShowXTickLabels ? fs + 8 : 0) + (string.IsNullOrEmpty(o.XLabel) ? 0 : fs + 8);
             double right = Math.Max(14, lastXLabel / 2 + 6);
+            // Half the first x label hangs left of the plot: with no y tick labels it started off the canvas.
+            left = Math.Max(left, firstXLabel / 2 + 6);
             // NaN made every margin NaN and failed inside PlotFrame, naming its "width".
             if (double.IsNaN(o.MinMarginLeft + o.MinMarginTop + o.MinMarginRight + o.MinMarginBottom)
                 || double.IsPositiveInfinity(Math.Max(Math.Max(o.MinMarginLeft, o.MinMarginTop), Math.Max(o.MinMarginRight, o.MinMarginBottom))))
@@ -224,7 +237,12 @@ namespace ToolBelt.Visualization
                 throw new ArgumentException("The chart is too small for its labels; increase Width/Height or reduce FontSize.", "options");
 
             var frame = new PlotFrame(left, top, pw, ph, xMin, xMax, yMin, yMax, o.XAxis == AxisKind.Log, o.YAxis == AxisKind.Log);
-            return new ChartLayout { Frame = frame, XTicks = xTicks, YTicks = yTicks, BarWidth = BarWidth(series, frame) };
+            return new ChartLayout
+            {
+                Frame = frame, XTicks = xTicks, YTicks = yTicks, BarWidth = BarWidth(series, frame),
+                XPlaceholder = dxMin is null && o.XMin is null && o.XMax is null,
+                YPlaceholder = dyMin is null && o.YMin is null && o.YMax is null,
+            };
         }
 
         private static (TickSet Ticks, double Min, double Max) AxisRange(

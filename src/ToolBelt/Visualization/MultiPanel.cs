@@ -186,12 +186,18 @@ namespace ToolBelt.Visualization
             {
                 double xMin = double.PositiveInfinity, xMax = double.NegativeInfinity;
                 double yMin = double.PositiveInfinity, yMax = double.NegativeInfinity;
+                // A panel with nothing on an axis has the placeholder [0, 1] there, which widened the shared range as if it
+                // were data (x in [1000, 2000] next to an empty panel shared [0, 2000]). It counts only if every panel has it.
+                PlotFrame? fallback = null;
                 for (int i = 0; i < n; i++)
                 {
-                    PlotFrame f = SvgChart.Layout(panels[i].Series, opts[i]);
-                    xMin = Math.Min(xMin, f.XMin); xMax = Math.Max(xMax, f.XMax);
-                    yMin = Math.Min(yMin, f.YMin); yMax = Math.Max(yMax, f.YMax);
+                    PlotFrame f = SvgChart.LayoutWithPlaceholders(panels[i].Series, opts[i], out bool xNone, out bool yNone);
+                    fallback ??= f;
+                    if (!xNone) { xMin = Math.Min(xMin, f.XMin); xMax = Math.Max(xMax, f.XMax); }
+                    if (!yNone) { yMin = Math.Min(yMin, f.YMin); yMax = Math.Max(yMax, f.YMax); }
                 }
+                if (xMin > xMax) { xMin = fallback!.Value.XMin; xMax = fallback.Value.XMax; }
+                if (yMin > yMax) { yMin = fallback!.Value.YMin; yMax = fallback.Value.YMax; }
                 for (int i = 0; i < n; i++)
                 {
                     int row = i / cols, col = i % cols;

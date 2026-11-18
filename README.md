@@ -537,7 +537,7 @@ src/
       HexBin.cs             exact hexagonal binning in pixel space + SVG (log colour, count scale, edge cells clipped)
       ScatterMatrix.cs      pairs plot: histograms on the diagonal, group colours + legend, Pearson r per panel (equal lengths)
       TimingDiagram.cs      logic-analyser view: digital lanes, labelled buses, unknown hatching, cursors, SI time axis (an explicit window needs Start < End; a period or sample interval must be resolvable at its start time)
-      Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops)
+      Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops; MapFraction spans any stop range)
       Colorbar.cs           render a colormap as a gradient legend strip (vertical/horizontal)
       HeatMap.cs            render a 2-D grid via a colormap (cell size, range, NaN color)
       Histogram.cs          bin 1-D data (exposed) and render the counts as bars (at most one bin per pixel column; explicit min = max counts only that value)
@@ -1044,6 +1044,7 @@ tests/
       ChartsReview80Tests.cs (fifth pass: tight tick search and bounds, exact exponent labels, option validation, unresolvable steps, ordered quartiles, callout sides)
       ChartsReview101Tests.cs (round 101: histogram edges over huge ranges, far values mapped without overflow, finite bar padding, margin and image-size validation, an End before every change, FormatSeconds unit boundary)
       ChartsReview121Tests.cs (round 121: lines to far points, band alpha compositing, huge callout offsets, drawn-bar widths, default frames, one-pixel colorbars, tick rounding past 2^52, subnormal waterfall ranges, undefined enums)
+      ChartsReview134Tests.cs (round 134: equal explicit limits, the first x label's margin, box fences past MaxValue, band envelopes and far centre lines, far whiskers, clip underflow, whole colormap stop ranges, scatter-matrix legends and subnormal bins, timing clocks, markers and hatching, hex-bin index limits, shared ranges beside empty panels)
       DocsVizReviewRegressionTests.cs  (2026-10-05 review regressions: Documents and Visualization)
     Resilience/
       RetryTests.cs

@@ -290,7 +290,7 @@ namespace ToolBelt.Visualization
             for (int k = 0; k < ScaleSteps; k++)
             {
                 // Top rectangle carries the highest value.
-                Rgba c = o.Colormap.Map((ScaleSteps - k - 0.5) / ScaleSteps);
+                Rgba c = o.Colormap.MapFraction((ScaleSteps - k - 0.5) / ScaleSteps);
                 sb.Append("<rect x=\"").Append(SvgUtils.Number(x)).Append("\" y=\"").Append(SvgUtils.Number(f.Top + k * step))
                   .Append("\" width=\"").Append(SvgUtils.Number(BarWidth)).Append("\" height=\"").Append(SvgUtils.Number(step + 0.5))
                   .Append("\" ").Append(SvgUtils.FillAttributes(new Rgba(c.R, c.G, c.B))).Append("/>\n");

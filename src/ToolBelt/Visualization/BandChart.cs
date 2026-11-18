@@ -96,13 +96,18 @@ namespace ToolBelt.Visualization
                     double u = (double)(x - left) / (right - left) * (n - 1);
                     int i = Math.Min(n - 2, (int)Math.Floor(u));
                     double f = u - i;
+                    bool have = false;
+                    double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
+                    void Take(double a, double b) { lo = Math.Min(lo, Math.Min(a, b)); hi = Math.Max(hi, Math.Max(a, b)); have = true; }
                     if (Finite(i) && Finite(i + 1))
-                        Fill(x, (1 - f) * lower[i] + f * lower[i + 1], (1 - f) * upper[i] + f * upper[i + 1]);
-                    else
-                    {
-                        int j = f < 0.5 ? i : i + 1;
-                        if (Finite(j) && (int)Math.Round(MapX(j)) == x) Fill(x, lower[j], upper[j]);
-                    }
+                        Take((1 - f) * lower[i] + f * lower[i + 1], (1 - f) * upper[i] + f * upper[i + 1]);
+                    // Every sample drawn in this column widens it: sampled once per column, a spike between two column
+                    // positions (more samples than columns) vanished from the envelope.
+                    double perColumn = (double)(n - 1) / (right - left);
+                    int k0 = Math.Max(0, (int)Math.Floor(u - perColumn)), k1 = Math.Min(n - 1, (int)Math.Ceiling(u + perColumn));
+                    for (int k = k0; k <= k1; k++)
+                        if (Finite(k) && (int)Math.Round(MapX(k)) == x) Take(lower[k], upper[k]);
+                    if (have) Fill(x, lo, hi);
                 }
             }
 
@@ -114,14 +119,33 @@ namespace ToolBelt.Visualization
                 {
                     if (!IsFinite(center[i])) { havePrev = false; continue; }
                     double x = MapX(i), y = MapY(center[i]);
-                    if (havePrev) image.DrawLineClipped(prevX, prevY, x, y, options.CenterColor, left, top, right, bottom);
+                    if (havePrev) CenterSegment(prevX, prevY, center[i - 1], x, y, center[i]);
                     // No finite neighbour on either side (one point, or one between gaps) drew nothing; as LinePlot, a dot.
                     else if (!(i + 1 < n && IsFinite(center[i + 1]))) image.DrawLineClipped(x, y, x, y, options.CenterColor, left, top, right, bottom);
                     prevX = x; prevY = y; havePrev = true;
                 }
             }
             return image;
+
+            // An end whose pixel overflowed to ±∞ (1e300 on a 1e-300 range) made DrawLineClipped drop the segment: such an
+            // end is moved, in value space, to where the segment crosses the range limit on its side.
+            void CenterSegment(double xa, double ya, double va, double xb, double yb, double vb)
+            {
+                if (!IsFinite(ya) || !IsFinite(yb))
+                {
+                    if (va > maxV && vb > maxV || va < minV && vb < minV) return;   // wholly outside the range
+                    double nxa = xa, nya = ya, nxb = xb, nyb = yb;
+                    if (!IsFinite(ya)) { double l = va > maxV ? maxV : minV; nxa = xb + Part(vb, l, va) * (xa - xb); nya = MapY(l); }
+                    if (!IsFinite(yb)) { double l = vb > maxV ? maxV : minV; nxb = xa + Part(va, l, vb) * (xb - xa); nyb = MapY(l); }
+                    (xa, ya, xb, yb) = (nxa, nya, nxb, nyb);
+                }
+                image.DrawLineClipped(xa, ya, xb, yb, options.CenterColor, left, top, right, bottom);
+            }
         }
+
+        // How far from `from` to `to` the value `at` lies, halved when a difference overflows.
+        private static double Part(double from, double at, double to)
+            => double.IsInfinity(to - from) || double.IsInfinity(at - from) ? (at / 2 - from / 2) / (to / 2 - from / 2) : (at - from) / (to - from);
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
 

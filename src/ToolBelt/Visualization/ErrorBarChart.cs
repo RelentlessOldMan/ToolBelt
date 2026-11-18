@@ -95,7 +95,12 @@ namespace ToolBelt.Visualization
                     double e = Math.Abs(error[i]);
                     double hiY = MapY(Math.Min(double.MaxValue, y[i] + e)), loY = MapY(Math.Max(-double.MaxValue, y[i] - e));
                     // Clipped as doubles: a huge error against an explicit range overflowed the int casts.
-                    image.DrawLineClipped(px, hiY, px, loY, options.Color, left, top, right, bottom);              // whisker
+                    // The whisker is vertical, so its ends are clamped to the range in value space first: an end whose
+                    // pixel overflowed to ±∞ (1e300 on a 1e-300 range) dropped the whole whisker. A whisker wholly
+                    // outside the range is not drawn (clamped, it would leave a stub on the edge).
+                    double wHi = MapY(Math.Max(minY, Math.Min(maxY, y[i] + e))), wLo = MapY(Math.Max(minY, Math.Min(maxY, y[i] - e)));
+                    if (y[i] + e >= minY && y[i] - e <= maxY)
+                        image.DrawLineClipped(px, wHi, px, wLo, options.Color, left, top, right, bottom);          // whisker
                     image.DrawLineClipped(px - cap, hiY, px + cap, hiY, options.Color, left, top, right, bottom);  // upper cap
                     image.DrawLineClipped(px - cap, loY, px + cap, loY, options.Color, left, top, right, bottom);  // lower cap
                 }

@@ -40,6 +40,8 @@ namespace ToolBelt.Visualization
             if (!(period > 0) || double.IsInfinity(period)) throw new ArgumentOutOfRangeException(nameof(period), period, "Period must be positive and finite.");
             if (!(duty > 0 && duty < 1)) throw new ArgumentOutOfRangeException(nameof(duty), duty, "Duty must be in (0, 1).");
             if (double.IsNaN(start) || double.IsInfinity(start) || double.IsNaN(end) || double.IsInfinity(end)) throw new ArgumentException("Start and end must be finite.", double.IsNaN(start) || double.IsInfinity(start) ? nameof(start) : nameof(end));
+            // A reversed window gave no cycles, so the lane drew as all unknown without a word.
+            if (end < start) throw new ArgumentException("The clock's end is before its start.", nameof(end));
             double cycles = Math.Ceiling((end - start) / period);
             if (cycles > 100_000) throw new ArgumentException("Too many clock cycles to draw.", nameof(period));
             var c = new List<(double, bool?)>();
@@ -191,6 +193,9 @@ namespace ToolBelt.Visualization
             if (!(o.LaneGap >= 0) || o.LaneGap > 1e6) throw new ArgumentOutOfRangeException(nameof(options), "LaneGap must be in [0, 1e6].");
             if (o.Markers is null) // was a NullReferenceException
                 throw new ArgumentException("Markers must not be null.", nameof(options));
+            // default(TimingMarker) has no label: it failed inside the text escaper, naming its "text".
+            foreach (var m in o.Markers)
+                if (m.Label is null) throw new ArgumentException("A marker has no label (default(TimingMarker)).", nameof(options));
             double nameWidth = Math.Max(60, signals.Max(s => SvgUtils.EstimateTextWidth(s.Name, 12)) + 18);
             double left = nameWidth, right = 16, top = o.Title != null ? 40 : 16;
             double plotW = o.Width - left - right;
@@ -256,8 +261,12 @@ namespace ToolBelt.Visualization
                 double x = X(m.Time);
                 sb.Append("<line x1=\"").Append(SvgUtils.Number(x)).Append("\" y1=\"").Append(SvgUtils.Number(top - 6)).Append("\" x2=\"").Append(SvgUtils.Number(x))
                   .Append("\" y2=\"").Append(SvgUtils.Number(axisY)).Append("\" stroke=\"").Append(SvgUtils.Color(m.Color)).Append("\" stroke-dasharray=\"4 3\"/>\n")
-                  .Append("<text x=\"").Append(SvgUtils.Number(x + 3)).Append("\" y=\"").Append(SvgUtils.Number(top - 8)).Append("\" fill=\"")
-                  .Append(SvgUtils.Color(m.Color)).Append("\">").Append(SvgUtils.EscapeText(m.Label)).Append("</text>\n");
+                  .Append("<text x=\"");
+                // A label near the right edge ran past the canvas: it ends at the cursor instead when that fits.
+                double lw = SvgUtils.EstimateTextWidth(m.Label, 11);
+                bool flip = x + 3 + lw > o.Width - 2 && x - 3 - lw >= 2;
+                sb.Append(SvgUtils.Number(flip ? x - 3 : x + 3)).Append("\" y=\"").Append(SvgUtils.Number(top - 8)).Append("\" fill=\"")
+                  .Append(SvgUtils.Color(m.Color)).Append(flip ? "\" text-anchor=\"end\">" : "\">").Append(SvgUtils.EscapeText(m.Label)).Append("</text>\n");
             }
             sb.Append("</svg>\n");
             return sb.ToString();
@@ -307,7 +316,7 @@ namespace ToolBelt.Visualization
                 else path.LineTo(xa, y);                                        // the vertical edge
                 path.LineTo(xb, y);
             }
-            sb.Append("<path d=\"").Append(path).Append("\" fill=\"none\" stroke=\"#0072b2\" stroke-width=\"1.6\"/>\n");
+            if (!path.IsEmpty) sb.Append("<path d=\"").Append(path).Append("\" fill=\"none\" stroke=\"#0072b2\" stroke-width=\"1.6\"/>\n");
         }
 
         private static void AppendBus(StringBuilder sb, IReadOnlyList<(double Start, double End, string? Value)> segs, Func<double, double> X, double yHi, double yLo, double yMid)
@@ -334,15 +343,17 @@ namespace ToolBelt.Visualization
             var hatch = new PathBuilder();
             double h = yLo - yHi;
             // Every segment drew (width + LaneHeight) / 6 lines, so a tall lane of many narrow unknown slivers wrote
-            // gigabytes: past the segment's own width / 6 plus 200, the lines spread out.
-            double step = Math.Max(6, (xb - xa + h) / ((xb - xa) / 6 + 200));
+            // gigabytes: past the segment's own width / 6 plus 200, the lines spread out. The 200 scales down below 6 px
+            // wide: each of many sub-pixel slivers still drew 200 lines, so the output grew with the number of changes.
+            double w = xb - xa;
+            double step = Math.Max(6, (w + h) / (w / 6 + 200 * Math.Min(1, w / 6)));
             for (double x = xa - h; x < xb; x += step)
             {
                 double x1 = Math.Max(xa, x), y1 = yLo - (x1 - x);
                 double x2 = Math.Min(xb, x + h), y2 = yLo - (x2 - x);
                 if (x2 > x1) hatch.MoveTo(x1, y1).LineTo(x2, y2);
             }
-            sb.Append("<path d=\"").Append(hatch).Append("\" stroke=\"#c8c8c8\" stroke-width=\"0.8\" fill=\"none\"/>\n");
+            if (!hatch.IsEmpty) sb.Append("<path d=\"").Append(hatch).Append("\" stroke=\"#c8c8c8\" stroke-width=\"0.8\" fill=\"none\"/>\n");
         }
 
         /// <summary>Seconds with an SI prefix: 0.0015 → "1.5 ms", 2e-6 → "2 µs", 0 → "0"; below 5e-16 s or from 1e15 s in exponent form ("1e+300 s").</summary>

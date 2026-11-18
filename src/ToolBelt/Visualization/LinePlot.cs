@@ -47,6 +47,8 @@ namespace ToolBelt.Visualization
         public Rgba FrameColor { get; set; } = Rgba.Black;
         public int Margin { get; set; } = 10;
         public bool DrawFrame { get; set; } = true;
+        /// <summary>Explicit axis limits (null: from the data). A pair with Min above Max draws that axis reversed; an
+        /// equal pair is rejected.</summary>
         public double? MinX { get; set; }
         public double? MaxX { get; set; }
         public double? MinY { get; set; }
@@ -151,6 +153,9 @@ namespace ToolBelt.Visualization
             // A NaN limit fell to the [0, 1] default and ∞ failed inside PlotFrame, naming "xMin" or "yMin".
             if (!Limit(options.MinX) || !Limit(options.MaxX) || !Limit(options.MinY) || !Limit(options.MaxY))
                 throw new ArgumentOutOfRangeException(nameof(options), "MinX, MaxX, MinY and MaxY must be finite.");
+            // An equal pair drew every point, those outside it too, on the centre line.
+            if (options.MinX.HasValue && options.MinX == options.MaxX || options.MinY.HasValue && options.MinY == options.MaxY)
+                throw new ArgumentOutOfRangeException(nameof(options), "An explicit axis minimum must differ from its maximum.");
             Bounds(series, options, out double minX, out double maxX, out double minY, out double maxY);
             OpenPastLimit(ref minX, ref maxX, options.MinX.HasValue, options.MaxX.HasValue);
             OpenPastLimit(ref minY, ref maxY, options.MinY.HasValue, options.MaxY.HasValue);

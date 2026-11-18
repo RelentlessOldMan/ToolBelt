@@ -76,8 +76,10 @@ namespace ToolBelt.Visualization
                     double v = data[r, c];
                     Rgba color = double.IsNaN(v)
                         ? options.NanColor
-                        : double.IsInfinity(v) ? colormap.Map(v > 0 ? 1 : 0) // ±∞ takes the end colour
-                        : colormap.Map(Fraction(v));
+                        // Through the stop range: Min and Max went to positions 0 and 1, so a map with stops at
+                        // −1 … 1 showed only its upper half.
+                        : double.IsInfinity(v) ? colormap.MapFraction(v > 0 ? 1 : 0) // ±∞ takes the end colour
+                        : colormap.MapFraction(Fraction(v));
                     image.DrawRectangle(c * cell, r * cell, cell, cell, color, filled: true);
                 }
             return image;

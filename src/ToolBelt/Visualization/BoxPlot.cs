@@ -82,8 +82,8 @@ namespace ToolBelt.Visualization
             Array.Sort(sorted);
 
             double q1 = Percentile(sorted, 25), median = Percentile(sorted, 50), q3 = Percentile(sorted, 75);
-            double iqr = q3 - q1;
-            double lowerFence = q1 - whiskerReach * iqr, upperFence = q3 + whiskerReach * iqr;
+            double reach = Reach(whiskerReach, q1, q3);
+            double lowerFence = q1 - reach, upperFence = q3 + reach;
 
             double lowerWhisker = double.PositiveInfinity, upperWhisker = double.NegativeInfinity;
             var outliers = new List<double>();
@@ -103,6 +103,15 @@ namespace ToolBelt.Visualization
 
             return new BoxStats(sorted[0], q1, median, q3, sorted[sorted.Length - 1],
                 lowerWhisker, upperWhisker, outliers.ToArray());
+        }
+
+        // k·IQR. An IQR past double.MaxValue made the fences NaN at k = 0 (0·∞) and infinite at a tiny k, so nothing was
+        // an outlier: it is taken from the halved quartiles, and k = 0 (or an empty box) reaches nowhere.
+        private static double Reach(double k, double q1, double q3)
+        {
+            if (k == 0 || q1 == q3) return 0;
+            double iqr = q3 - q1;
+            return double.IsInfinity(iqr) ? k * (q3 * 0.5 - q1 * 0.5) * 2 : k * iqr;
         }
 
         /// <summary>Renders side-by-side box plots for the given datasets.</summary>

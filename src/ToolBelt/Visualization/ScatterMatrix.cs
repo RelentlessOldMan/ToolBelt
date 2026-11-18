@@ -73,16 +73,22 @@ namespace ToolBelt.Visualization
                 if (hi <= lo) { lo -= 0.5; hi += 0.5; }
                 // Pad 5% and label only ticks strictly inside: "nice" outer ticks sit on the panel edges, where adjacent
                 // panels' labels collide and points are half-clipped by the frame.
-                // Halved, and clamped: (hi − lo) overflowed to ∞ for finite columns spanning ±1e308.
-                double pad = 0.05 * hi - 0.05 * lo;
+                // Halved only when (hi − lo) overflows (finite columns spanning ±1e308), and clamped. Halving always made
+                // a subnormal pad 0, so points sat on the panel edges; it is at least the smallest step.
+                double span = hi - lo;
+                double pad = Math.Max(double.IsInfinity(span) ? 0.05 * hi - 0.05 * lo : 0.05 * span, double.Epsilon);
                 ticks[v] = AxisTicks.Linear(Math.Max(-double.MaxValue, lo - pad), Math.Min(double.MaxValue, hi + pad), maxTicks: 6, loose: false);
             }
             var groupNames = o.Groups?.Distinct().ToArray() ?? Array.Empty<string>();
             var groupIndex = groupNames.Select((g, i) => (g, i)).ToDictionary(t => t.g, t => t.i);
 
-            double left = 56, top = o.Title != null ? 34 : 12, bottom = 40, legendWidth = groupNames.Length > 0 ? 120 : 12;
+            // The legend's width and height follow its entries: a fixed 120 px column and a canvas sized for the panels
+            // alone cut off long group names and every entry below the last panel.
+            double legendText = groupNames.Length > 0 ? groupNames.Max(g => SvgUtils.EstimateTextWidth(g, 10)) : 0;
+            double left = 56, top = o.Title != null ? 34 : 12, bottom = 40, legendWidth = groupNames.Length > 0 ? Math.Max(120, 36 + legendText) : 12;
             double size = o.CellSize, gap = o.Gap;
             double width = left + k * size + (k - 1) * gap + legendWidth, height = top + k * size + (k - 1) * gap + bottom;
+            height = Math.Max(height, top + 8 + groupNames.Length * 16 + 4);
             var sb = new StringBuilder();
             sb.Append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"").Append(SvgUtils.Number(width)).Append("\" height=\"").Append(SvgUtils.Number(height))
               .Append("\" viewBox=\"0 0 ").Append(SvgUtils.Number(width)).Append(' ').Append(SvgUtils.Number(height))
@@ -133,7 +139,7 @@ namespace ToolBelt.Visualization
                     if (row == k - 1)
                         for (int t = 0; t < xt.Count; t++)
                         {
-                            double fx = (0.5 * xt.Values[t] - 0.5 * xt.Min) / (0.5 * xt.Max - 0.5 * xt.Min); // halved: no ∞ span
+                            double fx = Fraction(xt.Values[t], xt.Min, xt.Max);
                             if (OnEdge(fx)) continue;
                             double px = x0 + fx * size;
                             sb.Append("<line x1=\"").Append(SvgUtils.Number(px)).Append("\" y1=\"").Append(SvgUtils.Number(y0 + size)).Append("\" x2=\"").Append(SvgUtils.Number(px))
@@ -145,7 +151,7 @@ namespace ToolBelt.Visualization
                         var yt = ticks[row];
                         for (int t = 0; t < yt.Count; t++)
                         {
-                            double fy = (0.5 * yt.Values[t] - 0.5 * yt.Min) / (0.5 * yt.Max - 0.5 * yt.Min);
+                            double fy = Fraction(yt.Values[t], yt.Min, yt.Max);
                             if (OnEdge(fy)) continue;
                             double py = y0 + size - fy * size;
                             sb.Append("<line x1=\"").Append(SvgUtils.Number(x0 - 4)).Append("\" y1=\"").Append(SvgUtils.Number(py)).Append("\" x2=\"").Append(SvgUtils.Number(x0))
@@ -170,6 +176,11 @@ namespace ToolBelt.Visualization
             return sb.ToString();
         }
 
+        // (v − lo) / (hi − lo), halved only when the span overflows: halving always rounded subnormals (0.5·3ε is 2ε),
+        // which put values in the wrong histogram bin.
+        private static double Fraction(double v, double lo, double hi)
+            => double.IsInfinity(hi - lo) ? (0.5 * v - 0.5 * lo) / (0.5 * hi - 0.5 * lo) : (v - lo) / (hi - lo);
+
         private static void AppendHistogram(StringBuilder sb, IReadOnlyList<double> values, TickSet xt, double x0, double y0, double size, int bins)
         {
             var counts = new int[bins];
@@ -177,7 +188,7 @@ namespace ToolBelt.Visualization
             foreach (double v in values)
             {
                 if (!IsFinite(v)) continue;
-                int b = (int)((0.5 * v - 0.5 * lo) / (0.5 * hi - 0.5 * lo) * bins);
+                int b = (int)(Fraction(v, lo, hi) * bins);
                 counts[Math.Max(0, Math.Min(bins - 1, b))]++;
             }
             int max = Math.Max(1, counts.Max());
