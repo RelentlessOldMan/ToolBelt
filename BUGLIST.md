@@ -162,3 +162,6 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R122-3 | P3 | 4 | suspected | `RoundToMultiple(0.15, 0.1)` gives 0.1 where `RoundToSignificantDigits` rounds 0.15 to 0.2; whether the multiple's decimal reading is owed was not judged. | review r122 |
 | R122-4 | P3 | 4 | suspected | `BaseConverter` with surrogate-pair alphabet characters, and `Polynomial` roots returned as −0, were read but not probed. | review r122 |
 | R122-5 | P3 | 4 | suspected | Not run on .NET Framework 4.8 by the reviewers: `Primes` MulMod without UInt128; no thread-safety stress. | review r122 |
+| R123-1 | P3 | 11 | suspected | `Slug.Slugify` with a negative `maxLength` means no limit, where `Truncate`, `MiddleEllipsis` and `TextAlign` reject a negative length; documented only as "if positive". | review r123 |
+| R123-2 | P3 | 11 | suspected | `SnowflakeIdGenerator.NextId` spins for a full second holding its lock when the clock steps back right after a millisecond's 4096 ids, then throws (documented); every other caller blocks meanwhile. | review r123 |
+| R123-3 | P3 | 11 | suspected | Not covered: `GlobMatcher` ignoreCase over non-ASCII case classes against an independent reference, id-generator concurrency stress, and the reviewers' probes on .NET Framework 4.8. | review r123 |

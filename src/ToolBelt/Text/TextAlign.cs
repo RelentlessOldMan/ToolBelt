@@ -37,14 +37,22 @@ namespace ToolBelt.Text
         }
 
         // Columns of the character (or surrogate pair, `len` 2) at `i`. U+FE0F after it, even past escape sequences
-        // ("❤" ESC[0m U+FE0F measured 1, and 2 once the escape was stripped), asks for the emoji presentation.
+        // ("❤" ESC[0m U+FE0F measured 1, and 2 once the escape was stripped), asks for the emoji presentation. Not past a
+        // control character inside one: it still acts, and AnsiText.Strip keeps it, so "❤" ESC[3 LF m U+FE0F measured 2
+        // and its stripped text 1.
         private static int WidthAt(string text, int i, out int len)
         {
             char c = text[i];
             len = char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]) ? 2 : 1;
             int next = i + len;
-            while (next < text.Length && text[next] == '\u001b') next = SkipEscape(text, next) + 1;
-            bool selector = next < text.Length && text[next] == '\uFE0F';
+            bool selector = false;
+            while (next < text.Length && text[next] == '\u001b')
+            {
+                int end = SkipEscape(text, next);
+                if (HoldsControl(text, next, end)) { next = -1; break; }
+                next = end + 1;
+            }
+            if (next >= 0) selector = next < text.Length && text[next] == '\uFE0F';
             if (len == 1) return CharWidth(c, selector);
             int w = SupplementaryWidth(text, i);
             // The selector widened BMP symbols only: 🌡️ and 🕉️ measured 1 beside ❤️'s 2. The emoji blocks
@@ -156,6 +164,18 @@ namespace ToolBelt.Text
         }
 
         private static int SkipEscape(string s, int i) => SkipEscape(s, i, out _, out _);
+
+        // Whether the escape sequence s[start..end] keeps a control character: a CSI or plain escape does (AnsiText.Strip
+        // leaves it in the text); the OSC-style strings swallow theirs, and their BEL is the terminator.
+        private static bool HoldsControl(string s, int start, int end)
+        {
+            if (start + 1 > end) return false;
+            char kind = s[start + 1];
+            if (kind == ']' || kind == 'P' || kind == 'X' || kind == '^' || kind == '_') return false;
+            for (int j = start + 1; j <= end; j++)
+                if (s[j] < ' ' && s[j] != '\u001b') return true;
+            return false;
+        }
 
         private static int SkipEscape(string s, int i, out bool finished) => SkipEscape(s, i, out finished, out _);
 

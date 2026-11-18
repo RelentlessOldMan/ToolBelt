@@ -36,7 +36,8 @@ namespace ToolBelt.Identifiers
                 if (_alphabet.IndexOf(_alphabet[i], i + 1) >= 0)
                     throw new ArgumentException($"'{_alphabet[i]}' appears more than once in the alphabet.", nameof(alphabet));
             }
-            if (defaultSize <= 0)
+            // A size past the longest string was accepted here and rejected by New(), naming its "size".
+            if (defaultSize <= 0 || defaultSize > MaxStringLength)
                 throw new ArgumentOutOfRangeException(nameof(defaultSize), defaultSize, "Default size must be 1 to 0x3FFFFFDF (the longest string).");
 #if NETSTANDARD2_0
             // On .NET Framework, new Random() seeds from the tick count, so instances created close together would repeat.
