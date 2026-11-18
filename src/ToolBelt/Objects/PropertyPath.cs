@@ -27,7 +27,8 @@ namespace ToolBelt.Objects
     /// TimeSpan, Version and Uri. An array whose lower bound is not 0 is indexed from its lower bound. A name that a
     /// public field hides (a <c>new</c> field over a base property) is not a property. An empty segment ("A..B", ".A",
     /// "A.") is an error. An exception thrown by a list's or dictionary's own indexer propagates as itself, as a getter's
-    /// does. A value that does not fit an array's element type throws <see cref="ArgumentException"/>. A property of a by-ref-like type (Span),
+    /// does. A value that does not fit an array's element type throws <see cref="ArgumentException"/>, as does null for a
+    /// value-type member or element that is not nullable. A member name straight after ']' ("A[0]B") is an error. A property of a by-ref-like type (Span),
     /// which reflection cannot box, throws <see cref="ArgumentException"/> naming the segment. An index in quotes
     /// (<c>["a]b"]</c>) runs to its closing quote, so a key may hold ']' or '.'; quotes are removed only in a matching pair.
     /// </para>
@@ -143,6 +144,9 @@ namespace ToolBelt.Objects
                     throw new ArgumentException($"Segment '{_name}' is not a writable property of {target.GetType().Name} (path '{fullPath}').", "path");
                 if (IsByRefLike(p!.PropertyType))
                     throw new ArgumentException($"Segment '{_name}' is a {p.PropertyType.Name}, which reflection cannot write (path '{fullPath}').", "path");
+                // Reflection stored the default (0) for null, where a value of another type throws.
+                if (value is null && p.PropertyType.IsValueType && Nullable.GetUnderlyingType(p.PropertyType) is null)
+                    throw new ArgumentException($"Segment '{_name}' is a {p.PropertyType.Name}, which cannot hold null (path '{fullPath}').", nameof(value));
                 Call(setter, target, new[] { value });
             }
 
@@ -256,6 +260,10 @@ namespace ToolBelt.Objects
                 if (target is IList list && (!(target is Array a) || a.Rank == 1))
                 {
                     int index = target is Array arr ? ParseIndex(arr.GetLowerBound(0), arr.Length, fullPath) : ParseIndex(0, list.Count, fullPath);
+                    // Array.SetValue stores the default (0) for null in an int[]; a List<int> throws.
+                    if (value is null && target is Array held && held.GetType().GetElementType() is Type element
+                        && element.IsValueType && Nullable.GetUnderlyingType(element) is null)
+                        throw new ArgumentException($"The elements of {target.GetType().Name} cannot hold null (path '{fullPath}').", nameof(value));
                     try
                     {
                         if (target is Array one) one.SetValue(value, index);
@@ -373,6 +381,9 @@ namespace ToolBelt.Objects
                     }
                     steps.Add(new IndexStep(token));
                     i = close + 1;
+                    // "Arr[0]X" was read as "Arr[0].X".
+                    if (i < path.Length && path[i] != '.' && path[i] != '[')
+                        throw new ArgumentException($"Path '{path}' needs '.' or '[' after ']' at position {i}.", nameof(path));
                 }
                 else
                 {

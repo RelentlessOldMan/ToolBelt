@@ -25,7 +25,9 @@ namespace ToolBelt.Objects
     /// <para>
     /// Sets (<see cref="ISet{T}"/>) compare as sets, using the first set's element comparer; multi-dimensional arrays
     /// must have the same shape; a struct's public fields are always compared, since many structs keep their value there
-    /// (Quaternion, Matrix4x4, value tuples), and a struct with no readable members compares with its own Equals. A
+    /// (Quaternion, Matrix4x4, value tuples), and a struct with no readable members compares with its own Equals, as does a
+    /// class with none that overrides Equals (one with only private state). A StringBuilder compares by its text and a
+    /// Regex by its type, pattern, options and timeout. A
     /// <see cref="System.IO.FileSystemInfo"/> compares by type and full path (its Root, Parent and Directory getters
     /// return a new object every call, which no cycle check can end).
     /// Dictionaries are equal when each holds every key of the other, whichever argument comes first. A chain of getters
@@ -49,26 +51,27 @@ namespace ToolBelt.Objects
             // Pairs already taken up are assumed equal: any difference reachable from them is found through their
             // first visit. That also ends cycles, through objects and collections alike.
             var seen = new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance);
+            var snapshots = new Dictionary<object, object>(ObjectMembers.ReferenceComparer.Instance);
             // Trail: what the path to the pair followed (ObjectMembers.Trail), to end chains of made objects.
             var work = new Stack<(object? A, object? B, ObjectMembers.Trail Trail)>();
             work.Push((a, b, ObjectMembers.Trail.Start));
             while (work.Count > 0)
             {
                 var (x, y, trail) = work.Pop();
-                if (!Step(x, y, trail, opt, seen, work)) return false;
+                if (!Step(x, y, trail, opt, seen, snapshots, work)) return false;
             }
             return true;
         }
 
         // Compares what can be decided at this pair and pushes the child pairs; false on a difference.
         private static bool Step(object? a, object? b, ObjectMembers.Trail trail, ObjectComparisonOptions opt,
-            HashSet<(object, object)> seen, Stack<(object?, object?, ObjectMembers.Trail)> work)
+            HashSet<(object, object)> seen, Dictionary<object, object> snapshots, Stack<(object?, object?, ObjectMembers.Trail)> work)
         {
             if (ReferenceEquals(a, b)) return true;
             if (a is null || b is null) return false;
             if (trail.TooDeep) return true;
-            a = ObjectMembers.Normalize(a);
-            b = ObjectMembers.Normalize(b);
+            a = ObjectMembers.Normalize(a, snapshots);
+            b = ObjectMembers.Normalize(b, snapshots);
             if (a is null || b is null) return a is null && b is null;
 
             Type ta = a.GetType(), tb = b.GetType();
@@ -114,7 +117,8 @@ namespace ToolBelt.Objects
 
             var ma = new List<(string Name, object? Value, ObjectMembers.Origin Origin)>(ObjectMembers.Read(a, opt.IncludeFields || ta.IsValueType));
             var mb = new List<(string Name, object? Value, ObjectMembers.Origin Origin)>(ObjectMembers.Read(b, opt.IncludeFields || ta.IsValueType));
-            if (ma.Count == 0 && ta.IsValueType) return a.Equals(b);
+            // A class with no readable members was always equal: Money(1) and Money(2), whose Equals says they differ.
+            if (ma.Count == 0 && (ta.IsValueType || ObjectMembers.OverridesEquals(ta))) return a.Equals(b);
             for (int i = ma.Count - 1; i >= 0; i--)
                 work.Push((ma[i].Value, mb[i].Value, ObjectMembers.Trail.Pair(trail, ma[i].Value, ma[i].Origin, mb[i].Value, mb[i].Origin)));
             return true;
@@ -125,6 +129,12 @@ namespace ToolBelt.Objects
             // FileSystemInfo does not override Equals: two instances for one path were never equal.
             if (a is System.IO.FileSystemInfo fsa && b is System.IO.FileSystemInfo fsb)
                 return a.GetType() == b.GetType() && string.Equals(fsa.FullName, fsb.FullName, StringComparison.Ordinal);
+            // Neither overrides Equals, and their text is in no property.
+            if (a is System.Text.StringBuilder sba && b is System.Text.StringBuilder sbb)
+                return string.Equals(sba.ToString(), sbb.ToString(), StringComparison.Ordinal);
+            if (a is System.Text.RegularExpressions.Regex ra && b is System.Text.RegularExpressions.Regex rb)
+                return a.GetType() == b.GetType() && string.Equals(ra.ToString(), rb.ToString(), StringComparison.Ordinal)
+                    && ra.Options == rb.Options && ra.MatchTimeout == rb.MatchTimeout;
             if (opt.FloatTolerance > 0)
             {
                 // Equals first: infinities and NaN equal themselves, but their difference is NaN.

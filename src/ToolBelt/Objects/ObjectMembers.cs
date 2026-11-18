@@ -19,7 +19,8 @@ namespace ToolBelt.Objects
         /// whose public properties do not determine the value), Uri, reflection objects (Type, MemberInfo, Assembly,
         /// Module), whose properties throw for many instances, and FileInfo / DirectoryInfo, whose Root, Parent and
         /// Directory getters build a new object on every call (a walk never met the same reference twice and never ended),
-        /// and IPAddress / EndPoint, whose ScopeId or Address getters throw for some addresses. Also leaves, compared by
+        /// and IPAddress / EndPoint, whose ScopeId or Address getters throw for some addresses, and StringBuilder and Regex,
+        /// whose text is in no property (two builders of one length, or two patterns, were alike). Also leaves, compared by
         /// their own Equals and never read: tasks, ValueTask and Lazy (reading Result or Value blocked forever on a pending
         /// task, or ran the factory), wait handles, cancellation tokens, threads and delegates, and streams, readers and
         /// writers (a MemoryStream's ReadTimeout throws).
@@ -41,7 +42,25 @@ namespace ToolBelt.Objects
                 || typeof(Assembly).IsAssignableFrom(type)
                 || typeof(Module).IsAssignableFrom(type)
                 || typeof(System.Net.IPAddress).IsAssignableFrom(type)
-                || typeof(System.Net.EndPoint).IsAssignableFrom(type);
+                || typeof(System.Net.EndPoint).IsAssignableFrom(type)
+                || type == typeof(System.Text.StringBuilder)
+                || typeof(System.Text.RegularExpressions.Regex).IsAssignableFrom(type);
+        }
+
+        /// <summary>True if <paramref name="type"/> (a class) overrides <see cref="object.Equals(object)"/>: with no
+        /// readable members, its own Equals is the only thing that tells two instances apart.</summary>
+        public static bool OverridesEquals(Type type)
+        {
+            MethodInfo? m = type.GetMethod("Equals", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(object) }, null);
+            return m != null && m.GetBaseDefinition().DeclaringType == typeof(object) && m.DeclaringType != typeof(object);
+        }
+
+        /// <summary>A set keyed by reference identity.</summary>
+        public sealed class ReferenceComparer : IEqualityComparer<object>
+        {
+            public static readonly ReferenceComparer Instance = new ReferenceComparer();
+            public new bool Equals(object? x, object? y) => ReferenceEquals(x, y);
+            public int GetHashCode(object obj) => RuntimeHelpers.GetHashCode(obj);
         }
 
         private static bool IsOpaque(Type type)
@@ -117,9 +136,11 @@ namespace ToolBelt.Objects
         /// A dictionary that implements only the generic <c>IDictionary&lt;K, V&gt;</c> or
         /// <c>IReadOnlyDictionary&lt;K, V&gt;</c> (ExpandoObject) becomes an <see cref="IDictionary"/> view of itself, the
         /// same view each time: it was walked as a sequence of key-value pairs, in order, so two Expandos holding the same
-        /// members in another order differed.
+        /// members in another order differed. A walk passes its own <paramref name="snapshots"/>, so a Memory box met again
+        /// gives the same array: a Memory stored in its own array made a new copy at every step, which no cycle check could
+        /// end.
         /// </summary>
-        public static object? Normalize(object value)
+        public static object? Normalize(object value, Dictionary<object, object>? snapshots = null)
         {
             Type type = value.GetType();
             if (type.IsValueType && type.IsGenericType)
@@ -127,8 +148,14 @@ namespace ToolBelt.Objects
                 string? name = type.GetGenericTypeDefinition().FullName;
                 if (name == "System.Memory`1" || name == "System.ReadOnlyMemory`1")
                 {
+                    if (snapshots != null && snapshots.TryGetValue(value, out object? taken)) return taken;
                     MethodInfo? toArray = type.GetMethod("ToArray", Type.EmptyTypes);
-                    if (toArray != null) return Call(toArray, value, null)!;
+                    if (toArray != null)
+                    {
+                        object copy = Call(toArray, value, null)!;
+                        if (snapshots != null) snapshots[value] = copy;
+                        return copy;
+                    }
                 }
                 if (name == "System.Collections.Immutable.ImmutableArray`1"
                     && type.GetProperty("IsDefault") is PropertyInfo isDefault && Call(isDefault.GetGetMethod()!, value, null) is true) return null;

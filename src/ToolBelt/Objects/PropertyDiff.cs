@@ -111,6 +111,7 @@ namespace ToolBelt.Objects
             // again. Only pairs found equal were skipped before, so a shared pair that differed was walked and reported
             // once per path: exponential in the depth of a graph whose nodes share children.
             var seen = new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance);
+            var snapshots = new Dictionary<object, object>(ObjectMembers.ReferenceComparer.Instance);
             var work = new Stack<Frame>();
             work.Push(new Frame { Kind = Kind.Visit, A = a, B = b, Trail = ObjectMembers.Trail.Start });
             var children = new List<Frame>();
@@ -125,7 +126,7 @@ namespace ToolBelt.Objects
                         break;
                     default:
                         children.Clear();
-                        Visit(f.Path, f.A, f.B, f.Trail, opt, seen, children);
+                        Visit(f.Path, f.A, f.B, f.Trail, opt, seen, snapshots, children);
                         // Push in reverse so the children are handled in order, as a recursive walk would.
                         for (int i = children.Count - 1; i >= 0; i--) work.Push(children[i]);
                         break;
@@ -136,12 +137,12 @@ namespace ToolBelt.Objects
 
         // Emits, in order, the frames that handle this pair: reports and child visits.
         private static void Visit(PathNode? path, object? a, object? b, ObjectMembers.Trail trail, ObjectComparisonOptions opt,
-            HashSet<(object, object)> seen, List<Frame> output)
+            HashSet<(object, object)> seen, Dictionary<object, object> snapshots, List<Frame> output)
         {
             if (ReferenceEquals(a, b)) return;
             if (a is null || b is null) { output.Add(Report(path, a, b)); return; }
             if (trail.TooDeep) return;
-            object? na0 = ObjectMembers.Normalize(a), nb0 = ObjectMembers.Normalize(b);
+            object? na0 = ObjectMembers.Normalize(a, snapshots), nb0 = ObjectMembers.Normalize(b, snapshots);
             if (na0 is null || nb0 is null)
             {
                 if (na0 != null || nb0 != null) output.Add(Report(path, a, b));
@@ -203,7 +204,8 @@ namespace ToolBelt.Objects
             {
                 var ma = new List<(string Name, object? Value, ObjectMembers.Origin Origin)>(ObjectMembers.Read(na, opt.IncludeFields || ta.IsValueType));
                 var mb = new List<(string Name, object? Value, ObjectMembers.Origin Origin)>(ObjectMembers.Read(nb, opt.IncludeFields || ta.IsValueType));
-                if (ma.Count == 0 && ta.IsValueType)
+                // A class with no readable members that overrides Equals (Money(1) and Money(2)) reported no difference.
+                if (ma.Count == 0 && (ta.IsValueType || ObjectMembers.OverridesEquals(ta)))
                 {
                     if (!na.Equals(nb)) output.Add(Report(path, a, b));
                 }

@@ -827,6 +827,7 @@ tests/
       ObjectsReview60Tests.cs (round 59 follow-ups: deep generic names, lazy sequences of new objects, leaf-root unflatten)
       ObjectsGraphsReview77Tests.cs (fifth pass: opaque leaves, walk budgets, generic dictionaries, round-trip keys, exact conversions, A* ties, RangeMap blocks)
       ObjectsGraphsReview93Tests.cs (round 93 review regressions: the flatten key budget, read-only graph views)
+      ObjectsGraphsReview125Tests.cs (round 125 review regressions: private state and Equals overrides, StringBuilder and Regex leaves, self-holding Memory, exact-case mapping, path nulls and syntax, decimal to floating, checked typed accessors, ordinal string intervals)
     Identifiers/
       NanoIdTests.cs
       ShortGuidTests.cs

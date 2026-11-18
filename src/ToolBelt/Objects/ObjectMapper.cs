@@ -10,7 +10,7 @@ namespace ToolBelt.Objects
     /// Copies matching public properties from a source object to a target of another type, converting
     /// compatible types along the way, with an ignore list and per-property custom projections. Replaces
     /// the walls of hand-written assignments at every boundary — which are tedious and quietly go stale when
-    /// a member is added. Names match case-insensitively; unconvertible or missing members are skipped, as are target
+    /// a member is added. Names match case-insensitively, an exact-case name first; unconvertible or missing members are skipped, as are target
     /// properties without a public setter, indexers, and a null bound for a non-nullable value-type property. A property
     /// overridden with only one accessor keeps the other it inherits; an interface source includes the properties of the
     /// interfaces it extends. A
@@ -71,18 +71,25 @@ namespace ToolBelt.Objects
 
         private void MapInto(TSource source, object target)
         {
-            var sourceProps = new Dictionary<string, MethodInfo>(StringComparer.OrdinalIgnoreCase);
+            var exact = new Dictionary<string, MethodInfo>(StringComparer.Ordinal);
             foreach (PropertyInfo p in typeof(TSource).GetProperties(BindingFlags.Public | BindingFlags.Instance))
                 if (p.GetIndexParameters().Length == 0 && !Hidden(p, typeof(TSource)) && !IsByRefLike(p.PropertyType)
                     && PublicAccessor(p, setter: false) is MethodInfo g)
-                    sourceProps[p.Name] = g;
+                    exact[p.Name] = g;
             // An interface's GetProperties lists only its own: the ones it inherits are on the interfaces it extends.
             if (typeof(TSource).IsInterface)
                 foreach (Type i in typeof(TSource).GetInterfaces())
                     foreach (PropertyInfo p in i.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-                        if (p.GetIndexParameters().Length == 0 && !sourceProps.ContainsKey(p.Name) && !IsByRefLike(p.PropertyType)
+                        if (p.GetIndexParameters().Length == 0 && !exact.ContainsKey(p.Name) && !IsByRefLike(p.PropertyType)
                             && PublicAccessor(p, setter: false) is MethodInfo g)
-                            sourceProps[p.Name] = g;
+                            exact[p.Name] = g;
+            // An exact-case name wins, then the ordinal-first of the others: with Name and NAME on the source, whichever
+            // reflection listed last filled the target's Name.
+            var sourceProps = new Dictionary<string, MethodInfo>(StringComparer.OrdinalIgnoreCase);
+            var names = new List<string>(exact.Keys);
+            names.Sort(StringComparer.Ordinal);
+            foreach (string name in names)
+                if (!sourceProps.ContainsKey(name)) sourceProps[name] = exact[name];
 
             foreach (PropertyInfo targetProp in typeof(TTarget).GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
@@ -95,7 +102,7 @@ namespace ToolBelt.Objects
                 {
                     value = selector(source);
                 }
-                else if (sourceProps.TryGetValue(targetProp.Name, out MethodInfo? getter))
+                else if (exact.TryGetValue(targetProp.Name, out MethodInfo? getter) || sourceProps.TryGetValue(targetProp.Name, out getter))
                 {
                     value = Call(getter, source, null);
                 }

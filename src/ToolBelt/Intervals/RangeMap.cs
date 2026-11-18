@@ -267,7 +267,7 @@ namespace ToolBelt.Intervals
         // True when segment a ends where b starts and they hold equal values.
         private bool Mergeable(Entry a, Entry b) => Cmp(a.End, b.Start) == 0 && _valueComparer.Equals(a.Value, b.Value);
 
-        private static int Cmp(TKey a, TKey b) => Comparer<TKey>.Default.Compare(a, b);
+        private static int Cmp(TKey a, TKey b) => Interval<TKey>.Compare(a, b);
 
         // NaN sorts below every number: a range from NaN covered everything below its end.
         private static void CheckNotNaN(TKey start, TKey end)

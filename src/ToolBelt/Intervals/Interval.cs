@@ -10,7 +10,8 @@ namespace ToolBelt.Intervals
     /// semantics make adjacent intervals coalesce cleanly ([a,b) followed by [b,c) is [a,c)), which is why
     /// the range structures in this namespace use it. <see cref="Start"/> may equal <see cref="End"/> (an
     /// empty interval that contains nothing and overlaps nothing); <see cref="Start"/> after
-    /// <see cref="End"/> is rejected, as is a NaN endpoint (NaN sorts below every number, so it acted as −∞).
+    /// <see cref="End"/> is rejected, as is a NaN endpoint (NaN sorts below every number, so it acted as −∞). String keys
+    /// compare ordinally, here and in the range structures.
     /// </summary>
     public readonly struct Interval<TKey> : IEquatable<Interval<TKey>> where TKey : IComparable<TKey>
     {
@@ -40,7 +41,10 @@ namespace ToolBelt.Intervals
             return Compare(Start, other.End) < 0 && Compare(other.Start, End) < 0;
         }
 
-        internal static int Compare(TKey a, TKey b) => Comparer<TKey>.Default.Compare(a, b);
+        // A string compared by the current culture: "ab" and "a\u00ADb" made an empty interval of unequal endpoints, and
+        // whether ("a", "B") was valid changed with the culture.
+        internal static int Compare(TKey a, TKey b) => typeof(TKey) == typeof(string)
+            ? string.CompareOrdinal((string?)(object?)a, (string?)(object?)b) : Comparer<TKey>.Default.Compare(a, b);
 
         // double and float, and any other type with a static IsNaN(TKey) such as Half and NFloat, whose NaN sorts below
         // every number as double's does.

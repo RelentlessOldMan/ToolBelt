@@ -127,7 +127,7 @@ namespace ToolBelt.Intervals
             return merged;
         }
 
-        private static int Cmp(TKey a, TKey b) => Comparer<TKey>.Default.Compare(a, b);
+        private static int Cmp(TKey a, TKey b) => Interval<TKey>.Compare(a, b);
         private static TKey Max(TKey a, TKey b) => Cmp(a, b) >= 0 ? a : b;
         private static TKey Min(TKey a, TKey b) => Cmp(a, b) <= 0 ? a : b;
     }

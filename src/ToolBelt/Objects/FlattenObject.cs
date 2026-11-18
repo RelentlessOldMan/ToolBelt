@@ -34,6 +34,7 @@ namespace ToolBelt.Objects
             var result = new Dictionary<string, object?>();
             long keyChars = 0;
             var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
+            var snapshots = new Dictionary<object, object>(ObjectMembers.ReferenceComparer.Instance);
             // Trail: what the path followed (ObjectMembers.Trail), to end chains of made objects.
             var work = new Stack<(string Path, object? Value, ObjectMembers.Trail Trail)>();
             var children = new List<(string, object?, ObjectMembers.Trail)>();
@@ -42,7 +43,7 @@ namespace ToolBelt.Objects
             {
                 var (path, value, trail) = work.Pop();
                 children.Clear();
-                Walk(path, value, trail, result, separator, includeFields, visited, children, ref keyChars);
+                Walk(path, value, trail, result, separator, includeFields, visited, snapshots, children, ref keyChars);
                 // Push in reverse so the children are handled in order, as a recursive walk would.
                 for (int i = children.Count - 1; i >= 0; i--) work.Push(children[i]);
             }
@@ -51,7 +52,8 @@ namespace ToolBelt.Objects
 
         // Records a leaf, or lists the children to walk next.
         private static void Walk(string path, object? value, ObjectMembers.Trail trail, Dictionary<string, object?> result,
-            string sep, bool includeFields, HashSet<object> visited, List<(string, object?, ObjectMembers.Trail)> children,
+            string sep, bool includeFields, HashSet<object> visited, Dictionary<object, object> snapshots,
+            List<(string, object?, ObjectMembers.Trail)> children,
             ref long keyChars)
         {
             if (value is null || trail.TooDeep)
@@ -59,7 +61,7 @@ namespace ToolBelt.Objects
                 Record(result, path, value);
                 return;
             }
-            object? normalized = ObjectMembers.Normalize(value);
+            object? normalized = ObjectMembers.Normalize(value, snapshots);
             if (normalized is null)
             {
                 Record(result, path, value); // a default ImmutableArray or ArraySegment, which cannot be enumerated

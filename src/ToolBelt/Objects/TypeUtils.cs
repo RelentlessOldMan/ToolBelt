@@ -149,7 +149,8 @@ namespace ToolBelt.Objects
         /// information silently: a fractional number does not convert to an integer type (2.5 is not rounded to 2), a finite
         /// double beyond float's range does not become an infinity, a nonzero number (or text) does not underflow to zero,
         /// an integer converts to a floating type only if it is exactly representable (2^53 + 1 is not a double), a double
-        /// or float converts to decimal only if decimal holds its value exactly as its shortest round-trip text spells it,
+        /// or float converts to decimal only if decimal holds its value exactly as its shortest round-trip text spells it (and
+        /// a decimal to double or float only if that text spells the decimal),
         /// a double or float converts to its shortest round-trip text, and a DateTime or DateTimeOffset to its round-trip
         /// "O" text. Text "-0" is negative zero on every target framework. Half (.NET 5 and later) converts to the other
         /// numeric types through double.
@@ -212,6 +213,24 @@ namespace ToolBelt.Objects
                         : float.Parse(back, NumberStyles.Float, CultureInfo.InvariantCulture).Equals((float)value);
                     if (!exact && !(m == 0 && (value is double z ? z == 0 : (float)value == 0))) return Fail(targetType, out result);
                     result = m;
+                    return true;
+                }
+                if (value is decimal dec && (underlying == typeof(double) || underlying == typeof(float)))
+                {
+                    // ChangeType rounded: 16777217m became 16777216f, though the int 16777217 is refused. As a double goes
+                    // to decimal, a fraction must be spelled exactly by the floating value's shortest round-trip text; a whole
+                    // number must be the floating value exactly, as an integer must (the shortest text of a float near
+                    // -538396200 is -5.383962E+08, and 2^56 + 8 is a double whose shortest text names another number).
+                    object f = underlying == typeof(double) ? (object)(double)dec : (float)dec;
+                    double fv = f is double fd ? fd : (float)f;
+                    bool exact;
+                    if (decimal.Truncate(dec) == dec)
+                        exact = !double.IsInfinity(fv) && new System.Numerics.BigInteger(fv) == new System.Numerics.BigInteger(dec);
+                    else
+                        exact = decimal.TryParse(f is double ? RoundTrip(fv) : RoundTrip((float)f), NumberStyles.Float,
+                                                 CultureInfo.InvariantCulture, out decimal back) && back == dec;
+                    if (!exact) return Fail(targetType, out result);
+                    result = f;
                     return true;
                 }
                 if (IsIntegral(underlying) && !IsWhole(value)) return Fail(targetType, out result);

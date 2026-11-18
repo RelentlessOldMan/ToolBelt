@@ -20,7 +20,9 @@ namespace ToolBelt.Objects
     ///
     /// <para>The <c>object</c>-based accessors box value-type members. The strongly-typed
     /// <see cref="Getter{TTarget, TValue}(string)"/> / <see cref="Setter{TTarget, TValue}(string)"/> avoid
-    /// boxing entirely. On a <b>value-type</b> instance the <c>object</c>-based setter writes into the box it is
+    /// boxing entirely; a <c>TValue</c> other than the member's type converts as a checked C# cast does (a
+    /// value out of range, or NaN to an integer, throws <see cref="OverflowException"/>; a fraction to an integer is
+    /// truncated). On a <b>value-type</b> instance the <c>object</c>-based setter writes into the box it is
     /// given (as <see cref="PropertyInfo.SetValue(object, object)"/> does), not into the variable the box was copied
     /// from; the typed setter takes its struct by value, so its write is lost — these accessors are intended for
     /// reference types. On an interface type, members inherited from base interfaces are found.</para>
@@ -119,7 +121,8 @@ namespace ToolBelt.Objects
         // A conversion between the member's type and TValue; none existing is the caller's type argument at fault.
         private static Expression ConvertTo(Expression value, Type type, string memberName)
         {
-            try { return Expression.Convert(value, type); }
+            // Checked: a long of 2^32 + 1 read or written through an int was 1, and a NaN double int.MinValue.
+            try { return Expression.ConvertChecked(value, type); }
             catch (InvalidOperationException ex)
             {
                 throw new ArgumentException($"Member '{memberName}' does not convert between {value.Type.Name} and {type.Name}.", "TValue", ex);
