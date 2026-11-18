@@ -189,19 +189,54 @@ namespace ToolBelt.Numerics
 
         private static string Clean(string s) => s.StartsWith("-", StringComparison.Ordinal) && s.Trim('-', '0', '.').Length == 0 ? s.Substring(1) : s;
 
+        // x rounded half away from zero at 10^-decimals, taking x as its shortest round-trip decimal as Format does, and
+        // read back correctly rounded. Math.Round rounded the binary value for 0–15 decimals (1.005 to 1.00) while the
+        // shifted path rounded the decimal (1.005e-9 to 1.01e-9), so the same digits rounded by their magnitude.
         private static double RoundTo(double x, int decimals)
         {
-            if (decimals >= 0 && decimals <= 15) return Math.Round(x, decimals, MidpointRounding.AwayFromZero);
-            if (x == 0 || Math.Log10(Math.Abs(x)) + decimals >= 17) return x; // already coarser than that place
-            return Shift10(Math.Round(Shift10(x, decimals), MidpointRounding.AwayFromZero), -decimals);
+            if (x == 0) return x;
+            BigInteger n = RoundAt(x, -decimals);
+            if (n.IsZero) return x < 0 ? -0.0 : 0.0;
+            double r = Nearest(BigInteger.Abs(n), -decimals);
+            return n.Sign < 0 ? -r : r;
         }
 
-        // x·10^k in steps that stay in range: 10^k alone overflows (or underflows to 0) for |k| > 308.
-        private static double Shift10(double x, int k)
+        // The double nearest digits·10^exponent (ties to even), found exactly: .NET Framework's double.Parse is not
+        // correctly rounded (it reads 5.39205e252 one ulp low).
+        private static double Nearest(BigInteger digits, int exponent)
         {
-            while (k > 300) { x *= 1e300; k -= 300; }
-            while (k < -300) { x /= 1e300; k += 300; }
-            return k >= 0 ? x * Math.Pow(10, k) : x / Math.Pow(10, -k);
+            BigInteger num = exponent >= 0 ? digits * BigInteger.Pow(10, exponent) : digits;
+            BigInteger den = exponent >= 0 ? BigInteger.One : BigInteger.Pow(10, -exponent);
+            // num / den = q·2^-s with q holding 54 bits (53 and a guard bit), but no finer than half the subnormal spacing.
+            int s = 54 - (BitLength(num) - BitLength(den));
+            BigInteger q, rem;
+            while (true)
+            {
+                if (s > 1075) s = 1075;
+                q = BigInteger.DivRem(s >= 0 ? num << s : num, s >= 0 ? den : den << -s, out rem);
+                if (s < 1075 && q < BigInteger.One << 53) { s++; continue; }
+                if (q >= BigInteger.One << 54) { s--; continue; }
+                break;
+            }
+            BigInteger mant = q >> 1;
+            if (!q.IsEven && (!rem.IsZero || !mant.IsEven)) mant += 1;
+            int e = 1 - s;                                       // the value is mant·2^e
+            if (e > 971 + 1) return double.PositiveInfinity;
+            double r = (double)mant;                             // at most 2^53: exact
+            if (e < -1000) { r *= Pow2(-1000); e += 1000; }      // stays normal: mant ≥ 1, so ≥ 2^-1000
+            return r * Pow2(e);                                  // exact: mant is on the double grid at that scale
         }
+
+        private static int BitLength(BigInteger v)
+        {
+            byte[] b = v.ToByteArray();
+            int top = b.Length - 1;
+            while (top > 0 && b[top] == 0) top--;
+            int bits = top * 8, last = b[top];
+            while (last != 0) { bits++; last >>= 1; }
+            return bits;
+        }
+
+        private static double Pow2(int k) => k > 1023 ? Pow2(1023) * Pow2(k - 1023) : BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
     }
 }

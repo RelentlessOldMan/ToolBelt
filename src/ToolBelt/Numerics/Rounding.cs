@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Globalization;
+using System.Numerics;
 
 namespace ToolBelt.Numerics
 {
@@ -38,46 +39,94 @@ namespace ToolBelt.Numerics
                 return value;
 
             // Scaling by a power of ten rounded twice (0.15·10 = 1.4999999999999998 kept 0.1; 999.96 at 3 digits gave
-            // 999.9999999999999), so the rounding is done on the decimal digits themselves and parsed back once.
+            // 999.9999999999999), so the rounding is done on the decimal digits themselves and read back once, exactly.
             Digits(Math.Abs(value), out string digits, out int exponent);
             digits = RoundDigits(digits, significantDigits, ref exponent);
-            string text = (value < 0 ? "-" : "") + digits[0] + (digits.Length > 1 ? "." + digits.Substring(1) : "")
-                + "E" + exponent.ToString(CultureInfo.InvariantCulture);
-            try
-            {
-                return double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
-            }
-            catch (OverflowException)
-            {
-                return value < 0 ? double.NegativeInfinity : double.PositiveInfinity; // .NET Framework throws; Core returns ∞
-            }
+            // Past double.MaxValue this is infinity of the same sign.
+            double r = Nearest(BigInteger.Parse(digits, CultureInfo.InvariantCulture), exponent - (digits.Length - 1));
+            return value < 0 ? -r : r;
         }
 
         // The significant digits of the shortest round-trip decimal for a positive finite value (no leading or trailing
-        // zeros) and the decimal exponent of the first one: 123.45 → "12345", 2.
+        // zeros) and the decimal exponent of the first one: 123.45 → "12345", 2. Found exactly: "R" and double.Parse on
+        // .NET Framework are not correctly rounded (it reads 5.39205e252 one ulp low), so they disagreed with .NET Core.
         private static void Digits(double value, out string digits, out int exponent)
         {
-            string s = value.ToString("R", CultureInfo.InvariantCulture);
-            if (double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) != value)
-                for (int p = 16; p <= 17; p++) // .NET Framework's "R" can lose the last digit; G17 alone was not the shortest
-                {
-                    s = value.ToString("G" + p, CultureInfo.InvariantCulture);
-                    if (double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) == value) break;
-                }
-            int exp = 0, ePos = s.IndexOfAny(new[] { 'E', 'e' });
-            if (ePos >= 0)
-            {
-                exp = int.Parse(s.Substring(ePos + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
-                s = s.Substring(0, ePos);
-            }
-            int dot = s.IndexOf('.');
-            string whole = dot < 0 ? s : s.Substring(0, dot);
-            string all = whole + (dot < 0 ? "" : s.Substring(dot + 1));
-            int lead = 0;
-            while (lead < all.Length && all[lead] == '0') lead++;
-            digits = all.Substring(lead).TrimEnd('0');
-            exponent = whole.Length + exp - lead - 1;
+            var (d, q) = Shortest(value);
+            string s = d.ToString(CultureInfo.InvariantCulture);
+            exponent = q + s.Length - 1;
+            digits = s.TrimEnd('0');
         }
+
+        // The shortest decimal digits·10^exponent that reads back as x (positive and finite), found exactly with
+        // BigInteger so every framework agrees.
+        private static (BigInteger Digits, int Exponent) Shortest(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int be = (int)((bits >> 52) & 0x7FF);
+            long m = bits & 0xFFFFFFFFFFFFFL;
+            if (be == 0) be = 1; else m |= 1L << 52;
+            int k = be - 1075;                                         // x = m·2^k
+            bool tight = m == 1L << 52 && be > 1;                      // the gap below a power of two is half the one above
+            int top = (int)Math.Floor(Math.Log10(x));
+            for (int n = 1; n <= 18; n++)
+            {
+                int q = top - n + 1;                                   // the place of the last digit
+                // Everything times A = 10^max(−q, 0)·2^max(2 − k, 0), so all terms are integers.
+                BigInteger ten = BigInteger.Pow(10, Math.Max(-q, 0)), tenUp = BigInteger.Pow(10, Math.Max(q, 0));
+                BigInteger xs = (BigInteger)m * BigInteger.Pow(2, Math.Max(k, 2)) * ten;
+                BigInteger num = (BigInteger)m * BigInteger.Pow(2, Math.Max(k, 0)) * ten;
+                BigInteger den = BigInteger.Pow(2, Math.Max(-k, 0)) * tenUp;
+                BigInteger digits = DivideRounded(num, den);
+                BigInteger lhs = digits * tenUp * BigInteger.Pow(2, Math.Max(2 - k, 0));
+                BigInteger gap = lhs >= xs ? BigInteger.Pow(2, Math.Max(k - 1, 1)) * ten
+                    : BigInteger.Pow(2, tight ? Math.Max(k - 2, 0) : Math.Max(k - 1, 1)) * ten;
+                BigInteger diff = BigInteger.Abs(lhs - xs);
+                if (diff < gap || (diff == gap && (m & 1) == 0)) return (digits, q);
+            }
+            throw new InvalidOperationException("Unreachable: 18 digits always read back.");
+        }
+
+        private static BigInteger DivideRounded(BigInteger num, BigInteger den) => (2 * num + den) / (2 * den);
+
+        // The double nearest digits·10^exponent (ties to even), found exactly: .NET Framework's double.Parse is not
+        // correctly rounded (it reads 5.39205e252 one ulp low).
+        private static double Nearest(BigInteger digits, int exponent)
+        {
+            BigInteger num = exponent >= 0 ? digits * BigInteger.Pow(10, exponent) : digits;
+            BigInteger den = exponent >= 0 ? BigInteger.One : BigInteger.Pow(10, -exponent);
+            // num / den = q·2^-s with q holding 54 bits (53 and a guard bit), but no finer than half the subnormal spacing.
+            int s = 54 - (BitLength(num) - BitLength(den));
+            BigInteger q, rem;
+            while (true)
+            {
+                if (s > 1075) s = 1075;
+                q = BigInteger.DivRem(s >= 0 ? num << s : num, s >= 0 ? den : den << -s, out rem);
+                if (s < 1075 && q < BigInteger.One << 53) { s++; continue; }
+                if (q >= BigInteger.One << 54) { s--; continue; }
+                break;
+            }
+            BigInteger mant = q >> 1;
+            if (!q.IsEven && (!rem.IsZero || !mant.IsEven)) mant += 1;
+            int e = 1 - s;                                       // the value is mant·2^e
+            if (e > 971 + 1) return double.PositiveInfinity;
+            double r = (double)mant;                             // at most 2^53: exact
+            if (e < -1000) { r *= Pow2(-1000); e += 1000; }      // stays normal: mant ≥ 1, so ≥ 2^-1000
+            return r * Pow2(e);                                  // exact: mant is on the double grid at that scale
+        }
+
+        private static int BitLength(BigInteger v)
+        {
+            byte[] b = v.ToByteArray();
+            int top = b.Length - 1;
+            while (top > 0 && b[top] == 0) top--;
+            int bits = top * 8, last = b[top];
+            while (last != 0) { bits++; last >>= 1; }
+            return bits;
+        }
+
+        private static double Pow2(int k) => k > 1023 ? Pow2(1023) * Pow2(k - 1023) : BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
+
 
         // Keeps the first `count` digits, rounding half away from zero; a carry out of all nines becomes "1" one decade up.
         private static string RoundDigits(string digits, int count, ref int exponent)

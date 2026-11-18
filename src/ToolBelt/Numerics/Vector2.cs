@@ -93,6 +93,8 @@ namespace ToolBelt.Numerics
             // (Lerp(1e16, 1, 1) gave 0).
             if (t == 0) return a;
             if (t == 1) return b;
+            // Equal ends are the whole line: ∞ − ∞ made Lerp(∞, ∞, 0.5) NaN though both ends are ∞.
+            if (a == b && !double.IsNaN(t) && !double.IsInfinity(t)) return a;
             double d = b - a, r;
             // Finite ends of opposite sign can overflow b − a (−1e308 to 1e308): interpolate the halves instead.
             if (double.IsInfinity(d) && !double.IsInfinity(a) && !double.IsInfinity(b))

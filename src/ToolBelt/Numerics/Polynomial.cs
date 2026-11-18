@@ -62,7 +62,8 @@ namespace ToolBelt.Numerics
         /// Least-squares polynomial fit of the given degree through the sample points. Solved by Householder QR
         /// on x centred and scaled to [-1, 1] (not the normal equations, which square the condition number), then
         /// expanded back to ascending coefficients in x. Throws <see cref="InvalidOperationException"/> when the x
-        /// values cannot determine the fit (fewer distinct x than degree + 1).
+        /// values cannot determine the fit (fewer distinct x than degree + 1, counted after the scaling), or when they
+        /// determine it too poorly for doubles (the triangular factor's smallest diagonal below 10⁻¹⁵ of its largest).
         /// </summary>
         public static Polynomial Fit(IReadOnlyList<double> x, IReadOnlyList<double> y, int degree)
         {
@@ -98,12 +99,23 @@ namespace ToolBelt.Numerics
 
             var a = new double[n, m];
             var b = new double[n];
+            var us = new double[n];
             for (int k = 0; k < n; k++)
             {
                 double u = (x[k] - shift) / scale, up = 1;
+                us[k] = u;
                 for (int j = 0; j < m; j++) { a[k, j] = up; up *= u; }
                 b[k] = ScaleB(y[k], -ey);
             }
+
+            // Counted exactly: a rank test on the diagonals alone needed a tolerance that grew with n (rounding grows with
+            // it), and at 1e5 evenly spaced points it refused degree 30, which those points determine to 3e-13.
+            Array.Sort(us);
+            int distinct = 1;
+            for (int k = 1; k < n && distinct < m; k++)
+                if (us[k] != us[k - 1]) distinct++;
+            if (distinct < m)
+                throw new InvalidOperationException($"The x values do not determine a degree-{degree} fit (too few distinct x).");
 
             // Householder QR: reduce a to upper-triangular R, applying the same reflections to b.
             var diag = new double[m];
@@ -129,12 +141,13 @@ namespace ToolBelt.Numerics
                 for (int k = j; k < n; k++) b[k] -= fb * a[k, j];
             }
 
-            // Rank check relative to the largest diagonal; the columns (powers of u in [-1, 1]) are well scaled.
+            // Distinct x always give full rank, so this catches only a fit doubles cannot resolve (degree 39 on 40 evenly
+            // spaced points has a ratio near 2e-16); the columns (powers of u in [-1, 1]) are well scaled.
             double maxDiag = 0;
             for (int j = 0; j < m; j++) maxDiag = Math.Max(maxDiag, Math.Abs(diag[j]));
             for (int j = 0; j < m; j++)
-                if (!(Math.Abs(diag[j]) > maxDiag * n * 1e-13))
-                    throw new InvalidOperationException($"The x values do not determine a degree-{degree} fit (too few distinct x).");
+                if (!(Math.Abs(diag[j]) > maxDiag * 1e-15))
+                    throw new InvalidOperationException($"The x values determine a degree-{degree} fit too poorly to solve in doubles.");
 
             var cu = new double[m];
             for (int j = m - 1; j >= 0; j--)

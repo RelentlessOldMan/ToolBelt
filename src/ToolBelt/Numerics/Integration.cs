@@ -75,6 +75,16 @@ namespace ToolBelt.Numerics
             RequireSamples(y);
             if (!(dx > 0) || double.IsInfinity(dx)) throw new ArgumentOutOfRangeException(nameof(dx), dx, "Spacing must be positive and finite.");
 
+            double sum = SimpsonSum(y, dx, 1);
+            if (IsFinite(sum) || !AllFinite(y)) return sum;
+            // The panels fit but their running sum overflowed ([6e307 × 5, −6e307 × 2] over 1 gave ∞ for 1.6e308): summed
+            // again on samples scaled by 2⁻⁵⁵⁰, as Trapezoid does, and scaled back.
+            return SimpsonSum(y, dx, Tiny) * Big;
+        }
+
+        private static double SimpsonSum(IReadOnlyList<double> samples, double dx, double scale)
+        {
+            var y = new Scaled(samples, scale);
             int intervals = y.Count - 1;
             int even = intervals - (intervals % 2); // largest even interval count
             double sum = 0;
@@ -111,6 +121,16 @@ namespace ToolBelt.Numerics
                 }
             }
             return sum;
+        }
+
+        // The samples times a power of two (exact unless it underflows), read on demand.
+        private readonly struct Scaled
+        {
+            private readonly IReadOnlyList<double> _y;
+            private readonly double _scale;
+            public Scaled(IReadOnlyList<double> y, double scale) { _y = y; _scale = scale; }
+            public int Count => _y.Count;
+            public double this[int i] => _y[i] * _scale;
         }
 
         /// <summary>
