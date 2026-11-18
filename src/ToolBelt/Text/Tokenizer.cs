@@ -86,6 +86,13 @@ namespace ToolBelt.Text
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
             options ??= new TokenizerOptions();
+            // Overlapping roles were taken silently, the first rule winning: an escape that is also a delimiter joined
+            // "a,b" into "ab", and a quote that is also a delimiter never separated.
+            if (options.Escape is char e && (Array.IndexOf(options.Delimiters, e) >= 0 || Array.IndexOf(options.Quotes, e) >= 0))
+                throw new ArgumentException($"The escape character U+{(int)e:X4} is also a delimiter or quote.", nameof(options));
+            foreach (char q in options.Quotes)
+                if (Array.IndexOf(options.Delimiters, q) >= 0)
+                    throw new ArgumentException($"The quote character U+{(int)q:X4} is also a delimiter.", nameof(options));
             var tokens = new List<Token>();
             var sb = new StringBuilder();
             int i = 0, n = text.Length;

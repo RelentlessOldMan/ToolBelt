@@ -18,12 +18,16 @@ namespace ToolBelt.Text
     /// with no case ('ĸ', '中': "中_x" → "中X" → "中x"). Casing is invariant, with additions so every style's output is
     /// properly cased: 'İ' lowers to 'i', 'ı' uppers to 'I', and a lower-case letter with no one-letter capital takes
     /// Unicode's full upper and title case ('ß' → "SS" and "Ss", 'ﬁ' → "FI" and "Fi", 'ŉ' → "ʼN"), so the Turkish dotted
-    /// and dotless i, 'ß' and the ligatures don't survive a trip through an upper-case style. Such a letter is lower-case
+    /// and dotless i, 'ß' and the ligatures don't survive a trip through an upper-case style. Nor do the lower-case letters
+    /// whose capital lowers to another letter: final 'ς' and long 'ſ' come back as 'σ' and 's' ("λόγος" → "ΛΌΓΟΣ" →
+    /// "λόγοσ"), as do the Greek symbol forms ('ϐ' → 'β'), 'ẛ' and U+1FBE. Such a letter is lower-case
     /// at the start of a word or after the word's one capital ("Bß" in "BßX" is a word), and otherwise continues the run
     /// it is in ("STRAßE" is one word); for the rule above it is not a lower-case letter. A letter with no case of its
     /// own continues the word it is in; a digraph such as 'ǆ' is titlecased ('ǅ').
     /// Which characters are letters, and their case, come from the runtime's Unicode tables: .NET Framework's are Unicode 8,
-    /// so a letter added since (Syriac Malayalam, Greek 'Ϳ') is a separator there and a word character on .NET 8.
+    /// so a letter added since (Syriac Malayalam, Greek 'Ϳ') is a separator there and a word character on .NET 8. Its
+    /// invariant casing also lacks older mappings ('ς', 'µ', 'ſ', the Kelvin sign, Cherokee); those are filled in from
+    /// .NET 8's, where the target is a letter there.
     /// </summary>
     public static class CaseConverter
     {
@@ -209,11 +213,71 @@ namespace ToolBelt.Text
             return Upper(letter);
         }
 
-        private static string Lower(string s) => SetDigraphs(s.ToLowerInvariant().Replace('\u0130', 'i'), 2);
+#if !NET5_0_OR_GREATER
+        // .NET Framework's invariant casing lacks mappings far older than its Unicode 8 letter tables: 'ς' and 'µ' stayed
+        // lower-case in CONSTANT_CASE ("λόγος" gave "ΛΌΓΟς"), the Kelvin sign upper-case in snake_case. These are .NET 8's
+        // simple mappings that .NET Framework leaves alone, Cherokee by range; one applies only where the runtime left the
+        // character unchanged and knows the target as a letter (Georgian Mtavruli, Unicode 11, is not one there).
+        private const string UpperFrom =
+            "\u00B5\u017F\u01C5\u01C8\u01CB\u01F2\u023F\u0240\u0252\u025C\u0261\u0265\u0266\u026A\u026C\u0282"
+            + "\u0287\u029D\u029E\u03C2\u03D0\u03D1\u03D5\u03D6\u03F0\u03F1\u03F3\u03F5\u0525\u0527\u0529\u052B"
+            + "\u052D\u052F\u1D8E\u1E9B\u1FBE\u2CEC\u2CEE\u2CF3\u2D27\u2D2D\uA661\uA699\uA69B\uA791\uA793\uA794"
+            + "\uA797\uA799\uA79B\uA79D\uA79F\uA7A1\uA7A3\uA7A5\uA7A7\uA7A9\uA7B5\uA7B7\uAB53";
+        private const string UpperTo =
+            "\u039C\u0053\u01C4\u01C7\u01CA\u01F1\u2C7E\u2C7F\u2C70\uA7AB\uA7AC\uA78D\uA7AA\uA7AE\uA7AD\uA7C5"
+            + "\uA7B1\uA7B2\uA7B0\u03A3\u0392\u0398\u03A6\u03A0\u039A\u03A1\u037F\u0395\u0524\u0526\u0528\u052A"
+            + "\u052C\u052E\uA7C6\u1E60\u0399\u2CEB\u2CED\u2CF2\u10C7\u10CD\uA660\uA698\uA69A\uA790\uA792\uA7C4"
+            + "\uA796\uA798\uA79A\uA79C\uA79E\uA7A0\uA7A2\uA7A4\uA7A6\uA7A8\uA7B4\uA7B6\uA7B3";
+        private const string LowerFrom =
+            "\u01C5\u01C8\u01CB\u01F2\u037F\u03F4\u0524\u0526\u0528\u052A\u052C\u052E\u10C7\u10CD\u1E9E\u2126"
+            + "\u212A\u212B\u2C70\u2C7E\u2C7F\u2CEB\u2CED\u2CF2\uA660\uA698\uA69A\uA78D\uA790\uA792\uA796\uA798"
+            + "\uA79A\uA79C\uA79E\uA7A0\uA7A2\uA7A4\uA7A6\uA7A8\uA7AA\uA7AB\uA7AC\uA7AD\uA7B0\uA7B1\uA7B2\uA7B3"
+            + "\uA7B4\uA7B6";
+        private const string LowerTo =
+            "\u01C6\u01C9\u01CC\u01F3\u03F3\u03B8\u0525\u0527\u0529\u052B\u052D\u052F\u2D27\u2D2D\u00DF\u03C9"
+            + "\u006B\u00E5\u0252\u023F\u0240\u2CEC\u2CEE\u2CF3\uA661\uA699\uA69B\u0265\uA791\uA793\uA797\uA799"
+            + "\uA79B\uA79D\uA79F\uA7A1\uA7A3\uA7A5\uA7A7\uA7A9\u0266\u025C\u0261\u026C\u029E\u0287\u029D\uAB53"
+            + "\uA7B5\uA7B7";
+
+        private static char MissingCase(char c, bool upper)
+        {
+            if (upper)
+            {
+                if (c >= '\uAB70' && c <= '\uABBF') return (char)(c - 0xAB70 + 0x13A0);
+                if (c >= '\u13F8' && c <= '\u13FD') return (char)(c - 8);
+                int k = UpperFrom.IndexOf(c);
+                return k >= 0 ? UpperTo[k] : c;
+            }
+            if (c >= '\u13A0' && c <= '\u13EF') return (char)(c - 0x13A0 + 0xAB70);
+            if (c >= '\u13F0' && c <= '\u13F5') return (char)(c + 8);
+            int j = LowerFrom.IndexOf(c);
+            return j >= 0 ? LowerTo[j] : c;
+        }
+#endif
+
+        // The runtime's invariant casing, with the mappings .NET Framework lacks filled in.
+        private static string FillCaseGaps(string s, bool upper)
+        {
+#if !NET5_0_OR_GREATER
+            char[]? chars = null;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i], t = MissingCase(c, upper);
+                if (t == c || !char.IsLetter(t)) continue;
+                if ((upper ? char.ToUpperInvariant(c) : char.ToLowerInvariant(c)) != c) continue;
+                chars ??= s.ToCharArray();
+                chars[i] = t;
+            }
+            if (chars != null) s = new string(chars);
+#endif
+            return s;
+        }
+
+        private static string Lower(string s) => SetDigraphs(FillCaseGaps(s.ToLowerInvariant().Replace('\u0130', 'i'), false), 2);
 
         private static string Upper(string s)
         {
-            s = s.ToUpperInvariant().Replace('\u0131', 'I');
+            s = FillCaseGaps(s.ToUpperInvariant().Replace('\u0131', 'I'), true);
             if (s.IndexOfAny(NoCapitalChars) >= 0)
             {
                 var sb = new StringBuilder(s.Length + 8);

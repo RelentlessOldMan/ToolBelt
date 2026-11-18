@@ -966,6 +966,7 @@ tests/
       TextRobustnessReview89Tests.cs (round 89 review regressions: exact n-gram classes, diff line ids, glob masks, top-k heap, query surrogates)
       TextReview98Tests.cs (round 98 review regressions: escapes cut short, emoji selector past escapes and on supplementary symbols, glob masks by token group)
       TextReview123Tests.cs  (round 123: letters with no one-letter capital in every case style, NanoId's default size, emoji selector past a control inside an escape)
+      TextReview141Tests.cs  (round 141: .NET Framework casing gaps, emoji selector beside pads, ellipses and cut escapes, null newline, Ulid draw order, overlapping tokenizer roles)
       MiscReviewRegressionTests.cs  (2026-10-05 review regressions: Text, Cli, Threading, Time, Diagnostics, Collections)
       TruncateTests.cs
       WordWrapTests.cs

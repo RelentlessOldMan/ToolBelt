@@ -64,7 +64,11 @@ namespace ToolBelt.Text
 
         /// <summary>Wraps and joins the lines with <paramref name="newline"/> (default "\n").</summary>
         public static string WrapToString(string text, int width, string newline = "\n")
-            => string.Join(newline, Wrap(text, width));
+        {
+            // string.Join takes a null separator as empty, and the lines ran together ("aaa bbb" at 3 gave "aaabbb").
+            if (newline is null) throw new ArgumentNullException(nameof(newline));
+            return string.Join(newline, Wrap(text, width));
+        }
 
         // No-break spaces (U+00A0, U+2007, U+202F) glue their neighbours: "10 km" was split across lines.
         private static bool IsBreakingSpace(char c) => char.IsWhiteSpace(c) && c != '\u00A0' && c != '\u2007' && c != '\u202F';

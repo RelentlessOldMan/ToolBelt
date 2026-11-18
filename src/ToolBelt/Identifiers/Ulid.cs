@@ -46,8 +46,12 @@ namespace ToolBelt.Identifiers
 
                 if (now > _lastTimestamp)
                 {
+                    // Drawn first: with the timestamp moved on before a Random that threw, the rest of that millisecond's
+                    // ids counted up from the half-written bits instead of drawing fresh ones.
+                    var fresh = new byte[_lastRandom.Length];
+                    _random.NextBytes(fresh);
+                    Buffer.BlockCopy(fresh, 0, _lastRandom, 0, fresh.Length);
                     _lastTimestamp = now;
-                    _random.NextBytes(_lastRandom);
                 }
                 else
                 {

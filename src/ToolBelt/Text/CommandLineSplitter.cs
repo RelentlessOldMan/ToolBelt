@@ -6,7 +6,8 @@ using System.Text;
 namespace ToolBelt.Text
 {
     /// <summary>
-    /// Splits a command-line-style string into argument tokens. Whitespace separates tokens; single or
+    /// Splits a command-line-style string into argument tokens. Spaces and tabs separate tokens (as on Windows: other
+    /// whitespace, line breaks included, is part of a token); single or
     /// double quotes group text (whitespace and the other quote character are literal inside), and a
     /// doubled quote of the active kind inserts one literal quote. Quotes may abut unquoted text within a
     /// single token. An unterminated quote throws <see cref="FormatException"/>.

@@ -100,6 +100,9 @@ namespace ToolBelt.Text
             // An unfinished escape at the end swallows whatever follows it, the padding included ("ab" + ESC + 4 spaces
             // measured 2 columns, not 6): it is dropped when something goes after it.
             if (extra > 0 && alignment != Alignment.Right) text = DropUnfinishedEscape(text);
+            // A U+FE0F starting the text has no base of its own; padding put before it became one, and a symbol pad ('·',
+            // '█') turned emoji-wide: PadLeft("\uFE0Fx", 4, '·') measured 5. It is dropped there.
+            if (extra > 0 && alignment != Alignment.Left && CharWidth(pad, true) != 1) text = DropLeadingSelector(text);
             switch (alignment)
             {
                 case Alignment.Right: return new string(pad, extra) + text;
@@ -110,8 +113,25 @@ namespace ToolBelt.Text
 
         private const int MaxStringLength = 0x3FFFFFDF;
 
+        // The text without a U+FE0F that has no base: one at the start, or after only escape sequences that hold no
+        // control character (WidthAt looks past those).
+        private static string DropLeadingSelector(string text)
+        {
+            int k = 0;
+            while (k < text.Length && text[k] == '\u001b')
+            {
+                int end = SkipEscape(text, k);
+                if (HoldsControl(text, k, end)) return text;
+                k = end + 1;
+            }
+            return k < text.Length && text[k] == '\uFE0F' ? text.Remove(k, 1) : text;
+        }
+
         private static string Cut(string text, int width, string ellipsis, char pad)
         {
+            // Likewise a U+FE0F starting the ellipsis: measured alone it has no base, but it widened the character or pad
+            // before it ("❤abc" fitted to 2 with "\uFE0F…" measured 3).
+            ellipsis = DropLeadingSelector(ellipsis);
             int ellipsisWidth = DisplayWidth(ellipsis);
             if (ellipsisWidth > width) { ellipsis = ""; ellipsisWidth = 0; }
             int budget = width - ellipsisWidth, used = 0;
@@ -129,6 +149,13 @@ namespace ToolBelt.Text
                     {
                         sb.Append(text, i, end - i + 1);
                         sawEscape = true;
+                    }
+                    else if (HoldsControl(text, i, end))
+                    {
+                        // Its control characters still act, and AnsiText.Strip keeps them: dropped with it, they glued the
+                        // character before to a U+FE0F after ("❤" ESC[3 LF U+FE0F, measured one column, came out two).
+                        for (int j = i + 1; j <= end; j++)
+                            if (text[j] < ' ' && text[j] != '\u001b') sb.Append(text[j]);
                     }
                     i = end;
                     continue;
