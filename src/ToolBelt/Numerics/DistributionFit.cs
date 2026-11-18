@@ -92,7 +92,13 @@ namespace ToolBelt.Numerics
             double[] x = Check(sample, positive: false, min: 2);
             int n = x.Length;
             var (mean, sd) = MeanSd(x);
-            if (sd == 0) throw new ArgumentException("All values are equal; the spread cannot be estimated.", nameof(sample));
+            if (sd == 0)
+            {
+                // Distinct values a subnormal apart ({0, 5e-324}) have a spread that rounds to 0: not "all equal".
+                foreach (double v in x)
+                    if (v != x[0]) throw new ArgumentException("The spread of the values is too small to represent as a double.", nameof(sample));
+                throw new ArgumentException("All values are equal; the spread cannot be estimated.", nameof(sample));
+            }
             double ll = -n / 2.0 * (Math.Log(2 * Math.PI) + 2 * Math.Log(sd) + 1);
             Func<double, double> cdf = v => Distributions.NormalCdf(v, mean, sd);
             return Make(DistributionFamily.Normal, P("mean", mean, "sd", sd), ll, x, cdf);

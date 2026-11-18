@@ -93,12 +93,24 @@ namespace ToolBelt.Numerics
             // In scaled units, then the ratio of the powers of two: sx·px underflowed for subnormal x ([0, ε] gave slope ∞,
             // intercept NaN) and sy·py overflowed for y near ±double.MaxValue.
             double scaledSlope = sxy / sxx * (sy / sx);
-            double slope = scaledSlope * (py / px);
+            double slope = MulRatio(scaledSlope, py, px);
             double intercept = (meanY - scaledSlope * meanX) * py;
             // R² = explained variance / total variance. If y is constant (syy == 0) the fit is exact.
             double r = syy == 0 ? 1.0 : sxy / Math.Sqrt(sxx * syy);   // scaled, so the product neither over- nor underflows
             double rSquared = Math.Min(1.0, r * r);
             return new LinearFit(slope, intercept, rSquared);
+        }
+
+        // a · num / den for powers of two num and den. num / den overflowed for y near 1e300 and x near 1e-300, and a zero
+        // slope came back 0 · ∞ = NaN; this orders the steps so a representable result is reached.
+        private static double MulRatio(double a, double num, double den)
+        {
+            if (a == 0) return 0;
+            double ratio = num / den;
+            if (ratio != 0 && !double.IsInfinity(ratio)) return a * ratio;
+            double t = a * num;
+            if (t != 0 && !double.IsInfinity(t)) return t / den;
+            return a / den * num;
         }
 
         // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same

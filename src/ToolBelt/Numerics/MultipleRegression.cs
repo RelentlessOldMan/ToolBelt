@@ -11,10 +11,12 @@ namespace ToolBelt.Numerics
         private readonly double[] _columnScale;
         private readonly double[] _centre;
         private readonly double _atCentre;           // the fitted value at the centre: the intercept of the centred fit
+        private readonly double[] _scaledBeta;       // the coefficients in scaled units (of y / _yScale per x / _columnScale)
+        private readonly double _yScale;
 
         internal RegressionResult(double[] coefficients, double[] standardErrors, double[] fitted, double[] residuals,
             double rSquared, double adjustedRSquared, double residualStandardError, int degreesOfFreedom, bool hasIntercept,
-            double[,] xtxInverse, double[] columnScale, double[] centre, double atCentre)
+            double[,] xtxInverse, double[] columnScale, double[] centre, double atCentre, double[] scaledBeta, double yScale)
         {
             Coefficients = Array.AsReadOnly(coefficients);      // wrapped: a cast back to double[] could rewrite what Predict uses
             StandardErrors = Array.AsReadOnly(standardErrors);
@@ -39,6 +41,8 @@ namespace ToolBelt.Numerics
             _columnScale = columnScale;
             _centre = centre;
             _atCentre = atCentre;
+            _scaledBeta = scaledBeta;
+            _yScale = yScale;
         }
 
         /// <summary>Coefficients; the intercept first when <see cref="HasIntercept"/>, then one per predictor.</summary>
@@ -66,8 +70,16 @@ namespace ToolBelt.Numerics
         {
             double[] row = Row(predictors);
             // About the centre, as fitted: through the intercept, a prediction near offset data lost its digits.
+            // Each term in scaled units, as the fit was: a coefficient past MaxValue (y near 1e300 over x near 1e-300, its
+            // rounding crumb scaled up) made even the prediction at the centre 0 · ∞ = NaN.
             double y = _atCentre;
-            for (int j = HasIntercept ? 1 : 0; j < row.Length; j++) y += (row[j] - _centre[j]) * Coefficients[j];
+            for (int j = HasIntercept ? 1 : 0; j < row.Length; j++)
+            {
+                double d = row[j] - _centre[j];
+                if (d == 0) continue;
+                double term = _scaledBeta[j] * (d / _columnScale[j]) * _yScale;
+                y += !double.IsNaN(term) && !double.IsInfinity(term) ? term : d * Coefficients[j];
+            }
             return y;
         }
 
@@ -262,18 +274,21 @@ namespace ToolBelt.Numerics
             int df = n - p;
             double sigma2 = df > 0 ? sse / df : double.NaN;
             var se = new double[p];
-            for (int i = 0; i < p; i++) se[i] = df > 0 ? Math.Sqrt(sigma2 * xtxInv[i, i]) * (ys / colScale[i]) : double.NaN;
+            for (int i = 0; i < p; i++) se[i] = df > 0 ? MulRatio(Math.Sqrt(sigma2 * xtxInv[i, i]), ys, colScale[i]) : double.NaN;
             var coefficients = new double[p];
-            for (int i = 0; i < p; i++) coefficients[i] = beta[i] * (ys / colScale[i]);
+            for (int i = 0; i < p; i++) coefficients[i] = MulRatio(beta[i], ys, colScale[i]);
             double atCentre = intercept ? beta[0] * ys + yc : 0;
             if (intercept)
             {
-                // Back from the centred fit: b0 = a0 − Σ βⱼcⱼ, with Var(b0) = σ² wᵀ(XᵀX)⁻¹w for w = (1, −c₁/s₁, …).
-                double b0 = atCentre, q = 0;
-                for (int j = 1; j < p; j++) b0 -= coefficients[j] * centre[j];
+                // Back from the centred fit: b0 = a0 − Σ βⱼcⱼ, with Var(b0) = σ² wᵀ(XᵀX)⁻¹w for w = (1, −c₁/s₁, …). Summed in
+                // scaled units (b0 = (β₀ + Σ βⱼwⱼ)·ys + yc): the unscaled βⱼcⱼ was ∞·0 = NaN, or ∞, when a coefficient
+                // overflowed while the intercept did not.
+                double b0 = beta[0], q = 0;
                 var w = new double[p];
                 w[0] = 1;
                 for (int j = 1; j < p; j++) w[j] = -centre[j] / colScale[j];
+                for (int j = 1; j < p; j++) b0 += beta[j] * w[j];
+                b0 = b0 * ys + yc;
                 for (int i = 0; i < p; i++)
                     for (int j = 0; j < p; j++) q += w[i] * xtxInv[i, j] * w[j];
                 coefficients[0] = b0;
@@ -283,7 +298,7 @@ namespace ToolBelt.Numerics
             int dfTotal = intercept ? n - 1 : n;
             double adj = df > 0 ? (sst > 0 ? 1 - (sse / df) / (sst / dfTotal) : 1) : double.NaN;
             return new RegressionResult(coefficients, se, fitted, residuals, r2, adj, Math.Sqrt(sigma2) * ys, df, intercept, xtxInv, colScale,
-                centre, atCentre);
+                centre, atCentre, beta, ys);
         }
 
         /// <summary>Fits y on predictor rows given as lists (each inner list is one observation).</summary>
@@ -313,6 +328,18 @@ namespace ToolBelt.Numerics
             double m = s / v.Length * p;
             foreach (double e in v) if (double.IsInfinity(e - m)) return 0;
             return m;
+        }
+
+        // a · num / den for powers of two num and den. num / den overflowed for y near 1e300 and x near 1e-300, and a zero
+        // coefficient came back 0 · ∞ = NaN; this orders the steps so a representable result is reached.
+        private static double MulRatio(double a, double num, double den)
+        {
+            if (a == 0) return 0;
+            double ratio = num / den;
+            if (ratio != 0 && !double.IsInfinity(ratio)) return a * ratio;
+            double t = a * num;
+            if (t != 0 && !double.IsInfinity(t)) return t / den;
+            return a / den * num;
         }
 
         // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same
@@ -383,7 +410,9 @@ namespace ToolBelt.Numerics
                 intercepts[i] = double.IsInfinity(fit) ? 2 * (y[i] / 2 - slope / 2 * x[i]) : y[i] - fit;
             }
             double intercept = Median(intercepts, intercepts.Length);
-            if (double.IsNaN(intercept))
+            // The halves keep y − slope·x from overflowing part way, but not when the intercept itself is past
+            // double.MaxValue: ∞ came back as the answer.
+            if (double.IsNaN(intercept) || double.IsInfinity(intercept))
                 throw new ArgumentException("The intercept overflows a double.", nameof(y));
             return (slope, intercept);
         }

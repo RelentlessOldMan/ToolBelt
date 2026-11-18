@@ -73,7 +73,6 @@ namespace ToolBelt.Numerics
             // Capped as Bootstrap caps resamples: the null distribution is one array.
             if (permutations < 1 || permutations > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(permutations), permutations, "Must be 1 to Array.MaxLength (0x7FFFFFC7).");
             RequireAlternative(alternative);
-            statistic ??= MeanDifference;
             RequireFinite(a, nameof(a));
             RequireFinite(b, nameof(b));
 
@@ -81,7 +80,23 @@ namespace ToolBelt.Numerics
             var pooled = new double[n];
             for (int i = 0; i < na; i++) pooled[i] = a[i];
             for (int i = 0; i < b.Count; i++) pooled[na + i] = b[i];
-            double observed = statistic(a, b);
+            double observed;
+            if (statistic is null)
+            {
+                // The default statistic on data centred once, with compensated sums. Summed raw, its rounding error was
+                // eps times the data's offset (1000.7 and 1000.3 swapped between groups came out 3e-14 apart, past the
+                // tie tolerance), so rearrangements holding exactly the observed values were not counted and an exact
+                // p-value of 1 read 0.7. The mean difference is unchanged by the shift.
+                double c = Centre(pooled);
+                for (int i = 0; i < n; i++) pooled[i] -= c;
+                statistic = (x, y) => AccurateMean(x) - AccurateMean(y);
+                var ca = new double[na];
+                var cb = new double[n - na];
+                Array.Copy(pooled, 0, ca, 0, na);
+                Array.Copy(pooled, na, cb, 0, n - na);
+                observed = statistic(ca, cb);
+            }
+            else observed = statistic(a, b);
 
             var ga = new double[na];
             var gb = new double[n - na];
@@ -255,6 +270,31 @@ namespace ToolBelt.Numerics
         {
             for (int i = 0; i < x.Count; i++)
                 if (double.IsNaN(x[i]) || double.IsInfinity(x[i])) throw new ArgumentException($"Value [{i}] is not finite.", name);
+        }
+
+        // The pooled mean, or 0 when some deviation from it would overflow (values of both signs near 1e308).
+        private static double Centre(double[] v)
+        {
+            double s = 0;
+            foreach (double e in v) s += e / v.Length;
+            foreach (double e in v) if (double.IsInfinity(e - s)) return 0;
+            return s;
+        }
+
+        // Neumaier-compensated mean: reordering the same values changes it by rounding of the result alone, not by n·eps
+        // of the terms (a Monte Carlo null on 10⁴ values sits far below the terms' own size).
+        private static double AccurateMean(IReadOnlyList<double> x)
+        {
+            double s = 0, comp = 0;
+            for (int i = 0; i < x.Count; i++)
+            {
+                double v = x[i], t = s + v;
+                comp += Math.Abs(s) >= Math.Abs(v) ? (s - t) + v : (v - t) + s;
+                s = t;
+            }
+            double total = s + comp;
+            if (!double.IsInfinity(total) && !double.IsInfinity(s)) return total / x.Count;
+            return Mean(x);
         }
 
         private static double Mean(IReadOnlyList<double> x)
