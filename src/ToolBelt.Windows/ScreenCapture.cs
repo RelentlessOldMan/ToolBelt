@@ -91,6 +91,9 @@ namespace ToolBelt.Windows
         {
             if (width <= 0) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be positive.");
             if (height <= 0) throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
+            // A right or bottom edge past int.MaxValue wrapped: (int.MaxValue, 0, 10, 10) "captured" a black off-screen image.
+            if ((long)x + width > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(x), x, "The region's right edge is past int.MaxValue.");
+            if ((long)y + height > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(y), y, "The region's bottom edge is past int.MaxValue.");
             if ((long)width * height > Array.MaxLength / 4) throw new ArgumentOutOfRangeException(nameof(width), width, "The region is too large for one image.");
             IntPtr previous = EnterPhysicalPixels();
             try { return Capture(x, y, width, height); }

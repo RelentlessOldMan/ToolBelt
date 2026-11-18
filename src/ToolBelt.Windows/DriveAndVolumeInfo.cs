@@ -73,6 +73,10 @@ namespace ToolBelt.Windows
             if (query.Length == 6 && (query.StartsWith(@"\\?\", StringComparison.Ordinal) || query.StartsWith(@"\\.\", StringComparison.Ordinal))
                 && query[5] == ':' && char.IsLetter(query[4]))
                 query += @"\";
+            // \\?\Volume{guid} names the volume device too, and is refused the same way without its trailing backslash.
+            else if ((query.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase) || query.StartsWith(@"\\.\Volume{", StringComparison.OrdinalIgnoreCase))
+                && query.EndsWith("}", StringComparison.Ordinal) && query.IndexOf('\\', 4) < 0)
+                query += @"\";
             if (query.Length >= 248 && !query.StartsWith(@"\\?\", StringComparison.Ordinal))
             {
                 // A long path needs the extended-length form, which takes a full path with a trailing backslash.

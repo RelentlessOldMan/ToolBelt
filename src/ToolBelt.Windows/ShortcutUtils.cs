@@ -34,7 +34,8 @@ namespace ToolBelt.Windows
     /// interface — no WScript / third-party dependency. <see cref="Create"/> writes a shortcut file;
     /// <see cref="Read"/> parses one back into a <see cref="ShortcutInfo"/>. The shell stores at most 259 characters
     /// of target path and 260 of each other field (longer values come back truncated or garbled), so
-    /// <see cref="Create"/> rejects anything longer. Paths must not be empty, and no value may contain a NUL (the shell
+    /// <see cref="Create"/> rejects anything longer; the shortcut file's own full path is limited to 259 characters too.
+    /// Paths must not be empty or blank, and no value may contain a NUL (the shell
     /// ends each one there).
     /// </summary>
     public static class ShortcutUtils
@@ -45,8 +46,23 @@ namespace ToolBelt.Windows
 
         private static void CheckPath(string path, string paramName)
         {
-            if (path.Length == 0) throw new ArgumentException("The path must not be empty.", paramName);
+            // A blank path threw COM's bare "Value does not fall within the expected range" (Read: ParamName "path").
+            if (path.Trim().Length == 0) throw new ArgumentException("The path must not be empty or blank.", paramName);
             CheckNoNul(path, paramName);
+        }
+
+        // The shortcut file itself: IPersistFile cuts its name at MAX_PATH, so Save of a 395-character path returned
+        // normally after overwriting whatever file the first 259 characters named (and Load read that file).
+        private static void CheckShortcutPath(string path)
+        {
+            CheckPath(path, "shortcutPath");
+            string full;
+            try { full = System.IO.Path.GetFullPath(path); }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is System.IO.PathTooLongException)
+            {
+                throw new ArgumentException("The shortcut path is not valid: " + ex.Message, "shortcutPath", ex);
+            }
+            if (full.Length >= MaxPath) throw new ArgumentException($"The shell reads and writes a shortcut file path of at most {MaxPath - 1} characters.", "shortcutPath");
         }
 
         private static void CheckNoNul(string? value, string paramName)
@@ -54,7 +70,10 @@ namespace ToolBelt.Windows
             if (value != null && value.IndexOf('\0') >= 0) throw new ArgumentException("The value must not contain a NUL character.", paramName);
         }
 
-        /// <summary>Creates (or overwrites) a shortcut at <paramref name="shortcutPath"/> pointing at <paramref name="targetPath"/>.</summary>
+        /// <summary>
+        /// Creates (or overwrites) a shortcut at <paramref name="shortcutPath"/> pointing at <paramref name="targetPath"/>.
+        /// An <paramref name="iconIndex"/> without an <paramref name="iconPath"/> picks that icon from the target.
+        /// </summary>
         public static void Create(
             string shortcutPath, string targetPath,
             string? arguments = null, string? workingDirectory = null, string? description = null,
@@ -64,7 +83,7 @@ namespace ToolBelt.Windows
             if (targetPath is null) throw new ArgumentNullException(nameof(targetPath));
             // An empty target wrote a shortcut to nothing; an empty path threw DirectoryNotFoundException; a NUL cut any value
             // short (a shortcut path with one wrote the file named by its first part).
-            CheckPath(shortcutPath, nameof(shortcutPath));
+            CheckShortcutPath(shortcutPath);
             CheckPath(targetPath, nameof(targetPath));
             CheckNoNul(arguments, nameof(arguments));
             CheckNoNul(workingDirectory, nameof(workingDirectory));
@@ -83,7 +102,9 @@ namespace ToolBelt.Windows
                 if (!string.IsNullOrEmpty(arguments)) link.SetArguments(arguments);
                 if (!string.IsNullOrEmpty(workingDirectory)) link.SetWorkingDirectory(workingDirectory);
                 if (!string.IsNullOrEmpty(description)) link.SetDescription(description);
+                // An index alone was dropped (it read back as 0); the shell's default icon file is the target.
                 if (!string.IsNullOrEmpty(iconPath)) link.SetIconLocation(iconPath, iconIndex);
+                else if (iconIndex != 0) link.SetIconLocation(targetPath, iconIndex);
 
                 ((IPersistFile)link).Save(shortcutPath, true);
             }
@@ -97,7 +118,7 @@ namespace ToolBelt.Windows
         public static ShortcutInfo Read(string shortcutPath)
         {
             if (shortcutPath is null) throw new ArgumentNullException(nameof(shortcutPath));
-            CheckPath(shortcutPath, nameof(shortcutPath));
+            CheckShortcutPath(shortcutPath);
 
             // A file shorter than the 76-byte link header (an empty one after a failed write) loaded as a shortcut with no
             // target, where text or random bytes are refused.

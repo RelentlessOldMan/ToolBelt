@@ -79,10 +79,17 @@ namespace ToolBelt.Windows
             if (target == typeof(DateTime)) { value = DateTime.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind); return true; }
             if (target == typeof(DateTimeOffset)) { value = DateTimeOffset.Parse(s, CultureInfo.InvariantCulture); return true; }
             if (typeof(IConvertible).IsAssignableFrom(target)) return false;
+            // A Uri has no Parse at all, and read back as the default.
+            if (target == typeof(Uri)) { value = Uri.TryCreate(s, UriKind.RelativeOrAbsolute, out Uri? uri) ? uri : throw new FormatException("Not a URI."); return true; }
             System.Reflection.MethodInfo? parse = target.GetMethod("Parse", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
                 null, new[] { typeof(string), typeof(IFormatProvider) }, null);
+            // Version and IPAddress have only Parse(string), and read back as the default; their text has no culture.
+            bool withProvider = parse != null && parse.ReturnType == target;
+            if (!withProvider)
+                parse = target.GetMethod("Parse", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
+                    null, new[] { typeof(string) }, null);
             if (parse is null || parse.ReturnType != target) return false;
-            try { value = parse.Invoke(null, new object[] { s, CultureInfo.InvariantCulture }); return true; }
+            try { value = parse.Invoke(null, withProvider ? new object[] { s, CultureInfo.InvariantCulture } : new object[] { s }); return true; }
             catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException != null)
             {
                 System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
@@ -162,6 +169,16 @@ namespace ToolBelt.Windows
             { value = unchecked((int)u); kind = RegistryValueKind.DWord; }
             else if (value is ulong ul && (kind == RegistryValueKind.Unknown || kind == RegistryValueKind.QWord))
             { value = unchecked((long)ul); kind = RegistryValueKind.QWord; }
+            // Any integer (or enum) given DWORD or QWORD is stored by its bits when it fits as signed or unsigned: a DWORD
+            // 0xFFFFFFFF read back into long as 4294967295 could not be written back. A fraction is refused, not rounded.
+            else if (kind == RegistryValueKind.DWord || kind == RegistryValueKind.QWord)
+                value = ToWord(value, kind == RegistryValueKind.QWord);
+            // A Uri went through ToString(), which unescapes ("%20" became a space): its original text reads back exactly.
+            else if (value is Uri uri && (kind == RegistryValueKind.Unknown || kind == RegistryValueKind.String))
+            { value = uri.OriginalString; kind = RegistryValueKind.String; }
+            // A collection other than string[] and byte[] was stored as its type name.
+            else if (value is System.Collections.IEnumerable && !(value is string) && !(value is byte[]) && !(value is string[]))
+                throw new ArgumentException($"A {value.GetType().Name} cannot be stored; pass a string[] or byte[].", nameof(value));
             // Anything else stored as text went through ToString() in the current culture, but GetValue<T> parses it
             // invariantly: under de-DE 1.5 was written "1,5" and read back as 15 (and -5L under sv-SE had a Unicode minus).
             else if (value is IFormattable formattable && ((kind == RegistryValueKind.Unknown && !(value is int))
@@ -176,10 +193,48 @@ namespace ToolBelt.Windows
             using RegistryKey baseKey = OpenBase(hive);
             using RegistryKey key = ForSubKey(subKey, () => baseKey.CreateSubKey(subKey, writable: true))
                 ?? throw new InvalidOperationException($"Could not open or create subkey '{subKey}'.");
-            if (kind == RegistryValueKind.Unknown)
-                key.SetValue(name, value);
-            else
-                key.SetValue(name, value, kind);
+            try
+            {
+                if (kind == RegistryValueKind.Unknown)
+                    key.SetValue(name, value);
+                else
+                    key.SetValue(name, value, kind);
+            }
+            catch (ArgumentException ex) when (ex.ParamName is null)
+            {
+                // A value that does not fit its kind threw with no parameter name.
+                throw new ArgumentException($"A {value.GetType().Name} cannot be stored as {kind}: {ex.Message}", nameof(value), ex);
+            }
+        }
+
+        // An integer, enum or whole number for a DWORD (int bits) or QWORD (long bits), in the signed or unsigned range.
+        private static object ToWord(object value, bool qword)
+        {
+            if (value is Enum) value = Convert.ChangeType(value, Enum.GetUnderlyingType(value.GetType()), CultureInfo.InvariantCulture);
+            System.Numerics.BigInteger n;
+            switch (value)
+            {
+                case sbyte v: n = v; break;
+                case byte v: n = v; break;
+                case short v: n = v; break;
+                case ushort v: n = v; break;
+                case int v: n = v; break;
+                case uint v: n = v; break;
+                case long v: n = v; break;
+                case ulong v: n = v; break;
+                case char v: n = v; break;
+                case float f when !float.IsNaN(f) && !float.IsInfinity(f) && Math.Floor(f) == f: n = new System.Numerics.BigInteger(f); break;
+                case double d when !double.IsNaN(d) && !double.IsInfinity(d) && Math.Floor(d) == d: n = new System.Numerics.BigInteger(d); break;
+                case decimal m when decimal.Floor(m) == m: n = new System.Numerics.BigInteger(m); break;
+                case float _: case double _: case decimal _:
+                    throw new ArgumentException($"{Convert.ToString(value, CultureInfo.InvariantCulture)} is not a whole number.", nameof(value));
+                default: return value;   // text and the rest: RegistryKey decides
+            }
+            int bits = qword ? 64 : 32;
+            if (n < -(System.Numerics.BigInteger.One << (bits - 1)) || n >= System.Numerics.BigInteger.One << bits)
+                throw new ArgumentOutOfRangeException(nameof(value), value, $"Does not fit a {(qword ? "QWORD" : "DWORD")}.");
+            if (n.Sign < 0) return qword ? (object)(long)n : (int)n;
+            return qword ? (object)unchecked((long)(ulong)n) : unchecked((int)(uint)n);
         }
 
         /// <summary>Deletes a single value. Returns false if the key or value did not exist.</summary>

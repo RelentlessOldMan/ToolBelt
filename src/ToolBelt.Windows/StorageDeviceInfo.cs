@@ -141,13 +141,13 @@ namespace ToolBelt.Windows
             // Device paths are local unless they name a UNC share: \\?\UNC\server\share (or \\.\UNC\…) → \\server\share;
             // \\?\C:\x → C:\x.
             if (full.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase) || full.StartsWith(@"\\.\UNC\", StringComparison.OrdinalIgnoreCase))
-                return @"\\" + full.Substring(8);
-            if (full.StartsWith(@"\\?\", StringComparison.Ordinal) || full.StartsWith(@"\\.\", StringComparison.Ordinal))
+                full = @"\\" + full.Substring(8);                                   // checked below like the plain spelling
+            else if (full.StartsWith(@"\\?\", StringComparison.Ordinal) || full.StartsWith(@"\\.\", StringComparison.Ordinal))
             {
                 full = full.Substring(4);
                 if (full.Length < 2 || full[1] != ':') return null;                    // a volume GUID or device: no network share
             }
-            else if (full.StartsWith(@"\\", StringComparison.Ordinal))
+            if (full.StartsWith(@"\\", StringComparison.Ordinal))
             {
                 // "\\" or "\\server" was returned as a UNC path: one names a server and a share.
                 string[] parts = full.Substring(2).Split('\\');
