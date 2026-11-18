@@ -33,7 +33,8 @@ namespace ToolBelt.Signal
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
             if (halfWindow < 1) throw new ArgumentOutOfRangeException(nameof(halfWindow), halfWindow, "Half-window must be at least 1.");
-            if (!(nSigmas >= 0)) throw new ArgumentOutOfRangeException(nameof(nSigmas), nSigmas, "nSigmas must be non-negative.");
+            // ∞ made the threshold ∞·0 = NaN in a constant window, so a point the documented rule flags was kept.
+            if (!(nSigmas >= 0) || double.IsInfinity(nSigmas)) throw new ArgumentOutOfRangeException(nameof(nSigmas), nSigmas, "nSigmas must be non-negative and finite.");
 
             int n = samples.Length;
             var result = (double[])samples.Clone();

@@ -19,6 +19,8 @@ namespace ToolBelt.Signal
             if ((windowSize & 1) == 0) throw new ArgumentException("Window size must be odd.", nameof(windowSize));
 
             int n = signal.Count;
+            // Past Array.MaxLength the result threw OutOfMemoryException ("array dimensions exceeded").
+            if (n > 0x7FFFFFC7) throw new ArgumentException($"The signal has {n} samples, more than an array holds.", nameof(signal));
             var result = new double[n];
             int half = windowSize / 2;
             // The window is kept sorted as it slides, one binary-searched removal and insertion per sample: re-sorting it for

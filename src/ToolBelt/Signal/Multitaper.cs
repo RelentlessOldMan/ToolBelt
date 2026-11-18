@@ -63,10 +63,11 @@ namespace ToolBelt.Signal
             return x * Math.Pow(2, e);
         }
 
-        // The power of two that brings a peak to at most 1 (or, below 2^-500, up near 1, where subnormals lose bits); 0 for a
-        // peak that is 0, in range, or not finite. Math.Log is used, not bit tricks, so it works on netstandard2.0 too.
+        // The power of two that brings a peak near 1; 0 for a peak that is 0 or not finite. Every finite peak is scaled: only
+        // those below 2^-500 were, so at 1e-150 a quiet bin's |X|² underflowed in the sum though its density was normal.
+        // Math.Log is used, not bit tricks, so it works on netstandard2.0 too.
         private static int Exponent(double peak)
-            => !double.IsInfinity(peak) && !double.IsNaN(peak) && (peak > 1 || (peak > 0 && peak < 3.054936363499605e-151))
+            => !double.IsInfinity(peak) && !double.IsNaN(peak) && peak > 0
                 ? (int)Math.Ceiling(Math.Log(peak, 2)) : 0;
     }
 }

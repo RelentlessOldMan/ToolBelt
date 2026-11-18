@@ -62,6 +62,8 @@ namespace ToolBelt.Signal
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
             if (samples.Count == 0) return Array.Empty<double>();   // Create(type, 0) threw, naming "length"
+            // Past Array.MaxLength Create threw too, naming its own "length".
+            if (samples.Count > 0x7FFFFFC7) throw new ArgumentException($"The signal has {samples.Count} samples, more than an array holds.", nameof(samples));
             var w = Create(type, samples.Count);
             var result = new double[samples.Count];
             for (int i = 0; i < samples.Count; i++) result[i] = samples[i] * w[i];
@@ -90,6 +92,7 @@ namespace ToolBelt.Signal
             if (window.Length == 0) throw new ArgumentException("Window is empty.", nameof(window));
             // Divided once at the end: divided entry by entry, subnormal windows underflowed ([ε, ε] gave 0). Only a plain
             // sum that overflows divides each entry first.
+            RequireFinite(window);
             double sum = 0;
             foreach (var v in window) sum += v;
             if (!double.IsInfinity(sum)) return sum / window.Length;
@@ -107,6 +110,7 @@ namespace ToolBelt.Signal
             if (window is null) throw new ArgumentNullException(nameof(window));
             if (window.Length == 0) throw new ArgumentException("Window is empty.", nameof(window));
             // Scaled by the largest entry so that neither sum overflows; an all-zero window has no bandwidth (it was 0/0 = NaN).
+            RequireFinite(window);
             double max = 0;
             foreach (var v in window) max = Math.Max(max, Math.Abs(v));
             if (max == 0) throw new ArgumentException("The window is all zeros.", nameof(window));
@@ -114,6 +118,14 @@ namespace ToolBelt.Signal
             foreach (var v in window) { double u = v / max; sum += u; sumSq += u * u; }
             if (sum == 0) throw new ArgumentException("The window sums to zero.", nameof(window));
             return window.Length * sumSq / (sum * sum);
+        }
+
+        // An entry of ∞ or NaN gave NaN, where every other unusable window is refused.
+        private static void RequireFinite(double[] window)
+        {
+            for (int i = 0; i < window.Length; i++)
+                if (double.IsNaN(window[i]) || double.IsInfinity(window[i]))
+                    throw new ArgumentException($"Window[{i}] is {window[i]}; entries must be finite.", nameof(window));
         }
     }
 }

@@ -29,39 +29,43 @@ namespace ToolBelt.Signal
             // gave [∞, NaN, −∞] for [∞, 0, −∞]), or subnormal products were each rounded ([2^-537 ×3] ∗ [2^-538 ×3] gave zeros
             // for [0, ε, 2ε, ε, 0]): such an element is summed again from inputs scaled to a peak near 1 by a power of two
             // (exact) and scaled back, one rounding. An element whose overlap holds a non-finite input is left alone: its ∞ or
-            // NaN is the answer (one such input anywhere turned the rescue off for every element).
-            int ea = int.MinValue, eb = 0;
+            // NaN is the answer (one such input anywhere turned the rescue off for every element). The scale is the overlap's
+            // own peaks: with the whole inputs' peaks, [1, x, x, x] ∗ [y, y, y] (products of 0.4ε) was not rescued, because 1·y
+            // is normal, and its third element came out 0 for ε.
+            bool anyProduct = true;
+            bool checkedPeaks = false;
             for (int k = 0; k < result.Length; k++)
             {
                 double r = result[k];
                 bool nonFinite = double.IsInfinity(r) || double.IsNaN(r);
                 if (!nonFinite && Math.Abs(r) >= TinyResult) continue;
-                if (ea == int.MinValue)
+                if (!checkedPeaks)
                 {
-                    double pa = FinitePeak(a), pb = FinitePeak(b);
-                    if (pa == 0 || pb == 0) { ea = int.MaxValue; continue; }
-                    ea = Exponent(pa);
-                    eb = Exponent(pb);
+                    anyProduct = FinitePeak(a) != 0 && FinitePeak(b) != 0;
+                    checkedPeaks = true;
                 }
-                if (ea == int.MaxValue) continue;                           // every product is 0 or non-finite
-                if (!nonFinite && ea + eb > TinyExponent) continue;         // products this large were not rounded as subnormals
+                if (!anyProduct) continue;                                  // every product is 0 or non-finite
                 int from = Math.Max(0, k - (b.Count - 1)), to = Math.Min(a.Count - 1, k);
-                double sum = 0;
+                double pa = 0, pb = 0;
                 bool skip = false;
                 for (int i = from; i <= to; i++)
                 {
                     double x = a[i], y = b[k - i];
                     if (double.IsInfinity(x) || double.IsNaN(x) || double.IsInfinity(y) || double.IsNaN(y)) { skip = true; break; }
-                    sum += ScaleB(x, -ea) * ScaleB(y, -eb);
+                    pa = Math.Max(pa, Math.Abs(x));
+                    pb = Math.Max(pb, Math.Abs(y));
                 }
-                if (!skip) result[k] = ScaleB(sum, ea + eb);
+                if (skip || pa == 0 || pb == 0) continue;
+                int ea = Exponent(pa), eb = Exponent(pb);
+                double sum = 0;
+                for (int i = from; i <= to; i++) sum += ScaleB(a[i], -ea) * ScaleB(b[k - i], -eb);
+                result[k] = ScaleB(sum, ea + eb);
             }
             return result;
         }
 
         // Below 2^-969 a sum of subnormal products may have lost bits to rounding each one.
         private const double TinyResult = 1.0020841800044864E-292;          // 2^-969
-        private const int TinyExponent = -969;
         private const double TwoTo64 = 18446744073709551616.0;
 
         // The exponent e of x's leading bit, so x·2^-e is in [1, 2).

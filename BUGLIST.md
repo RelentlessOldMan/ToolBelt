@@ -123,6 +123,7 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R115-5 | P3 | 2 | suspected | Welch and Multitaper scale with ScaleB after the sum, which may round subnormal results twice. | review r115 |
 | R115-6 | P3 | 2 | suspected | An IReadOnlyList input that changes between reads gives inconsistent results. | review r115 |
 | R115-7 | P3 | 2 | suspected | SavitzkyGolay still sums per row for an edge window holding non-finite values. | review r115 |
+| R137-1 | P3 | 2 | suspected | SavitzkyGolay's fit still costs O(w·m²) near order w − 2 (seconds at w = 2001, documented; a stable O(w·m) basis would need more than Arnoldi with full reorthogonalisation); Multitaper's quiet bins below about 1e-308 of the peak are lost (inherent at that range?). Written but not run in round 137: PhaseUnwrap against NumPy's algorithm, Quantizer against an exact BigInteger code, MedianFilter and Hampel with infinities and signed zeros, GCC-PHAT against a DFT, CycleMeasurements on sines (analytic review only). | review r137 |
 | R116-1 | P3 | 12 | suspected | ConsoleTable pads ANSI-styled cells by their escape characters, misaligning columns. | review r116 |
 | R116-2 | P3 | 12 | suspected | ConsoleSpinner may still count some astral wide ranges (beyond those fixed in round 116) as one column. | review r116 |
 | R116-3 | P3 | 12 | suspected | AnsiStyle.Wrap ignores partial resets (22, 39, 49) inside the wrapped text. | review r116 |

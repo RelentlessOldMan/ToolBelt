@@ -69,6 +69,7 @@ namespace ToolBelt.Signal
         /// Group delay τ(f) = −dφ/dω, in seconds, from an <b>unwrapped</b> phase response (radians) sampled at
         /// <paramref name="frequencies"/> (Hz, strictly increasing; spacing may vary): central differences inside, one-sided
         /// at the ends. A pure delay of T seconds (φ = −2πfT) gives exactly T everywhere; dispersion shows up as variation.
+        /// Phases and frequencies must be finite.
         /// </summary>
         public static double[] GroupDelay(System.Collections.Generic.IReadOnlyList<double> unwrappedPhase, System.Collections.Generic.IReadOnlyList<double> frequencies)
         {
@@ -77,6 +78,15 @@ namespace ToolBelt.Signal
             int n = unwrappedPhase.Count;
             if (n != frequencies.Count) throw new ArgumentException("Phase and frequency arrays must have the same length.", nameof(frequencies));
             if (n < 2) throw new ArgumentException("Need at least two points.", nameof(unwrappedPhase));
+            // An infinite frequency passed the order check and made Δf infinite: the delay at it and at its finite
+            // neighbour came out 0. A NaN phase only spread NaN.
+            for (int i = 0; i < n; i++)
+            {
+                if (double.IsNaN(frequencies[i]) || double.IsInfinity(frequencies[i]))
+                    throw new ArgumentException($"Frequencies[{i}] is {frequencies[i]}; frequencies must be finite.", nameof(frequencies));
+                if (double.IsNaN(unwrappedPhase[i]) || double.IsInfinity(unwrappedPhase[i]))
+                    throw new ArgumentException($"UnwrappedPhase[{i}] is {unwrappedPhase[i]}; phases must be finite.", nameof(unwrappedPhase));
+            }
             for (int i = 1; i < n; i++)
                 if (!(frequencies[i] > frequencies[i - 1])) throw new ArgumentException("Frequencies must be strictly increasing.", nameof(frequencies));
             var tau = new double[n];
