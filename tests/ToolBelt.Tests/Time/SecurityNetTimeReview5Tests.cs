@@ -63,11 +63,12 @@ namespace ToolBelt.Tests.Time
             Check.True(job.NextRun is DateTimeOffset n && n.Year == 2026, $"NextRun {job.NextRun}");
         }
 
+        // Round 124: a fixed-time job (an hourly "0 * * * *" is a wildcard job in cron, which runs by the clock).
         public void Scheduler_AShortStepBackDoesNotRepeatARun()
         {
             DateTimeOffset now = new DateTimeOffset(2026, 1, 1, 9, 59, 0, TimeSpan.Zero);
             using var s = Scheduler(() => now, out Parked loop);
-            ScheduledJob job = s.Add("hourly", "0 * * * *", () => { });
+            ScheduledJob job = s.Add("daily", "0 10 * * *", () => { });
             loop.Start();
             now = new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero);
             Check.Equal(1, Tick(s, job));
@@ -75,7 +76,7 @@ namespace ToolBelt.Tests.Time
             Check.Equal(0, Tick(s, job));
             now = new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero);
             Check.Equal(0, Tick(s, job));   // 10:00 already ran
-            now = new DateTimeOffset(2026, 1, 1, 11, 0, 0, TimeSpan.Zero);
+            now = new DateTimeOffset(2026, 1, 2, 10, 0, 0, TimeSpan.Zero);
             Check.Equal(1, Tick(s, job));
         }
 

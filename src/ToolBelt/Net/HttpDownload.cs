@@ -188,7 +188,7 @@ namespace ToolBelt.Net
             {
                 // A single-range 206 must carry Content-Range (RFC 9110 15.3.7): without it there is no telling where
                 // the body starts, so appending could corrupt the file.
-                TryDelete(partial);
+                Discard(partial, destination);
                 throw new HttpDownloadException($"Server answered the resume of {url} with 206 but no Content-Range; the partial file was deleted, so the next download starts over.");
             }
             if (status == 206 && existing > 0 && range!.From == existing)
@@ -210,7 +210,7 @@ namespace ToolBelt.Net
                 throw new HttpDownloadException($"Server returned a range starting at byte {range?.From} for {url}; byte {existing} was requested.");
             else if (status == 416 && existing > 0)
             {
-                TryDelete(partial);
+                Discard(partial, destination);
                 throw new HttpDownloadException($"Server rejected the resume range for {url} (416); the partial file was deleted, so the next download starts over.");
             }
             else if (status >= 500)
@@ -272,7 +272,7 @@ namespace ToolBelt.Net
 
             if (overrun)
             {
-                TryDelete(partial);   // what is there may not be the start of this file either
+                Discard(partial, destination);   // what is there may not be the start of this file either
                 throw new HttpDownloadException($"The response from {url} was longer than its declared {total!.Value} bytes; the partial file was deleted.");
             }
             if (total.HasValue && downloaded != total.Value)
@@ -289,7 +289,7 @@ namespace ToolBelt.Net
                 sha = Sha256Hex(partial);
                 if (!string.Equals(sha, options.ExpectedSha256Hex, StringComparison.OrdinalIgnoreCase))
                 {
-                    TryDelete(partial);   // resuming would only extend the wrong bytes
+                    Discard(partial, destination);   // resuming would only extend the wrong bytes
                     throw new HttpDownloadException($"Checksum mismatch for {destination}: expected {options.ExpectedSha256Hex}, got {sha}.");
                 }
             }
@@ -302,6 +302,17 @@ namespace ToolBelt.Net
             }
             else File.Move(partial, destination);
             return new HttpDownloadResult(downloaded, total, resumed, sha);
+        }
+
+        // Drops a partial file that cannot be resumed. Under Resume a missing partial file is copied again from an existing
+        // destination, so deleting it there made every later call resume the same stale destination and fail the same
+        // way, though the message said the next download starts over: an empty partial file starts it over instead.
+        private static void Discard(string partial, string destination)
+        {
+            if (!File.Exists(destination)) { TryDelete(partial); return; }
+            try { using (new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None)) { } }
+            catch (IOException) { TryDelete(partial); }
+            catch (UnauthorizedAccessException) { TryDelete(partial); }
         }
 
         private static void TryDelete(string path)

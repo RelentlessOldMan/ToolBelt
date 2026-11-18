@@ -190,7 +190,9 @@ namespace ToolBelt.Time
                 // The clock went back (a correction after it ran fast): the stored times came from the later clock, so
                 // every job waited out the jump (a year, for a clock a year fast). Each is worked out again from now, and a
                 // job lost to a reading past its last occurrence (a glitch near 9999) gets another try. As cron does, a
-                // step back of under three hours doesn't repeat a run already made: it counts from that run instead.
+                // step back of under three hours doesn't repeat a fixed-time job's run already made: it counts from that run
+                // instead. A wildcard job (minute or hour '*') counts from now, as in cron: "* * * * *" stopped for the
+                // whole of a two-hour step back.
                 bool back = _lastNow is DateTimeOffset last && now < last;
                 _lastNow = now;
                 foreach (var job in _jobs)
@@ -201,7 +203,8 @@ namespace ToolBelt.Time
                     if (job.Pending || (back && !dueNow))
                     {
                         job.Pending = false;
-                        DateTimeOffset from = job.LastRun is DateTimeOffset ran && ran > now && ran - now < TimeSpan.FromHours(3) ? ran : now;
+                        DateTimeOffset from = !job.Schedule.IsFrequent && job.LastRun is DateTimeOffset ran && ran > now
+                                              && ran - now < TimeSpan.FromHours(3) ? ran : now;
                         try { job.NextRun = job.Schedule.GetNextOccurrence(from, _zone); }
                         catch (Exception ex)
                         {

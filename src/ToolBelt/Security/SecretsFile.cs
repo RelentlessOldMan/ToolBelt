@@ -142,6 +142,8 @@ namespace ToolBelt.Security
                         int eq = line.IndexOf('=');
                         if (eq <= 0) throw new CryptographicException("The secrets file's contents are malformed (a line without a key).");
                         string name = line.Substring(0, eq);
+                        // A key with a CR (the lines split at LF) was taken, though the class says keys have no line breaks.
+                        if (name.IndexOf('\r') >= 0) throw new CryptographicException("The secrets file's contents are malformed (a line break in a key).");
                         if (result._values.ContainsKey(name)) throw new CryptographicException("The secrets file's contents are malformed (a duplicate key).");
                         result._values[name] = strict.GetString(Convert.FromBase64String(line.Substring(eq + 1)));
                     }

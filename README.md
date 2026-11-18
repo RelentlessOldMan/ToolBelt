@@ -1005,6 +1005,7 @@ tests/
       SecurityNetTimeReview4Tests.cs (fourth-pass regressions: TCP decode errors, ACLs kept on save, torn scheduler reads, Unix time at the calendar ends)
       SecurityNetTimeReview5Tests.cs (round 91 review regressions: scheduler clock corrections, IPv4-mapped CIDR matches, strict TCP decoding, download overruns, malformed secrets, rare cron schedules)
       SecurityNetTimeReview6Tests.cs (round 92 review regressions: bad bytes between CR and LF, calendar years in relative times)
+      SecurityNetTimeReview7Tests.cs (round 124 review regressions: stale destinations under Resume, wildcard cron jobs after a step back, truncated AEAD blobs, line breaks in secrets keys)
       TimeOfDayRangeTests.cs
       UnixTimeTests.cs
     Visualization/

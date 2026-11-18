@@ -32,6 +32,10 @@ namespace ToolBelt.Time
         private readonly bool _dowRestricted;
         private readonly bool _frequent;       // minute or hour field starts with '*': no DST make-up or de-duplication
 
+        // cron's "wildcard job" (the minute or hour field starts with '*'): it runs by the clock as it reads, with no
+        // make-up or de-duplication when the clock jumps. CronScheduler holds back only the other jobs after a step back.
+        internal bool IsFrequent => _frequent;
+
         // The Gregorian calendar repeats every 400 years (146,097 days, a whole number of weeks), so a schedule that can
         // match at all matches within one cycle. The window was 8 years, which rejected valid schedules such as Feb 29 on
         // a weekend (`0 0 29 2 */6`, up to 16 years apart) or on a Sunday (28 or more). Days that cannot match are jumped

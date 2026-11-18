@@ -77,8 +77,10 @@ namespace ToolBelt.Security
         {
             if (message is null) throw new ArgumentNullException(nameof(message));
             ValidateKey(key);
+            // A truncated blob is altered input, which the class promises fails as a CryptographicException (as it did from
+            // 28 bytes up); this was an ArgumentException, which a caller catching the promised type let through.
             if (message.Length < NonceSize + TagSize)
-                throw new ArgumentException("Message is too short to contain a nonce and tag.", nameof(message));
+                throw new CryptographicException("Message is too short to contain a nonce and tag.");
 
             int plainLength = message.Length - NonceSize - TagSize;
             var nonce = new ReadOnlySpan<byte>(message, 0, NonceSize);

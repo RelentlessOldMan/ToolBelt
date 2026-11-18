@@ -142,7 +142,7 @@ namespace ToolBelt.Tests.Security
             Check.Throws<ArgumentNullException>(() => AuthenticatedEncryption.Encrypt(null!, Array.Empty<byte>()));
             Check.Throws<ArgumentNullException>(() => AuthenticatedEncryption.Encrypt(good, (byte[])null!));
             // Too short to hold a nonce + tag.
-            Check.Throws<ArgumentException>(() => AuthenticatedEncryption.Decrypt(good, new byte[AuthenticatedEncryption.NonceSize]));
+            Check.Throws<CryptographicException>(() => AuthenticatedEncryption.Decrypt(good, new byte[AuthenticatedEncryption.NonceSize]));
             // Detached: wrong nonce length.
             Check.Throws<ArgumentException>(() =>
                 AuthenticatedEncryption.EncryptDetached(good, new byte[8], Array.Empty<byte>(), Array.Empty<byte>(), new byte[16]));
