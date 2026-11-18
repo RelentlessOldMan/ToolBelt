@@ -74,8 +74,12 @@ namespace ToolBelt.Threading
             cancellationToken.ThrowIfCancellationRequested();
             var handlers = Snapshot();
             var tasks = new List<Task<Exception?>>(handlers.Count);
-            foreach (var handler in handlers)
-                tasks.Add(RunGuarded(handler, args, cancellationToken));
+            // Each from the pool: started in turn on the caller's thread, the synchronous part of each handler ran after the
+            // one before (three 300 ms handlers took 900 ms, blocking the caller), and handlers waiting on each other hung.
+            if (handlers.Count == 1) tasks.Add(RunGuarded(handlers[0], args, cancellationToken));
+            else
+                foreach (var handler in handlers)
+                    tasks.Add(Task.Run(() => RunGuarded(handler, args, cancellationToken)));
             await Task.WhenAll(tasks).ConfigureAwait(false); // RunGuarded never throws
 
             var exceptions = new List<Exception>();

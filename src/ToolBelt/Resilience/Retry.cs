@@ -88,10 +88,11 @@ namespace ToolBelt.Resilience
             // (exponential growth overflows double to Infinity). Reconstructing via FromMilliseconds at
             // the extreme could itself overflow the TimeSpan range.
             TimeSpan cap = MaxDelay == Timeout.InfiniteTimeSpan ? TimeSpan.MaxValue : MaxDelay;
-            if (double.IsNaN(factor) || BaseDelay.Ticks * factor >= cap.Ticks)
+            if (double.IsNaN(factor) || !(factor < 9.2233720368547758e18))
                 return cap;
             // In whole ticks: through milliseconds and back, a delay lost a tick (Constant 3 ticks gave 2). The factor is a
-            // whole number below 2^63 here, and the product is checked for the last bit of rounding in the comparison above.
+            // whole number below 2^63 here. The cap is compared with the exact product, not a double one: near 2^63 ticks
+            // the double rounded a delay 200 ticks under the cap up to it.
             long ticks;
             try { ticks = checked(BaseDelay.Ticks * (long)factor); }
             catch (OverflowException) { return cap; }

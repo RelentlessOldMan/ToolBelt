@@ -21,7 +21,10 @@ namespace ToolBelt.Process
 
             bool windows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
             bool tryAsIs;
-            try { tryAsIs = !windows || Path.HasExtension(name); }
+            // A trailing '.' is an empty extension, as the launcher reads it: "cmd." names a file "cmd" and is not given
+            // PATHEXT (it found cmd.EXE, which "cmd." does not start), and "cmd.exe." names cmd.exe (it found nothing).
+            bool trailingDot = windows && name[name.Length - 1] == '.';
+            try { tryAsIs = !windows || trailingDot || Path.HasExtension(name); }
             catch (ArgumentException) { return null; } // .NET Framework checks for invalid characters here ("a|b")
 
             // A name that already includes a directory is resolved directly.
@@ -31,7 +34,7 @@ namespace ToolBelt.Process
                 try { full = Path.GetFullPath(name); }
                 catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
                 { return null; } // an invalid path names nothing (.NET Framework threw for "a\b|c")
-                return Resolve(full, tryAsIs, windows);
+                return Resolve(full, tryAsIs, windows && !trailingDot);
             }
 
             string pathVar = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
@@ -46,16 +49,16 @@ namespace ToolBelt.Process
                 catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
                 { continue; } // skip malformed PATH entries
 
-                string? found = Resolve(candidate, tryAsIs, windows);
+                string? found = Resolve(candidate, tryAsIs, windows && !trailingDot);
                 if (found != null) return found;
             }
             return null;
         }
 
-        private static string? Resolve(string path, bool tryAsIs, bool windows)
+        private static string? Resolve(string path, bool tryAsIs, bool pathExt)
         {
             if (tryAsIs && File.Exists(path)) return path;
-            if (windows)
+            if (pathExt)
             {
                 string pathext = Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD"; // cmd's own default order
                 foreach (string ext in pathext.Split(';'))

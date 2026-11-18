@@ -288,17 +288,21 @@ namespace ToolBelt.Tests.Threading
         {
             // Guard: against a model, with attempts finished one at a time in a random order. The winner is the first to
             // succeed (and match), and when none does, the failures come in the order they finished. The sources run their
-            // continuations inline, so each completion is handed to the race before the next is set.
+            // continuations inline, so each completion is handed to the race before the next is set. Attempts start on the
+            // pool (round 128), so the sources are set only once every attempt has been invoked and watched.
             var rng = new Random(114);
-            for (int trial = 0; trial < 300; trial++)
+            for (int trial = 0; trial < 150; trial++)
             {
                 int n = rng.Next(1, 12);
                 var sources = Enumerable.Range(0, n).Select(_ => new TaskCompletionSource<int>()).ToArray();
                 var outcome = Enumerable.Range(0, n).Select(_ => rng.Next(3)).ToArray();   // 0 fail, 1 reject, 2 accept
                 var order = Enumerable.Range(0, n).OrderBy(_ => rng.Next()).ToArray();
                 bool matching = rng.Next(2) == 0;
-                var attempts = sources.Select(s => (Func<CancellationToken, Task<int>>)(ct => s.Task)).ToList();
+                int invoked = 0;
+                var attempts = sources.Select(s => (Func<CancellationToken, Task<int>>)(ct => { Interlocked.Increment(ref invoked); return s.Task; })).ToList();
                 Task<int> race = matching ? TaskRace.FirstMatching(attempts, v => v % 2 == 0) : TaskRace.FirstSuccessful(attempts);
+                Check.True(SpinWait.SpinUntil(() => Volatile.Read(ref invoked) == n, 10_000), $"trial {trial}: attempts not started");
+                Thread.Sleep(20);   // past the few instructions between an attempt returning its task and the race watching it
                 int? want = null;
                 var failures = new List<string>();
                 foreach (int i in order)

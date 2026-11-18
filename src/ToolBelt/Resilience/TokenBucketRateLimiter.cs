@@ -17,8 +17,11 @@ namespace ToolBelt.Resilience
         private readonly double _refillPerSecond;
         private readonly Func<DateTimeOffset> _clock;
 
+        // The tokens held at _lastRefill; the refill since is added on each read, not stored. Stored at every poll, a refill
+        // too small to change a large count was lost with its time: 1e16 tokens polled each millisecond never refilled.
         private double _tokens;
         private DateTimeOffset _lastRefill;
+        private DateTimeOffset _seen;   // the latest clock reading, to tell a clock stepped back
 
         /// <param name="capacity">Maximum tokens the bucket holds (also the initial fill).</param>
         /// <param name="refillTokensPerSecond">Tokens added per second, up to the capacity.</param>
@@ -35,7 +38,7 @@ namespace ToolBelt.Resilience
             _refillPerSecond = refillTokensPerSecond;
             _clock = clock ?? (static () => DateTimeOffset.UtcNow);
             _tokens = capacity;      // start full
-            _lastRefill = _clock();
+            _lastRefill = _seen = _clock();
         }
 
         /// <summary>Tokens currently available (after accounting for elapsed refill). Does not consume.</summary>
@@ -43,8 +46,7 @@ namespace ToolBelt.Resilience
         {
             get
             {
-                Refill(_clock());
-                return _tokens;
+                return Refill(_clock());
             }
         }
 
@@ -57,26 +59,38 @@ namespace ToolBelt.Resilience
             Guard.Positive(count);
             if (count > _capacity)
                 throw new ArgumentOutOfRangeException(nameof(count), count, "Count exceeds the bucket's capacity; it could never be acquired.");
-            Refill(_clock());
+            DateTimeOffset now = _clock();
+            double tokens = Refill(now);
 
             // A tolerance: refills summed in small steps fall short by rounding (ten 100 ms steps at 1/s left 0.9999999999999999),
             // which refused a token that was due and under-granted by 10% when polled every 10 ms. Capped at a millionth of a
             // token: in proportion to the count, int.MaxValue was granted with two tokens short.
-            if (_tokens >= count - Math.Min(count, 1000) * 1e-9)
+            if (tokens >= count - Math.Min(count, 1000) * 1e-9)
             {
-                _tokens = Math.Max(0, _tokens - count);
+                _tokens = Math.Max(0, tokens - count);
+                _lastRefill = now;
                 return true;
             }
             return false;
         }
 
-        private void Refill(DateTimeOffset now)
+        // The tokens held now. The base moves only when the bucket fills (time past that adds nothing) or the clock steps
+        // back from the latest time seen: the refill up to that time is kept, and it restarts from the new time.
+        private double Refill(DateTimeOffset now)
         {
-            double elapsedSeconds = (now - _lastRefill).TotalSeconds;
-            if (elapsedSeconds > 0)
-                _tokens = Math.Min(_capacity, _tokens + elapsedSeconds * _refillPerSecond);
-            // Moved back too when the clock stepped back; kept, nothing refilled until it passed the old time again.
-            if (elapsedSeconds != 0) _lastRefill = now;
+            if (now < _seen)
+            {
+                _tokens = Math.Min(_capacity, _tokens + (_seen - _lastRefill).TotalSeconds * _refillPerSecond);
+                _lastRefill = now;
+            }
+            _seen = now;
+            double tokens = Math.Min(_capacity, _tokens + (now - _lastRefill).TotalSeconds * _refillPerSecond);
+            if (tokens >= _capacity)
+            {
+                _tokens = _capacity;
+                _lastRefill = now;
+            }
+            return tokens;
         }
     }
 }

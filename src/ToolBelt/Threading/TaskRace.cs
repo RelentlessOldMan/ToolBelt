@@ -217,12 +217,15 @@ namespace ToolBelt.Threading
             catch (AggregateException) { }
         }
 
-        // Runs the factory so that a synchronous throw becomes a faulted task rather than escaping the race.
+        // Runs the factory on the pool, so that a synchronous throw becomes a faulted task rather than escaping the race,
+        // and a synchronous part does not hold up the rest: started in turn on the caller's thread, a 1 s synchronous first
+        // attempt won FirstToComplete over an instant second, and Hedged never hedged it.
         private static Task<T> Start<T>(Func<Task<T>> factory)
-        {
-            try { return factory() ?? Task.FromException<T>(new InvalidOperationException("Attempt returned a null task.")); }
-            catch (Exception ex) { return Task.FromException<T>(ex); }
-        }
+            => Task.Run(() =>
+            {
+                try { return factory() ?? Task.FromException<T>(new InvalidOperationException("Attempt returned a null task.")); }
+                catch (Exception ex) { return Task.FromException<T>(ex); }
+            });
 
         private static Exception Unwrap(Task t)
             => t.IsCanceled ? new TaskCanceledException(t) : (t.Exception!.InnerExceptions.Count == 1 ? t.Exception.InnerException! : t.Exception);

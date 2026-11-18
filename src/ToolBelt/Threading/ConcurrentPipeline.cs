@@ -42,6 +42,10 @@ namespace ToolBelt.Threading
         private volatile bool _drained; // the consumer stopped because the buffer emptied after completion
         private int _disposed;
         [ThreadStatic] private static object? t_reporting; // the pipeline whose onError this thread is running
+        // The pipeline whose consumer loop owns this thread. The loop blocks on each callback, so anything running on its
+        // thread runs inside the consumer: a continuation the callback ran inline (a default TaskCompletionSource it
+        // completed) has no Flow, and Dispose from it waited on its own thread for good.
+        [ThreadStatic] private static object? t_loop;
         // The callback this flow belongs to: set on the consumer thread for each item, so it follows the callback across
         // awaits. A task the callback starts inherits it too, so it counts only while the callback runs: the pipeline
         // alone was marked, and CompleteAsync or Dispose from a timer or Task.Run the consumer started returned at once
@@ -60,7 +64,8 @@ namespace ToolBelt.Threading
         private bool InConsumer()
         {
             var flow = s_consuming.Value;
-            return ReferenceEquals(t_reporting, this) || (flow != null && flow.Active && ReferenceEquals(flow.Owner, this));
+            return ReferenceEquals(t_reporting, this) || ReferenceEquals(t_loop, this)
+                || (flow != null && flow.Active && ReferenceEquals(flow.Owner, this));
         }
 
         public ConcurrentPipeline(
@@ -189,6 +194,7 @@ namespace ToolBelt.Threading
 
         private void Consume(CancellationToken ct)
         {
+            t_loop = this;   // a dedicated thread, never shared, so it is not cleared
             while (true)
             {
                 try { _signal.Wait(ct); }
