@@ -45,10 +45,10 @@ namespace ToolBelt.IO
                 using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 using (var archive = new ZipArchive(fs, ZipArchiveMode.Create))
                 {
-                    foreach ((string file, bool isEmptyDirectory) in EnumerateNoLinks(root))
+                    // The listed path as it is: Path.GetFullPath would drop a trailing dot or space from a name.
+                    foreach ((string file, bool isEmptyDirectory) in EnumerateNoLinks(root,
+                        f => string.Equals(f, zipFull, PathComparison) || string.Equals(f, temp, PathComparison)))   // the archive being written
                     {
-                        // The listed path as it is: Path.GetFullPath would drop a trailing dot or space from a name.
-                        if (string.Equals(file, zipFull, PathComparison) || string.Equals(file, temp, PathComparison)) continue;   // the archive being written
                         string entryName = file.Substring(root.Length)
                             .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                             .Replace(Path.DirectorySeparatorChar, '/');   // only the separator: a backslash is a name character on Unix
@@ -107,8 +107,10 @@ namespace ToolBelt.IO
                 string target = SafeTarget(root, rootWithSeparator, entry.FullName);
                 EnsureNoLinks(rootWithSeparator, target, entry.FullName);
 
-                // Directory entry (name ends with a separator, no file name).
-                if (entry.FullName.EndsWith("/", StringComparison.Ordinal) || entry.Name.Length == 0)
+                // Directory entry (name ends with a separator, no file name). On Windows a trailing \ is one too: in an
+                // archive made on Unix, Name is then the whole "a\", so the folder was made and then refused as a file.
+                if (entry.FullName.EndsWith("/", StringComparison.Ordinal) || entry.Name.Length == 0
+                    || (Path.DirectorySeparatorChar == '\\' && entry.FullName.EndsWith("\\", StringComparison.Ordinal)))
                 {
                     Directory.CreateDirectory(target);
                     directoryTimes.Add((target, entry.LastWriteTime.DateTime));
@@ -189,9 +191,13 @@ namespace ToolBelt.IO
         /// <summary>
         /// Adds an entry, replacing every existing one with the same name. The zip is rewritten beside itself and moved
         /// over the original once complete, so a failure leaves it as it was. The other entries are streamed across
-        /// (recompressed, stored ones kept stored), so memory does not grow with the archive; one this runtime cannot
-        /// read (an unsupported compression method) is kept as it was by an in-memory rewrite instead.
+        /// (recompressed, stored ones kept stored, with their attributes and comments), so memory does not grow with the
+        /// archive. An in-memory rewrite, which keeps every other entry's bytes as they were, is used instead when the
+        /// streamed copy could not be exact: an entry this runtime cannot read (an unsupported compression method), a name
+        /// or comment that is not stored as UTF-8 (or ASCII), or on netstandard2.0, which cannot copy attributes or comments.
         /// </summary>
+        /// <exception cref="NotSupportedException">On .NET Framework, the zip holds names stored in a code page beside UTF-8
+        /// names, or a name past ASCII is added beside code-page names: its update mode could keep only one kind.</exception>
         public static void AddOrReplaceEntry(string zipPath, string entryName, byte[] content, CompressionLevel level = CompressionLevel.Optimal)
         {
             if (zipPath is null) throw new ArgumentNullException(nameof(zipPath));
@@ -217,9 +223,14 @@ namespace ToolBelt.IO
         }
 
         // Update mode loads every entry into memory when it saves: a 3-byte entry added to a 400 MB zip took 400 MB, and
-        // one over 2 GB failed. False when an entry cannot be read here, so the in-memory form keeps it as it was.
+        // one over 2 GB failed. False when an entry cannot be copied exactly here, so the in-memory form keeps it as it was.
         private static bool RewriteStreaming(string zipFull, string temp, string entryName, byte[] content, CompressionLevel level)
         {
+#if !NET7_0_OR_GREATER
+            // No ExternalAttributes (Unix permissions) or comments to copy: the streamed copy dropped them.
+            return false;
+#else
+            if (File.Exists(zipFull) && !WritesBackExactly(zipFull)) return false;
             using (var fs = new FileStream(temp, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
             using (var output = new ZipArchive(fs, ZipArchiveMode.Create))
             {
@@ -227,6 +238,7 @@ namespace ToolBelt.IO
                 {
                     using var original = new FileStream(zipFull, FileMode.Open, FileAccess.Read, FileShare.Read);
                     using var archive = OpenArchive(original, ZipArchiveMode.Read);
+                    output.Comment = archive.Comment;   // the copy dropped it, which update mode keeps
                     foreach (ZipArchiveEntry e in EntriesOf(archive))
                     {
                         // GetEntry finds only one of several same-named entries; every one is left out.
@@ -236,9 +248,8 @@ namespace ToolBelt.IO
                         bool stored = e.CompressedLength == e.Length && e.Length > 0;
                         ZipArchiveEntry copy = output.CreateEntry(e.FullName, stored ? CompressionLevel.NoCompression : CompressionLevel.Optimal);
                         copy.LastWriteTime = e.LastWriteTime;
-#if NET6_0_OR_GREATER
                         copy.ExternalAttributes = e.ExternalAttributes;
-#endif
+                        copy.Comment = e.Comment;
                         if (e.FullName.EndsWith("/", StringComparison.Ordinal) && e.Length == 0) continue;
                         Stream source;
                         try { source = e.Open(); }
@@ -253,7 +264,31 @@ namespace ToolBelt.IO
                 entryStream.Write(content, 0, content.Length);
             }
             return true;
+#endif
         }
+
+#if NET7_0_OR_GREATER
+        // The copy writes names and comments as UTF-8. One stored in another code page (flag bit 11 clear, say the CP437
+        // byte 0x82) was read as U+FFFD and written back so, the name lost (and two such names made one). Read again
+        // through Latin-1, which keeps every byte, such a name or comment reads differently; a stored name that is not
+        // valid UTF-8 holds U+FFFD either way.
+        private static bool WritesBackExactly(string zipFull)
+        {
+            using var a = new FileStream(zipFull, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var b = new FileStream(zipFull, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var utf8 = OpenArchive(a, ZipArchiveMode.Read);
+            using var bytes = new ZipArchive(b, ZipArchiveMode.Read, leaveOpen: false, entryNameEncoding: Encoding.Latin1);
+            if (!Same(utf8.Comment, bytes.Comment)) return false;
+            var x = EntriesOf(utf8);
+            var y = bytes.Entries;
+            if (x.Count != y.Count) return false;
+            for (int i = 0; i < x.Count; i++)
+                if (!Same(x[i].FullName, y[i].FullName) || !Same(x[i].Comment, y[i].Comment)) return false;
+            return true;
+
+            static bool Same(string s, string t) => string.Equals(s, t, StringComparison.Ordinal) && s.IndexOf('\uFFFD') < 0;
+        }
+#endif
 
         private static void RewriteInMemory(string zipFull, string temp, string entryName, byte[] content, CompressionLevel level)
         {
@@ -262,7 +297,14 @@ namespace ToolBelt.IO
                 using (var original = new FileStream(zipFull, FileMode.Open, FileAccess.Read, FileShare.Read))
                     original.CopyTo(fs);
             fs.Position = 0;
+#if NET7_0_OR_GREATER
             using var archive = OpenArchive(fs, ZipArchiveMode.Update);
+#else
+            ZipArchive archive;
+            try { archive = new ZipArchive(fs, ZipArchiveMode.Update, leaveOpen: true, entryNameEncoding: UpdateNameEncoding(zipFull, entryName)); }
+            catch (ArgumentException ex) { throw UnreadableName(ex); }
+            using var _ = archive;
+#endif
             var stale = new List<ZipArchiveEntry>();
             foreach (ZipArchiveEntry e in EntriesOf(archive))
                 if (string.Equals(e.FullName, entryName, StringComparison.Ordinal)) stale.Add(e);
@@ -271,6 +313,48 @@ namespace ToolBelt.IO
             using Stream entryStream = entry.Open();
             entryStream.Write(content, 0, content.Length);
         }
+
+#if !NET7_0_OR_GREATER
+        // .NET Framework's update mode re-encodes every name it read: one stored in a code page (flag bit 11 clear, the
+        // CP437 byte 0x82) was read as U+FFFD and written back as UTF-8, the name lost. Latin-1 reads and writes such a
+        // name byte for byte, flag clear, but would garble a UTF-8 name beside it, so an archive mixing the two (or a new
+        // name past ASCII going into it) is refused rather than rewritten with a name lost. Null keeps the default.
+        private static Encoding? UpdateNameEncoding(string zipFull, string entryName)
+        {
+            if (!File.Exists(zipFull)) return null;
+            Encoding latin1 = Encoding.GetEncoding(28591);
+            bool codePage = false, utf8 = false;
+            using (var a = new FileStream(zipFull, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var b = new FileStream(zipFull, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (ZipArchive byDefault = OpenArchive(a, ZipArchiveMode.Read))
+            {
+                ZipArchive byBytes;
+                try { byBytes = new ZipArchive(b, ZipArchiveMode.Read, leaveOpen: false, entryNameEncoding: latin1); }
+                catch (ArgumentException ex) { throw UnreadableName(ex); }
+                using (byBytes)
+                {
+                    var x = EntriesOf(byDefault);
+                    var y = EntriesOf(byBytes);
+                    for (int i = 0; i < x.Count && i < y.Count; i++)
+                    {
+                        // A flagged name reads as UTF-8 either way; an unflagged one past ASCII reads differently.
+                        if (!string.Equals(x[i].FullName, y[i].FullName, StringComparison.Ordinal)) codePage = true;
+                        else if (!IsAscii(x[i].FullName)) utf8 = true;
+                    }
+                }
+            }
+            if (!codePage) return null;
+            if (utf8 || !IsAscii(entryName))
+                throw new NotSupportedException("The zip holds names stored in a code page, which .NET Framework cannot rewrite beside UTF-8 names without losing one.");
+            return latin1;
+
+            static bool IsAscii(string s)
+            {
+                foreach (char c in s) if (c > 0x7F) return false;
+                return true;
+            }
+        }
+#endif
 
         // Replaces target with source. Deleting the target and then moving lost it when the move failed: the finally then
         // deleted the only copy left.
@@ -428,7 +512,8 @@ namespace ToolBelt.IO
         }
 
         // Files, plus directories that hold nothing archivable (so they survive the round trip). Links are not followed.
-        private static IEnumerable<(string Path, bool IsEmptyDirectory)> EnumerateNoLinks(string root)
+        // A skipped file does not count as content: a folder holding only the archive being written was lost.
+        private static IEnumerable<(string Path, bool IsEmptyDirectory)> EnumerateNoLinks(string root, Func<string, bool> skip)
         {
             var pending = new Stack<string>();
             pending.Push(root);
@@ -437,7 +522,7 @@ namespace ToolBelt.IO
                 string dir = pending.Pop();
                 bool any = false;
                 foreach (string f in List(dir, directories: false))
-                    if (!IsLink(Exact(f), File.GetAttributes(Exact(f)))) { any = true; yield return (f, false); }
+                    if (!skip(f) && !IsLink(Exact(f), File.GetAttributes(Exact(f)))) { any = true; yield return (f, false); }
                 foreach (string d in List(dir, directories: true))
                     if (!IsLink(Exact(d), File.GetAttributes(Exact(d)))) { any = true; pending.Push(d); }
                 if (!any && !string.Equals(dir, root, PathComparison)) yield return (dir, true);
@@ -502,8 +587,38 @@ namespace ToolBelt.IO
             catch (IOException) { return true; }
             catch (UnauthorizedAccessException) { return true; }
 #else
-            return true;
+            return IsLinkTag(path);
 #endif
         }
+
+#if !NET6_0_OR_GREATER
+        // Without LinkTarget the reparse tag is read from the directory entry: only a symbolic link or a junction is a
+        // link. Every reparse point was taken for one, so a cloud-file placeholder was skipped on .NET Framework.
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct Win32FindData
+        {
+            public uint Attributes, CreationLow, CreationHigh, AccessLow, AccessHigh, WriteLow, WriteHigh, SizeHigh, SizeLow;
+            public uint ReparseTag, Reserved1;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string FileName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 14)] public string AlternateFileName;
+        }
+
+        [DllImport("kernel32.dll", EntryPoint = "FindFirstFileW", CharSet = CharSet.Unicode)]
+        private static extern IntPtr FindFirstFile(string fileName, out Win32FindData data);
+
+        [DllImport("kernel32.dll")]
+        private static extern bool FindClose(IntPtr handle);
+
+        private const uint SymbolicLinkTag = 0xA000000C, MountPointTag = 0xA0000003;
+
+        private static bool IsLinkTag(string path)
+        {
+            if (Path.DirectorySeparatorChar != '\\') return true;   // elsewhere only a symbolic link is a reparse point
+            IntPtr handle = FindFirstFile(path.TrimEnd('\\', '/'), out Win32FindData data);
+            if (handle == new IntPtr(-1)) return true;   // unreadable: still taken for a link, the safe side
+            FindClose(handle);
+            return data.ReparseTag == SymbolicLinkTag || data.ReparseTag == MountPointTag;
+        }
+#endif
     }
 }

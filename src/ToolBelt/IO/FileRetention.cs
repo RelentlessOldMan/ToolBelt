@@ -182,26 +182,31 @@ namespace ToolBelt.IO
             }
             int lastDot = name.LastIndexOf('.');
             int m = expr.Length, n = name.Length;
-            // can[p, k]: expr[p..] matches name[k..]. Filled from the end; names and patterns are short.
-            var can = new bool[m + 1, n + 1];
-            can[m, n] = true;
+            // can[k]: expr[p..] matches name[k..], with next holding row p + 1. Filled from the end, two rows at a time: a full
+            // (m + 1) x (n + 1) table was allocated for every file, 1.5 GB over 300 files for a long pattern.
+            var next = new bool[n + 1];
+            var can = new bool[n + 1];
+            next[n] = true;
             for (int p = m - 1; p >= 0; p--)
+            {
+                char e = expr[p];
                 for (int k = n; k >= 0; k--)
                 {
-                    char e = expr[p];
                     bool end = k == n;
-                    can[p, k] = e switch
+                    can[k] = e switch
                     {
-                        '*' => can[p + 1, k] || (!end && can[p, k + 1]),
+                        '*' => next[k] || (!end && can[k + 1]),
                         // Any run up to the final '.', which it may also take and then stop.
-                        DosStar => can[p + 1, k] || (!end && k != lastDot && can[p, k + 1]) || (!end && k == lastDot && can[p + 1, k + 1]),
+                        DosStar => next[k] || (!end && k != lastDot && can[k + 1]) || (!end && k == lastDot && next[k + 1]),
                         // One character; none at the end or before a '.'; a '.' only when it ends the name.
-                        DosQm => end ? can[p + 1, k] : name[k] == '.' ? can[p + 1, k] || (k == n - 1 && can[p + 1, k + 1]) : can[p + 1, k + 1],
-                        DosDot => end ? can[p + 1, k] : name[k] == '.' && can[p + 1, k + 1],
-                        _ => !end && char.ToUpperInvariant(e) == char.ToUpperInvariant(name[k]) && can[p + 1, k + 1],
+                        DosQm => end ? next[k] : name[k] == '.' ? next[k] || (k == n - 1 && next[k + 1]) : next[k + 1],
+                        DosDot => end ? next[k] : name[k] == '.' && next[k + 1],
+                        _ => !end && char.ToUpperInvariant(e) == char.ToUpperInvariant(name[k]) && next[k + 1],
                     };
                 }
-            return can[0, 0];
+                bool[] t = next; next = can; can = t;
+            }
+            return next[0];
         }
 
         /// <summary>

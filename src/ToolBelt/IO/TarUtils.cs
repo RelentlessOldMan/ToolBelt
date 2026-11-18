@@ -42,10 +42,10 @@ namespace ToolBelt.IO
                 using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 using (Stream output = UseGzip(archivePath, gzip) ? new GZipStream(fs, CompressionLevel.Optimal) : (Stream)fs)
                 using (var writer = new TarWriter(output, TarEntryFormat.Pax, leaveOpen: false))
-                foreach ((string path, bool isEmptyDirectory) in EnumerateNoLinks(root))
+                // The listed path as it is: Path.GetFullPath (and GetRelativePath) would drop a trailing dot or space from a name.
+                foreach ((string path, bool isEmptyDirectory) in EnumerateNoLinks(root,
+                    f => string.Equals(f, archiveFull, PathComparison) || string.Equals(f, temp, PathComparison)))   // the archive being written
                 {
-                    // The listed path as it is: Path.GetFullPath (and GetRelativePath) would drop a trailing dot or space from a name.
-                    if (string.Equals(path, archiveFull, PathComparison) || string.Equals(path, temp, PathComparison)) continue;   // the archive being written
                     string name = path.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                         .Replace(Path.DirectorySeparatorChar, '/');   // a backslash is a name character on Unix
                     if (isEmptyDirectory) name += "/";
@@ -292,7 +292,8 @@ namespace ToolBelt.IO
         }
 
         // Files, plus directories that hold nothing archivable (so they survive the round trip). Links are not followed.
-        private static IEnumerable<(string Path, bool IsEmptyDirectory)> EnumerateNoLinks(string root)
+        // A skipped file does not count as content: a folder holding only the archive being written was lost.
+        private static IEnumerable<(string Path, bool IsEmptyDirectory)> EnumerateNoLinks(string root, Func<string, bool> skip)
         {
             var pending = new Stack<string>();
             pending.Push(root);
@@ -301,7 +302,7 @@ namespace ToolBelt.IO
                 string dir = pending.Pop();
                 bool any = false;
                 foreach (string f in List(dir, directories: false))
-                    if (!IsLink(Exact(f), File.GetAttributes(Exact(f)))) { any = true; yield return (f, false); }
+                    if (!skip(f) && !IsLink(Exact(f), File.GetAttributes(Exact(f)))) { any = true; yield return (f, false); }
                 foreach (string d in List(dir, directories: true))
                     if (!IsLink(Exact(d), File.GetAttributes(Exact(d)))) { any = true; pending.Push(d); }
                 if (!any && !string.Equals(dir, root, PathComparison)) yield return (dir, true);

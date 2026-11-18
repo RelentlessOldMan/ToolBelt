@@ -415,7 +415,7 @@ src/
       StreamUtils.cs        copy-with-progress (+ cancellation) / read-exactly (memory grows with the data)
       StreamWrappers.cs     CountingStream (bytes read/written) and TeeStream (duplicate reads or writes); closed after Dispose even when leaving the inner open
       TempFile.cs           disposable temp file & directory scopes (extension checked; iterative delete, any depth)
-      ZipUtils.cs           zip create/extract/list/read (entry and total size caps, keeps empty dirs and times; update via a streamed copy); Zip-Slip guarded, links never followed
+      ZipUtils.cs           zip create/extract/list/read (entry and total size caps, keeps empty dirs and times; update via a streamed copy that keeps modes and comments); Zip-Slip guarded, links never followed
       TarUtils.cs           tar/.tar.gz create/extract/list (keeps empty dirs, total size cap); traversal rejected, links never created or followed (net8)
       DirectoryUtils.cs     tree copy (overwrite/filter policies), delete w/ read-only + cancellable lock retry, never follows links (re-checked per file); CopyOptions.CancellationToken
       ChecksumManifest.cs   SHA-256 tree manifest in sha256sum format: create/save/verify/compare directories (with a file filter)
@@ -866,6 +866,7 @@ tests/
       IOReview75Tests.cs     (fifth pass: deep-tree delete and copy, streaming zip replace, invariant CSV floats, Win32 wildcards, reparse tags)
       IOReview94Tests.cs     (round 94 review regressions: mixed tar metadata headers, temp-folder cleanup, files over folders)
       IOReview112Tests.cs    (round 112 review regressions: CSV decimal separators, undefined overwrite policies, empty zip names, blank nullable fields, V7 tar directories, Windows tar modes)
+      IOReview138Tests.cs    (eighth pass: trailing-dot rescans, '*' in watched names, linear retention matching, code-page and mixed zip names, zip comments and Unix modes, Unix-made zip folders, folders holding only the archive)
       CoverageGapTests.cs   (behaviour behind coverage holes found by a coverlet run)
     Numerics/
       AngleTests.cs

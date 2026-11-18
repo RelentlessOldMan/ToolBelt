@@ -518,8 +518,9 @@ namespace ToolBelt.IO
                         if (c.Kind == FileChangeKind.Created && _coalescer.IsPending(c.FullPath)) continue;
                         // The listing was taken outside the lock: a file created (or deleted) and reported since then is in
                         // (or gone from) the snapshot already, and the stale listing read as the opposite change.
-                        if (c.Kind == FileChangeKind.Deleted && File.Exists(c.FullPath)) { fresh.Record(c.FullPath); continue; }
-                        if (c.Kind == FileChangeKind.Created && !File.Exists(c.FullPath)) { fresh.Forget(c.FullPath); continue; }
+                        // Checked through the exact form: "pre." read as "pre", so a change to it was thrown away.
+                        if (c.Kind == FileChangeKind.Deleted && File.Exists(DirectoryUtils.Exact(c.FullPath))) { fresh.Record(c.FullPath); continue; }
+                        if (c.Kind == FileChangeKind.Created && !File.Exists(DirectoryUtils.Exact(c.FullPath))) { fresh.Forget(c.FullPath); continue; }
                         _coalescer.Add(c, now);
                         found++;
                     }
@@ -616,8 +617,9 @@ namespace ToolBelt.IO
             int n = 0, p = 0, star = -1, mark = 0;
             while (n < name.Length)
             {
-                if (p < pattern.Length && (pattern[p] == '?' || char.ToUpperInvariant(pattern[p]) == char.ToUpperInvariant(name[n]))) { n++; p++; }
-                else if (p < pattern.Length && pattern[p] == '*') { star = p++; mark = n; }
+                // '*' first: a name holding '*' (allowed on Unix) took it as a literal and lost the backtrack.
+                if (p < pattern.Length && pattern[p] == '*') { star = p++; mark = n; }
+                else if (p < pattern.Length && (pattern[p] == '?' || char.ToUpperInvariant(pattern[p]) == char.ToUpperInvariant(name[n]))) { n++; p++; }
                 else if (star >= 0) { p = star + 1; n = ++mark; }
                 else return false;
             }
