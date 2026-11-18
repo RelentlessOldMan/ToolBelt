@@ -56,9 +56,16 @@ namespace ToolBelt.Collections
                 if (sequences[i].Count == 0)
                     yield break; // an empty factor makes the whole product empty
 
+            // As Combinatorics.Combinations: an input that changed is an InvalidOperationException. A shrunk one threw
+            // ArgumentOutOfRangeException for an "index" the caller never passed, or ended the product early; a grown one
+            // gave tuples of neither product.
+            var counts = new int[n];
+            for (int i = 0; i < n; i++) counts[i] = sequences[i].Count;
             var indices = new int[n];
             while (true)
             {
+                for (int i = 0; i < n; i++)
+                    if (sequences[i].Count != counts[i]) throw new InvalidOperationException("A sequence changed during enumeration.");
                 var tuple = new T[n];
                 for (int i = 0; i < n; i++)
                     tuple[i] = sequences[i][indices[i]];
@@ -68,7 +75,7 @@ namespace ToolBelt.Collections
                 int p = n - 1;
                 while (p >= 0)
                 {
-                    if (++indices[p] < sequences[p].Count)
+                    if (++indices[p] < counts[p])
                         break;
                     indices[p] = 0;
                     p--;

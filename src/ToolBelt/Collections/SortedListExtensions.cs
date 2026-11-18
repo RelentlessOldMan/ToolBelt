@@ -96,10 +96,28 @@ namespace ToolBelt.Collections
             int i = list.LowerBoundBy(key, keySelector);
             if (list.Count == 0) return -1;
             if (i == 0) return 0;
-            int nearest = i == list.Count || key - keySelector(list[i - 1]) <= keySelector(list[i]) - key ? i - 1 : i;
+            int nearest = i == list.Count || NotFarther(keySelector(list[i - 1]), key, keySelector(list[i])) ? i - 1 : i;
             // The earliest element with that key: below the key, the run of equal keys ending at i − 1 was answered by its
             // last element ([1, 1, 1, 3] near 2 gave 2, not 0).
             return nearest == i ? i : list.LowerBoundBy(keySelector(list[nearest]), keySelector);
+        }
+
+        // Whether key − below ≤ above − key, exactly. The rounded differences made a false tie when the keys dwarf the gap
+        // ([−1e17, 1e17] near 1 gave the first element). Rounding is monotonic, so unequal rounded differences order the
+        // exact ones; equal finite ones are settled by their rounding errors (TwoSum, exact without overflow). An infinite
+        // difference is either exact (an infinite key) or past every finite one, and only one side can overflow.
+        private static bool NotFarther(double below, double key, double above)
+        {
+            double d1 = key - below, d2 = above - key;
+            if (d1 != d2 || double.IsInfinity(d1)) return d1 <= d2;
+            return SubError(key, below, d1) <= SubError(above, key, d2);
+        }
+
+        // The exact x − y minus its rounded value s (Knuth's TwoSum on x and −y).
+        private static double SubError(double x, double y, double s)
+        {
+            double v = s - x;
+            return (x - (s - v)) + (-y - v);
         }
 
         /// <summary>Inserts keeping the list sorted (after any equal elements, so insertion order is stable); returns the index.</summary>

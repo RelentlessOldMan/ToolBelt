@@ -163,11 +163,11 @@ namespace ToolBelt.Collections
             _head = 0;
         }
 
-        // Physical index of logical position i (0 <= i < length). _head + i could overflow int for a huge
-        // array, but _head + i - length lies in (-length, length).
+        // Physical index of logical position i (0 <= i < length). _head + i could overflow int for a huge array, and so
+        // did _head + i - length, which adds first (an OverflowException in a checked build); length - i does not.
         private int Slot(int i)
         {
-            int j = _head + i - _array.Length;
+            int j = _head - (_array.Length - i);
             return j >= 0 ? j : j + _array.Length;
         }
     }

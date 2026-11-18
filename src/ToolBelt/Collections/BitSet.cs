@@ -148,9 +148,12 @@ namespace ToolBelt.Collections
         {
             if (wordIndex < _words.Length)
                 return;
+            // Doubling stops at the words int.MaxValue needs: from 3 words it overshot to 3 * 2^24, 128 MB that no index
+            // reaches.
+            const int MaxWords = (int.MaxValue >> 6) + 1;
             int newLength = _words.Length;
             while (newLength <= wordIndex)
-                newLength *= 2;
+                newLength = newLength > MaxWords / 2 ? MaxWords : newLength * 2;
             Array.Resize(ref _words, newLength);
         }
 

@@ -129,10 +129,11 @@ namespace ToolBelt.Collections
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
         // Physical index of logical position i (0 <= i <= capacity). (_start + i) % length overflowed int past a
-        // capacity of 2^30, but _start + i - length lies in (-length, length].
+        // capacity of 2^30, and so did _start + i - length, which adds first (an OverflowException in a checked build);
+        // _start - (length - i) lies in (-length, length].
         private int Slot(int i)
         {
-            int j = _start + i - _buffer.Length;
+            int j = _start - (_buffer.Length - i);
             return j >= 0 ? j : j + _buffer.Length;
         }
     }
