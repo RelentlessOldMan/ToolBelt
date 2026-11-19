@@ -11,7 +11,6 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 |----|-----|---------|--------|---------|----------|
 | R69-2 | P2 | 12 | suspected | `DiskSpace` reads `IsReady` on every drive before matching the path, so an offline drive could stall the call. | review r69 |
 | R69-3 | P2 | 12 | suspected | After Ctrl+C, `Prompt` silently takes the default (`ReadLine()` returns null on Windows). | review r69 |
-| R69-4 | P2 | 12 | suspected | A `Logger` clock that throws escapes `Log`. | review r69 |
 | R69-5 | P2 | 12 | suspected | `Benchmark` with `int.MaxValue` iterations throws OutOfMemoryException, not an argument error. | review r69 |
 | R81-1 | P2 | 10 | suspected | `ProcessRunner.KillTree` reports the kill as done when `Kill` threw (access denied, say) with the child still running. | review r81 |
 | R81-2 | P2 | 10 | suspected | After a timeout, a grandchild holding the inherited pipes keeps both reader threads blocked until it exits (a thread pair per run, worst on netstandard2.0 with no tree kill). | review r81 |
@@ -34,7 +33,6 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R102-6 | P3 | 16 | suspected | NumericRangeValidationRule: a NaN Minimum or Maximum silently turns that bound's check off (other range types refuse NaN bounds). | review r102 |
 | R103-1 | P3 | 12 | suspected | Benchmark: an operation whose mean measures 0 ns reports 0 ops/s ("never completes"); RelativeToBaseline treats 0 ns as infinitely fast. Not reproduced (an empty iteration measured 21 us). | review r103 |
 | R103-2 | P3 | 12 | suspected | ConsoleSpinner: a text-default symbol with VS16 (U+2764 U+FE0F) counts one column though terminals draw two; after the window narrows, the pad to the last width wraps the line. | review r103 |
-| R103-3 | P3 | 12 | suspected | Logger: after the parent's Dispose, a child from ForCategory can still AddSink; the sink gets events and is never disposed. | review r103 |
 | R103-4 | P3 | 12 | suspected | FileSink: when the reopen after a rotation fails, Emit throws though its line was written and flushed. | review r103 |
 | R103-5 | P3 | 12 | suspected | ConsoleSpinner: the constructor's first draw ignores only IOException and ObjectDisposedException; any other writer exception escapes after the token source and loop are set up, leaking both. | review r103 |
 | R103-6 | P3 | 12 | suspected | HealthCheck: an abandoned probe's token source is disposed when its check returns; a probe reading token.WaitHandle later gets ObjectDisposedException. | review r103 |
@@ -108,13 +106,10 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R140-1 | P3 | 3 | suspected | MultipleRegression with y near 1e300 over x near 1e-300 and a true slope of 0: the scaled slope's rounding crumb (about 1e-17) times 2^2000 is past MaxValue, so the coefficient reads infinity where 0 is representable. Only an exact or extended-precision solve would avoid it; LinearRegression gets 0. | review r140 |
 | R116-1 | P3 | 12 | suspected | ConsoleTable pads ANSI-styled cells by their escape characters, misaligning columns. | review r116 |
 | R116-2 | P3 | 12 | suspected | ConsoleSpinner may still count some astral wide ranges (beyond those fixed in round 116) as one column. | review r116 |
-| R116-3 | P3 | 12 | suspected | AnsiStyle.Wrap ignores partial resets (22, 39, 49) inside the wrapped text. | review r116 |
 | R116-4 | P3 | 12 | suspected | ProgressBar's fixed 1e-9 completion tolerance is not scaled to the total. | review r116 |
 | R116-5 | P3 | 12 | suspected | Benchmark allocation counts are coarse on .NET Framework. | review r116 |
 | R116-6 | P3 | 12 | suspected | StructuredTextFormatter is O(message x delimiter): 3.4 s for a 100k message with a 16k delimiter. | review r116 |
-| R116-7 | P3 | 12 | suspected | A throwing Logger clock escapes Log. | review r116 |
 | R116-8 | P3 | 12 | suspected | Logger.Dispose racing Log can lose an event already accepted. | review r116 |
-| R116-9 | P3 | 12 | suspected | FirstChanceMonitor.ThrottleWindow is not validated. | review r116 |
 | R116-10 | P3 | 12 | suspected | ConsoleSpinner.Stop(finalLine) throws on a broken writer. | review r116 |
 | R117-1 | P3 | 16 | suspected | NumericRangeValidationRule passes "1e400" (overflows to infinity) when a bound is infinite, and the infinity symbol depends on the culture. | review r117 |
 | R117-2 | P3 | 16 | suspected | CountToVisibilityConverter gives Collapsed for a non-zero Complex such as (0,5). | review r117 |
@@ -178,3 +173,4 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R158-1 | P3 | 16 | suspected | From round 158, not probed: CountToVisibilityConverter reads a char as a number ('\0' is Collapsed) and a boxed enum as always present; an exception from a SystemThemeApplyFailed or BindingFailed handler propagates into the dispatcher or WPF's trace path; BindingDiagnostics drops a trace line with non-ASCII digits; FileDropBehavior passes one string[] to CanExecute and then Execute, so a CanExecute that changes it changes what Execute sees; ThemeManager.Apply may leave a duplicate when a registered dictionary is also merged elsewhere. NotifyTaskCompletion finds a carried context's dispatcher through a private field and falls back to the old behaviour if WPF renames it. | review r158 |
 | R159-1 | P3 | 6 | suspected | From round 159, not confirmed: Base85's error message for a bad group; Base32 skips only ASCII whitespace where Base64Url accepts Unicode whitespace; an inflate stream ending without a final block may be accepted; SvgUtils' widths for U+2028 and U+0085; EndianConverter's unaligned paths not probed. | review r159 |
 | R160-1 | P3 | 7 | suspected | From round 160, not confirmed: Markdown output passes lone surrogates and controls through; a settings file holding `null` loads as defaults with no warning; the binder refuses an empty TimeSpan value where EnvironmentVariables treats it as unset; Bind<T> lets TargetInvocationException escape from the root type's constructor; File.Replace can leave `~RF*.TMP` files after saves under contention. | review r160 |
+| R161-1 | P3 | 12 | suspected | From round 161, not confirmed: the exception describers write an indent-only last line when a message ends with a line break; MetricsRegistry's reservoir slots may not be uniform past about 2^31 samples on .NET Framework (NextDouble's resolution); ConsoleApp's Flatten and IsCancellation and FirstChanceMonitor.MessageOf may loop on an aggregate that contains itself; MetricsRegistry's mean after a sum overflow depends on sample order; SyslogSink over TCP may lose one event uncounted on Linux after the collector closes. Not covered: HealthCheck, DiskSpace, Prompt, ConsoleSpinner, AsyncLogSink, FileSink rotation under contention. | review r161 |

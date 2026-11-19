@@ -156,6 +156,15 @@ namespace ToolBelt.Cli
                 }
                 else if (int.TryParse(param, NumberStyles.None, CultureInfo.InvariantCulture, out int n))
                 {
+                    // 4:0 is the colon form of 24 (no underline; 4:1 to 4:5 pick a style). It was read as 4, so the
+                    // outer underline was not put back after it.
+                    if (n == 4 && colon >= 0)
+                    {
+                        int sub = text.IndexOf(':', colon + 1, q - colon - 1);
+                        if (int.TryParse(text.Substring(colon + 1, (sub < 0 ? q : sub) - colon - 1), NumberStyles.None,
+                                CultureInfo.InvariantCulture, out int style) && style == 0)
+                            n = 24;
+                    }
                     if (colon < 0 && (n == 38 || n == 48 || n == 58)) selector = true;
                     int set = SetGroup(n);
                     if (setting) mask |= set;

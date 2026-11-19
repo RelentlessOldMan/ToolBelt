@@ -48,6 +48,8 @@ namespace ToolBelt.Diagnostics
             var vars = new Dictionary<string, string>(windows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
             foreach (string name in names)
             {
+                // The OS reads a name only up to a NUL: "PATH\0X" was reported with PATH's value. No variable has one.
+                if (name.IndexOf('\0') >= 0) continue;
                 string? value = get(name);
                 if (value != null) vars[name] = value;
             }

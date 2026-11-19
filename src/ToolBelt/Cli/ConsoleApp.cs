@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -110,7 +111,7 @@ namespace ToolBelt.Cli
                     TryWrite(err, "error: " + Text(ex, () => ex.Message));
                     return ExitCodes.Usage;
                 }
-                TryWrite(err, verbose ? "error: " + Text(ex, ex.ToString) : $"error: {Text(ex, () => ex.Message)} ({ex.GetType().Name})");
+                TryWrite(err, verbose ? "error: " + Text(ex, () => Describe(ex)) : $"error: {Text(ex, () => ex.Message)} ({ex.GetType().Name})");
                 return ExitCodes.Software;
             }
             finally
@@ -134,6 +135,63 @@ namespace ToolBelt.Cli
                 if (inner.Count == 1) return inner[0];
             }
             return ex;
+        }
+
+        // An exception whose ToString throws (a broken override) escaped RunAsync. ToString recurses once per
+        // level of inner exceptions and copies the inner text at each: a chain 20,000 deep overflowed the stack (which
+        // no catch stops) and one 10,000 deep took 12 s, and a cycle made by reflection overflowed too. Up to 64 levels
+        // (and 10,000 exceptions) keep the runtime's own text; past that, each of the first 256 exceptions gets its type,
+        // message and stack, walked without recursion.
+        private static string Describe(Exception ex)
+        {
+            var walk = new System.Collections.Generic.Stack<(Exception Exception, int Depth)>();
+            walk.Push((ex, 0));
+            bool deep = false;
+            for (int visits = 0; walk.Count > 0 && !deep; visits++)
+            {
+                var (e, depth) = walk.Pop();
+                if (depth > 64 || visits == 10_000) deep = true;
+                else if (e is AggregateException agg) foreach (Exception inner in agg.InnerExceptions) walk.Push((inner, depth + 1));
+                else if (e.InnerException != null) walk.Push((e.InnerException, depth + 1));
+            }
+            if (!deep)
+            {
+                try { return ex.ToString(); }
+                catch (Exception inner) { return ex.GetType().FullName + " (its ToString threw " + inner.GetType().FullName + ")"; }
+            }
+            var seen = new System.Collections.Generic.List<Exception>();
+            var todo = new System.Collections.Generic.Stack<Exception>();
+            todo.Push(ex);
+            bool again = false, more = false;
+            while (todo.Count > 0)
+            {
+                Exception e = todo.Pop();
+                if (seen.Exists(s => ReferenceEquals(s, e))) { again = true; continue; }
+                if (seen.Count == 256) { more = true; break; }
+                seen.Add(e);
+                if (e is AggregateException agg)
+                {
+                    var inner = agg.InnerExceptions;
+                    for (int i = inner.Count - 1; i >= 0; i--) todo.Push(inner[i]);
+                }
+                else if (e.InnerException != null) todo.Push(e.InnerException);
+            }
+            var sb = new StringBuilder();
+            for (int i = 0; i < seen.Count; i++)
+            {
+                Exception e = seen[i];
+                if (i > 0) sb.Append(System.Environment.NewLine).Append(" ---> ");
+                sb.Append(e.GetType().FullName).Append(": ");
+                try { sb.Append(e.Message); }
+                catch (Exception inner) { sb.Append("(its Message threw ").Append(inner.GetType().FullName).Append(')'); }
+                string? trace;
+                try { trace = e.StackTrace; }
+                catch (Exception) { trace = null; }
+                if (!string.IsNullOrEmpty(trace)) sb.Append(System.Environment.NewLine).Append(trace);
+            }
+            if (again) sb.Append(System.Environment.NewLine).Append(" ---> (an exception shown above appears again)");
+            if (more) sb.Append(System.Environment.NewLine).Append(" ---> (more inner exceptions not shown)");
+            return sb.ToString();
         }
 
         // An exception whose Message or ToString throws escaped RunAsync, and the exit code was lost.
