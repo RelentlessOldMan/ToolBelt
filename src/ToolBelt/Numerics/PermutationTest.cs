@@ -73,6 +73,9 @@ namespace ToolBelt.Numerics
             // Capped as Bootstrap caps resamples: the null distribution is one array.
             if (permutations < 1 || permutations > 0x7FFFFFC7) throw new ArgumentOutOfRangeException(nameof(permutations), permutations, "Must be 1 to Array.MaxLength (0x7FFFFFC7).");
             RequireAlternative(alternative);
+            // The pooled values are one array: past Array.MaxLength in all, na + nb overflowed int (OverflowException).
+            if ((long)a.Count + b.Count > 0x7FFFFFC7)
+                throw new ArgumentException("The two samples hold more than Array.MaxLength (0x7FFFFFC7) values together.", nameof(b));
             RequireFinite(a, nameof(a));
             RequireFinite(b, nameof(b));
 

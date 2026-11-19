@@ -139,7 +139,9 @@ namespace ToolBelt.Numerics
             // and exactly 1 at all successes, which center ∓ half missed by a rounding error (just below 0, just above 1).
             double center = (p + z2 / (2.0 * trials)) / denom;
             double half = z * Math.Sqrt(p * (1 - p) / trials + z2 / (4.0 * trials * trials)) / denom;
-            double lower = successes == 0 ? 0 : Math.Max(0, center - half);
+            // The lower bound from the product of the two, p²/denom: center − half cancelled at few successes (1 in 1e9
+            // at a confidence of 1 − 1e-15 was 2e-13 relative off).
+            double lower = successes == 0 ? 0 : Math.Max(0, p * p / (denom * (center + half)));
             double upper = successes == trials ? 1 : Math.Min(1, center + half);
             return (lower, upper);
         }

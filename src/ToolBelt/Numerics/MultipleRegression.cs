@@ -10,13 +10,13 @@ namespace ToolBelt.Numerics
         private readonly double[,] _xtxInverse;     // of the design centred on _centre[j] and divided by _columnScale[j]
         private readonly double[] _columnScale;
         private readonly double[] _centre;
-        private readonly double _atCentre;           // the fitted value at the centre: the intercept of the centred fit
+        private readonly double _yCentre;            // the response's centre, taken off before the fit
         private readonly double[] _scaledBeta;       // the coefficients in scaled units (of y / _yScale per x / _columnScale)
         private readonly double _yScale;
 
         internal RegressionResult(double[] coefficients, double[] standardErrors, double[] fitted, double[] residuals,
             double rSquared, double adjustedRSquared, double residualStandardError, int degreesOfFreedom, bool hasIntercept,
-            double[,] xtxInverse, double[] columnScale, double[] centre, double atCentre, double[] scaledBeta, double yScale)
+            double[,] xtxInverse, double[] columnScale, double[] centre, double yCentre, double[] scaledBeta, double yScale)
         {
             Coefficients = Array.AsReadOnly(coefficients);      // wrapped: a cast back to double[] could rewrite what Predict uses
             StandardErrors = Array.AsReadOnly(standardErrors);
@@ -40,7 +40,7 @@ namespace ToolBelt.Numerics
             _xtxInverse = xtxInverse;
             _columnScale = columnScale;
             _centre = centre;
-            _atCentre = atCentre;
+            _yCentre = yCentre;
             _scaledBeta = scaledBeta;
             _yScale = yScale;
         }
@@ -70,17 +70,16 @@ namespace ToolBelt.Numerics
         {
             double[] row = Row(predictors);
             // About the centre, as fitted: through the intercept, a prediction near offset data lost its digits.
-            // Each term in scaled units, as the fit was: a coefficient past MaxValue (y near 1e300 over x near 1e-300, its
-            // rounding crumb scaled up) made even the prediction at the centre 0 · ∞ = NaN.
-            double y = _atCentre;
+            // Summed in scaled units and scaled once, as Fitted is: a coefficient past MaxValue (y near 1e300 over x near
+            // 1e-300) made even the prediction at the centre 0 · ∞ = NaN, and terms scaled one by one overflowed to
+            // ∞ − ∞ = NaN at the observed rows, where Fitted was finite.
+            double f = HasIntercept ? _scaledBeta[0] : 0;
             for (int j = HasIntercept ? 1 : 0; j < row.Length; j++)
             {
                 double d = row[j] - _centre[j];
-                if (d == 0) continue;
-                double term = _scaledBeta[j] * (d / _columnScale[j]) * _yScale;
-                y += !double.IsNaN(term) && !double.IsInfinity(term) ? term : d * Coefficients[j];
+                if (d != 0) f += _scaledBeta[j] * (d / _columnScale[j]);
             }
-            return y;
+            return f * _yScale + _yCentre;
         }
 
         /// <summary>Interval for one new observation at <paramref name="predictors"/> (noise included).</summary>
@@ -277,7 +276,6 @@ namespace ToolBelt.Numerics
             for (int i = 0; i < p; i++) se[i] = df > 0 ? MulRatio(Math.Sqrt(sigma2 * xtxInv[i, i]), ys, colScale[i]) : double.NaN;
             var coefficients = new double[p];
             for (int i = 0; i < p; i++) coefficients[i] = MulRatio(beta[i], ys, colScale[i]);
-            double atCentre = intercept ? beta[0] * ys + yc : 0;
             if (intercept)
             {
                 // Back from the centred fit: b0 = a0 − Σ βⱼcⱼ, with Var(b0) = σ² wᵀ(XᵀX)⁻¹w for w = (1, −c₁/s₁, …). Summed in
@@ -298,7 +296,7 @@ namespace ToolBelt.Numerics
             int dfTotal = intercept ? n - 1 : n;
             double adj = df > 0 ? (sst > 0 ? 1 - (sse / df) / (sst / dfTotal) : 1) : double.NaN;
             return new RegressionResult(coefficients, se, fitted, residuals, r2, adj, Math.Sqrt(sigma2) * ys, df, intercept, xtxInv, colScale,
-                centre, atCentre, beta, ys);
+                centre, yc, beta, ys);
         }
 
         /// <summary>Fits y on predictor rows given as lists (each inner list is one observation).</summary>
@@ -325,7 +323,10 @@ namespace ToolBelt.Numerics
             foreach (double e in v) big = Math.Max(big, Math.Abs(e));
             double p = Pow2Scale(big);
             foreach (double e in v) s += e / p;
-            double m = s / v.Length * p;
+            // Held to the values' range: the rounded sum put the centre of sixty 1e25s above them all.
+            double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
+            foreach (double e in v) { lo = Math.Min(lo, e); hi = Math.Max(hi, e); }
+            double m = Math.Max(lo, Math.Min(hi, s / v.Length * p));
             foreach (double e in v) if (double.IsInfinity(e - m)) return 0;
             return m;
         }

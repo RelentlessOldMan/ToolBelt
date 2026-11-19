@@ -77,6 +77,13 @@ namespace ToolBelt.Numerics
                 populationMean *= Upscale;
             }
             var (mean, sd, n) = MeanVariance(sample, nameof(sample));
+            if (double.IsInfinity(sd))
+            {
+                // A spread past double.MaxValue (data near ±1.7e308) came back ∞ and t = 0: scaled down as above.
+                sample = Scaled(sample, Downscale);
+                populationMean *= Downscale;
+                (mean, sd, n) = MeanVariance(sample, nameof(sample));
+            }
             double df = n - 1;
             if (sd == 0)
                 return mean == populationMean
@@ -117,6 +124,15 @@ namespace ToolBelt.Numerics
             if (MaxAbs(b, MaxAbs(a, 0)) < TinyData) { a = Scaled(a); b = Scaled(b); }    // as OneSampleT (t, df scale-free)
             var (ma, sda, na) = MeanVariance(a, nameof(a));
             var (mb, sdb, nb) = MeanVariance(b, nameof(b));
+            if (double.IsInfinity(sda) || double.IsInfinity(sdb))
+            {
+                // A spread past double.MaxValue came back ∞: Welch's df was NaN and threw, and the pooled t was 0. Both
+                // scaled down together (t and df are scale-free; what values below 2^-474 lose is nothing beside it).
+                a = Scaled(a, Downscale);
+                b = Scaled(b, Downscale);
+                (ma, sda, na) = MeanVariance(a, nameof(a));
+                (mb, sdb, nb) = MeanVariance(b, nameof(b));
+            }
 
             // Variances are formed relative to the larger spread m: squared outright they under- or overflowed for data
             // near 1e±160 (a zero pooled variance read as an infinite t; Welch's df went to NaN).
@@ -124,9 +140,10 @@ namespace ToolBelt.Numerics
             if (equalVariance)
             {
                 double m = Pow2Scale(Math.Max(sda, sdb)), ra = sda / m, rb = sdb / m;
-                double pooled = ((na - 1) * ra * ra + (nb - 1) * rb * rb) / (na + nb - 2);
+                // In double: na + nb − 2 overflowed int past 2^31 values in all (df −2,094,967,298).
+                double pooled = ((na - 1.0) * ra * ra + (nb - 1.0) * rb * rb) / ((double)na + nb - 2);
                 double se = Math.Sqrt(pooled * (1.0 / na + 1.0 / nb)) * m;
-                df = na + nb - 2;
+                df = (double)na + nb - 2;
                 t = se == 0 ? SignedInfinity(ma - mb) : Ratio(a, b, 0, se);
             }
             else
@@ -159,17 +176,50 @@ namespace ToolBelt.Numerics
             if (MaxAbs(b, MaxAbs(a, 0)) < TinyData) { a = Scaled(a); b = Scaled(b); }    // as OneSampleT (F is scale-free)
             var (_, sda, na) = MeanVariance(a, nameof(a));
             var (_, sdb, nb) = MeanVariance(b, nameof(b));
+            // A spread past double.MaxValue came back ∞ (F = ∞ or 0, p = 0): that sample's spread is taken scaled down,
+            // and the scale carried in the logarithm.
+            double lnScale = 0;
+            if (double.IsInfinity(sda)) { sda = MeanVariance(Scaled(a, Downscale), nameof(a)).sd; lnScale -= LnDownscale; }
+            if (double.IsInfinity(sdb)) { sdb = MeanVariance(Scaled(b, Downscale), nameof(b)).sd; lnScale += LnDownscale; }
             double d1 = na - 1, d2 = nb - 1;
             if (sdb == 0)
                 return sda == 0 ? new TestResult(double.NaN, 1, d1, d2) : new TestResult(double.PositiveInfinity, 0, d1, d2);
+            if (sda == 0) return new TestResult(0, 0, d1, d2);
             double ratio = sda / sdb, f = ratio * ratio;
-            if (f == 0) return new TestResult(0, 0, d1, d2);
+            double lnr = Math.Log(sda) - Math.Log(sdb) + lnScale, lnw = 2 * lnr + Math.Log(d1) - Math.Log(d2);
+            if (lnScale != 0) f = Math.Exp(2 * lnr);
 
-            // Each tail from its own incomplete-beta argument, so tiny p-values keep their precision.
-            double lower = Distributions.FCdf(f, d1, d2);
-            double upper = Distributions.FSurvival(f, d1, d2);
+            // Each tail from its own incomplete-beta argument, so tiny p-values keep their precision. Far in a tail the
+            // statistic itself under- or overflowed (F = 0 or ∞ for spreads 1e-170 apart: p = 0, not 1.3e-170) or was
+            // subnormal: there the tail is the one at a representable point, scaled by its leading power.
+            double lower, upper;
+            if (lnw < LnFarTail)
+            {
+                lower = FarLowerTail(lnr, d1, d2);
+                upper = 1;
+            }
+            else if (-lnw < LnFarTail)
+            {
+                lower = 1;
+                upper = FarLowerTail(-lnr, d2, d1);
+            }
+            else
+            {
+                lower = Distributions.FCdf(f, d1, d2);
+                upper = Distributions.FSurvival(f, d1, d2);
+            }
             double p = Math.Min(1, 2 * Math.Min(lower, upper));
             return new TestResult(f, p, d1, d2);
+        }
+
+        // For d1·F/d2 below 1e-200, P(F′ ≤ F) = c·x^(d1/2)·(1 + O(x)) with x = d1·F/(d1·F + d2): the tail at
+        // F₀ = 1e-200·d2/d1 times (F/F₀)^(d1/2), to within about 1e-200 relative. lnRatio is ln(s_a/s_b) = ln(F)/2.
+        private const double LnFarTail = -460.51701859880914;   // ln 1e-200
+
+        private static double FarLowerTail(double lnRatio, double d1, double d2)
+        {
+            double f0 = 1e-200 * d2 / d1;
+            return Distributions.FCdf(f0, d1, d2) * Math.Exp(d1 * (lnRatio - 0.5 * Math.Log(f0)));
         }
 
         // ---------- Pearson's chi-square ----------
@@ -333,14 +383,21 @@ namespace ToolBelt.Numerics
         // every term positive and summed in logs.
         private static double SmirnovUpper(int n, double d)
         {
-            double sum = 0, lnC = 0;
+            // ln C(n, j) summed with Neumaier's compensation, and 1 − d − j/n formed from the whole count n − j: a plain
+            // running sum of 100,000 logarithms put 5e-10 relative error in the tail.
+            double sum = 0, lnC = 0, lnCarry = 0, nd = n * d;
             int jMax = (int)Math.Floor(n * (1 - d));
             for (int j = 0; j <= jMax; j++)
             {
-                if (j > 0) lnC += Math.Log((double)(n - j + 1) / j);
-                double a = 1 - d - (double)j / n, b = d + (double)j / n;
+                if (j > 0)
+                {
+                    double step = Math.Log((double)(n - j + 1) / j), next = lnC + step;
+                    lnCarry += Math.Abs(lnC) >= Math.Abs(step) ? (lnC - next) + step : (step - next) + lnC;
+                    lnC = next;
+                }
+                double a = ((n - j) - nd) / n, b = (nd + j) / n;
                 if (!(a > 0)) break;
-                sum += Math.Exp(lnC + (n - j) * Math.Log(a) + (j - 1) * Math.Log(b));
+                sum += Math.Exp((lnC + lnCarry) + (n - j) * Math.Log(a) + (j - 1) * Math.Log(b));
             }
             return Math.Min(1, d * sum);
         }
@@ -423,7 +480,7 @@ namespace ToolBelt.Numerics
                 double gap = Math.Abs((double)i / na - (double)j / nb);
                 if (gap > d) d = gap;
             }
-            double en = Math.Sqrt((double)na * nb / (na + nb));
+            double en = Math.Sqrt((double)na * nb / ((double)na + nb));
             return new TestResult(d, KolmogorovQ((en + 0.12 + 0.11 / en) * d), double.NaN);
         }
 
@@ -438,6 +495,9 @@ namespace ToolBelt.Numerics
         {
             RequireCount(a, 1, nameof(a));
             RequireCount(b, 1, nameof(b));
+            // The ranks are one array: past Array.MaxLength values in all, na + nb overflowed int (OverflowException).
+            if ((long)a.Count + b.Count > 0x7FFFFFC7)
+                throw new ArgumentException("The two samples hold more than Array.MaxLength (0x7FFFFFC7) values together.", nameof(b));
             int na = a.Count, nb = b.Count, total = na + nb;
 
             // Merge, sort by value, assign average (mid) ranks to ties.
@@ -528,16 +588,36 @@ namespace ToolBelt.Numerics
             double d = sa / a.Count;
             if (b != null)
             {
-                for (int i = 0; i < b.Count; i++) sb += b[i] / p - c;
-                d -= sb / b.Count;
+                // Each sample about its own first value, the four parts summed compensated: one offset a[0] for both was
+                // lost beside b's far larger values ({1, 2, 3} against {±1e300} gave half the t).
+                double cb = b[0] / p;
+                for (int i = 0; i < b.Count; i++) sb += b[i] / p - cb;
+                d = CompensatedSum(c, -cb, d, -(sb / b.Count));
             }
             double r = d * p;
             if (double.IsInfinity(r)) return d / (se / p);
             return Math.Abs(r) < 2.2250738585072014E-308 ? d * (p / se) : r / se;      // a subnormal difference keeps its digits
         }
 
+        // Neumaier's sum of four terms: exact to a rounding of the result when they cancel.
+        private static double CompensatedSum(double w, double x, double y, double z)
+        {
+            double sum = w, carry = 0;
+            foreach (double v in new[] { x, y, z })
+            {
+                double next = sum + v;
+                carry += Math.Abs(sum) >= Math.Abs(v) ? (sum - next) + v : (v - next) + sum;
+                sum = next;
+            }
+            return sum + carry;
+        }
+
         // Samples entirely below TinyData are scaled up by Upscale (exact) before their moments: see OneSampleT.
         private static readonly double TinyData = Math.Pow(2, -900), Upscale = Math.Pow(2, 600);
+
+        // A spread past double.MaxValue is taken again from the data scaled down by Downscale (exact above 2^-474).
+        private static readonly double Downscale = Math.Pow(2, -600);
+        private const double LnDownscale = -415.88830833596717;   // ln 2^-600
 
         private static double MaxAbs(IReadOnlyList<double> x, double start)
         {
@@ -545,10 +625,12 @@ namespace ToolBelt.Numerics
             return start;
         }
 
-        private static double[] Scaled(IReadOnlyList<double> x)
+        private static double[] Scaled(IReadOnlyList<double> x) => Scaled(x, Upscale);
+
+        private static double[] Scaled(IReadOnlyList<double> x, double factor)
         {
             var s = new double[x.Count];
-            for (int i = 0; i < s.Length; i++) s[i] = x[i] * Upscale;
+            for (int i = 0; i < s.Length; i++) s[i] = x[i] * factor;
             return s;
         }
 
