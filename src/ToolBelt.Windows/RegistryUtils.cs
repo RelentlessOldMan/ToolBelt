@@ -18,7 +18,8 @@ namespace ToolBelt.Windows
         /// <summary>
         /// Reads a value, converting it to <typeparamref name="T"/> (strings parse culture-invariantly; a DWORD or QWORD
         /// converts as the unsigned number it is, so DWORD 0x80000000 reads as 2147483648 into <c>uint</c>, <c>long</c> or
-        /// <c>double</c>; <c>int</c> for a DWORD and <c>long</c> for a QWORD still read the stored bits as they are).
+        /// <c>double</c>; a type too narrow for that number, such as <c>short</c>, <c>int</c> or an enum backed by one,
+        /// reads the stored bits as signed, so a negative one written through <see cref="SetValue"/> reads back).
         /// Nullable and enum targets work (an enum from its name or number); a <c>bool</c> reads a string "1" or "0" as well
         /// as "True" or "False", and a number as nonzero or zero. Returns
         /// <paramref name="defaultValue"/> if absent, not convertible, or the key cannot be read.
@@ -42,13 +43,26 @@ namespace ToolBelt.Windows
                 }
                 // .NET returns REG_DWORD as int and REG_QWORD as long. They are unsigned: widen them first, or the high bit
                 // read as negative and failed (or went negative) for every wider or floating-point target.
+                object stored = raw;
                 if (raw is int dword) raw = (long)unchecked((uint)dword);
                 else if (raw is long qword && qword < 0) raw = unchecked((ulong)qword);
+                try { return ConvertTo(raw); }
+                // A target too narrow for the unsigned number reads the bits as signed: a negative short, or an int as a
+                // QWORD, that SetValue stored by its bits overflowed and read back as the default.
+                catch (OverflowException) when (!ReferenceEquals(stored, raw)) { return ConvertTo(stored); }
+            }
+            catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentException)
+            {
+                return defaultValue;
+            }
+
+            T? ConvertTo(object raw)
+            {
                 if (target.IsEnum)
                 {
                     object value = raw is string text
                         ? Enum.Parse(target, text.Trim(), ignoreCase: true)
-                        : Enum.ToObject(target, Convert.ChangeType(raw, Enum.GetUnderlyingType(target), CultureInfo.InvariantCulture)!);
+                        : Enum.ToObject(target, System.Convert.ChangeType(raw, Enum.GetUnderlyingType(target), CultureInfo.InvariantCulture)!);
                     return (T)value;
                 }
                 // ChangeType only parses "True"/"False", but flags stored as text are mostly "1"/"0".
@@ -62,11 +76,7 @@ namespace ToolBelt.Windows
                 // DateOnly at all (each read back as the default), and read a DateTime without its kind.
                 if (raw is string s && TryParseText(s, target, out object? parsed)) return (T)parsed!;
                 // ChangeType rejects Nullable<T> targets, so convert to the underlying type (boxing it is a boxed T?).
-                return (T)Convert.ChangeType(raw, target, CultureInfo.InvariantCulture);
-            }
-            catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentException)
-            {
-                return defaultValue;
+                return (T)System.Convert.ChangeType(raw, target, CultureInfo.InvariantCulture);
             }
         }
 
@@ -148,8 +158,12 @@ namespace ToolBelt.Windows
         /// <summary>
         /// Writes a value, creating the subkey if necessary. A <c>uint</c> or <c>ulong</c> is stored as the DWORD or QWORD
         /// with the same bits (when <paramref name="kind"/> is <see cref="RegistryValueKind.Unknown"/> or that kind), so it
-        /// reads back through <see cref="GetValue{T}"/> unchanged. Other numbers, dates and enums stored as text are
-        /// written in the invariant culture, as <see cref="GetValue{T}"/> reads them.
+        /// reads back through <see cref="GetValue{T}"/> unchanged. Any other integer, enum, whole number or integer text
+        /// given DWord or QWord is stored by its bits when it fits as signed or unsigned. A negative one reads back
+        /// unchanged into a type too narrow for the unsigned reading (<c>sbyte</c>, <c>short</c>, <c>int</c>, and
+        /// <c>long</c> for a QWORD); a wider one reads the unsigned number with those bits (-1L as a DWORD reads back
+        /// into <c>long</c> as 4294967295). Other numbers, dates and enums stored as text are written in the invariant
+        /// culture, as <see cref="GetValue{T}"/> reads them.
         /// </summary>
         public static void SetValue(RegistryHive hive, string subKey, string name, object value,
             RegistryValueKind kind = RegistryValueKind.Unknown)
@@ -190,6 +204,16 @@ namespace ToolBelt.Windows
                 value = formattable.ToString(format, CultureInfo.InvariantCulture);
                 if (kind == RegistryValueKind.Unknown) kind = RegistryValueKind.String;
             }
+            // Checked before the subkey is created: a write RegistryKey then refused left the new (nested) keys behind, and
+            // an undefined kind was reported as RegistryKey's own "valueKind".
+            if (!Enum.IsDefined(typeof(RegistryValueKind), kind))
+                throw new ArgumentOutOfRangeException(nameof(kind), kind, "Not a registry value kind.");
+            if (name.Length > MaxValueNameLength)
+                throw new ArgumentException($"A value name may be at most {MaxValueNameLength} characters.", nameof(name));
+            if (kind == RegistryValueKind.MultiString && !(value is string[]))
+                throw new ArgumentException($"A {value.GetType().Name} cannot be stored as {kind}; pass a string[].", nameof(value));
+            if ((kind == RegistryValueKind.Binary || kind == RegistryValueKind.None) && !(value is byte[]))
+                throw new ArgumentException($"A {value.GetType().Name} cannot be stored as {kind}; pass a byte[].", nameof(value));
             using RegistryKey baseKey = OpenBase(hive);
             using RegistryKey key = ForSubKey(subKey, () => baseKey.CreateSubKey(subKey, writable: true))
                 ?? throw new InvalidOperationException($"Could not open or create subkey '{subKey}'.");
@@ -206,6 +230,9 @@ namespace ToolBelt.Windows
                 throw new ArgumentException($"A {value.GetType().Name} cannot be stored as {kind}: {ex.Message}", nameof(value), ex);
             }
         }
+
+        // Win32's limit on a value name (RegistryKey refuses a longer one).
+        private const int MaxValueNameLength = 16383;
 
         // An integer, enum or whole number for a DWORD (int bits) or QWORD (long bits), in the signed or unsigned range.
         private static object ToWord(object value, bool qword)
@@ -228,7 +255,13 @@ namespace ToolBelt.Windows
                 case decimal m when decimal.Floor(m) == m: n = new System.Numerics.BigInteger(m); break;
                 case float _: case double _: case decimal _:
                     throw new ArgumentException($"{Convert.ToString(value, CultureInfo.InvariantCulture)} is not a whole number.", nameof(value));
-                default: return value;   // text and the rest: RegistryKey decides
+                // Integer text by the same rule: RegistryKey range-checked it as signed only ("4294967295" was refused but
+                // "-1" taken), in the current culture. Other text is not a number.
+                case string s:
+                    if (!System.Numerics.BigInteger.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
+                        throw new ArgumentException($"'{s}' is not an integer.", nameof(value));
+                    break;
+                default: return value;   // the rest: RegistryKey decides
             }
             int bits = qword ? 64 : 32;
             if (n < -(System.Numerics.BigInteger.One << (bits - 1)) || n >= System.Numerics.BigInteger.One << bits)

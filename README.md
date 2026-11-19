@@ -1108,6 +1108,7 @@ tests/
     WindowsReview106Tests.cs (sixth pass: NULs in registry paths and value names, invariant text values, one folded app id, one forward timeout, long gate names, empty shortcuts, null ParamNames)
     WindowsReview110Tests.cs (seventh pass: lone surrogates on the clipboard, registry values that read back, Security-log sources, many forwarded arguments, device and UNC path checks, zero job handles)
     WindowsReview131Tests.cs (eighth pass: long and blank shortcut paths, an icon index alone, device-spelled UNC and volume paths, registry integers written back by their bits, collections, Version, IPAddress and Uri, capture edges past int range)
+    WindowsReview144Tests.cs (ninth pass: negative registry numbers read back, integer text as words, refused writes create no keys, no resend after a lost answer)
     FlakeRootCauseTests.cs  (round 46: JobObject.Start keeps grandchildren in the job, refuses over the limit before running)
     DriveAndVolumeInfoTests.cs
     MonitorInfoTests.cs

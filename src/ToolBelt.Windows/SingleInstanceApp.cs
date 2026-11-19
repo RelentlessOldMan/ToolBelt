@@ -138,7 +138,7 @@ namespace ToolBelt.Windows
             var gate = SingleInstance.TryAcquire(gateName);
             if (gate.IsOwned) return new SingleInstanceApp(gate, pipe, primary: true, forwarded: false);
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            bool forwarded = Forward(pipe, args, timeout);
+            bool forwarded = Forward(pipe, args, timeout, out bool sent);
             if (!forwarded)
             {
                 // A primary that exited (or crashed) while this launch waited for it leaves nobody to forward to: take over
@@ -146,11 +146,14 @@ namespace ToolBelt.Windows
                 gate.Dispose();
                 gate = SingleInstance.TryAcquire(gateName);
                 if (gate.IsOwned) return new SingleInstanceApp(gate, pipe, primary: true, forwarded: false);
+                // A primary that got the message (and may have delivered it) but whose answer was lost, or that refused it,
+                // is alive: resending to it handled the launch twice.
+                if (sent) return new SingleInstanceApp(gate, pipe, primary: false, forwarded: false);
                 // Another launch took over first: it is the primary now, so forward to it rather than lose this launch. With
                 // what is left of the timeout: a second full wait took a launch to twice the forward timeout.
                 TimeSpan left = timeout == Timeout.InfiniteTimeSpan || timeout == TimeSpan.MaxValue ? timeout
                     : clock.Elapsed >= timeout ? TimeSpan.Zero : timeout - clock.Elapsed;
-                forwarded = Forward(pipe, args, left);
+                forwarded = Forward(pipe, args, left, out _);
             }
             return new SingleInstanceApp(gate, pipe, primary: false, forwarded);
         }
@@ -163,8 +166,10 @@ namespace ToolBelt.Windows
             return SetForegroundWindow(hwnd);
         }
 
-        private static bool Forward(string pipeName, IReadOnlyList<string> args, TimeSpan timeout)
+        // sent: the message reached a primary (which may have delivered it), so it must not go out again.
+        private static bool Forward(string pipeName, IReadOnlyList<string> args, TimeSpan timeout, out bool sent)
         {
+            sent = false;
             // Build (and size-check) the message once: one the primary would reject fails now, not after the timeout. The
             // budget is the primary's: string bytes only. Counting the length headers too refused launches it would take.
             if (args.Count > MaxArgs) return false;
@@ -182,7 +187,6 @@ namespace ToolBelt.Windows
             long RemainingMs() => unlimited ? int.MaxValue : Math.Max(0, (long)(timeout - clock.Elapsed).TotalMilliseconds);
             while (true)
             {
-                bool sent = false;
                 try
                 {
                     using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.CurrentUserOnly | PipeOptions.Asynchronous);
