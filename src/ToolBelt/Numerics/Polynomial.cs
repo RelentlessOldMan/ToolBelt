@@ -181,19 +181,26 @@ namespace ToolBelt.Numerics
             foreach (double c in _coefficients)
                 if (double.IsNaN(c) || double.IsInfinity(c))
                     throw new InvalidOperationException("Real roots need finite coefficients.");
+            double[] roots;
             switch (Degree)
             {
                 case 0:
                     return Array.Empty<double>();
                 case 1:
-                    return new[] { -_coefficients[0] / _coefficients[1] };
+                    roots = new[] { -_coefficients[0] / _coefficients[1] };
+                    break;
                 case 2:
-                    return QuadraticRoots();
+                    roots = QuadraticRoots();
+                    break;
                 case 3:
-                    return CubicRoots();
+                    roots = CubicRoots();
+                    break;
                 default:
                     throw new NotSupportedException("Real-root finding is supported for degree 1 to 3 only.");
             }
+            // A root at zero came back as -0 from some formulas (x, x^2 + x, x^2) and +0 from others: it is +0.
+            for (int i = 0; i < roots.Length; i++) roots[i] += 0.0;
+            return roots;
         }
 
         public override string ToString()

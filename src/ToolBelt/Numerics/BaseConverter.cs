@@ -90,7 +90,13 @@ namespace ToolBelt.Numerics
             // A repeated digit made two values print the same and parse back to the first ("aab": 1 → "a" → 0).
             var seen = new HashSet<char>();
             foreach (char c in alphabet)
+            {
+                // Digits are UTF-16 code units: "a" plus an emoji was base 3, printed 1 as a lone surrogate and read the
+                // emoji as two digits.
+                if (char.IsSurrogate(c))
+                    throw new ArgumentException("Alphabet digits must be single UTF-16 characters; surrogate pairs are not supported.", nameof(alphabet));
                 if (!seen.Add(c)) throw new ArgumentException($"Alphabet repeats the digit '{c}'.", nameof(alphabet));
+            }
         }
     }
 }

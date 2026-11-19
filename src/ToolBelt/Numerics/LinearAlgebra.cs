@@ -78,7 +78,7 @@ namespace ToolBelt.Numerics
             if (b is null) throw new ArgumentNullException(nameof(b));
             int n = RequireSquare(a);
             if (b.Length != n) throw new ArgumentException("Right-hand side length must match the matrix size.", nameof(b));
-            if (!Decompose(a, out double[,] lu, out int[] pivot, out _, out int[] shift))
+            if (!Decompose(a, out double[,] lu, out int[] pivot, out _, out int[] shift, out int[] colShift))
                 throw new InvalidOperationException("Matrix is singular; the system has no unique solution.");
             // The rows were scaled by 2^−shift, so b is too. A common 2^k (taken out of x after) keeps the scaled b near 1:
             // scaling b alone underflowed a small b on a huge row and overflowed a large b on a tiny one.
@@ -89,7 +89,7 @@ namespace ToolBelt.Numerics
             var scaled = new double[n];
             for (int i = 0; i < n; i++) scaled[i] = ScaleB(b[i], -shift[i] - k);
             double[] x = SolveDecomposed(lu, pivot, scaled);
-            for (int i = 0; i < n; i++) x[i] = ScaleB(x[i], k);
+            for (int i = 0; i < n; i++) x[i] = ScaleB(x[i], k - colShift[i]); // the columns were scaled by 2^−colShift
             return x;
         }
 
@@ -98,14 +98,15 @@ namespace ToolBelt.Numerics
             if (a is null) throw new ArgumentNullException(nameof(a));
             int n = RequireSquare(a);
             // Only an exactly zero pivot makes the determinant 0; a small one is a small (but real) determinant.
-            if (!Decompose(a, out double[,] lu, out _, out int sign, out int[] shift, exactZeroOnly: true))
+            if (!Decompose(a, out double[,] lu, out _, out int sign, out int[] shift, out int[] colShift, exactZeroOnly: true))
                 return 0.0;
             // The running product kept as mantissa · 2^exponent: multiplied directly, 1e200 · 1e200 · 1e-200 · 1e-200
             // overflowed to ∞ on the way to 1. Only the final scale saturates (to ±∞ or 0). Each pivot is split too:
             // a mantissa in [1, 2) times a pivot of 1.5e308 overflowed before it was rescaled.
             double mantissa = sign;
             int exponent = 0;
-            foreach (int s in shift) exponent += s; // det A = det(row-scaled A) · 2^Σshift
+            foreach (int s in shift) exponent += s; // det A = det(scaled A) · 2^(Σshift + ΣcolShift)
+            foreach (int s in colShift) exponent += s;
             for (int i = 0; i < n; i++)
             {
                 double pivot = lu[i, i];
@@ -123,7 +124,7 @@ namespace ToolBelt.Numerics
         {
             if (a is null) throw new ArgumentNullException(nameof(a));
             int n = RequireSquare(a);
-            if (!Decompose(a, out double[,] lu, out int[] pivot, out _, out int[] shift))
+            if (!Decompose(a, out double[,] lu, out int[] pivot, out _, out int[] shift, out int[] colShift))
                 throw new InvalidOperationException("Matrix is singular and cannot be inverted.");
 
             var inverse = new double[n, n];
@@ -131,9 +132,9 @@ namespace ToolBelt.Numerics
             for (int col = 0; col < n; col++)
             {
                 Array.Clear(e, 0, n);
-                e[col] = 1; // A⁻¹ = (DA)⁻¹·D for the row scaling D, applied after the solve so e stays 1, not subnormal
+                e[col] = 1; // A⁻¹ = C·(DAC)⁻¹·D for the row and column scalings D and C, applied after the solve so e stays 1
                 double[] x = SolveDecomposed(lu, pivot, e);
-                for (int row = 0; row < n; row++) inverse[row, col] = ScaleB(x[row], -shift[col]);
+                for (int row = 0; row < n; row++) inverse[row, col] = ScaleB(x[row], -shift[col] - colShift[row]);
             }
             return inverse;
         }
@@ -147,8 +148,12 @@ namespace ToolBelt.Numerics
         // and partial pivoting can grow entries by 2^(n−1) (a fixed 2⁹⁶⁰ threshold left a 70×70 Wilkinson matrix of
         // 1e288s too little headroom, an all-NaN answer). Ordinary rows are left alone, so their pivots are unchanged.
         // An elimination that overflows anyway throws rather than return NaN.
+        // A matrix whose non-zero entries span more than 2^52 is instead balanced: rows and columns are both scaled by
+        // powers of two (shift and colShift; see Balance) so that no entry is swamped by one it outweighs. Scaling rows alone
+        // turned {{1e305, 1e-223}, {1e239, 1e-287}}'s small entries into 0 (determinant 0, "singular"), and unscaled, the
+        // multiplier 1e-108 / 1e233 of {{1e-108, 1e-224}, {1e233, 1e212}} underflowed to 0 (determinant −1e9, not 1e104).
         private static bool Decompose(double[,] a, out double[,] lu, out int[] pivot, out int sign, out int[] shift,
-            bool exactZeroOnly = false)
+            out int[] colShift, bool exactZeroOnly = false)
         {
             int n = a.GetLength(0);
             lu = (double[,])a.Clone();
@@ -166,7 +171,20 @@ namespace ToolBelt.Numerics
                     rowMax[i] = Math.Max(rowMax[i], Math.Abs(v));
                 }
             shift = new int[n];
-            for (int i = 0; i < n; i++)
+            colShift = new int[n];
+            if (Balance(a, shift, colShift))
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    rowMax[i] = 0;
+                    for (int j = 0; j < n; j++)
+                    {
+                        lu[i, j] = ScaleB(a[i, j], -shift[i] - colShift[j]);
+                        rowMax[i] = Math.Max(rowMax[i], Math.Abs(lu[i, j]));
+                    }
+                }
+            }
+            else for (int i = 0; i < n; i++)
             {
                 if (rowMax[i] == 0) continue;
                 int e = Exponent(rowMax[i]);
@@ -179,6 +197,14 @@ namespace ToolBelt.Numerics
             for (int i = 0; i < n; i++)
                 for (int j = 0; j < n; j++) colMax[j] = Math.Max(colMax[j], Math.Abs(lu[i, j]));
             double relative = exactZeroOnly ? 0 : n * 2.220446049250313e-16;
+            // Each entry's bound on what elimination has combined into it, |a| + Σ|l|·|u|: its rounding error is within
+            // about nε of that. Against the original row and column alone, the rounding left in the last pivot of an
+            // exactly singular matrix passed as a pivot ({{6, 7, -9}, {-5, -6, 4}, {-3, -4, -6}} solved to x ≈ 3e15; 721
+            // of 20,000 random rank-deficient integer matrices, and 86 of 20,000 with rows and columns scaled, were
+            // accepted).
+            var mag = new double[n, n];
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++) mag[i, j] = Math.Abs(lu[i, j]);
 
             for (int col = 0; col < n; col++)
             {
@@ -192,10 +218,12 @@ namespace ToolBelt.Numerics
                 // Singular only when the pivot is negligible against both its row and its column: columns in mixed units
                 // ({{1e-20, 1e20}, {2e-20, 3e20}}, determinant 1) are not singular.
                 if (!(best > relative * rowMax[max]) && !(best > relative * colMax[col])) return false;
+                if (!exactZeroOnly && !(best > 8 * relative * mag[max, col])) return false;
 
                 if (max != col)
                 {
                     for (int j = 0; j < n; j++) (lu[col, j], lu[max, j]) = (lu[max, j], lu[col, j]);
+                    for (int j = 0; j < n; j++) (mag[col, j], mag[max, j]) = (mag[max, j], mag[col, j]);
                     (pivot[col], pivot[max]) = (pivot[max], pivot[col]);
                     (rowMax[col], rowMax[max]) = (rowMax[max], rowMax[col]);
                     sign = -sign;
@@ -206,11 +234,81 @@ namespace ToolBelt.Numerics
                     double factor = lu[row, col] / lu[col, col];
                     lu[row, col] = factor;
                     for (int j = col + 1; j < n; j++) lu[row, j] -= factor * lu[col, j];
+                    double f = Math.Abs(factor);
+                    for (int j = col + 1; j < n; j++) mag[row, j] += f * mag[col, j];
                 }
             }
             foreach (double v in lu)
                 if (double.IsNaN(v) || double.IsInfinity(v))
                     throw new InvalidOperationException("The elimination overflowed: pivot growth took an entry beyond the double range.");
+            return true;
+        }
+
+        // Power-of-two row and column scalings (entry [i, j] times 2^−(shift[i] + colShift[j])) for a matrix whose
+        // non-zero entries span more than 2^52; false, and nothing set, otherwise, or when no permutation picks only
+        // non-zero entries (the matrix is then singular, and elimination finds that). Olschowka and Neumaier's scaling:
+        // the permutation with the largest product of entries, found as an assignment problem on the exponents (the
+        // Hungarian method), and its dual potentials, which put that permutation's entries in [1, 2) and every entry below
+        // 2. Worked on exponents, so nothing overflows. Scaling to make each row's and column's largest entry about 1
+        // (Ruiz) still let partial pivoting swamp the dominant product: ten of 15,000 random 3×3 and 4×4 determinants with
+        // one term outweighing all the others came out wrong, some 0.
+        private static bool Balance(double[,] a, int[] shift, int[] colShift)
+        {
+            int n = a.GetLength(0);
+            var e = new int[n, n];
+            int lo = int.MaxValue, hi = int.MinValue;
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++)
+                {
+                    if (a[i, j] == 0) { e[i, j] = int.MinValue; continue; }
+                    e[i, j] = Exponent(Math.Abs(a[i, j]));
+                    lo = Math.Min(lo, e[i, j]);
+                    hi = Math.Max(hi, e[i, j]);
+                }
+            if (lo == int.MaxValue || hi - lo <= 52) return false;
+            // Minimise Σ −e over permutations, zero entries excluded. Rows and columns from 1; column 0 is the method's
+            // dummy. u and v end with u[i] + v[j] ≤ −e[i, j], equal on the chosen entries.
+            var u = new long[n + 1];
+            var v = new long[n + 1];
+            var p = new int[n + 1];
+            var way = new int[n + 1];
+            var minv = new long[n + 1];
+            var used = new bool[n + 1];
+            for (int i = 1; i <= n; i++)
+            {
+                p[0] = i;
+                int j0 = 0;
+                for (int j = 0; j <= n; j++) { minv[j] = long.MaxValue; used[j] = false; }
+                do
+                {
+                    used[j0] = true;
+                    int i0 = p[j0], j1 = -1;
+                    long delta = long.MaxValue;
+                    for (int j = 1; j <= n; j++)
+                    {
+                        if (used[j]) continue;
+                        if (e[i0 - 1, j - 1] != int.MinValue)
+                        {
+                            long cur = -(long)e[i0 - 1, j - 1] - u[i0] - v[j];
+                            if (cur < minv[j]) { minv[j] = cur; way[j] = j0; }
+                        }
+                        if (minv[j] < delta) { delta = minv[j]; j1 = j; }
+                    }
+                    if (j1 < 0) return false; // no permutation of non-zero entries
+                    for (int j = 0; j <= n; j++)
+                        if (used[j]) { u[p[j]] += delta; v[j] -= delta; }
+                        else if (minv[j] != long.MaxValue) minv[j] -= delta;
+                    j0 = j1;
+                } while (p[j0] != 0);
+                do { int j1 = way[j0]; p[j0] = p[j1]; j0 = j1; } while (j0 != 0);
+            }
+            for (int i = 1; i <= n; i++)
+                if (Math.Abs(u[i]) > int.MaxValue / 4 || Math.Abs(v[i]) > int.MaxValue / 4) return false;
+            for (int i = 0; i < n; i++)
+            {
+                shift[i] = (int)-u[i + 1]; // e − shift − colShift = e + u + v ≤ 0
+                colShift[i] = (int)-v[i + 1];
+            }
             return true;
         }
 

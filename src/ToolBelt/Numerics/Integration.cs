@@ -58,6 +58,13 @@ namespace ToolBelt.Numerics
         private static readonly double Tiny = BitConverter.Int64BitsToDouble((long)(1023 - 550) << 52); // 2⁻⁵⁵⁰
         private static readonly double Big = BitConverter.Int64BitsToDouble((long)(1023 + 550) << 52);  // 2⁵⁵⁰
 
+        private static bool AllFiniteValues(double[] v)
+        {
+            for (int i = 0; i < v.Length; i++)
+                if (!IsFinite(v[i])) return false;
+            return true;
+        }
+
         private static bool AllFinite(IReadOnlyList<double> v)
         {
             for (int i = 0; i < v.Count; i++)
@@ -155,7 +162,22 @@ namespace ToolBelt.Numerics
             double m = 0.5 * a + 0.5 * b;
             double fa = Eval(f, a), fb = Eval(f, b), fm = Eval(f, m);
             double whole = SimpsonPiece(a, b, fa, fb, fm);
-            return Recurse(f, a, b, fa, fb, fm, whole, tolerance, 50, ref budget);
+            double mass = 0;
+            double result = Recurse(f, a, b, fa, fb, fm, whole, tolerance, 50, ref budget, ref mass);
+            if (IsFinite(result)) return result;
+            // A piece past double range: ∞ − ∞ was NaN (x over ±1e200, integral 0), and an infinite half could not be
+            // outweighed by a finite one. As Trapezoid does, integrate again scaled by 2⁻¹¹⁰⁰, with what is left of the
+            // budget, and scale back: a signed ∞ past double range, the value if it cancels into range. When what is
+            // left is within rounding of the pieces it cancelled, though, its scaled-back value is noise far past the
+            // double range (x over ±1e200 left about 1e384 of it), and neither a value nor an infinity would be right.
+            Func<double, double> g = x => f(x) * Tiny * Tiny; // 2⁻¹¹⁰⁰ itself is below the double range
+            double ga = fa * Tiny * Tiny, gb = fb * Tiny * Tiny, gm = fm * Tiny * Tiny;
+            mass = 0;
+            double scaled = Recurse(g, a, b, ga, gb, gm, SimpsonPiece(a, b, ga, gb, gm), tolerance * Tiny * Tiny, 50, ref budget, ref mass);
+            double back = scaled * Big * Big;
+            if (IsFinite(back) || Math.Abs(scaled) > 1e-12 * mass) return back;
+            throw new InvalidOperationException(
+                "The integral cancels between pieces beyond the double range, below the rounding of those pieces; it cannot be resolved in double precision.");
         }
 
         // Splits forced before the first acceptance: five samples alone could agree by aliasing (sin²(πx) is 0 at all of
@@ -170,6 +192,15 @@ namespace ToolBelt.Numerics
             var result = new double[y.Count];
             for (int i = 1; i < y.Count; i++)
                 result[i] = result[i - 1] + Panel(y[i - 1], y[i], dx);
+            // As in Trapezoid: past double range the running sum went to infinity, and opposite panels after it gave NaN
+            // where Trapezoid gave the total. Those values come from the scaled sum, so the last one equals Trapezoid's.
+            if (AllFiniteValues(result) || !AllFinite(y)) return result;
+            double scaled = 0, w = dx * Tiny;
+            for (int i = 1; i < y.Count; i++)
+            {
+                scaled += (0.5 * y[i - 1] + 0.5 * y[i]) * Tiny * w;
+                if (!IsFinite(result[i])) result[i] = scaled * Big * Big;
+            }
             return result;
         }
 
@@ -195,16 +226,20 @@ namespace ToolBelt.Numerics
             {
                 // A subnormal span / 6 rounds (1 over [0, 3ε] integrated to 0): scale the samples first, divide after.
                 double s = fa + 4 * fm + fb;
-                return IsFinite(s) ? span * s / 6.0 : span * (0.25 * fa + fm + 0.25 * fb) / 6.0 * 4;
+                return IsFinite(s) ? span * s / 6.0 : span * Mean6(fa, fb, fm);
             }
             double h6 = (b - a) / 6.0, piece = h6 * (fa + 4 * fm + fb);
             if (IsFinite(piece)) return piece;
-            if (!IsFinite(h6)) h6 = (0.5 * b - 0.5 * a) / 3.0;
-            return h6 * (0.25 * fa + fm + 0.25 * fb) * 4;
+            // The weighted mean of the samples, which is no larger than the largest: the quartered sum was 1.5 times the
+            // sample of a constant, so 1.2e308 over [0, 1] integrated to ∞.
+            double mean = Mean6(fa, fb, fm);
+            return IsFinite(span) ? span * mean : 2 * ((0.5 * b - 0.5 * a) * mean);
         }
 
+        private static double Mean6(double fa, double fb, double fm) => fa / 6.0 + fm * (2.0 / 3.0) + fb / 6.0;
+
         private static double Recurse(Func<double, double> f, double a, double b,
-            double fa, double fb, double fm, double whole, double tol, int depth, ref int budget)
+            double fa, double fb, double fm, double whole, double tol, int depth, ref int budget, ref double mass)
         {
             if ((budget -= 2) < 0)
                 throw new InvalidOperationException("Adaptive Simpson did not reach the tolerance within the evaluation budget.");
@@ -219,16 +254,18 @@ namespace ToolBelt.Numerics
             // the piece, splitting further cannot help (a large integrand took millions of evaluations).
             // A piece beyond the double range is the integral overflowing: splitting cannot bring it back (∞ − ∞ was NaN,
             // so it split until the budget ran out).
-            if (double.IsInfinity(combined)) return combined;
+            if (double.IsInfinity(combined) || double.IsNaN(combined)) return combined;
             double diff = Math.Abs(combined - whole);
             if (depth <= 0 || depth <= MinimumSplits && (diff <= 15 * tol || diff <= 1e-14 * Math.Abs(combined)))
             {
                 double corrected = combined + (combined - whole) / 15.0; // Richardson correction
-                return IsFinite(corrected) ? corrected : combined + (combined / 15.0 - whole / 15.0);
+                if (!IsFinite(corrected)) corrected = combined + (combined / 15.0 - whole / 15.0);
+                mass += Math.Abs(leftArea) + Math.Abs(rightArea); // what the sum's rounding is relative to
+                return corrected;
             }
 
-            return Recurse(f, a, lm, fa, fm, fleft, leftArea, tol / 2, depth - 1, ref budget)
-                 + Recurse(f, lm, b, fm, fb, fright, rightArea, tol / 2, depth - 1, ref budget);
+            return Recurse(f, a, lm, fa, fm, fleft, leftArea, tol / 2, depth - 1, ref budget, ref mass)
+                 + Recurse(f, lm, b, fm, fb, fright, rightArea, tol / 2, depth - 1, ref budget, ref mass);
         }
 
         private static double Eval(Func<double, double> f, double x)

@@ -35,8 +35,11 @@ namespace ToolBelt.Numerics
             digits = RoundDigits(digits, significantDigits, ref decimalExponent);
             int exponent = FloorDiv(decimalExponent, 3) * 3;
             // Clamping to yocto/yotta printed "1E-06 y" and "1230000 Y"; out of range, plain E notation reads better.
+            // From the digits rounded above: "G" rounded the binary value, so 1.25e27 at 2 digits was "1.2E+27" though
+            // 1.25e24 was "1.3 Y".
             if (exponent > MaxExponent || exponent < -MaxExponent)
-                return value.ToString("G" + significantDigits, CultureInfo.InvariantCulture);
+                return (value < 0 ? "-" : "") + digits.Substring(0, 1) + (digits.Length > 1 ? "." + digits.Substring(1) : "")
+                       + (decimalExponent < 0 ? "E-" : "E+") + Math.Abs(decimalExponent).ToString("00", CultureInfo.InvariantCulture);
 
             // 1 to 3 digits before the point; fixed point always ("G" turned 120 at 2 digits into "1.2E+02").
             int integerDigits = decimalExponent - exponent + 1;

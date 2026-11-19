@@ -912,6 +912,7 @@ tests/
       NumericsCoreReview122Tests.cs  (round 122: exact Lerp ends, quantile ranks, infinite angles, an exact moving sum, harmonic means in range, undefined enums, oversized products, overflowing trapezoid panels and derivatives)
       NumericsCoreReview130Tests.cs  (round 130: Polynomial.Fit's exact distinct-x count, Uncertainty rounding the shortest decimal at every place, Simpson's running sum past double range, Lerp between equal infinite ends, exact decimal reads in Rounding and EngineeringNotation on .NET Framework)
       NumericsCoreReview156Tests.cs  (round 156: Akima slope terms past the double range, Quantile and Percentile ranking decimals alike, far samples and tiny weight ratios in IDW, exact LerpDegrees ends, single-rounded tiny variances, NextExponential's −0, infinite tolerance limits)
+      NumericsCoreReview162Tests.cs (round 162: matrices spanning the double range, by row and column matching scaling, and exactly singular ones, against exact determinants; unit conversions rounded once; engineering notation past yotta; +0 roots; cumulative trapezoid and adaptive Simpson past double range; secant guesses far apart; infinite lerp steps; surrogate digits)
       NumericsExtremeReview56Tests.cs (round 56, cross-cutting: values near MaxValue, subnormals, infinities, sizes past Array.MaxLength)
       NumericsReviewRegressionTests.cs  (2026-10-05 review regressions: Numerics and Signal)
       StreamingQuantileTests.cs

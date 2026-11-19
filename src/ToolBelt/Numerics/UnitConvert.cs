@@ -64,10 +64,33 @@ namespace ToolBelt.Numerics
             // numbers (degrees, gradians and turns per turn), and π/180 over π/200 made 90 deg 99.99999999999999 grad.
             if (from.Category == "angle" && fromUnit != "rad" && toUnit != "rad")
                 return ExactRatio(value, PerTurn(toUnit), PerTurn(fromUnit));
-            double ratio = from.Category == "angle"
-                ? from.ToBase / to.ToBase
-                : (double)((decimal)from.ToBase / (decimal)to.ToBase);
-            return value * ratio;
+            if (from.Category == "angle") return value * (from.ToBase / to.ToBase);
+            // And then value·num/den rounded once, for the ratio as a fraction of whole numbers: the ratio rounded to a
+            // double and multiplied rounded twice, so 9 m was 0.009000000000000001 km.
+            if (WholeRatio(from.ToBase, to.ToBase, out double num, out double den))
+            {
+                double a = Math.Abs(value);
+                if (a > 1e-250 && a < 1e250) return ExactRatio(value, num, den);
+            }
+            return value * (double)((decimal)from.ToBase / (decimal)to.ToBase);
+        }
+
+        // from / to as num / den in lowest terms, both whole numbers to 2^53 (so exact doubles); false if larger. The
+        // factors are short decimals: F / 10^sf over T / 10^st is F·10^st / (T·10^sf).
+        private static bool WholeRatio(double from, double to, out double num, out double den)
+        {
+            decimal n = (decimal)from, d = (decimal)to;
+            int scale = ((decimal.GetBits(n)[3] >> 16) & 0xFF) + ((decimal.GetBits(d)[3] >> 16) & 0xFF);
+            for (int i = 0; i < scale; i++) { n *= 10; d *= 10; }
+            decimal x = n, y = d;
+            while (y != 0) { decimal r = x % y; x = y; y = r; }
+            n /= x;
+            d /= x;
+            num = den = 0;
+            if (n != decimal.Truncate(n) || d != decimal.Truncate(d) || n > 9007199254740992m || d > 9007199254740992m) return false;
+            num = (double)n;
+            den = (double)d;
+            return true;
         }
 
         /// <summary>Parses a "value unit" string such as "5 km" or "3.2kg" into its number and unit. Returns false

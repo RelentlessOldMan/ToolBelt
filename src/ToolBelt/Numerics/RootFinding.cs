@@ -189,6 +189,11 @@ namespace ToolBelt.Numerics
                 }
                 // As Newton: a small residual is not enough (a flat e^−x, a triple root); the step must vanish.
                 double next = x1 - f1 * (x1 - x0) / (f1 - f0);
+                // Guesses or values far apart overflowed x1 − x0 or f1 − f0 (1e308 and −1e308 for x / 2 stepped to ∞,
+                // and f(∞) failed as "f returned NaN"): the same step from halves.
+                if (!IsFinite(next) && IsFinite(f0) && IsFinite(f1))
+                    next = x1 - 2 * (0.5 * f1 / (0.5 * f1 - 0.5 * f0) * (0.5 * x1 - 0.5 * x0));
+                if (!IsFinite(next)) return Failure(x1, i, "The secant step overflowed the double range.");
                 double t = Tol(tolerance, next);
                 if (Math.Abs(next - x1) < t)
                 {

@@ -46,6 +46,8 @@ namespace ToolBelt.Numerics
         // out 193.9000000000001).
         public static double LerpDegrees(double from, double to, double t)
         {
+            // An infinite t threw only when the ends differed (0 · ∞ was NaN when they were equal).
+            if (double.IsInfinity(t)) throw new ArgumentOutOfRangeException(nameof(t), t, "The step from from toward to overflows.");
             double diff = DifferenceDegrees(from, to);
             bool fromEnd = t <= 0.5;
             double step = diff * (fromEnd ? t : t - 1);
