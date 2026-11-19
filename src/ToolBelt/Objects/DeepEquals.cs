@@ -119,7 +119,7 @@ namespace ToolBelt.Objects
             var ma = new List<(string Name, object? Value, ObjectMembers.Origin Origin)>(ObjectMembers.Read(a, opt.IncludeFields || ta.IsValueType));
             var mb = new List<(string Name, object? Value, ObjectMembers.Origin Origin)>(ObjectMembers.Read(b, opt.IncludeFields || ta.IsValueType));
             // A class with no readable members was always equal: Money(1) and Money(2), whose Equals says they differ.
-            if (ma.Count == 0 && (ta.IsValueType || ObjectMembers.OverridesEquals(ta))) return a.Equals(b);
+            if (ma.Count == 0 && (ta.IsValueType || ObjectMembers.OverridesEquals(ta))) return ObjectMembers.ValueEquals(a, b);
             for (int i = ma.Count - 1; i >= 0; i--)
                 work.Push((ma[i].Value, mb[i].Value, ObjectMembers.Trail.Pair(trail, ma[i].Value, ma[i].Origin, mb[i].Value, mb[i].Origin)));
             return true;
@@ -142,7 +142,7 @@ namespace ToolBelt.Objects
                 if (a is double da && b is double db) return da.Equals(db) || Math.Abs(da - db) <= opt.FloatTolerance;
                 if (a is float fa && b is float fb) return fa.Equals(fb) || Math.Abs(fa - fb) <= opt.FloatTolerance;
             }
-            return a.Equals(b);
+            return ObjectMembers.ValueEquals(a, b);
         }
     }
 }

@@ -244,6 +244,12 @@ namespace ToolBelt.Objects
                     && float.IsInfinity((float)big)) return Fail(targetType, out result);
                 // 1e-50 became 0f.
                 if (underlying == typeof(float) && value is double tiny && tiny != 0 && (float)tiny == 0) return Fail(targetType, out result);
+                // And any other double whose float's shortest text does not name it: 0.123456789012 became 0.12345679f and
+                // 16777217.0 16777216f, though the same values as long or decimal are refused. 0.1 and 1e30 convert, as
+                // the decimals 0.1m and 1e28m do.
+                if (underlying == typeof(float) && value is double narrow && !double.IsNaN(narrow) && !double.IsInfinity(narrow)
+                    && (double)(float)narrow != narrow && !FloatNamesDouble((float)narrow, narrow))
+                    return Fail(targetType, out result);
                 // An enum is checked as its number: (LongEnum)(2^53 + 1) became 2^53.
                 object numeric = value is Enum ? Convert.ChangeType(value, Enum.GetUnderlyingType(value.GetType()), CultureInfo.InvariantCulture) : value;
                 if ((underlying == typeof(double) || underlying == typeof(float)) && !IntegerFits(numeric, underlying))
@@ -252,6 +258,14 @@ namespace ToolBelt.Objects
                 // A floating target parses without thousands separators: the invariant "1,5" was 15, not a failure.
                 if (value is string text && (underlying == typeof(double) || underlying == typeof(float) || underlying == typeof(decimal)))
                 {
+                    // .NET Core reads a signed "-NaN" as NaN where .NET Framework refuses it: NaN on both.
+                    string bare = text.Trim();
+                    if (bare.Length > 0 && (bare[0] == '-' || bare[0] == '+')) bare = bare.Substring(1);
+                    if (underlying != typeof(decimal) && string.Equals(bare, "NaN", StringComparison.OrdinalIgnoreCase))
+                    {
+                        result = underlying == typeof(double) ? (object)double.NaN : float.NaN;
+                        return true;
+                    }
                     result = underlying == typeof(double) ? double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture)
                         : underlying == typeof(float) ? float.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture)
                         : (object)decimal.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
@@ -352,6 +366,63 @@ namespace ToolBelt.Objects
             string r = f.ToString("R", CultureInfo.InvariantCulture);
             return float.IsNaN(f) || float.Parse(r, NumberStyles.Float, CultureInfo.InvariantCulture).Equals(f)
                 ? r : f.ToString("G9", CultureInfo.InvariantCulture);
+        }
+
+        // True if the shortest decimal that reads back as f also reads back as d. Found exactly with BigInteger, so every
+        // framework agrees: .NET Framework's float "R" can give nine digits where eight do.
+        private static bool FloatNamesDouble(float f, double d)
+        {
+            if (f == 0 || float.IsInfinity(f) || float.IsNaN(f)) return false;
+            var inv = CultureInfo.InvariantCulture;
+            float af = Math.Abs(f);
+            for (int p = 1; p <= 9; p++)
+            {
+                string s = af.ToString("E" + (p - 1).ToString(inv), inv);
+                int ePos = s.IndexOf('E');
+                var digits = System.Numerics.BigInteger.Parse(s.Substring(0, ePos).Replace(".", ""), inv);
+                int exp = int.Parse(s.Substring(ePos + 1), NumberStyles.AllowLeadingSign, inv) - (p - 1);
+                if (RoundsTo(digits, exp, af, single: true)) return RoundsTo(digits, exp, Math.Abs(d), single: false);
+            }
+            return false;
+        }
+
+        // True if digits·10^exp (positive) rounds to the positive finite x as a float (single) or a double: it lies within
+        // half an ulp of x, and on the boundary only if x's mantissa is even.
+        private static bool RoundsTo(System.Numerics.BigInteger digits, int exp, double x, bool single)
+        {
+            long m;
+            int e2, be;
+            if (single)
+            {
+                int b = BitConverter.ToInt32(BitConverter.GetBytes((float)x), 0);
+                be = (b >> 23) & 0xFF;
+                m = b & 0x7FFFFF;
+                if (be == 0) e2 = -149; else { m |= 1L << 23; e2 = be - 150; }
+            }
+            else
+            {
+                long b = BitConverter.DoubleToInt64Bits(x);
+                be = (int)((b >> 52) & 0x7FF);
+                m = b & 0xFFFFFFFFFFFFFL;
+                if (be == 0) e2 = -1074; else { m |= 1L << 52; e2 = be - 1075; }
+            }
+            // x = m·2^e2. The midpoints to its neighbours are (2m ± 1)·2^(e2 − 1), or (4m − 1)·2^(e2 − 2) below a power of
+            // two, where the spacing halves.
+            bool narrowBelow = be > 1 && m == (single ? 1L << 23 : 1L << 52);
+            var mm = new System.Numerics.BigInteger(m);
+            int up = Compare(digits, exp, 2 * mm + 1, e2 - 1);
+            int down = narrowBelow ? Compare(digits, exp, 4 * mm - 1, e2 - 2) : Compare(digits, exp, 2 * mm - 1, e2 - 1);
+            bool even = (m & 1) == 0;
+            return (up < 0 || (up == 0 && even)) && (down > 0 || (down == 0 && even));
+        }
+
+        // The sign of digits·10^exp − v·2^shift.
+        private static int Compare(System.Numerics.BigInteger digits, int exp, System.Numerics.BigInteger v, int shift)
+        {
+            System.Numerics.BigInteger a = digits, b = v;
+            if (exp >= 0) a *= System.Numerics.BigInteger.Pow(10, exp); else b *= System.Numerics.BigInteger.Pow(10, -exp);
+            if (shift >= 0) b <<= shift; else a <<= -shift;
+            return a.CompareTo(b);
         }
 
         private static bool IsIntegral(Type t)

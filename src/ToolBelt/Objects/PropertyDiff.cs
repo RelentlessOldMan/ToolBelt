@@ -209,7 +209,7 @@ namespace ToolBelt.Objects
                 // A class with no readable members that overrides Equals (Money(1) and Money(2)) reported no difference.
                 if (ma.Count == 0 && (ta.IsValueType || ObjectMembers.OverridesEquals(ta)))
                 {
-                    if (!na.Equals(nb)) output.Add(Report(path, a, b));
+                    if (!ObjectMembers.ValueEquals(na, nb)) output.Add(Report(path, a, b));
                 }
                 else
                 {

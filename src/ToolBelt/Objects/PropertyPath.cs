@@ -30,7 +30,8 @@ namespace ToolBelt.Objects
     /// does. A value that does not fit an array's element type throws <see cref="ArgumentException"/>, as does null for a
     /// value-type member or element that is not nullable. A member name straight after ']' ("A[0]B") is an error. A property of a by-ref-like type (Span),
     /// which reflection cannot box, throws <see cref="ArgumentException"/> naming the segment. An index in quotes
-    /// (<c>["a]b"]</c>) runs to its closing quote, so a key may hold ']' or '.'; quotes are removed only in a matching pair.
+    /// (<c>["a]b"]</c>) runs to its closing quote, so a key may hold ']' or '.'; quotes are removed only in a matching pair,
+    /// and a doubled quote inside stands for one (<c>["say ""it's"""]</c>).
     /// </para>
     /// </summary>
     public static class PropertyPath
@@ -336,6 +337,13 @@ namespace ToolBelt.Objects
                     if (underlying == typeof(TimeSpan)) return TimeSpan.Parse(token, inv);
                     if (underlying == typeof(Version)) return Version.Parse(token);
                     if (underlying == typeof(Uri)) return new Uri(token, UriKind.RelativeOrAbsolute);
+                    // ChangeType converts only IConvertible types, so a key KeyText printed of DateOnly, TimeOnly, Half,
+                    // BigInteger, Int128, nint or a tuple could not be read back: such a type is read by its own Parse.
+                    if (!typeof(IConvertible).IsAssignableFrom(underlying))
+                    {
+                        if (TryTuple(underlying, token, fullPath, out object? tuple)) return tuple!;
+                        if (TryParseMethod(underlying, token, out object? parsed)) return parsed!;
+                    }
                     return Convert.ChangeType(token, underlying, inv);
                 }
                 catch (Exception ex) when (ex is FormatException || ex is OverflowException || ex is InvalidCastException || ex is ArgumentException)
@@ -343,6 +351,83 @@ namespace ToolBelt.Objects
                     throw new ArgumentException($"Key '[{token}]' does not convert to {keyType.Name} (path '{fullPath}').", "path", ex);
                 }
             }
+
+            // "(a, b)" as KeyText writes a Tuple or ValueTuple, each item read as a key of its type. An item whose own text
+            // holds ", " or a parenthesis that does not balance cannot be split and does not convert.
+            private static bool TryTuple(Type type, string token, string fullPath, out object? value)
+            {
+                value = null;
+                if (!type.IsGenericType) return false;
+                string? name = type.GetGenericTypeDefinition().FullName;
+                if (name == null || !(name.StartsWith("System.ValueTuple`", StringComparison.Ordinal) || name.StartsWith("System.Tuple`", StringComparison.Ordinal)))
+                    return false;
+                Type[] itemTypes = type.GetGenericArguments();
+                if (token.Length < 2 || token[0] != '(' || token[token.Length - 1] != ')')
+                    throw new FormatException("A tuple key is written \"(a, b)\".");
+                var parts = new List<string>();
+                int depth = 0, start = 1;
+                for (int i = 1; i < token.Length - 1; i++)
+                {
+                    char c = token[i];
+                    if (c == '(') depth++;
+                    else if (c == ')') depth--;
+                    else if (depth == 0 && c == ',' && i + 1 < token.Length - 1 && token[i + 1] == ' ')
+                    {
+                        parts.Add(token.Substring(start, i - start));
+                        start = i + 2;
+                        i++;
+                    }
+                }
+                parts.Add(token.Substring(start, token.Length - 1 - start));
+                if (depth != 0 || parts.Count != itemTypes.Length)
+                    throw new FormatException($"The tuple key has {parts.Count} items where {itemTypes.Length} were expected.");
+                var items = new object?[parts.Count];
+                for (int i = 0; i < items.Length; i++) items[i] = ConvertKey(itemTypes[i], parts[i], fullPath);
+                value = Activator.CreateInstance(type, items);
+                return true;
+            }
+
+            // A public static Parse of the type: (string, NumberStyles, IFormatProvider) with integer or, for Half, floating
+            // styles (the bare form takes thousands separators), else (string, IFormatProvider), else (string).
+            private static bool TryParseMethod(Type type, string token, out object? value)
+            {
+                value = null;
+                var inv = CultureInfo.InvariantCulture;
+                BindingFlags flags = BindingFlags.Public | BindingFlags.Static;
+                object?[] args;
+                MethodInfo? parse = type.GetMethod("Parse", flags, null, new[] { typeof(string), typeof(NumberStyles), typeof(IFormatProvider) }, null);
+                if (parse != null)
+                    args = new object?[] { token, type.FullName == "System.Half" ? NumberStyles.Float : NumberStyles.Integer, inv };
+                else if ((parse = type.GetMethod("Parse", flags, null, new[] { typeof(string), typeof(IFormatProvider) }, null)) != null)
+                    args = new object?[] { token, inv };
+                else if ((parse = type.GetMethod("Parse", flags, null, new[] { typeof(string) }, null)) != null)
+                    args = new object?[] { token };
+                else return false;
+                if (parse.ReturnType != type) return false;
+                try { value = parse.Invoke(null, args); }
+                catch (TargetInvocationException ex) when (ex.InnerException != null)
+                {
+                    ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                }
+                return true;
+            }
+        }
+
+        // The quoted key that starts with the quote at open, as Flatten writes one: it runs to the next quote of the same
+        // kind that is not doubled, and a doubled one stands for itself. The index of the closing quote, or -1.
+        private static int ReadQuoted(string path, int open, out string key)
+        {
+            char q = path[open];
+            var sb = new System.Text.StringBuilder();
+            for (int i = open + 1; i < path.Length; i++)
+            {
+                if (path[i] != q) { sb.Append(path[i]); continue; }
+                if (i + 1 < path.Length && path[i + 1] == q) { sb.Append(q); i++; continue; }
+                key = sb.ToString();
+                return i;
+            }
+            key = "";
+            return -1;
         }
 
         private static List<Step> Parse(string path)
@@ -369,10 +454,9 @@ namespace ToolBelt.Objects
                     int close;
                     if (open < path.Length && (path[open] == '"' || path[open] == '\''))
                     {
-                        // A quoted key runs to its closing quote, so it may hold ']' or '.'.
-                        int end = path.IndexOf(path[open], open + 1);
+                        // A quoted key runs to its closing quote, so it may hold ']' or '.', and a doubled quote is one.
+                        int end = ReadQuoted(path, open, out token);
                         if (end < 0) throw new ArgumentException($"Unclosed quote in path '{path}'.", nameof(path));
-                        token = path.Substring(open + 1, end - open - 1);
                         close = end + 1;
                         while (close < path.Length && path[close] == ' ') close++;
                         if (close >= path.Length || path[close] != ']')

@@ -387,7 +387,7 @@ src/
       ActivatorUtils.cs     construct by best-matching constructor; safe assembly scan-and-create
       AttributeCache.cs     cached custom-attribute lookups for types/members (thread-safe)
       DeepEquals.cs         structural graph equality (cycles, float tolerance, collections, sets; any depth)
-      ObjectMembers.cs      shared readable-member lookup (used by DeepEquals, PropertyDiff, FlattenObject)
+      ObjectMembers.cs      shared readable-member lookup, key text and struct value equality (used by DeepEquals, PropertyDiff, FlattenObject)
       ExpressionAccessor.cs compiled get/set delegates by member name (cached; boxing-free typed path)
       FlattenObject.cs      object graph -> flat path->value dictionary (any depth)
       UnflattenObject.cs    flat paths -> nested dictionaries/lists (inverse of Flatten), conflicts named
@@ -843,6 +843,7 @@ tests/
       ObjectsGraphsReview125Tests.cs (round 125 review regressions: private state and Equals overrides, StringBuilder and Regex leaves, self-holding Memory, exact-case mapping, path nulls and syntax, decimal to floating, checked typed accessors, ordinal string intervals)
       ObjectsReview136Tests.cs (eighth pass: struct defaults without their constructor, DateTime text round trips, exact-case enum names in conversions and path keys, quoted path keys in Flatten and PropertyDiff, invariant Cell text, plain attribute arrays, wrong-type accessor arguments)
       ObjectsReview145Tests.cs (ninth pass: bounded fan-out of made objects, pairs and objects revisited by a shorter path, enums to floating values and ulong enums, exact names in ObjectMapper, null instances in ExpressionAccessor, Result.Try with a throwing Message)
+      ObjectsReview163Tests.cs (tenth pass: path keys of every key type read back (BigInteger, DateOnly, TimeOnly, Half, Int128, nint, tuples), keys holding both quotes, invariant tuple keys, double to float only when the float names the value, structs without Equals and signed NaN alike on .NET Framework)
     Identifiers/
       NanoIdTests.cs
       ShortGuidTests.cs

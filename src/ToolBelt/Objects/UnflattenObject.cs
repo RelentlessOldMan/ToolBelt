@@ -15,7 +15,8 @@ namespace ToolBelt.Objects
     /// a flattened root list (<c>[0]</c>, <c>[1]</c>) comes back as the keys "0", "1". The result is shaped for JSON
     /// serialization or a config binder. Conflicting paths (<c>a = 1</c> and <c>a.b = 2</c>) throw, naming both.
     /// Keys containing the separator cannot be represented — the same limit Flatten has; a bracketed key in quotes
-    /// (<c>["a]b"]</c>, as Flatten writes a key holding ']', edge white space or a leading quote) runs to its closing quote.
+    /// (<c>["a]b"]</c>, as Flatten writes a key holding ']', edge white space or a leading quote) runs to its closing quote,
+    /// and a doubled quote inside stands for one.
     /// </summary>
     public static class UnflattenObject
     {
@@ -96,6 +97,23 @@ namespace ToolBelt.Objects
             return true;
         }
 
+        // The quoted key that starts with the quote at open, as Flatten writes one: it runs to the next quote of the same
+        // kind that is not doubled, and a doubled one stands for itself. The index of the closing quote, or -1.
+        private static int ReadQuoted(string path, int open, out string key)
+        {
+            char q = path[open];
+            var sb = new System.Text.StringBuilder();
+            for (int i = open + 1; i < path.Length; i++)
+            {
+                if (path[i] != q) { sb.Append(path[i]); continue; }
+                if (i + 1 < path.Length && path[i + 1] == q) { sb.Append(q); i++; continue; }
+                key = sb.ToString();
+                return i;
+            }
+            key = "";
+            return -1;
+        }
+
         // "a.b[0][key].c" → (a,false) (b,false) (0,true) (key,true) (c,false)
         private static IEnumerable<(string Segment, bool Indexed)> Parse(string path, string sep)
         {
@@ -114,10 +132,10 @@ namespace ToolBelt.Objects
                     if (i + 1 < path.Length && (path[i + 1] == '"' || path[i + 1] == '\''))
                     {
                         // A quoted key (as Flatten writes one holding ']', edge white space or a leading quote) runs
-                        // to its closing quote.
-                        int end = path.IndexOf(path[i + 1], i + 2);
+                        // to its closing quote; a doubled quote inside stands for one.
+                        int end = ReadQuoted(path, i + 1, out string key);
                         if (end < 0 || end + 1 >= path.Length || path[end + 1] != ']') throw new FormatException($"Unclosed quote in '{path}'.");
-                        result.Add((path.Substring(i + 2, end - i - 2), true));
+                        result.Add((key, true));
                         close = end + 1;
                     }
                     else

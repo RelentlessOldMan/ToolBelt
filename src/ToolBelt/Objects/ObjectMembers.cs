@@ -97,17 +97,43 @@ namespace ToolBelt.Objects
         /// <summary>
         /// The text of a dictionary key in a path, the way <c>PropertyPath</c> parses it back: floating values in their
         /// shortest round-trip form (.NET Framework's default printed 15 digits, so 0.3 and 0.1 + 0.2 spelled one key),
-        /// dates and offsets in the round-trip "O" form (the default dropped fractions of a second), TimeSpan in "c", and
-        /// anything else invariant. A text that holds ']', starts or ends with white space, or starts with a quote is put in
-        /// quotes (one it does not hold): "[a]b]" did not parse, "[ x]" read key "x" and "['y']" key "y". A text holding ']'
-        /// and both quotes cannot be spelled and is left as it is.
+        /// dates, offsets and times of day in the round-trip "O" form (the default dropped fractions of a second, and a
+        /// TimeOnly's seconds), TimeSpan in "c", a tuple as "(a, b)" of its items' key texts, and anything else invariant. A text that holds ']', starts or ends with white space, or starts with a quote is put in
+        /// quotes (one it does not hold): "[a]b]" did not parse, "[ x]" read key "x" and "['y']" key "y". A text that holds
+        /// both quotes is put in double quotes with each of its own doubled (<c>["say ""it's"""]</c>): left as it was, the
+        /// key <c>"it's"</c> printed a path that read the key <c>it's</c>.
         /// </summary>
         public static string KeyText(object? key)
         {
             string text = RawKeyText(key);
             if (text.Length == 0 || (text.IndexOf(']') < 0 && text[0] != '"' && text[0] != '\'' && text.Trim().Length == text.Length))
                 return text;
-            return text.IndexOf('"') < 0 ? "\"" + text + "\"" : text.IndexOf('\'') < 0 ? "'" + text + "'" : text;
+            return text.IndexOf('"') < 0 ? "\"" + text + "\""
+                : text.IndexOf('\'') < 0 ? "'" + text + "'"
+                : "\"" + text.Replace("\"", "\"\"") + "\"";
+        }
+
+        /// <summary>
+        /// <c>a.Equals(b)</c>, except that a struct that does not override Equals is compared field by field with each
+        /// field's own Equals, as .NET Core's ValueType.Equals does: .NET Framework compared the bits of a struct of
+        /// doubles, so 0.0 and -0.0, or two NaNs, made such structs differ there and not on .NET Core.
+        /// </summary>
+        public static bool ValueEquals(object a, object b)
+        {
+            Type t = a.GetType();
+            if (!t.IsValueType || t.IsPrimitive || t.IsEnum || t != b.GetType()) return a.Equals(b);
+            MethodInfo? m = t.GetMethod("Equals", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(object) }, null);
+            if (m == null || m.DeclaringType != typeof(ValueType)) return a.Equals(b);
+            foreach (FieldInfo f in t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                object? x = f.GetValue(a), y = f.GetValue(b);
+                if (x == null || y == null)
+                {
+                    if (!ReferenceEquals(x, y)) return false;
+                }
+                else if (!ValueEquals(x, y)) return false;
+            }
+            return true;
         }
 
         private static string RawKeyText(object? key)
@@ -131,9 +157,39 @@ namespace ToolBelt.Objects
                 case DateTime dt: return dt.ToString("O", CultureInfo.InvariantCulture);
                 case DateTimeOffset dto: return dto.ToString("O", CultureInfo.InvariantCulture);
                 case TimeSpan ts: return ts.ToString("c", CultureInfo.InvariantCulture);
-                default: return Convert.ToString(key, CultureInfo.InvariantCulture) ?? "";
+                // TimeOnly's default is the short pattern, so 03:04:05 and 03:04:06 spelled one key, "03:04".
+                case IFormattable t when t.GetType().FullName == "System.TimeOnly": return t.ToString("O", CultureInfo.InvariantCulture);
+                default:
+                    // A tuple printed its items with the current culture ((1.5, 2) was "(1,5, 2)" in German) and could not be
+                    // read back; its items are written as keys are.
+                    if (TupleItems(key) is object?[] items)
+                    {
+                        var parts = new string[items.Length];
+                        for (int i = 0; i < items.Length; i++) parts[i] = RawKeyText(items[i]);
+                        return "(" + string.Join(", ", parts) + ")";
+                    }
+                    return Convert.ToString(key, CultureInfo.InvariantCulture) ?? "";
             }
         }
+        // The items of a Tuple or ValueTuple of one to eight items (the eighth, Rest, as one nested tuple); null otherwise.
+        private static object?[]? TupleItems(object key)
+        {
+            Type type = key.GetType();
+            if (!type.IsGenericType) return null;
+            string? name = type.GetGenericTypeDefinition().FullName;
+            if (name == null || !(name.StartsWith("System.ValueTuple`", StringComparison.Ordinal) || name.StartsWith("System.Tuple`", StringComparison.Ordinal)))
+                return null;
+            int count = type.GetGenericArguments().Length;
+            var items = new object?[count];
+            for (int i = 0; i < count; i++)
+            {
+                string member = i == 7 ? "Rest" : "Item" + (i + 1).ToString(CultureInfo.InvariantCulture);
+                FieldInfo? field = type.GetField(member);
+                items[i] = field != null ? field.GetValue(key) : type.GetProperty(member)?.GetValue(key);
+            }
+            return items;
+        }
+
         /// <summary>
         /// How many repeats (see <see cref="Trail"/>) a walk follows along one path before it stops descending.
         /// </summary>
