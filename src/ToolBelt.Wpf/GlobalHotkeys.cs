@@ -53,14 +53,17 @@ namespace ToolBelt.Wpf
             var mods = ModifierKeys.None;
             for (int i = 0; i < parts.Length - 1; i++)
             {
+                ModifierKeys m;
                 switch (parts[i].Trim().ToLowerInvariant())
                 {
-                    case "ctrl": case "control": mods |= ModifierKeys.Control; break;
-                    case "alt": mods |= ModifierKeys.Alt; break;
-                    case "shift": mods |= ModifierKeys.Shift; break;
-                    case "win": case "windows": mods |= ModifierKeys.Windows; break;
+                    case "ctrl": case "control": m = ModifierKeys.Control; break;
+                    case "alt": m = ModifierKeys.Alt; break;
+                    case "shift": m = ModifierKeys.Shift; break;
+                    case "win": case "windows": m = ModifierKeys.Windows; break;
                     default: return false;
                 }
+                if ((mods & m) != 0) return false;   // "Ctrl+Ctrl+K" read as Ctrl+K
+                mods |= m;
             }
             string keyText = parts[parts.Length - 1].Trim();
             if (keyText.Length == 0) return false;
@@ -152,6 +155,7 @@ namespace ToolBelt.Wpf
         /// </summary>
         public int Register(HotkeyGesture gesture, Action callback, bool noRepeat = true)
         {
+            if (callback is null) throw new ArgumentNullException(nameof(callback));   // not "already registered"
             if (!_disposed && Holds(gesture))   // RegisterHotKey's failure blamed another application
                 throw new InvalidOperationException($"Hotkey {gesture} is already registered by this GlobalHotkeys.");
             if (!TryRegister(gesture, callback, out int id, noRepeat))

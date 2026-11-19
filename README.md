@@ -1165,6 +1165,7 @@ tests/
     WpfReview102Tests.cs    (round 102: theme self-merge, bad trace switches and formats, null names and NaN bounds, dialog filters, FitMatrix sizes, bound and DynamicResource AllowDrop, Minimum rounded, Enter and Tab, Messenger re-registration order)
     WpfReview117Tests.cs    (round 117: loading more from a finished load's notifications, linear Messenger unregister, NaN numeric bounds, look-alike hotkey letters, "*." drop filter)
     WpfReview139Tests.cs    (round 139: exponent text in numeric boxes, editing down refused text, finite clamped fits, Matches' ParamName)
+    WpfReview158Tests.cs    (round 158: numeric boxes rounding the decimal they read as, in range and idempotent; Completion with a carried context whose dispatcher shut down; repeated hotkey modifiers; a null callback for a held hotkey)
     CallbackReview54Tests.cs  (round 54: throwing handlers in validation, commands and incremental loading)
     CancelDisposeReview55Tests.cs (round 55: incremental loading's cancelled tokens)
     UiReviewRegressionTests.cs  (2026-10-05 review regressions: WPF satellite)

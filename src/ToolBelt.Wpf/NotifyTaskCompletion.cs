@@ -54,9 +54,11 @@ namespace ToolBelt.Wpf
 
         private async Task WatchAsync(Task<TResult> task)
         {
-            // A continuation posted to a dispatcher that had shut down never ran, so Completion never completed.
-            Dispatcher? dispatcher = SynchronizationContext.Current is DispatcherSynchronizationContext
-                ? Dispatcher.FromThread(Thread.CurrentThread) : null;
+            // A continuation posted to a dispatcher that had shut down never ran, so Completion never completed. The
+            // dispatcher is the context's own: a worker thread carrying a UI thread's context has none of its own, and
+            // its continuation was posted to the dead dispatcher regardless.
+            Dispatcher? dispatcher = SynchronizationContext.Current is DispatcherSynchronizationContext context
+                ? DispatcherOf(context) ?? Dispatcher.FromThread(Thread.CurrentThread) : null;
             if (dispatcher is null)
             {
                 try
@@ -76,6 +78,13 @@ namespace ToolBelt.Wpf
             try { await dispatcher.InvokeAsync(Raise).Task.ConfigureAwait(false); }
             catch (OperationCanceledException) { }   // the dispatcher shut down before it ran (the operation was aborted)
         }
+
+        // DispatcherSynchronizationContext keeps its dispatcher in a private field; null if that ever changes.
+        private static readonly System.Reflection.FieldInfo? ContextDispatcher = typeof(DispatcherSynchronizationContext)
+            .GetField("_dispatcher", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        private static Dispatcher? DispatcherOf(DispatcherSynchronizationContext context)
+            => ContextDispatcher?.GetValue(context) as Dispatcher;
 
         private void Raise()
         {

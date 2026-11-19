@@ -412,7 +412,59 @@ namespace ToolBelt.Wpf
         // Math.Round takes at most 15 digits; more decimal places are still displayed (as zeros).
         private static int RoundingDigits(NumericInputRules r) => Math.Min(15, Math.Max(0, r.DecimalPlaces));
 
-        private static double Round(double v, NumericInputRules r) => Math.Round(v, RoundingDigits(r), MidpointRounding.AwayFromZero);
+        private static double Round(double v, NumericInputRules r) => Rounded(v, RoundingDigits(r), 0, out _);
+
+        // v to d decimal places, as the decimal it reads as (its shortest round-trip form), half away from zero (way 0),
+        // up (way 1) or down (way −1); the text holds the digits with d decimals, no sign. Math.Round scales by 10^d, which
+        // moved values once v·10^d passed 2^53 (Coerce gave −2124553058354439.0000000000 above a maximum of
+        // −2124553058354439.25) and was not idempotent (−4.3076650725247685 at 16 places gave …7700, then …7710 on the
+        // next lost focus). Rounding the shortest decimal is monotone and leaves an already-rounded value alone.
+        private static double Rounded(double v, int d, int way, out string text)
+        {
+            bool negative = v < 0 || (v == 0 && BitConverter.DoubleToInt64Bits(v) < 0);
+            string s = Math.Abs(v).ToString("R", CultureInfo.InvariantCulture);   // "123.45", "1E-05", "1.2345E+20"
+            int exp = 0, e = s.IndexOf('E');
+            if (e >= 0)
+            {
+                exp = int.Parse(s.Substring(e + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+                s = s.Substring(0, e);
+            }
+            int dot = s.IndexOf('.');
+            string digits = dot < 0 ? s : s.Remove(dot, 1);
+            int point = (dot < 0 ? s.Length : dot) + exp;   // the value is 0.digits × 10^point
+            int keep = point + d;
+            bool away = false;   // round the magnitude up
+            bool dropped = false;
+            if (keep < 0)
+            {
+                dropped = digits.Trim('0').Length > 0;
+                digits = "";
+                point = -d;
+                keep = 0;
+            }
+            else if (keep < digits.Length)
+            {
+                away = digits[keep] >= '5';
+                dropped = digits.Substring(keep).Trim('0').Length > 0;
+                digits = digits.Substring(0, keep);
+            }
+            if (way != 0) away = dropped && (way > 0) != negative;
+            var buf = new System.Text.StringBuilder(digits.PadRight(keep, '0'));
+            if (away)
+            {
+                int i = buf.Length - 1;
+                while (i >= 0 && buf[i] == '9') buf[i--] = '0';
+                if (i >= 0) buf[i]++;
+                else { buf.Insert(0, '1'); point++; }
+            }
+            string all = buf.ToString();
+            string whole = point > 0 ? all.Substring(0, point).TrimStart('0') : "";
+            string frac = point > 0 ? all.Substring(point) : new string('0', -point) + all;
+            if (whole.Length == 0) whole = "0";
+            text = d > 0 ? whole + "." + frac : whole;
+            double magnitude = double.Parse(text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
+            return negative ? -magnitude : magnitude;
+        }
 
         // Clamps to the bounds moved inward to the shown precision — clamping to a raw 0.25 at one decimal formatted back
         // out of range as "0.2" — and to finite values, so the text never reads "∞". Minimum wins an empty range.
@@ -428,22 +480,21 @@ namespace ToolBelt.Wpf
 
         private static double Finite(double bound) => Math.Max(-double.MaxValue, Math.Min(double.MaxValue, bound));
 
-        private static double Inward(double bound, NumericInputRules r, bool up)
-        {
-            double g = Round(bound, r);
-            if (up ? g >= bound : g <= bound) return g;
-            double unit = Math.Pow(10, -RoundingDigits(r));
-            return Round(up ? g + unit : g - unit, r);
-        }
+        // The nearest shown value on the inner side of the bound. Stepping a unit from the rounded bound and rounding again
+        // could land back outside it ([957144.2231336349, …] at ten places gave 957144.2231336348).
+        private static double Inward(double bound, NumericInputRules r, bool up) => Rounded(bound, RoundingDigits(r), up ? 1 : -1, out _);
 
         private static string Format(double v, NumericInputRules r)
         {
-            v = Round(v, r);   // before the zero test: -0.001 at two places printed "-0.00"
-            if (v == 0) v = 0; // no "-0"
+            // The sign goes on a value below zero once rounded (-0.001 at two places printed "-0.00"). The text is the rounded decimal itself
+            // ("F" printed the double's binary value, a unit off the rounded decimal past about 16 significant digits).
             // Digits past the 15th are zeros ("F20" printed binary noise: 0.1 gave "0.10000000000000000555"), and at most
             // 99 are shown (a DecimalPlaces of a billion made losing focus throw FormatException).
             int digits = RoundingDigits(r), shown = Math.Min(99, Math.Max(0, r.DecimalPlaces));
-            string s = v.ToString("F" + digits.ToString(CultureInfo.InvariantCulture), r.Format);
+            v = Rounded(v, digits, 0, out string text);
+            int sep = text.IndexOf('.');
+            string s = (v < 0 ? r.Format.NegativeSign : "")   // no "-0"
+                + (sep < 0 ? text : text.Substring(0, sep) + r.Format.NumberDecimalSeparator + text.Substring(sep + 1));
             return shown > digits ? s + new string('0', shown - digits) : s;
         }
 
