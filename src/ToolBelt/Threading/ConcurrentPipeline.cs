@@ -24,6 +24,14 @@ namespace ToolBelt.Threading
     /// capacity counts buffered items, for every policy; the item being processed doesn't take a slot.
     /// The consumer runs on a dedicated background thread, not the thread pool: producers blocked for space (often
     /// pool threads themselves) would otherwise leave it waiting on thread injection for every item.
+    /// <para>
+    /// "Called from the consumer callback" below includes work the callback starts and does not await (a Task.Run, a
+    /// timer), until the callback returns: such work inherits the callback's execution context, and no runtime can tell
+    /// it from the callback's own awaited code, where waiting for the consumer would wait for good. From there a Block
+    /// <see cref="TryEnqueue"/> on a full pipeline throws, and <see cref="CompleteAsync"/> and <see cref="Dispose"/>
+    /// return without waiting for the consumer. To have such work wait like any other producer, start it under
+    /// <see cref="ExecutionContext.SuppressFlow"/>, or after the callback has returned.
+    /// </para>
     /// </summary>
     public sealed class ConcurrentPipeline<T> : IDisposable
     {

@@ -44,8 +44,9 @@ namespace ToolBelt.Runtime
             foreach (var (name, elapsed) in _milestones)
             {
                 double stepMs = (elapsed - previous).TotalMilliseconds;
-                sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,8:F1} ms (+{1,7:F1} ms)  {2}",
-                    elapsed.TotalMilliseconds, stepMs, name));
+                // The sign written once: a clock that stepped back printed "(+   -5.0 ms)".
+                sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,8:F1} ms ({1}{2,7:F1} ms)  {3}",
+                    elapsed.TotalMilliseconds, stepMs < 0 ? "-" : "+", Math.Abs(stepMs), name));
                 previous = elapsed;
             }
             return sb.ToString().TrimEnd();

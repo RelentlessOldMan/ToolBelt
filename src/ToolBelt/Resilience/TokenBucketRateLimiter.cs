@@ -29,8 +29,9 @@ namespace ToolBelt.Resilience
         public TokenBucketRateLimiter(double capacity, double refillTokensPerSecond, Func<DateTimeOffset>? clock = null)
         {
             // Written so NaN fails too.
-            if (!(capacity > 0) || double.IsInfinity(capacity))
-                throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity must be positive and finite.");
+            // At least one token: below it no count (an int of 1 or more) could ever be acquired, and every TryAcquire threw.
+            if (!(capacity >= 1) || double.IsInfinity(capacity))
+                throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity must be at least 1 and finite.");
             if (!(refillTokensPerSecond > 0) || double.IsInfinity(refillTokensPerSecond))
                 throw new ArgumentOutOfRangeException(nameof(refillTokensPerSecond), refillTokensPerSecond, "Refill rate must be positive and finite.");
 

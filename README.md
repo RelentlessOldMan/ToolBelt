@@ -996,6 +996,7 @@ tests/
       ConcurrencyReview97Tests.cs (sixth pass: completing a pipeline from its consumer, drop policies after Dispose, one fault observer per task)
       ConcurrencyReview114Tests.cs (seventh pass: consumer re-queuing into a full pipeline, completing and disposing from consumer-started work, calls after Dispose, producers blocked during Dispose on .NET Framework, caller cancels in Retry, linear races and hedges)
       ConcurrencyReview128Tests.cs (round 128: token-bucket refill under polling, WhichExe trailing dots, the exact retry cap, the pipeline consumer seen from inline continuations, concurrent parallel handlers and race attempts)
+      ConcurrencyReview147Tests.cs (round 147: token-bucket capacity below one, StartupTiming's negative step, the pipeline's SuppressFlow way out for work the callback starts)
       FlakeRootCauseTests.cs  (round 46: pipeline, async log sink and process readers run off the thread pool)
       CallbackReview54Tests.cs (round 54, cross-cutting: throwing comparers, hashes, clocks, handlers, error sinks and token callbacks)
       CancelDisposeReview55Tests.cs (round 55, cross-cutting: the caller's token, cancelled tokens honoured, Dispose racing the work)
