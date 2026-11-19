@@ -141,8 +141,10 @@ namespace ToolBelt.Collections
                 _count++;
                 _sum += v;
                 if (double.IsNaN(v)) { _min = _max = double.NaN; _nonFinite = true; return; }
-                if (v < _min) _min = v; // a NaN min/max stays NaN: comparisons with NaN are false
-                if (v > _max) _max = v;
+                // A NaN min/max stays NaN: comparisons with NaN are false. Of two zeros, −0 is the min and +0 the max ({−0, +0}
+                // had a max of −0).
+                if (v < _min || (v == 0 && _min == 0 && IsNegative(v))) _min = v;
+                if (v > _max || (v == 0 && _max == 0 && !IsNegative(v))) _max = v;
                 if (double.IsInfinity(v)) { _nonFinite = true; return; }
                 if (v != 0)
                 {
@@ -193,10 +195,16 @@ namespace ToolBelt.Collections
                     }
                     // Welford's running mean, not sum / n: the rounding in the sum put the mean outside [min, max] (three
                     // copies of 0.1 gave 0.10000000000000002, 1e7 copies 0.09999999998389754).
-                    mean = Math.Min(_max, Math.Max(_min, Scale(_shift + _scaledMean, k)));
+                    // Clamped by comparison, not Math.Min and Math.Max, which order signed zeros on .NET Core only: {−0, +0}
+                    // had a mean of −0 there and +0 on .NET Framework. A zero mean is −0 only when every value was −0.
+                    mean = Scale(_shift + _scaledMean, k);
+                    mean = mean < _min ? _min : mean > _max ? _max : mean;
+                    if (mean == 0) mean = _max == 0 ? _max : 0.0;
                 }
                 return new GroupSummary<TKey>(key, n, sum, mean, _min, _max, stdDev);
             }
+
+            private static bool IsNegative(double v) => BitConverter.DoubleToInt64Bits(v) < 0;
 
             // x·2^e, in steps that each stay in range (2^±k alone can pass it).
             private static double Scale(double x, int e)

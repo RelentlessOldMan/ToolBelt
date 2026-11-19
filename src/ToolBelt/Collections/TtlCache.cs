@@ -75,18 +75,19 @@ namespace ToolBelt.Collections
 
         private readonly struct Entry
         {
-            public Entry(TValue value, DateTimeOffset expiresAt)
+            public Entry(TValue value, long expiresTicks)
             {
                 Value = value;
-                ExpiresAt = expiresAt;
+                ExpiresTicks = expiresTicks;
             }
 
             public TValue Value { get; }
-            public DateTimeOffset ExpiresAt { get; }
+            public long ExpiresTicks { get; } // UTC ticks; long.MaxValue (past every clock reading) never expires
 
             // An expiry saturated at the end of the calendar (a ttl of TimeSpan.MaxValue) is never reached: the entry
-            // expired when the clock read DateTimeOffset.MaxValue, though the doc says it never does.
-            public bool LiveAt(DateTimeOffset now) => ExpiresAt == DateTimeOffset.MaxValue || now < ExpiresAt;
+            // expired when the clock read DateTimeOffset.MaxValue, though the doc says it never does. Saturation is its own
+            // value, not DateTimeOffset.MaxValue: a finite ttl that ends exactly there was taken as saturated and never expired.
+            public bool LiveAt(DateTimeOffset now) => now.UtcTicks < ExpiresTicks;
         }
 
         private readonly Dictionary<TKey, Entry> _entries = new Dictionary<TKey, Entry>(ValueKeys.For<TKey>());
@@ -127,9 +128,9 @@ namespace ToolBelt.Collections
             // MaxValue - ttl itself underflows for a huge ttl (the long difference cannot overflow). In UTC: expiry is
             // compared in UTC, and the local time (which reaches the end first under a positive offset) made an entry
             // that fits never expire.
-            var expiresAt = now.UtcTicks > DateTimeOffset.MaxValue.UtcTicks - _ttl.Ticks
-                ? DateTimeOffset.MaxValue : new DateTimeOffset(now.UtcTicks + _ttl.Ticks, TimeSpan.Zero);
-            _entries[key] = new Entry(value, expiresAt);
+            long expiresTicks = now.UtcTicks > DateTimeOffset.MaxValue.UtcTicks - _ttl.Ticks
+                ? long.MaxValue : now.UtcTicks + _ttl.Ticks;
+            _entries[key] = new Entry(value, expiresTicks);
         }
 
         /// <summary>Gets a value if present and not expired; removes it and returns false if it has expired.</summary>

@@ -57,7 +57,7 @@ namespace ToolBelt.Collections
 
         // The formulas are the large-n limit: for a few items the rate they give is past the target (3 items at 0.01 got
         // 29 slots and 7 hashes, a rate of 0.0128; 1 at 0.3 got 0.34). The size grows to the smallest that meets the target
-        // by the exact rate (1 − (1 − 1/m)^(kn))^k, with k the rounded optimum for that size. A size past max returns −1.
+        // by RateAt, with k the rounded optimum for that size. A size past max returns −1.
         private static long SizeFor(int n, double p, long m, long max)
         {
             if (RateAt(m, n) <= p) return m;
@@ -79,11 +79,48 @@ namespace ToolBelt.Collections
 
         private static int HashesFor(long m, int n) => (int)Math.Max(1, Math.Round((double)m / n * Math.Log(2)));
 
+        // The false-positive rate of m slots and k probes after n items, or a bound just above it; never below. The classic
+        // (1 − (1 − 1/m)^(kn))^k is below it: it treats the slots as independent and a query's k probes as distinct, and
+        // filters sized by it missed the target (1 item at 0.01 had 0.0121, 3 had 0.0108, 10 had 0.0104). For a few
+        // throws the rate is exact: E[(X/m)^k] over the distribution of X, the slots set by kn throws. Past that it is
+        // E[f^D], with f the chance a given slot is set and D the distinct slots among the k probes: d given slots are
+        // all set with chance at most f^d, the occupancy of distinct slots being negatively associated. Both sums are of
+        // positive terms. k is at most about 1,100 (log2 of the smallest rate), so E[f^D] is cheap.
         private static double RateAt(long m, int n)
         {
             int k = HashesFor(m, n);
+            long throws = (long)k * n;
+            if (throws <= 4000 && throws * Math.Min(throws, m) <= 400_000)
+            {
+                // P(X = j) after each throw: a throw sets a new slot with chance (m − j)/m.
+                int top = (int)Math.Min(throws, m);
+                var set = new double[top + 1];
+                set[0] = 1;
+                for (int s = 0; s < throws; s++)
+                    for (int j = (int)Math.Min(s, top - 1); j >= 0; j--)
+                    {
+                        set[j + 1] += set[j] * ((m - j) / (double)m);
+                        set[j] *= j / (double)m;
+                    }
+                double rate = 0;
+                for (int j = 1; j <= top; j++) rate += set[j] * Math.Pow(j / (double)m, k);
+                return rate;
+            }
             double empty = Math.Exp((double)k * n * Log1p(-1.0 / m));   // (1 − 1/m)^(kn), the chance a slot stays clear
-            return Math.Pow(1 - empty, k);
+            double full = 1 - empty;
+            // P(D = d) after each probe: a probe lands on a new slot with chance (m − d)/m.
+            int most = (int)Math.Min(k, m);
+            var distinct = new double[most + 1];
+            distinct[0] = 1;
+            for (int i = 0; i < k; i++)
+                for (int d = Math.Min(i, most - 1); d >= 0; d--)
+                {
+                    distinct[d + 1] += distinct[d] * ((m - d) / (double)m);
+                    distinct[d] *= d / (double)m;
+                }
+            double bound = 0, power = 1;
+            for (int d = 1; d <= most; d++) { power *= full; bound += distinct[d] * power; }
+            return bound;
         }
 
         // ln(1 + x) for small |x|, accurate where 1 + x rounds (netstandard2.0 has no Math.Log1p).
@@ -103,7 +140,7 @@ namespace ToolBelt.Collections
             uint h2 = Fnv(data, 2166136261u ^ 0x9E3779B9u);
             for (int i = 0; i < _hashCount; i++)
             {
-                int slot = (int)(Probe(h1, h2, i) % (uint)_slotCount);
+                int slot = Probe(h1, h2, i, _slotCount);
                 if (_counts[slot] < MaxCount) _counts[slot]++;
             }
         }
@@ -128,7 +165,7 @@ namespace ToolBelt.Collections
             uint h2 = Fnv(data, 2166136261u ^ 0x9E3779B9u);
             for (int i = 0; i < _hashCount; i++)
             {
-                int slot = (int)(Probe(h1, h2, i) % (uint)_slotCount);
+                int slot = Probe(h1, h2, i, _slotCount);
                 if (_counts[slot] > 0 && _counts[slot] < MaxCount) _counts[slot]--;
             }
             return true;
@@ -149,7 +186,7 @@ namespace ToolBelt.Collections
             uint h2 = Fnv(data, 2166136261u ^ 0x9E3779B9u);
             for (int i = 0; i < _hashCount; i++)
             {
-                int slot = (int)(Probe(h1, h2, i) % (uint)_slotCount);
+                int slot = Probe(h1, h2, i, _slotCount);
                 if (_counts[slot] == 0)
                     return false;
             }
@@ -198,15 +235,23 @@ namespace ToolBelt.Collections
         // Probe i of an item. Plain double hashing (h1 + i·h2) mod m cycles after m / gcd(h2, m) probes, so in a small or
         // even-sized filter an item touched only a few distinct slots (25% false positives at a 1% target for one item);
         // the murmur3 finalizer on each probe makes them behave like independent hashes.
-        private static uint Probe(uint h1, uint h2, int i)
+        //
+        // In 64 bits, and uniform over the slots: a 32-bit probe taken mod m set some slots more often than others
+        // (with 1.72e9 slots, 3 hash values in 2 for the lower half against 2 for the rest), so a large filter had more false
+        // positives than its size promised. A hash past the last whole multiple of m is redrawn (a chance below 2^-32).
+        private static int Probe(uint h1, uint h2, int i, int m)
         {
-            uint hash = unchecked(h1 + (uint)i * h2);
-            hash ^= hash >> 16;
-            hash = unchecked(hash * 0x85EBCA6Bu);
-            hash ^= hash >> 13;
-            hash = unchecked(hash * 0xC2B2AE35u);
-            hash ^= hash >> 16;
-            return hash;
+            ulong x = unchecked((((ulong)h1 << 32) | h2) + (ulong)(i + 1) * 0x9E3779B97F4A7C15UL);
+            ulong surplus = (ulong.MaxValue % (ulong)m + 1) % (ulong)m;   // 2^64 mod m
+            while (true)
+            {
+                ulong hash = x;   // splitmix64's finalizer
+                hash = unchecked((hash ^ (hash >> 30)) * 0xBF58476D1CE4E5B9UL);
+                hash = unchecked((hash ^ (hash >> 27)) * 0x94D049BB133111EBUL);
+                hash ^= hash >> 31;
+                if (surplus == 0 || hash < unchecked(0UL - surplus)) return (int)(hash % (ulong)m);
+                x = unchecked(x + 0x9E3779B97F4A7C15UL);
+            }
         }
 
         // FNV-1a with a configurable offset basis and a murmur3 finalizer, giving two independent hashes for double hashing.
