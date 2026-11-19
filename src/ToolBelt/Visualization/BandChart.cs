@@ -60,9 +60,10 @@ namespace ToolBelt.Visualization
             double minV = options.Min ?? double.PositiveInfinity, maxV = options.Max ?? double.NegativeInfinity;
             if (options.Min is null || options.Max is null)
             {
-                // Finite values only: Math.Min/Max propagate NaN, which collapsed every value onto the centre row.
+                // Finite values only: Math.Min/Max propagate NaN, which collapsed every value onto the centre row. The
+                // centre line counts too: an excursion outside the band was clipped away, and a flat band drew it flat.
                 for (int i = 0; i < n; i++)
-                    foreach (double v in new[] { lower[i], upper[i] })
+                    foreach (double v in center is null ? new[] { lower[i], upper[i] } : new[] { lower[i], upper[i], center[i] })
                     {
                         if (!IsFinite(v)) continue;
                         if (options.Min is null && v < minV) minV = v;

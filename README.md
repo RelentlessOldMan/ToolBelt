@@ -527,7 +527,7 @@ src/
       Bmp.cs                BMP read/write (32-bit BGRA V4 or 24-bit; reads top-down, bitfields, 8-bit palette)
       Palettes.cs           Okabe-Ito / Tableau10, WCAG luminance + contrast ratio, contrasting label colour, hex
       SvgDocument.cs        fluent SVG vector builder (shapes/text/path; invariant coords)
-      SvgUtils.cs           shared SVG primitives: escaping, numbers/colors, PathBuilder, transforms, text-width estimate
+      SvgUtils.cs           shared SVG primitives: escaping, numbers/colors, PathBuilder, transforms, text-width estimate and fit
       AxisTicks.cs          nice ticks + labels: linear (1-2-5, count-bounded, maxTicks ≤ 10,000), log decades, clock-friendly time; tight mode keeps the given bounds
       PlotFrame.cs          shared data<->pixel mapping (linear/log axes) for renderers and overlays
       Annotations.cs        data-space ref lines / bands / callouts / arrows -> SVG (labelled) or raster
@@ -1052,6 +1052,7 @@ tests/
       ChartsReview3Tests.cs (third-pass regressions: sub-millisecond time ticks, one bound past the data, overflowing spans, option validation)
       ChartsReview4Tests.cs (fourth-pass regressions: two ticks over ±MaxValue, bounded hatch and binning, limits at MaxValue, subnormal Pearson)
       ChartsReview80Tests.cs (fifth pass: tight tick search and bounds, exact exponent labels, option validation, unresolvable steps, ordered quartiles, callout sides)
+      ChartsReview148Tests.cs (round 148: wide labels, legends and titles kept on the chart, the last timing tick, BandChart's centre in the range, a constant column's r, offset and threshold validation)
       ChartsReview101Tests.cs (round 101: histogram edges over huge ranges, far values mapped without overflow, finite bar padding, margin and image-size validation, an End before every change, FormatSeconds unit boundary)
       ChartsReview121Tests.cs (round 121: lines to far points, band alpha compositing, huge callout offsets, drawn-bar widths, default frames, one-pixel colorbars, tick rounding past 2^52, subnormal waterfall ranges, undefined enums)
       ChartsReview134Tests.cs (round 134: equal explicit limits, the first x label's margin, box fences past MaxValue, band envelopes and far centre lines, far whiskers, clip underflow, whole colormap stop ranges, scatter-matrix legends and subnormal bins, timing clocks, markers and hatching, hex-bin index limits, shared ranges beside empty panels)

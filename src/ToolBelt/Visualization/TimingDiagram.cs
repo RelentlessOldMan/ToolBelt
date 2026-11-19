@@ -75,6 +75,7 @@ namespace ToolBelt.Visualization
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
             // A NaN low threshold was reported as the high one.
             if (double.IsNaN(lowThreshold)) throw new ArgumentOutOfRangeException(nameof(lowThreshold), lowThreshold, "Low threshold must not be NaN.");
+            if (double.IsNaN(highThreshold)) throw new ArgumentOutOfRangeException(nameof(highThreshold), highThreshold, "High threshold must not be NaN.");
             if (!(highThreshold >= lowThreshold)) throw new ArgumentException("High threshold must not be below the low threshold.", nameof(highThreshold));
             // Both failed in the constructor, naming "changes" (not a parameter here).
             if (double.IsNaN(startTime) || double.IsInfinity(startTime)) throw new ArgumentOutOfRangeException(nameof(startTime), startTime, "Start time must be finite.");
@@ -215,7 +216,8 @@ namespace ToolBelt.Visualization
               .Append("\" font-family=\"Helvetica, Arial, sans-serif\" font-size=\"11\">\n<rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>\n");
             // A hatch for unknown states, drawn with explicit lines (no <pattern> ids, so many diagrams can share a page).
             if (o.Title != null)
-                sb.Append("<text x=\"").Append(SvgUtils.Number(left)).Append("\" y=\"22\" font-size=\"14\" font-weight=\"bold\">").Append(SvgUtils.EscapeText(o.Title)).Append("</text>\n");
+                sb.Append("<text x=\"").Append(SvgUtils.Number(left)).Append("\" y=\"22\" font-size=\"14\" font-weight=\"bold\"")
+                  .Append(SvgUtils.FitWidth(o.Title, 14, o.Width - left - 4, bold: true)).Append('>').Append(SvgUtils.EscapeText(o.Title)).Append("</text>\n"); // a long title ran off the right
 
             // Capped at AxisTicks' 10,000: a Width past about 900,000 failed naming "maxTicks".
             TickSet ticks = AxisTicks.Linear(t0, t1, maxTicks: Math.Min(10000, Math.Max(2, (int)(plotW / 90))), loose: false);
@@ -239,9 +241,13 @@ namespace ToolBelt.Visualization
             for (int ti = 0; ti < ticks.Count; ti++)
             {
                 double v = ticks.Values[ti];
+                // A label that would run past the canvas ends (or starts) at its tick instead of centring on it: the right
+                // margin is 16 px, so the last label at t1 was clipped once wider than about 32 px.
+                double lw = SvgUtils.EstimateTextWidth(tickLabels[ti], 11);
+                string tickAnchor = X(v) + lw / 2 > o.Width - 2 ? "end" : X(v) - lw / 2 < 2 ? "start" : "middle";
                 sb.Append("<line x1=\"").Append(SvgUtils.Number(X(v))).Append("\" y1=\"").Append(SvgUtils.Number(axisY)).Append("\" x2=\"").Append(SvgUtils.Number(X(v)))
                   .Append("\" y2=\"").Append(SvgUtils.Number(axisY + 4)).Append("\" stroke=\"#444\"/>\n<text x=\"").Append(SvgUtils.Number(X(v))).Append("\" y=\"")
-                  .Append(SvgUtils.Number(axisY + 16)).Append("\" text-anchor=\"middle\">").Append(SvgUtils.EscapeText(tickLabels[ti])).Append("</text>\n");
+                  .Append(SvgUtils.Number(axisY + 16)).Append("\" text-anchor=\"").Append(tickAnchor).Append("\">").Append(SvgUtils.EscapeText(tickLabels[ti])).Append("</text>\n");
             }
 
             for (int s = 0; s < signals.Count; s++)

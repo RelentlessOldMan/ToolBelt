@@ -224,6 +224,9 @@ namespace ToolBelt.Visualization
             var xs = new double[n];
             var ys = new double[n];
             for (int i = 0, j = 0; i < count; i++) if (IsFinite(x[i]) && IsFinite(y[i])) { xs[j] = x[i]; ys[j] = y[i]; j++; }
+            // No variance is no two values apart, checked on the values: the rounded mean of a constant column (0.1 seven
+            // times) is not the constant, which left a deviation of an ulp and r ≈ ±2e-17 where null was documented.
+            if (Constant(xs) || Constant(ys)) return null;
             ScaleToUnit(xs);
             ScaleToUnit(ys);
             double mx = 0, my = 0;
@@ -247,6 +250,12 @@ namespace ToolBelt.Visualization
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
 
         // Multiplies every value by the power of two that brings the largest magnitude into [1, 2) (two steps for subnormals).
+        private static bool Constant(double[] v)
+        {
+            for (int i = 1; i < v.Length; i++) if (v[i] != v[0]) return false;
+            return true;
+        }
+
         private static void ScaleToUnit(double[] v)
         {
             double max = 0;

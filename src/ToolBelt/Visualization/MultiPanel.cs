@@ -85,7 +85,8 @@ namespace ToolBelt.Visualization
             {
                 sb.Append("<text x=\"").Append(SvgUtils.Number(plan.Width / 2)).Append("\" y=\"")
                   .Append(SvgUtils.Number(options.Gap + options.FontSize * 1.25)).Append("\" text-anchor=\"middle\" font-weight=\"bold\" font-size=\"")
-                  .Append(SvgUtils.Number(options.FontSize * 1.25)).Append("\" fill=\"#000000\">")
+                  .Append(SvgUtils.Number(options.FontSize * 1.25)).Append('"')
+                  .Append(SvgUtils.FitWidth(options.Title!, options.FontSize * 1.25, plan.Width - 8, bold: true)).Append(" fill=\"#000000\">") // a long title ran off both sides
                   .Append(SvgUtils.EscapeText(options.Title!)).Append("</text>\n");
             }
             for (int i = 0; i < panels.Count; i++)

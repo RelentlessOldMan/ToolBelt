@@ -171,8 +171,9 @@ namespace ToolBelt.Visualization
               .Append("\" ").Append(SvgUtils.FillAttributes(it.Color)).Append("/>\n");
             if (!string.IsNullOrEmpty(it.Label))
             {
+                // Squeezed to the plot's right edge: a long label ran off the chart.
                 double tx = Math.Min(x0, x1) + 4, ty = Math.Min(y0, y1) + fontSize + 2;
-                Text(sb, tx, ty, it.Label!, Opaque(it.Color), "start");
+                Text(sb, tx, ty, it.Label!, Opaque(it.Color), "start", fontSize, f.Right - 2 - tx);
             }
         }
 
@@ -201,15 +202,20 @@ namespace ToolBelt.Visualization
             if (it.Kind == Kind.HLine)
             {
                 // Above the line at its right end; below it when there is no room at the top.
+                // Squeezed into the plot when wider: it ran off the left edge of the chart.
                 double ty = y1 - 3 - fontSize < f.Top ? y1 + fontSize + 2 : y1 - 4;
-                Text(sb, f.Right - 4, ty, it.Label!, it.Color, "end");
+                Text(sb, f.Right - 4, ty, it.Label!, it.Color, "end", fontSize, f.Right - 4 - (f.Left + 2));
             }
             else
             {
-                // Right of the line near the top; flipped left when it would run off the plot.
+                // Right of the line near the top; flipped left when it would run off the plot and fits there. Wider than
+                // both sides, it is squeezed into the roomier one: the flip checked only the right, so a line near the
+                // left edge ran its label off the chart.
                 double w = SvgUtils.EstimateTextWidth(it.Label!, fontSize);
-                bool flip = x1 + 4 + w > f.Right;
-                Text(sb, flip ? x1 - 4 : x1 + 4, f.Top + fontSize + 2, it.Label!, it.Color, flip ? "end" : "start");
+                double roomRight = f.Right - 2 - (x1 + 4), roomLeft = x1 - 4 - (f.Left + 2);
+                bool flip = w > roomRight && (w <= roomLeft || roomLeft > roomRight);
+                Text(sb, flip ? x1 - 4 : x1 + 4, f.Top + fontSize + 2, it.Label!, it.Color, flip ? "end" : "start",
+                    fontSize, flip ? roomLeft : roomRight);
             }
         }
 
@@ -231,7 +237,10 @@ namespace ToolBelt.Visualization
                 double w = SvgUtils.EstimateTextWidth(it.Label ?? "", fontSize);
                 runsLeft = tipX >= tailX; // label anchored "end"
                 double minX = f.Left + 2 + (runsLeft ? w : 0), maxX = f.Right - 2 - (runsLeft ? 0 : w);
+                // Wider than the plot, the label starts at the edge it runs from and is squeezed to the plot below: the
+                // clamp was skipped, and the label ran off the chart.
                 if (minX <= maxX) tailX = Math.Max(minX, Math.Min(maxX, tailX));
+                else tailX = runsLeft ? f.Right - 2 : f.Left + 2;
                 above = tipY >= tailY;
                 double minY = f.Top + 2 + (above ? fontSize + 3 : 0), maxY = f.Bottom - 2 - (above ? 0 : fontSize);
                 if (minY <= maxY) tailY = Math.Max(minY, Math.Min(maxY, tailY));
@@ -271,13 +280,15 @@ namespace ToolBelt.Visualization
                 // Label sits at the tail, on the side away from the target.
                 string anchor = runsLeft ? "end" : "start";
                 double ty = tailY + (above ? -3 : fontSize);
-                Text(sb, tailX, ty, it.Label!, it.Color, anchor);
+                Text(sb, tailX, ty, it.Label!, it.Color, anchor, fontSize, runsLeft ? tailX - (f.Left + 2) : f.Right - 2 - tailX);
             }
         }
 
-        private static void Text(StringBuilder sb, double x, double y, string text, Rgba color, string anchor)
+        // Squeezed to maxWidth when its estimate is wider (no limit when maxWidth ≤ 0: no room at all to fit it to).
+        private static void Text(StringBuilder sb, double x, double y, string text, Rgba color, string anchor, double fontSize, double maxWidth)
             => sb.Append("<text x=\"").Append(SvgUtils.Number(x)).Append("\" y=\"").Append(SvgUtils.Number(y))
-                 .Append("\" text-anchor=\"").Append(anchor).Append("\" ").Append(SvgUtils.FillAttributes(color)).Append('>')
+                 .Append("\" text-anchor=\"").Append(anchor).Append('"').Append(SvgUtils.FitWidth(text, fontSize, maxWidth))
+                 .Append(' ').Append(SvgUtils.FillAttributes(color)).Append('>')
                  .Append(SvgUtils.EscapeText(text)).Append("</text>\n");
 
         // ---------- raster ----------

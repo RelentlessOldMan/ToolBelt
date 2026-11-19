@@ -204,7 +204,9 @@ namespace ToolBelt.Visualization
             sb.Append(Text(sx + 16, sy + sh, "1", "start"));
             sb.Append(Text(sx, sy + sh + 14, o.LogScale ? "count (log)" : "count", "start"));
 
-            if (o.Title != null) sb.Append("<text x=\"").Append(SvgUtils.Number(frame.Left + pw / 2)).Append("\" y=\"20\" text-anchor=\"middle\" font-size=\"14\" font-weight=\"bold\">")
+            // Squeezed to the room either side of its centre: a long title ran off both sides.
+            if (o.Title != null) sb.Append("<text x=\"").Append(SvgUtils.Number(frame.Left + pw / 2)).Append("\" y=\"20\" text-anchor=\"middle\" font-size=\"14\" font-weight=\"bold\"")
+                                   .Append(SvgUtils.FitWidth(o.Title, 14, 2 * Math.Min(frame.Left + pw / 2, o.Width - (frame.Left + pw / 2)) - 8, bold: true)).Append('>')
                                    .Append(SvgUtils.EscapeText(o.Title)).Append("</text>\n");
             if (o.XLabel != null) sb.Append(Text(frame.Left + pw / 2, o.Height - 10, o.XLabel, "middle"));
             if (o.YLabel != null)

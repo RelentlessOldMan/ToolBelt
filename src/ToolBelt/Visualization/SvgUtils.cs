@@ -156,6 +156,24 @@ namespace ToolBelt.Visualization
         /// — the real width depends on the viewer's font, so leave a little slack.
         /// </summary>
         public static double EstimateTextWidth(string text, double fontSize, bool bold = false)
+            => EstimateWidth(text, fontSize, bold);
+
+        /// <summary>
+        /// The attributes that squeeze a text element into <paramref name="maxWidth"/> pixels (<c>textLength</c> with
+        /// <c>lengthAdjust="spacingAndGlyphs"</c>, led by a space) when its estimated width is wider, else "". Append
+        /// them inside the element's start tag so a label too long for its room stays on the chart, whole. A
+        /// <paramref name="maxWidth"/> of 0 or less, or ∞, sets no limit.
+        /// </summary>
+        public static string FitWidth(string text, double fontSize, double maxWidth, bool bold = false)
+        {
+            if (double.IsNaN(maxWidth)) throw new ArgumentOutOfRangeException(nameof(maxWidth), maxWidth, "Width must not be NaN.");
+            double w = EstimateWidth(text, fontSize, bold);
+            return maxWidth > 0 && !double.IsInfinity(maxWidth) && w > maxWidth
+                ? " textLength=\"" + Number(maxWidth) + "\" lengthAdjust=\"spacingAndGlyphs\""
+                : "";
+        }
+
+        private static double EstimateWidth(string text, double fontSize, bool bold)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
             if (!(fontSize >= 0) || double.IsInfinity(fontSize))                   // ∞ gave NaN for "" and ∞ otherwise

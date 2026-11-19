@@ -2,6 +2,7 @@
 // SvgUtils.cs and Annotations.cs.
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 
 namespace ToolBelt.Visualization
@@ -92,6 +93,9 @@ namespace ToolBelt.Visualization
         /// </summary>
         public static string RenderElement(IReadOnlyList<Series> series, SvgChartOptions? options = null, double x = 0, double y = 0)
         {
+            // Checked up front: they failed inside SvgUtils.Number, naming its "value".
+            if (double.IsNaN(x) || double.IsInfinity(x)) throw new ArgumentOutOfRangeException(nameof(x), x, "x must be finite.");
+            if (double.IsNaN(y) || double.IsInfinity(y)) throw new ArgumentOutOfRangeException(nameof(y), y, "y must be finite.");
             options ??= new SvgChartOptions();
             var layout = ComputeLayout(series, options);
             PlotFrame f = layout.Frame;
@@ -477,7 +481,8 @@ namespace ToolBelt.Visualization
             if (!string.IsNullOrEmpty(o.Title))
             {
                 sb.Append("<text x=\"").Append(SvgUtils.Number(o.Width / 2)).Append("\" y=\"").Append(SvgUtils.Number(10 + fs * 1.2))
-                  .Append("\" text-anchor=\"middle\" font-weight=\"bold\" font-size=\"").Append(SvgUtils.Number(fs * 1.2)).Append("\" ")
+                  .Append("\" text-anchor=\"middle\" font-weight=\"bold\" font-size=\"").Append(SvgUtils.Number(fs * 1.2)).Append('"')
+                  .Append(SvgUtils.FitWidth(o.Title!, fs * 1.2, o.Width - 8, bold: true)).Append(' ') // a long title ran off both sides
                   .Append(SvgUtils.FillAttributes(Rgba.Black)).Append('>').Append(SvgUtils.EscapeText(o.Title!)).Append("</text>\n");
             }
         }
@@ -489,15 +494,26 @@ namespace ToolBelt.Visualization
             if (named.Count == 0) return;
 
             double fs = o.FontSize * 0.9, row = fs + 6, swatch = 18;
+            // Held inside the plot: a long name put the box left of the plot and off the canvas, and many series ran it
+            // past the bottom. Names are squeezed to the room left, and the rows that do not fit end in "+K more".
+            int rows = (int)Math.Min(named.Count, Math.Floor((f.Height - 12 - 6) / row));
+            if (rows < 1) return;
+            int shown = rows < named.Count ? rows - 1 : rows;
+            string? more = shown < named.Count ? "+" + (named.Count - shown).ToString(CultureInfo.InvariantCulture) + " more" : null;
             double textWidth = 0;
-            foreach (Series s in named) textWidth = Math.Max(textWidth, SvgUtils.EstimateTextWidth(s.Name!, fs));
-            double w = 8 + swatch + 6 + textWidth + 8, h = 6 + named.Count * row;
+            for (int i = 0; i < shown; i++) textWidth = Math.Max(textWidth, SvgUtils.EstimateTextWidth(named[i].Name!, fs));
+            if (more != null) textWidth = Math.Max(textWidth, SvgUtils.EstimateTextWidth(more, fs));
+            double maxText = Math.Max(0, f.Width - 12 - (8 + swatch + 6 + 8));
+            textWidth = Math.Min(textWidth, maxText);
+            double w = 8 + swatch + 6 + textWidth + 8, h = 6 + rows * row;
             double x0 = f.Right - w - 6, y0 = f.Top + 6;
             sb.Append("<g class=\"legend\" font-size=\"").Append(SvgUtils.Number(fs)).Append("\">\n");
             sb.Append("<rect x=\"").Append(SvgUtils.Number(x0)).Append("\" y=\"").Append(SvgUtils.Number(y0))
               .Append("\" width=\"").Append(SvgUtils.Number(w)).Append("\" height=\"").Append(SvgUtils.Number(h))
               .Append("\" fill=\"#ffffff\" fill-opacity=\"0.85\" ").Append(SvgUtils.StrokeAttributes(o.GridColor, 1)).Append("/>\n");
-            for (int i = 0; i < named.Count; i++)
+            if (more != null)
+                Text(sb, x0 + 8, y0 + 3 + row * shown + row / 2 + fs * 0.35, more, "start", SvgUtils.FillAttributes(Rgba.Black), fs, maxText + swatch + 6);
+            for (int i = 0; i < shown; i++)
             {
                 Series s = named[i];
                 double cy = y0 + 3 + row * i + row / 2, sx = x0 + 8;
@@ -517,14 +533,14 @@ namespace ToolBelt.Visualization
                           .Append("\" ").Append(SvgUtils.StrokeAttributes(s.Color, 2)).Append("/>\n");
                         break;
                 }
-                Text(sb, sx + swatch + 6, cy + fs * 0.35, s.Name!, "start", SvgUtils.FillAttributes(Rgba.Black));
+                Text(sb, sx + swatch + 6, cy + fs * 0.35, s.Name!, "start", SvgUtils.FillAttributes(Rgba.Black), fs, maxText);
             }
             sb.Append("</g>\n");
         }
 
-        private static void Text(StringBuilder sb, double x, double y, string text, string anchor, string fill)
+        private static void Text(StringBuilder sb, double x, double y, string text, string anchor, string fill, double fontSize = 0, double maxWidth = 0)
             => sb.Append("<text x=\"").Append(SvgUtils.Number(x)).Append("\" y=\"").Append(SvgUtils.Number(y))
-                 .Append("\" text-anchor=\"").Append(anchor).Append("\" ").Append(fill).Append('>')
+                 .Append("\" text-anchor=\"").Append(anchor).Append('"').Append(SvgUtils.FitWidth(text, fontSize, maxWidth)).Append(' ').Append(fill).Append('>')
                  .Append(SvgUtils.EscapeText(text)).Append("</text>\n");
 
         // ---------- geometry ----------

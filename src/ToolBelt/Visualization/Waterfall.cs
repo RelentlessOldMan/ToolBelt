@@ -278,7 +278,8 @@ namespace ToolBelt.Visualization
                 Rotated(sb, 10 + fs * 0.8, f.Top + f.Height / 2, o.TimeLabel, ink);
             if (!string.IsNullOrEmpty(o.Title))
                 sb.Append("<text x=\"").Append(SvgUtils.Number(o.Width / 2)).Append("\" y=\"").Append(SvgUtils.Number(10 + fs * 1.2))
-                  .Append("\" text-anchor=\"middle\" font-weight=\"bold\" font-size=\"").Append(SvgUtils.Number(fs * 1.2)).Append("\" fill=\"#000000\">")
+                  .Append("\" text-anchor=\"middle\" font-weight=\"bold\" font-size=\"").Append(SvgUtils.Number(fs * 1.2)).Append('"')
+                  .Append(SvgUtils.FitWidth(o.Title!, fs * 1.2, o.Width - 8, bold: true)).Append(" fill=\"#000000\">") // a long title ran off both sides
                   .Append(SvgUtils.EscapeText(o.Title!)).Append("</text>\n");
         }
 
