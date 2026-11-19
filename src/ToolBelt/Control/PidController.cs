@@ -14,6 +14,9 @@ namespace ToolBelt.Control
         private readonly double _kp, _ki, _kd, _min, _max;
         private readonly bool _derivativeOnMeasurement;
         private double _integral, _lastError, _lastMeasurement;
+        // The integral is held in units of 2^600 (it is _integral / Scale) once it outgrows double: with a small Ki and wide
+        // limits an integral past double.MaxValue was never taken, so the output stayed at 0 where it is 2e10.
+        private bool _big;
         private double _lastSetpoint;   // the scaled retry rebuilds the last error from it: a stored error that overflowed stays ∞
         private bool _hasLast;
 
@@ -69,14 +72,20 @@ namespace ToolBelt.Control
             // An error past double.MaxValue (setpoint and measurement far apart) made error·dt ∞ even where the step fits,
             // so the integral never moved: the step is formed from the halved difference.
             double step = double.IsInfinity(error) ? (Setpoint * 0.5 - measurement * 0.5) * dt * 2 : error * dt;
-            double integral = _integral + step;
-            double tentative = proportional + _ki * integral + derivative;
+            double integral = _big ? double.PositiveInfinity : _integral + step;
+            bool big = false;
+            if (double.IsInfinity(integral) && _ki != 0)
+            {
+                double stepBig = (Setpoint * Scale - measurement * Scale) * dt;
+                integral = Shrink((_big ? _integral : _integral * Scale) + stepBig, out big);
+            }
+            double tentative = proportional + Term(integral, big) + derivative;
             // P and D overflowing with opposite signs made this NaN, so neither windup test fired and the integral took
             // the whole step past the limit; an overflowed term made it ∞ where the true output is inside the limits.
             if (double.IsNaN(tentative) || double.IsInfinity(tentative))
             {
-                double scaled = ScaledOutput(measurement, dt, integral);
-                if (!double.IsNaN(scaled)) tentative = scaled;
+                double scaled = ScaledOutput(measurement, dt, integral, big);
+                tentative = double.IsNaN(scaled) ? DominantOutput(measurement, dt, integral, big) : scaled;
             }
             // By signs: ki·error underflowed to 0 at tiny scales (ki 1e-200), so neither test fired and the integral wound up.
             int push = Math.Sign(_ki) * Math.Sign(error);
@@ -90,23 +99,32 @@ namespace ToolBelt.Control
                 // output was already past the limit, it stays). This also covers an error·dt that overflowed.
                 double limit = windupHigh ? _max : _min;
                 double atLimit = (limit - proportional - derivative) / _ki;
-                // With P or D overflowed the difference is formed in units of 2^-600 (∞ there was always discarded).
+                bool atBig = false;
+                // With P or D overflowed the difference is formed in units of 2^-600 (∞ there was always discarded); an
+                // integral past double.MaxValue is kept in units of 2^600.
                 if (double.IsNaN(atLimit) || double.IsInfinity(atLimit))
-                    atLimit = (limit * Scale - ScaledProportional(measurement) - ScaledDerivative(measurement, dt)) / _ki / Scale;
+                    atLimit = Shrink((limit * Scale - ScaledProportional(measurement) - ScaledDerivative(measurement, dt)) / _ki, out atBig);
                 // By signs: the product underflowed (5e-201 × 1e-200), so an I-only loop at tiny scales never moved.
-                if (!double.IsNaN(atLimit) && !double.IsInfinity(atLimit) && Math.Sign(atLimit - _integral) * Math.Sign(error) > 0)
+                double moved = atBig || _big ? (atBig ? atLimit : atLimit * Scale) - (_big ? _integral : _integral * Scale) : atLimit - _integral;
+                if (!double.IsNaN(atLimit) && !double.IsInfinity(atLimit) && Math.Sign(moved) * Math.Sign(error) > 0)
+                {
                     _integral = atLimit;
+                    _big = atBig;
+                }
             }
-            else if (_ki != 0 && !double.IsInfinity(integral))
+            else if (_ki != 0 && !double.IsInfinity(integral) && !double.IsNaN(integral))
+            {
                 _integral = integral;
+                _big = big;
+            }
 
-            double output = proportional + _ki * _integral + derivative;
+            double output = proportional + Term(_integral, _big) + derivative;
             // A term that overflowed (an error past double.MaxValue times a tiny gain, or ∞ − ∞ between terms) is summed
             // again in units of 2^-600, where finite inputs and gains below about 1e180 can't overflow.
             if (double.IsNaN(output) || double.IsInfinity(output))
             {
-                double scaled = ScaledOutput(measurement, dt, _integral);
-                if (!double.IsNaN(scaled)) output = scaled;
+                double scaled = ScaledOutput(measurement, dt, _integral, _big);
+                output = double.IsNaN(scaled) ? DominantOutput(measurement, dt, _integral, _big) : scaled;
             }
 
             _lastError = error;
@@ -121,6 +139,7 @@ namespace ToolBelt.Control
         public void Reset()
         {
             _integral = 0;
+            _big = false;
             _lastError = 0;
             _lastMeasurement = 0;
             _lastSetpoint = 0;
@@ -129,8 +148,47 @@ namespace ToolBelt.Control
 
         private const double Scale = 2.4099198651028841e-181;                    // 2^-600
 
-        private double ScaledOutput(double measurement, double dt, double integral) =>
-            (ScaledProportional(measurement) + _ki * Scale * integral + ScaledDerivative(measurement, dt)) / Scale;
+        // An integral given in units of 2^600 (big) back in ordinary units where it fits: the big form is kept only while
+        // it must be. The input is in units of 2^600.
+        private static double Shrink(double integralBig, out bool big)
+        {
+            double plain = integralBig / Scale;
+            big = double.IsInfinity(plain) || Math.Abs(plain) > 1e300;
+            return big ? integralBig : plain;
+        }
+
+        private double Term(double integral, bool big) => big ? _ki * integral / Scale : _ki * integral;
+
+        private double ScaledOutput(double measurement, double dt, double integral, bool big) =>
+            (ScaledProportional(measurement) + (big ? _ki * integral : _ki * Scale * integral) + ScaledDerivative(measurement, dt)) / Scale;
+
+        // Terms that overflow with opposite signs even in units of 2^-600 (kp 1e200 against a derivative over a subnormal
+        // dt) summed to NaN, which the clamp passed through. Their magnitudes are compared as logarithms: the largest term
+        // decides the sign of the (overflowing) output. Exactly equal magnitudes give 0.
+        private double DominantOutput(double measurement, double dt, double integral, bool big)
+        {
+            const double Ln2 = 0.69314718055994531;
+            const double S = Scale;
+            double best = double.NegativeInfinity;
+            int sign = 0;
+            void Add(int s, double logMagnitude)
+            {
+                if (s == 0 || double.IsNaN(logMagnitude)) return;
+                if (logMagnitude > best) { best = logMagnitude; sign = s; }
+                else if (logMagnitude == best && s != sign) sign = 0;
+            }
+            double p = Setpoint * 0.5 - measurement * 0.5;
+            Add(Math.Sign(_kp) * Math.Sign(p), Math.Log(Math.Abs(_kp)) + Math.Log(Math.Abs(p)) + Ln2);
+            Add(Math.Sign(_ki) * Math.Sign(integral), Math.Log(Math.Abs(_ki)) + Math.Log(Math.Abs(integral)) - (big ? Math.Log(S) : 0));
+            if (_hasLast && _kd != 0)
+            {
+                double d = _derivativeOnMeasurement
+                    ? -(measurement * S - _lastMeasurement * S)
+                    : (Setpoint * S - measurement * S) - (_lastSetpoint * S - _lastMeasurement * S);
+                Add(Math.Sign(_kd) * Math.Sign(d), Math.Log(Math.Abs(_kd)) + Math.Log(Math.Abs(d)) - Math.Log(S) - Math.Log(dt));
+            }
+            return sign == 0 ? 0 : sign * double.PositiveInfinity;
+        }
 
         private double ScaledProportional(double measurement) =>
             _kp == 0 ? 0 : _kp * (Setpoint * Scale - measurement * Scale);

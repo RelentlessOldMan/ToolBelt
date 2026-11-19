@@ -225,7 +225,7 @@ namespace ToolBelt.Control
         {
             // τ/(Kθ) through Ratio: K·θ overflowed (Kp 0, refused as "too extreme", for K = 1e300, θ = 1e10; Kp is 1.2e-10).
             double theta = RequireDeadTime(model), ratio = Ratio(model, 0);
-            return includeDerivative ? Gains(1.2 * ratio, 2 * theta, 0.5 * theta) : Gains(0.9 * ratio, theta / 0.3, 0);
+            return includeDerivative ? Pid(1.2 * ratio, 2 * theta, 0.5 * theta) : Gains(0.9 * ratio, theta / 0.3, 0);
         }
 
         /// <summary>Cohen–Coon: like Ziegler–Nichols but corrected for larger dead-time ratios. Needs θ &gt; 0.</summary>
@@ -238,12 +238,12 @@ namespace ToolBelt.Control
             {
                 double r = theta / tau, ratio = Ratio(model, 0);
                 if (includeDerivative)
-                    return Gains(ratio * (4.0 / 3 + r / 4), theta * ((32 + 6 * r) / (13 + 8 * r)), theta * (4 / (11 + 2 * r)));
+                    return Pid(ratio * (4.0 / 3 + r / 4), theta * ((32 + 6 * r) / (13 + 8 * r)), theta * (4 / (11 + 2 * r)));
                 return Gains(ratio * (0.9 + r / 12), theta * ((30 + 3 * r) / (9 + 20 * r)), 0);
             }
             double q = tau / theta;                         // τ/(Kθ)·(4/3 + r/4) = (4q/3 + 1/4)/K, and so on
             if (includeDerivative)
-                return Gains((4 * q / 3 + 0.25) / k, theta * ((32 * q + 6) / (13 * q + 8)), tau * (4 / (11 * q + 2)));   // 4τ overflowed for τ = 5e307
+                return Pid((4 * q / 3 + 0.25) / k, theta * ((32 * q + 6) / (13 * q + 8)), tau * (4 / (11 * q + 2)));   // 4τ overflowed for τ = 5e307
             return Gains((0.9 * q + 1.0 / 12) / k, theta * ((30 * q + 3) / (9 * q + 20)), 0);
         }
 
@@ -295,6 +295,15 @@ namespace ToolBelt.Control
                 || double.IsNaN(derivativeTime) || double.IsInfinity(derivativeTime) || !Representable(kp, integralTime, derivativeTime))
                 throw new ArgumentOutOfRangeException("model", "The model's values are too extreme: the tuned gains are not representable.");
             return new PidGains(kp, integralTime, derivativeTime);
+        }
+
+        // A PID rule's Td underflowed to 0 for a subnormal θ or τ, so a "PID" silently had no derivative (the ultimate rule
+        // refused the same case).
+        private static PidGains Pid(double kp, double integralTime, double derivativeTime)
+        {
+            if (derivativeTime == 0)
+                throw new ArgumentOutOfRangeException("model", "The model's values are too extreme: the derivative time underflows to 0.");
+            return Gains(kp, integralTime, derivativeTime);
         }
 
         private static double Knob(double value, FopdtModel model, string name)

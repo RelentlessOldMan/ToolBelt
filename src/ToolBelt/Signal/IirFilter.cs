@@ -389,9 +389,11 @@ namespace ToolBelt.Signal
         private const int ShiftStep = 64, MaxShift = 960;
         private const double LowerBelow = 1.0e269;     // under 2^895: lowered by 2^64, the state is still 2^64 from overflow
 
-        // A subnormal state is flushed to 0 once the signal reaches this size, where the change (under 2.3e-308 per sample)
-        // is far below one rounding of the signal: a decaying tail in subnormal arithmetic ran 20 times slower. A signal
-        // that is itself tiny keeps its subnormal state, so it filters exactly as before.
+        // A subnormal state is flushed to 0 while the filter's input is at least this size, where the change (under 2.3e-308
+        // per sample) is below one rounding of it, or is 0 after a signal that was (the decaying tail, which in subnormal
+        // arithmetic ran 20 times slower). A signal that is itself tiny keeps its subnormal state, so it filters exactly
+        // as before, even after a large one: the flush once stayed on from the largest sample since Reset, and wiped a
+        // later 1e-307 signal to 0.
         private const double MinNormal = 2.2250738585072014E-308, FlushAbove = 2.0041683600089728E-292;     // 2^-1022, 2^-969
 
         public IirFilter(IEnumerable<Biquad> sections)
@@ -420,7 +422,7 @@ namespace ToolBelt.Signal
             while (true)
             {
                 double x = sample * _down;
-                bool flush = _peak * _down >= FlushAbove;
+                bool flush = Flush(x, _peak * _down >= FlushAbove);
                 int s = 0;
                 for (; s < _sections.Length; s++)
                 {
@@ -787,7 +789,7 @@ namespace ToolBelt.Signal
             var spec = new OrderSpec(passEdge, stopEdge, passRippleDb, stopAttenuationDb, sampleRate);
             int n = ButterworthOrderFor(spec);
             double w0 = ButterworthW0(spec, n);
-            return (n, spec.ToHz(spec.Band == Band.LowPass ? w0 * spec.P0 : spec.P0 / w0));
+            return (n, spec.DesignEdge(spec.Band == Band.LowPass ? w0 * spec.P0 : spec.P0 / w0));
         }
 
         /// <summary>
@@ -802,16 +804,18 @@ namespace ToolBelt.Signal
             double a, b;
             if (spec.Band == Band.BandPass)
             {
-                a = Math.Abs(-w0 * d / 2 + Math.Sqrt(w0 * w0 / 4 * d * d + prod));
+                // The small root is prod over the large one: −x + √(x² + prod) cancelled to 0 for a low edge far below the
+                // high one (pass 1e-17 to 0.3 gave a low edge of exactly 0).
                 b = Math.Abs(w0 * d / 2 + Math.Sqrt(w0 * w0 / 4 * d * d + prod));
+                a = prod / b;
             }
             else
             {
                 double discr = Math.Sqrt(d * d + 4 * w0 * w0 * prod);
                 a = Math.Abs((d + discr) / (2 * w0));
-                b = Math.Abs((d - discr) / (2 * w0));
+                b = prod / a;   // (d − discr)/(2w0) cancelled the same way
             }
-            return (n, spec.ToHz(Math.Min(a, b)), spec.ToHz(Math.Max(a, b)));
+            return spec.DesignBand(n, Math.Min(a, b), Math.Max(a, b));
         }
 
         /// <summary>
@@ -841,7 +845,7 @@ namespace ToolBelt.Signal
             var spec = new OrderSpec(passEdge, stopEdge, passRippleDb, stopAttenuationDb, sampleRate);
             int n = ChebyshevOrderFor(spec);
             double f = Chebyshev2Scale(spec, n);
-            return (n, spec.ToHz(spec.Band == Band.LowPass ? spec.P0 / f : spec.P0 * f));
+            return (n, spec.DesignEdge(spec.Band == Band.LowPass ? spec.P0 / f : spec.P0 * f));
         }
 
         /// <summary>Minimum Chebyshev type II order for a band-pass or band-stop specification, and the stop-band edges to design with.</summary>
@@ -850,11 +854,12 @@ namespace ToolBelt.Signal
             var spec = new OrderSpec(passLow, passHigh, stopLow, stopHigh, passRippleDb, stopAttenuationDb, sampleRate);
             int n = ChebyshevOrderFor(spec);
             double f = Chebyshev2Scale(spec, n), d = spec.P1 - spec.P0, prod = spec.P0 * spec.P1;
-            double a = spec.Band == Band.BandStop
-                ? -f / 2 * d + Math.Sqrt(f * f * d * d / 4 + prod)
-                : -d / (2 * f) + Math.Sqrt(d * d / (4 * f * f) + prod);
-            double b = prod / a;
-            return (n, spec.ToHz(Math.Min(a, b)), spec.ToHz(Math.Max(a, b)));
+            // The large root first: the small one, −y + √(y² + prod), cancelled to 0 (and its reciprocal partner to Nyquist).
+            double b = spec.Band == Band.BandStop
+                ? f / 2 * d + Math.Sqrt(f * f * d * d / 4 + prod)
+                : d / (2 * f) + Math.Sqrt(d * d / (4 * f * f) + prod);
+            double a = prod / b;
+            return spec.DesignBand(n, Math.Min(a, b), Math.Max(a, b));
         }
 
         /// <summary>
@@ -922,6 +927,25 @@ namespace ToolBelt.Signal
 
             // Ratios first: π·f and atan(w)·fs overflowed for a sample rate near MaxValue, and rounded a subnormal one.
             public double ToHz(double w) => Math.Atan(w) / Math.PI * _fs;
+
+            // A computed edge at an extreme ripple (1e-300 dB, or 999 dB against 1000) rounded to exactly Nyquist or 0,
+            // or a band's two edges to one frequency: none of them can be designed with, so the spec is refused.
+            public double DesignEdge(double w)
+            {
+                double hz = ToHz(w);
+                if (!(hz > 0 && hz < _fs / 2)) throw TooExtreme();
+                return hz;
+            }
+
+            public (int, double, double) DesignBand(int n, double low, double high)
+            {
+                double lo = DesignEdge(low), hi = DesignEdge(high);
+                if (!(lo < hi)) throw TooExtreme();
+                return (n, lo, hi);
+            }
+
+            private static ArgumentOutOfRangeException TooExtreme()
+                => new ArgumentOutOfRangeException("passRippleDb", "The ripple and attenuation are too extreme: the edge to design with rounds to 0, to Nyquist, or onto the other edge.");
 
             private double Warp(double f) => Math.Tan(Math.PI * (f / _fs));
 
@@ -1004,13 +1028,23 @@ namespace ToolBelt.Signal
 
         private enum Band { LowPass, HighPass, BandPass, BandStop }
 
+        private static bool Flush(double x, bool tail) => Math.Abs(x) >= FlushAbove || (x == 0 && tail);
+
         private void Run(double[] data, double[] z1, double[] z2)
         {
             // See FlushAbove. The flush starts at the first sample that reaches it, as in Process: the peak of the whole
             // buffer turned it on from sample 0, so a large sample later changed the outputs before it (not causal).
             // A NaN never reaches it.
+            // Decided from the filter's input, not each section's: a later section's input decaying through the 53 binades
+            // above 2^-1022 kept it in subnormal arithmetic.
             int flushFrom = data.Length;
             for (int i = 0; i < data.Length; i++) if (Math.Abs(data[i]) >= FlushAbove) { flushFrom = i; break; }
+            bool[]? flushAt = null;
+            if (flushFrom < data.Length)
+            {
+                flushAt = new bool[data.Length];
+                for (int i = flushFrom; i < data.Length; i++) flushAt[i] = Flush(data[i], true);
+            }
             for (int s = 0; s < _sections.Length; s++)
             {
                 var q = _sections[s];
@@ -1018,7 +1052,7 @@ namespace ToolBelt.Signal
                 for (int i = 0; i < data.Length; i++)
                 {
                     double x = data[i];
-                    bool flush = i >= flushFrom;
+                    bool flush = flushAt != null && flushAt[i];
                     double y = q.B0 * x + a;
                     if (flush && Math.Abs(y) < MinNormal) y = 0;
                     a = q.B1 * x - q.A1 * y + b;

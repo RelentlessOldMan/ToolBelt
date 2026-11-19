@@ -82,14 +82,19 @@ namespace ToolBelt.Tests.Control
 
         public void Pid_OverflowingErrorDoesNotStickInTheIntegral()
         {
+            // Since round 150 the integral past double.MaxValue (2e308) is kept, so with no limits the output is +∞, its
+            // true value; it must not stick there: an equal and opposite error brings it back.
             var pid = new PidController(0, 1, 0) { Setpoint = 1e308 };
             pid.Update(-1e308, 1);
             pid.Setpoint = 0;
-            Check.True(!double.IsInfinity(pid.Update(0, 1)) && !double.IsNaN(pid.Update(0, 1)), "∞ on every call");
+            Check.True(double.IsPositiveInfinity(pid.Update(0, 1)));
+            Check.Close(1e308, pid.Update(1e308, 1), 1e296);
+            Check.Close(0, pid.Update(1e308, 1), 1e292);
 
             var pi = new PidController(1, 1, 0);
-            pi.Update(-1e308, 10);
-            Check.False(double.IsInfinity(pi.Update(0, 1)));
+            pi.Update(-1e308, 10);                                  // ∫ = 1e309
+            Check.True(double.IsPositiveInfinity(pi.Update(0, 1)));
+            Check.False(double.IsInfinity(pi.Update(1e308, 9.5)));  // ∫ = 5e307, P = −1e308: −5e307
         }
 
         // ---------- FirstOrderLag / Kalman ----------
