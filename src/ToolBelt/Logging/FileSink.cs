@@ -20,7 +20,7 @@ namespace ToolBelt.Logging
         private readonly int _maxFiles;
         private readonly Encoding _encoding;
         private readonly object _gate = new object();
-        private FileStream? _stream;
+        private Stream? _stream;
         private bool _disposed;
 
         /// <summary>
@@ -69,7 +69,8 @@ namespace ToolBelt.Logging
                     Drop();   // a failed write (a full disk) is not retried from the buffer; the next event reopens
                     throw;
                 }
-                if (_maxBytes > 0 && _stream.Length >= _maxBytes) Rotate();
+                // A device has no length ("NUL", /dev/null): it threw NotSupportedException. It never rotates.
+                if (_maxBytes > 0 && _stream.CanSeek && _stream.Length >= _maxBytes) Rotate();
             }
         }
 
@@ -85,20 +86,28 @@ namespace ToolBelt.Logging
 
         private void Drop()
         {
-            FileStream? stream = _stream;
+            Stream? stream = _stream;
             _stream = null;
             try { stream?.Dispose(); } catch { /* best-effort: what it still held is lost */ }
         }
 
         private void Open()
         {
+            // .NET Framework's FileStream refuses a device ("NUL" threw NotSupportedException there), so the Windows null
+            // device (NUL in any folder, or \\.\NUL) is a null stream on every runtime.
+            if (Path.DirectorySeparatorChar == '\\' && string.Equals(Path.GetFileName(_path), "NUL", StringComparison.OrdinalIgnoreCase))
+            {
+                _stream = Stream.Null;
+                return;
+            }
             string? dir = Path.GetDirectoryName(Path.GetFullPath(_path));
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             var stream = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read);
             try
             {
                 // A new file gets the encoding's preamble, as a StreamWriter wrote it.
-                if (stream.Position == 0)
+                // A device (the null device, a terminal) has no position: the sink could not be created for it at all.
+                if (stream.CanSeek && stream.Position == 0)
                 {
                     byte[] preamble = _encoding.GetPreamble();
                     if (preamble.Length > 0) stream.Write(preamble, 0, preamble.Length);

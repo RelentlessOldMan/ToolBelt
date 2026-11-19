@@ -128,7 +128,9 @@ namespace ToolBelt.Diagnostics
                 foreach (var kv in EnvironmentVariables)
                     sb.Append("  ").Append(kv.Key).Append(" = ").AppendLine(kv.Value);
             }
-            return sb.ToString().TrimEnd();
+            // Only the last line break: trimming all white space changed the last value ("value  " came out "value").
+            sb.Length -= Environment.NewLine.Length;
+            return sb.ToString();
         }
 
         private static string SafeGet(Func<string> read)

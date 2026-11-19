@@ -22,7 +22,15 @@ namespace ToolBelt.Logging
 
         /// <summary>A filter that only lets through events at or above <paramref name="minimum"/>.</summary>
         public static FilterSink MinimumLevel(ILogSink inner, LogLevel minimum, bool ownsInner = false)
-            => new FilterSink(inner, e => e.Level >= minimum, ownsInner);
+            => new FilterSink(inner, AtLeast(minimum), ownsInner);
+
+        // An undefined level (99) was accepted, and every event, Fatal too, was dropped without a word.
+        internal static Func<LogEvent, bool> AtLeast(LogLevel minimum)
+        {
+            if (minimum < LogLevel.Trace || minimum > LogLevel.Fatal)
+                throw new ArgumentOutOfRangeException(nameof(minimum), minimum, "Level must be a defined LogLevel.");
+            return e => e.Level >= minimum;
+        }
 
         public void Emit(LogEvent logEvent)
         {
@@ -73,7 +81,7 @@ namespace ToolBelt.Logging
         }
 
         /// <summary>Routes events at or above <paramref name="minimum"/> to <paramref name="sink"/>.</summary>
-        public RouterSink AddLevelRoute(LogLevel minimum, ILogSink sink) => AddRoute(e => e.Level >= minimum, sink);
+        public RouterSink AddLevelRoute(LogLevel minimum, ILogSink sink) => AddRoute(FilterSink.AtLeast(minimum), sink);
 
         public void Emit(LogEvent logEvent)
         {

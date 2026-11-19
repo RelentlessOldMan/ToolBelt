@@ -32,6 +32,7 @@ namespace ToolBelt.Cli
         private readonly bool _isConsole;
         private string _message;
         private int _frame, _lastWidth;
+        private volatile int _drawingThread;   // the thread inside a Tick's draw, or 0
         private bool _disposed;
 
         /// <param name="message">Text shown beside the spinner.</param>
@@ -47,9 +48,11 @@ namespace ToolBelt.Cli
             _interactive = interactive ?? (writer is null && !Console.IsErrorRedirected);
             _frames = frames is { Length: > 0 } ? frames : Dots;
             TimeSpan period = interval ?? TimeSpan.FromMilliseconds(80);
-            // Past int.MaxValue ms Task.Delay threw on the background loop and the spinner silently stopped.
-            if (period <= TimeSpan.Zero || period.TotalMilliseconds > int.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(interval), interval, "Interval must be positive and at most int.MaxValue ms.");
+            // Past int.MaxValue ms Task.Delay threw on the background loop and the spinner silently stopped. Under a
+            // millisecond it rounds down to Task.Delay(0), and the loop spun a whole core redrawing (630,000 writes in
+            // half a second).
+            if (period < TimeSpan.FromMilliseconds(1) || period.TotalMilliseconds > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(interval), interval, "Interval must be at least 1 ms and at most int.MaxValue ms.");
 
             if (_interactive)
             {
@@ -102,7 +105,9 @@ namespace ToolBelt.Cli
             {
                 if (_disposed || !_interactive) return;
                 _frame = (_frame + 1) % _frames.Length;
-                Quietly(Draw);   // a broken writer threw out of Tick, though the class promises drawing never throws
+                _drawingThread = Environment.CurrentManagedThreadId;
+                try { Quietly(Draw); }   // a broken writer threw out of Tick, though the class promises drawing never throws
+                finally { _drawingThread = 0; }
             }
         }
 
@@ -126,8 +131,13 @@ namespace ToolBelt.Cli
             }
             finally
             {
-                try { _loop?.Wait(); } catch (AggregateException) { }
-                _cts.Dispose();
+                // Not from inside a draw on the loop (a writer that stops the spinner): the loop waited for itself, forever.
+                // It ends on its own once the draw returns, as it sees the cancellation.
+                if (_drawingThread != Environment.CurrentManagedThreadId)
+                {
+                    try { _loop?.Wait(); } catch (AggregateException) { }
+                    _cts.Dispose();
+                }
             }
         }
 
@@ -158,8 +168,9 @@ namespace ToolBelt.Cli
             _lastWidth = columns;
         }
 
-        // Control characters become spaces, except an SGR colour sequence (ESC [ digits and semicolons m), which is kept:
-        // its ESC became a space, so an AnsiStyle message showed "[32m" as text.
+        // Control characters become spaces, except an SGR colour sequence (ESC [ digits, semicolons and colons m), which is
+        // kept: its ESC became a space, so an AnsiStyle message showed "[32m" as text. The colon form (ESC[38:5:196m) is
+        // one too, as AnsiStyle and ConsoleTable read it; it was shown as text and counted 11 columns.
         internal static string OneLine(string s)
         {
             char[]? chars = null;
@@ -182,7 +193,7 @@ namespace ToolBelt.Cli
             {
                 char c = s[j];
                 if (c == 'm') return j - i + 1;
-                if ((c < '0' || c > '9') && c != ';') return 0;
+                if ((c < '0' || c > '9') && c != ';' && c != ':') return 0;
             }
             return 0;
         }

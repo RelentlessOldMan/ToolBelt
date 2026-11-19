@@ -150,7 +150,12 @@ namespace ToolBelt.Logging
             {
                 // Called from the inner sink or onError on the consumer thread: waiting for the drain waited for this
                 // thread, forever. The consumer drains the rest once this call returns; the cleanup follows it.
-                CloseAfter(Complete());
+                // CompleteAsync from the consumer returns at once, so closing after it cancelled the events still queued
+                // (one queued behind the call was lost on .NET Framework). The drain is awaited from the pool instead,
+                // outside the consumer's flow, so it waits for the consumer to finish.
+                Task drained;
+                using (ExecutionContext.SuppressFlow()) drained = Task.Run(() => Complete());
+                CloseAfter(drained);
                 return;
             }
             Task drain = Complete();

@@ -1103,6 +1103,7 @@ tests/
       LoggingReview103Tests.cs (sixth pass: cross-consumer re-entry, concurrent health checks, summary order, later SGR resets, scopes disposed elsewhere, disposed sinks, unencodable lines, one-line spinner, undefined enums)
       LoggingReview116Tests.cs (seventh pass: wide spinner characters, kept colour sequences, a guarded Tick, undefined table alignment, FTP replies and programmer errors in IsTransient, sinks after Dispose, broken owned writers, failed reopens after rotation)
       LoggingReview135Tests.cs (eighth pass: spinner widths of flags, ZWJ sequences and narrow symbols, any writer failure kept quiet, styled table cells, partial ANSI resets, a throwing logger clock, undefined minimum levels, negative throttle windows, benchmark iteration limits, racing ScopedTimer disposal)
+      LoggingReview152Tests.cs (ninth pass: sub-millisecond spinner intervals, Stop from inside a draw, colon colour codes, FileSink on the null device, undefined levels in filters, routes and Log, trailing spaces and multi-line messages in reports, AsyncLogSink disposed from its inner sink)
   ToolBelt.Windows.Tests/   Windows-only integration tests for the platform satellite (net8.0-windows)
     PowerStatusTests.cs
     SingleInstanceTests.cs

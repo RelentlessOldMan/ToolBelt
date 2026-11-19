@@ -79,6 +79,8 @@ namespace ToolBelt.Logging
 
         public void Log(LogLevel level, string message, Exception? exception = null)
         {
+            // An undefined level (99) went to every sink, past any minimum, and was written as "[99]".
+            CheckLevel(level, nameof(level));
             if (level < MinimumLevel) return;
             // A clock that threw sent its exception to the caller of Info (logging sits in catch and finally blocks).
             DateTimeOffset timestamp;

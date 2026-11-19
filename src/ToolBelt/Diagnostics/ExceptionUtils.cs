@@ -92,14 +92,18 @@ namespace ToolBelt.Diagnostics
                 // Capped: an indent per level made a chain thousands deep quadratic in size.
                 string indent = new string(' ', Math.Min(depth, 32) * 2);
                 Exception current = e;
-                sb.Append(indent).Append(e.GetType().FullName).Append(": ").AppendLine(Safe(() => current.Message));
+                // A message or value of several lines: its later lines started at column 0 and read as a new root entry.
+                sb.Append(indent).Append(e.GetType().FullName).Append(": ");
+                AppendLines(sb, Safe(() => current.Message), indent + "  ");
                 try
                 {
                     // A Data value whose ToString threw took the whole report down.
                     foreach (DictionaryEntry entry in e.Data)
+                    {
                         // Invariant: values came out in the current culture (1,5 for 1.5 in German).
-                        sb.Append(indent).Append("  data[").Append(Safe(() => Convert.ToString(entry.Key, CultureInfo.InvariantCulture))).Append("] = ")
-                          .AppendLine(Safe(() => Convert.ToString(entry.Value, CultureInfo.InvariantCulture)));
+                        sb.Append(indent).Append("  data[").Append(Safe(() => Convert.ToString(entry.Key, CultureInfo.InvariantCulture))).Append("] = ");
+                        AppendLines(sb, Safe(() => Convert.ToString(entry.Value, CultureInfo.InvariantCulture)), indent + "    ");
+                    }
                 }
                 catch (Exception ex) { sb.Append(indent).AppendLine("  data: <" + ex.GetType().Name + ">"); }
                 string? trace = includeStackTrace ? Safe(() => current.StackTrace) : null;
@@ -113,7 +117,24 @@ namespace ToolBelt.Diagnostics
                     }
                 }
             }
-            return sb.ToString().TrimEnd();
+            // Only the last line break: trimming all white space changed the last message or value ("x  " came out "x").
+            sb.Length -= Environment.NewLine.Length;
+            return sb.ToString();
+        }
+
+        // Appends text and a line break, each later line of the text (after CR LF, CR or LF) starting with the indent.
+        private static void AppendLines(StringBuilder sb, string text, string indent)
+        {
+            int start = 0;
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (c != '\r' && c != '\n') continue;
+                sb.Append(text, start, i - start).AppendLine().Append(indent);
+                if (c == '\r' && i + 1 < text.Length && text[i + 1] == '\n') i++;
+                start = i + 1;
+            }
+            sb.Append(text, start, text.Length - start).AppendLine();
         }
 
         /// <summary>
