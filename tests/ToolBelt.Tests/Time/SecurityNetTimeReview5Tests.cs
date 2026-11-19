@@ -289,7 +289,8 @@ namespace ToolBelt.Tests.Time
             var strict = new UTF8Encoding(false, true);
             WithServer(strict, new[] { Join(Utf8("abcdef"), new byte[] { 0xFF }, Utf8("gh\nok\n")) }, c =>
             {
-                c.MaxLineLength = 3;
+                // 5, not 3: since round 149 skipping more than another MaxLineLength characters throws again.
+                c.MaxLineLength = 5;
                 Check.Throws<InvalidDataException>(() => c.ReadLine());
                 Check.Equal("ok", c.ReadLine());
                 Check.Null(c.ReadLine());

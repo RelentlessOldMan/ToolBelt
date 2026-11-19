@@ -35,8 +35,12 @@ namespace ToolBelt.Security
 
             byte[] salt = KeyDerivation.GenerateSalt(SaltLength);
             byte[] key = KeyDerivation.Pbkdf2(password, salt, iterations, KeyLength, KdfHash.Sha256);
-            return string.Join("$", Prefix, iterations.ToString(CultureInfo.InvariantCulture),
-                Convert.ToBase64String(salt), Convert.ToBase64String(key));
+            try
+            {
+                return string.Join("$", Prefix, iterations.ToString(CultureInfo.InvariantCulture),
+                    Convert.ToBase64String(salt), Convert.ToBase64String(key));
+            }
+            finally { Array.Clear(key, 0, key.Length); }
         }
 
         /// <summary>
@@ -48,7 +52,8 @@ namespace ToolBelt.Security
             if (password is null) throw new ArgumentNullException(nameof(password));
             var parsed = Parse(encoded);
             byte[] candidate = KeyDerivation.Pbkdf2(password, parsed.Salt, parsed.Iterations, parsed.Hash.Length, KdfHash.Sha256);
-            return ConstantTime.Equals(candidate, parsed.Hash);
+            try { return ConstantTime.Equals(candidate, parsed.Hash); }
+            finally { Array.Clear(candidate, 0, candidate.Length); }   // the derived key is not left in memory
         }
 
         /// <summary>True if the stored hash used fewer iterations than <paramref name="currentIterations"/> (upgrade it on next login).</summary>

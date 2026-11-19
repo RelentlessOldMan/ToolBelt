@@ -351,7 +351,7 @@ src/
       TcpLineClient.cs      line-oriented TCP client (connect/read/write timeouts, MaxLineLength, partial lines survive a timeout,
                             a strict encoding's bad line throws once and is dropped)
       HostInfo.cs           local host/interface info + DNS resolve with a timeout
-      HttpDownload.cs       download to file via .part: progress, resume (Range), checksum, transient retry, ReadTimeout
+      HttpDownload.cs       download to file via .part: progress, resume (Range), checksum, transient retry, ReadTimeout, MaxBytes
     Quality/
       ProcessCapability.cs  Cp/Cpk/sigma-level/ppm (explicit overall vs within-subgroup sigma)
       ControlChart.cs       I-MR limits + run rules (beyond-limits / one-side / trend)
@@ -1023,6 +1023,7 @@ tests/
       SecurityNetTimeReview6Tests.cs (round 92 review regressions: bad bytes between CR and LF, calendar years in relative times)
       SecurityNetTimeReview7Tests.cs (round 124 review regressions: stale destinations under Resume, wildcard cron jobs after a step back, truncated AEAD blobs, line breaks in secrets keys)
       SecurityNetTimeReview8Tests.cs (round 142: misplaced resume ranges, argument checks before download, cron 7/N, scheduler wake on Add, lone surrogates on send, empty hosts)
+      SecurityNetTimeReview9Tests.cs (round 149: TcpLineClient's limits under a strict encoding and while skipping, lossy sends, the host's ParamName, HttpDownload's 206 totals and short ranges, its own .part, nothing local before the answer, folder destinations, sub-ms timeouts, MaxBytes)
       TimeOfDayRangeTests.cs
       UnixTimeTests.cs
     Visualization/

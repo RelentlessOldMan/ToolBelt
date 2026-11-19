@@ -44,15 +44,20 @@ namespace ToolBelt.Net
             if (host.Trim().Length == 0) throw new ArgumentException("The host is empty.", nameof(host));
             if (timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "Timeout must be positive.");
 
-            Task<IPAddress[]> lookup = Dns.GetHostAddressesAsync(host);
+            Task<IPAddress[]> lookup;
             bool completed;
             try
             {
+                lookup = Dns.GetHostAddressesAsync(host);
                 completed = lookup.Wait(WaitMilliseconds(timeout));
             }
             catch (AggregateException ex)
             {
-                throw ex.GetBaseException(); // surface the real DNS error (e.g. SocketException), not the wrapper
+                throw BadHost(ex) ?? ex.GetBaseException(); // surface the real DNS error (e.g. SocketException), not the wrapper
+            }
+            catch (ArgumentException ex) when (BadHost(ex) is Exception bad)
+            {
+                throw bad;
             }
             if (!completed)
             {
@@ -60,6 +65,16 @@ namespace ToolBelt.Net
                 throw new TimeoutException($"DNS resolution of '{host}' timed out.");
             }
             return lookup.Result;
+        }
+
+        // The DNS API names its parameter hostName (a name over 255 characters, say); the caller's is host.
+        private static Exception? BadHost(Exception ex)
+        {
+            Exception e = ex is AggregateException a ? a.GetBaseException() : ex;
+            if (!(e is ArgumentException arg) || arg.ParamName != "hostName") return null;
+            return e is ArgumentOutOfRangeException
+                ? new ArgumentOutOfRangeException("host", arg.Message)
+                : new ArgumentException(arg.Message, "host", arg);
         }
 
         // Rounds up to whole milliseconds; anything past int.MaxValue ms (about 24.8 days) waits indefinitely.

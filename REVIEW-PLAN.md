@@ -53,7 +53,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 3,100 | ~2 | 9 | 3 / 140 | re-queue (3 bugs, 1 severe) |
 | 11 | Text & small types | `Text/*`, `Identifiers/*`, `Enums/*`, `Guards/*` | 2,900 | ~2 | 8 | 8 / 106 | re-queue (8 bugs, none severe) |
 | 12 | Logging, diagnostics, CLI | `Logging/*`, `Diagnostics/*`, `Cli/*` | 2,900 | ~2 | 8 | 9 / 152 | re-queue (9 bugs, none severe) |
-| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 8 | 12 / 118 | re-queue (12 bugs, none severe) |
+| 13 | Security, net, time | `Security/*`, `Net/*`, `Time/*` | 2,250 | ~3 | 9 | 14 / 132 | re-queue (14 bugs, none severe) |
 | 14 | Objects, functional, grids, graphs, intervals | `Objects/*`, `Functional/*`, `Grids/*`, `Graphs/*`, `Intervals/*` | 3,200 | ~1 | 9 | 8 / 167 | re-queue (8 bugs, one severe) |
 | 15 | Windows satellite | `src/ToolBelt.Windows/*` | 3,100 | ~3 | 9 | 6 / 156 | re-queue (6 bugs, 1 severe) |
 | 16 | WPF satellite | `src/ToolBelt.Wpf/*` | 2,600 | ~5 | 8 | 4 / 130 | re-queue (4 bugs, none severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); 1 (done, round 107); 3 (done, round 108). Seventh pass, same rule and order (severe count, then bugs in the sixth pass; ties by section number): 7 (done, round 109); 15 (done, round 110); 9 (done, round 111); 8 (done, round 112); 6 (done, round 113); 10 (done, round 114); 2 (done, round 115); 12 (done, round 116); 16 (done, round 117); 3 (done, round 118); 1 (done, round 119); 17 (done, round 120); 5 (done, round 121); 4 (done, round 122); 11 (done, round 123); 13 (done, round 124); 14 (done, round 125). Eighth pass, same rule and order (severe count, then bugs in the seventh pass; ties by section number): 7 (done, round 126); 9 (done, round 127); 10 (done, round 128); 6 (done, round 129); 4 (done, round 130); 15 (done, round 131); 17 (done, round 132); 1 (done, round 133); 5 (done, round 134); 12 (done, round 135); 14 (done, round 136); 2 (done, round 137); 8 (done, round 138); 16 (done, round 139); 3 (done, round 140); 11 (done, round 141); 13 (done, round 142). Ninth pass, same rule and order (severe count, then bugs in the eighth pass; ties by section number): 8 (done, round 143); 15 (done, round 144); 14 (done, round 145); 3 (done, round 146); 10 (done, round 147); 5 (done, round 148); **next: 13**, then 1, 7, 12, 2, 11, 17, 4, 9, 16, 6 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); 1 (done, round 107); 3 (done, round 108). Seventh pass, same rule and order (severe count, then bugs in the sixth pass; ties by section number): 7 (done, round 109); 15 (done, round 110); 9 (done, round 111); 8 (done, round 112); 6 (done, round 113); 10 (done, round 114); 2 (done, round 115); 12 (done, round 116); 16 (done, round 117); 3 (done, round 118); 1 (done, round 119); 17 (done, round 120); 5 (done, round 121); 4 (done, round 122); 11 (done, round 123); 13 (done, round 124); 14 (done, round 125). Eighth pass, same rule and order (severe count, then bugs in the seventh pass; ties by section number): 7 (done, round 126); 9 (done, round 127); 10 (done, round 128); 6 (done, round 129); 4 (done, round 130); 15 (done, round 131); 17 (done, round 132); 1 (done, round 133); 5 (done, round 134); 12 (done, round 135); 14 (done, round 136); 2 (done, round 137); 8 (done, round 138); 16 (done, round 139); 3 (done, round 140); 11 (done, round 141); 13 (done, round 142). Ninth pass, same rule and order (severe count, then bugs in the eighth pass; ties by section number): 8 (done, round 143); 15 (done, round 144); 14 (done, round 145); 3 (done, round 146); 10 (done, round 147); 5 (done, round 148); 13 (done, round 149); **next: 1**, then 7, 12, 2, 11, 17, 4, 9, 16, 6 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -222,11 +222,59 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.18.10 | 146 | Statistics, ninth pass | 8 | (see tag) |
 | v2026.11.18.11 | 147 | Concurrency, ninth pass | 3 | (see tag) |
 | v2026.11.18.12 | 148 | Charts, ninth pass | 13 | (see tag) |
+| v2026.11.18.13 | 149 | Security, net, time, ninth pass | 14 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 149: Security, net, time, ninth pass (v2026.11.18.13)
+
+Two fresh reviewers (correctness, robustness): 14 bugs, none severe, so section 13 stays re-queued. The regression
+tests are in `SecurityNetTimeReview9Tests` (12: ten fail on the old code, run by name under a 60 s timeout; one covers
+the new `HttpDownloadOptions.MaxBytes`, and one pins PBKDF2's output across the zeroing below). Security, Net and Time
+run on .NET Framework 4.8 too.
+
+- **TcpLineClient, strict encoding**: bad bytes made no characters, so a line of them was never held to MaxLineLength
+  (3 MB of 0xFF read under a limit of 1000, then DecoderFallbackException at the LF; 0xFF forever ran without end).
+  Each run of bad bytes counts as one character.
+- **TcpLineClient, skipping an overlong line**: the rest was skipped without limit, and since data kept coming the read
+  timeout never fired (374 MB consumed in 5 s). Each call throws InvalidDataException again after another
+  MaxLineLength characters with no terminator.
+- **TcpLineClient.Send**: a character the encoding cannot represent went out as '?' (ASCII "café" as "caf?") and the send
+  succeeded. It throws ArgumentException naming the index.
+- **TcpLineClient, HostInfo.Resolve**: a host the DNS API refuses (over 255 characters) was reported as parameter
+  "hostName"; it is "host". **PortCheck.IsReachable** returned false for it, a caller's mistake read as unreachable.
+- **TcpLineClient's bad-run counter** could overflow in the checked build after 2^31 runs on one client; it wraps.
+- **HttpDownload, "bytes 0-99/*"**: a 206 with no total was taken as the whole file. It fails (HttpDownloadException):
+  there is no telling whether more follows.
+- **HttpDownload, a short 206**: a range covering only part of the file was retried whole as a truncated body, failing
+  every attempt alike. Under Resume the rest is asked for next (not counted as an attempt); without it, it fails at once.
+- **HttpDownload, the shared ".part"**: a non-Resume download deleted the partial file a Resume download had kept (and,
+  where the OS allows, one another download was writing; BUGLIST R142-1). Without Resume the partial file has a name of
+  its own.
+- **HttpDownload, local work first**: the folder was created and, under Resume, the destination copied to ".part" before
+  an unusable URL or answer failed (an ftp: URL left a 20 MB copy). Nothing local changes until the answer is known, and
+  the default client refuses a non-HTTP URL up front (ArgumentException, url).
+- **HttpDownload, a folder destination** (an existing folder, or a path ending in a separator) downloaded the whole body,
+  then failed to replace it. It is refused up front.
+- **HttpDownload, a sub-millisecond ReadTimeout** was truncated to 0 ms, so a body already received timed out. It is
+  rounded up.
+- **HttpDownload, no size cap**: a body with no declared size was written without limit. The new MaxBytes caps a
+  declared size and a growing body; neither is retried.
+
+Hardening (not counted): PBKDF2 clears the password's UTF-8 bytes and each block's U and T once used, and
+PasswordHasher clears the derived key after encoding or comparing it (BUGLIST R124-3).
+
+Checked and clean: CronScheduler under racing Start, Add, RunDue and Dispose and a Dispose from a job or onError,
+CronSchedule at the calendar's ends in UTC, +14, -12 and five DST zones, fuzzing of Iso8601Duration, HumanDuration,
+CidrRange, CronSchedule and PasswordHasher.Verify, SecretsFile against every bit flip and truncation, HttpDownload's
+416, overrun, retry and cancellation paths, and AuthenticatedEncryption, Hmac, Hashing, ConstantTime, CryptoRandom,
+IpUtils, BusinessDays, DateRange, IsoWeek, RelativeTime, TimeOfDayRange and UnixTime by reading.
+
+Two older tests were adjusted: a local-folder failure is still caught before the request (by a read-only check now),
+and the round 91 bad-bytes-in-an-overlong-line test uses a limit of 5, so its rest fits one skip.
+
 ### Round 148: Charts, ninth pass (v2026.11.18.12)
 
 Two fresh reviewers (correctness, robustness): 13 bugs, none severe, so section 5 stays re-queued. The regression

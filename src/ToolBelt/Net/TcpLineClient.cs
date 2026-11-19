@@ -25,6 +25,7 @@ namespace ToolBelt.Net
         private readonly NetworkStream _stream;
         private readonly Decoder _decoder;
         private readonly Encoding _encoding;
+        private readonly Encoding _sending;   // the encoding, throwing where a character cannot be encoded
         private readonly byte[] _bytes = new byte[4096];
         private readonly char[] _chars;
         private readonly StringBuilder _line = new StringBuilder();
@@ -34,8 +35,10 @@ namespace ToolBelt.Net
         private bool _discarding;         // skipping the rest of a line that exceeded MaxLineLength
         private bool _atStart = true;     // nothing decoded yet: a byte order mark from the peer is dropped
         private readonly CountingFallback? _bad;   // the encoding throws on bad bytes: a copy counts them instead
-        private bool[] _badBefore = new bool[0];  // bad bytes came just before _chars[i] (or at the end, i == _charLen)
+        private int[] _badBefore = new int[0];    // bad byte runs just before _chars[i] (or at the end, i == _charLen)
         private bool _lineBad;                    // the line so far held bad bytes: it throws, once, at its end
+        private long _lineBadRuns;                // those runs, each counted as one character toward MaxLineLength
+        private long _skipped;                    // characters skipped of an overlong line since it last threw
 
         /// <param name="host">The host to connect to.</param>
         /// <param name="port">The TCP port, 0-65535.</param>
@@ -58,9 +61,10 @@ namespace ToolBelt.Net
             _client = NewClient();
             Task connect;
             try { connect = _client.ConnectAsync(host, port); }   // may throw before it returns a task
-            catch
+            catch (Exception ex)
             {
                 _client.Dispose();
+                if (BadHost(ex) is Exception bad) throw bad;
                 throw;
             }
             // If we give up on the connect, its eventual failure must not surface as an unobserved task exception.
@@ -77,7 +81,7 @@ namespace ToolBelt.Net
             catch (AggregateException ex)
             {
                 _client.Dispose();
-                throw ex.GetBaseException();
+                throw BadHost(ex) ?? ex.GetBaseException();
             }
 
             _stream = _client.GetStream();
@@ -95,13 +99,23 @@ namespace ToolBelt.Net
             }
             _decoder = decoding.GetDecoder();
             _chars = new char[decoding.GetMaxCharCount(_bytes.Length)];
-            if (_bad != null) _badBefore = new bool[_chars.Length + 1];
+            if (_bad != null) _badBefore = new int[_chars.Length + 1];
             _encoding = encoding;
+            // A character the encoding cannot represent went out as '?' (ASCII "café" as "caf?"), and the send succeeded.
+            _sending = encoding;
+            if (!(encoding.EncoderFallback is EncoderExceptionFallback))
+            {
+                _sending = (Encoding)encoding.Clone();
+                _sending.EncoderFallback = EncoderFallback.ExceptionFallback;
+            }
         }
 
         /// <summary>
         /// The longest line (in characters, excluding the terminator) <see cref="ReadLine"/> accepts before throwing
         /// <see cref="InvalidDataException"/>, so a peer that never sends a newline cannot exhaust memory. Default 1 Mi.
+        /// With an encoding that throws on invalid bytes, each run of them counts as one character. While the rest of an
+        /// overlong line is skipped, each call throws again after another MaxLineLength characters with no terminator,
+        /// so a peer that keeps sending cannot hold a call for good.
         /// </summary>
         public int MaxLineLength
         {
@@ -135,7 +149,12 @@ namespace ToolBelt.Net
                     throw new ArgumentException($"The line has a lone surrogate at index {i}; it cannot be encoded.", nameof(line));
             }
             // Encoded directly: a StreamWriter would send the encoding's byte order mark before the first line.
-            byte[] bytes = _encoding.GetBytes(line + "\n");
+            byte[] bytes;
+            try { bytes = _sending.GetBytes(line + "\n"); }
+            catch (EncoderFallbackException ex)
+            {
+                throw new ArgumentException($"The line has a character at index {ex.Index} that {_encoding.WebName} cannot encode.", nameof(line), ex);
+            }
             _stream.Write(bytes, 0, bytes.Length);
         }
 
@@ -171,6 +190,7 @@ namespace ToolBelt.Net
                         if (_discarding)
                         {
                             _discarding = false;   // the end of the overlong line: carry on with the next one
+                            _skipped = 0;
                             continue;
                         }
                         if (_lineBad) ThrowBadLine();
@@ -178,15 +198,12 @@ namespace ToolBelt.Net
                         _line.Clear();
                         return result;
                     }
-                    if (_discarding) continue;
-                    if (_line.Length >= _maxLineLength)
+                    if (_discarding)
                     {
-                        // Drop only this line: the rest of it is skipped up to its terminator, and later lines are kept.
-                        _line.Clear();
-                        _lineBad = false;   // reported once, as too long
-                        _discarding = true;
-                        throw new InvalidDataException($"A line longer than {_maxLineLength} characters was received.");
+                        if (++_skipped >= _maxLineLength) StillTooLong();
+                        continue;
                     }
+                    if (_line.Length + _lineBadRuns >= _maxLineLength) TooLong();
                     _line.Append(c);
                 }
 
@@ -218,7 +235,7 @@ namespace ToolBelt.Net
             {
                 int before = _bad.Count;
                 _charLen = _decoder.GetChars(_bytes, 0, 0, _chars, 0, flush: true);
-                if (_bad.Count != before) _badBefore[0] = true;
+                _badBefore[0] += unchecked(_bad.Count - before);
             }
             else
             {
@@ -226,24 +243,55 @@ namespace ToolBelt.Net
                 {
                     int before = _bad.Count;
                     int n = _decoder.GetChars(_bytes, i, 1, _chars, _charLen, flush: false);
-                    if (_bad.Count != before) _badBefore[_charLen] = true;
+                    _badBefore[_charLen] += unchecked(_bad.Count - before);
                     _charLen += n;
                 }
             }
             if (count == 0) _eof = true;
         }
 
-        // Marks the line as bad when bad bytes came before the next character (or the end of what was decoded).
+        // Drops only this line: the rest of it is skipped up to its terminator, and later lines are kept.
+        private void TooLong()
+        {
+            _line.Clear();
+            _lineBad = false;   // reported once, as too long
+            _lineBadRuns = 0;
+            _discarding = true;
+            _skipped = 0;
+            throw new InvalidDataException($"A line longer than {_maxLineLength} characters was received.");
+        }
+
+        // A peer that never ended the overlong line held ReadLine for good: data kept coming, so the read timeout never
+        // fired. Each call skips at most another MaxLineLength characters.
+        private void StillTooLong()
+        {
+            _skipped = 0;
+            throw new InvalidDataException($"The line longer than {_maxLineLength} characters is still being received; another {_maxLineLength} were skipped.");
+        }
+
+        // Marks the line as bad when bad bytes came before the next character (or the end of what was decoded). Each run
+        // counts as a character: bad bytes made no characters, so a line of them was never held to MaxLineLength.
         private void TakeBad()
         {
-            if (_bad is null || !_badBefore[_charPos]) return;
-            _badBefore[_charPos] = false;
-            if (!_discarding) _lineBad = true;
+            if (_bad is null) return;
+            int runs = _badBefore[_charPos];
+            if (runs == 0) return;
+            _badBefore[_charPos] = 0;
+            if (_discarding)
+            {
+                _skipped += runs;
+                if (_skipped >= _maxLineLength) StillTooLong();
+                return;
+            }
+            _lineBad = true;
+            _lineBadRuns += runs;
+            if (_line.Length + _lineBadRuns > _maxLineLength) TooLong();
         }
 
         private void ThrowBadLine()
         {
             _lineBad = false;
+            _lineBadRuns = 0;
             _line.Clear();
             throw new DecoderFallbackException($"A line held bytes that are not valid {_encoding.WebName}; it was dropped.");
         }
@@ -263,7 +311,7 @@ namespace ToolBelt.Net
 
                 public override bool Fallback(byte[] bytesUnknown, int index)
                 {
-                    _owner.Count++;
+                    unchecked { _owner.Count++; }   // only ever compared for change, so wrapping is harmless
                     return false;   // nothing to insert
                 }
 
@@ -276,6 +324,16 @@ namespace ToolBelt.Net
         public void Dispose()
         {
             _client.Dispose();
+        }
+
+        // The DNS API names its parameter hostName (a name over 255 characters, say); the caller's is host.
+        private static Exception? BadHost(Exception ex)
+        {
+            Exception e = ex is AggregateException a ? a.GetBaseException() : ex;
+            if (!(e is ArgumentException arg) || arg.ParamName != "hostName") return null;
+            return e is ArgumentOutOfRangeException
+                ? new ArgumentOutOfRangeException("host", arg.Message)
+                : new ArgumentException(arg.Message, "host", arg);
         }
 
         // Positive timeouts only; anything past int.MaxValue ms waits indefinitely.

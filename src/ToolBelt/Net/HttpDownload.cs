@@ -41,6 +41,13 @@ namespace ToolBelt.Net
         /// </summary>
         public TimeSpan ReadTimeout { get; set; } = TimeSpan.FromSeconds(60);
 
+        /// <summary>
+        /// The largest file accepted, in bytes (counting a resumed prefix); null, the default, has no limit. A larger
+        /// declared size fails before the body is read, and a body that runs past it (one with no declared size) fails
+        /// once it does; neither is retried, and the partial file is deleted.
+        /// </summary>
+        public long? MaxBytes { get; set; }
+
         /// <summary>An HTTP client to use. If null, a shared process-wide client is used. Never disposed by the download.</summary>
         public HttpClient? Client { get; set; }
     }
@@ -78,12 +85,16 @@ namespace ToolBelt.Net
     /// client's own timeout). Uses the in-box HTTP client. Other responses (4xx, an unfollowed redirect) and a checksum
     /// mismatch are not retried. The caller's <see cref="HttpClient"/> (or the shared default) is never disposed here.
     /// <para>
-    /// The body goes to <c>destination.part</c>, which replaces the destination only once it is complete (and verified),
-    /// so a failed download never damages an existing file. With <see cref="HttpDownloadOptions.Resume"/> the partial
+    /// The body goes to <c>destination.part</c> (without <see cref="HttpDownloadOptions.Resume"/>, a name of its own,
+    /// <c>destination.&lt;random&gt;.part</c>, so a kept partial file or another download is never touched), which replaces
+    /// the destination only once it is complete (and verified), so a failed download never damages an existing file.
+    /// With <see cref="HttpDownloadOptions.Resume"/> the partial
     /// file is kept after a failure, and the next attempt or call continues from it; if there is no partial file but the
     /// destination exists, the destination is taken as the partial download (it is copied, not moved). A resumed range
     /// is appended only if the server's Content-Range starts where the partial file ends; a 416 answer saying the file
-    /// is already complete finishes the download without fetching anything.
+    /// is already complete finishes the download without fetching anything. A 206 that covers only part of what is
+    /// left is appended and the rest asked for (that does not count as an attempt); without Resume it fails, since
+    /// nothing may be asked for by range. A 206 must give the file's total size.
     /// </para>
     /// </summary>
     public static class HttpDownload
@@ -101,6 +112,8 @@ namespace ToolBelt.Net
                 throw new ArgumentOutOfRangeException(nameof(options), options.ReadTimeout, "ReadTimeout must be positive or Timeout.InfiniteTimeSpan.");
             if (options.RetryBaseDelay < TimeSpan.Zero)
                 throw new ArgumentOutOfRangeException(nameof(options), options.RetryBaseDelay, "RetryBaseDelay must not be negative.");
+            if (options.MaxBytes < 0)
+                throw new ArgumentOutOfRangeException(nameof(options), options.MaxBytes, "MaxBytes must not be negative.");
             // A checksum that can never match cost a whole download each time (and under Resume discarded the progress).
             string? expected = options.ExpectedSha256Hex;
             if (!string.IsNullOrEmpty(expected) && (expected!.Length != 64 || !IsHex(expected)))
@@ -109,12 +122,32 @@ namespace ToolBelt.Net
             // An empty or relative URL failed in SendAsync as InvalidOperationException, after the folder was created.
             if (client.BaseAddress is null && !Uri.TryCreate(url, UriKind.Absolute, out _))
                 throw new ArgumentException($"'{url}' is not an absolute URL, and the client has no base address.", nameof(url));
+            // The default client speaks only HTTP: an ftp: or file: URL (a bare path parses as one) failed in SendAsync,
+            // after the local files were touched. A caller's client may have a handler for other schemes.
+            if (options.Client is null && Uri.TryCreate(url, UriKind.Absolute, out Uri? absolute)
+                && absolute.Scheme != Uri.UriSchemeHttp && absolute.Scheme != Uri.UriSchemeHttps)
+                throw new ArgumentException($"'{url}' is not an http or https URL.", nameof(url));
             if (destinationPath.Trim().Length == 0)
                 throw new ArgumentException("The destination path is empty.", nameof(destinationPath));
             string destination;
             try { destination = Path.GetFullPath(destinationPath); }
             catch (ArgumentException ex) { throw new ArgumentException(ex.Message, nameof(destinationPath), ex); }   // was "path"
-            string partial = destination + ".part";
+            // A folder for a destination downloaded the whole body, then failed to replace it (and under Resume left a
+            // stray ".part" inside it).
+            if (destinationPath.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+                || destinationPath.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+                || Directory.Exists(destination))
+                throw new ArgumentException($"The destination '{destinationPath}' is a folder, not a file.", nameof(destinationPath));
+            // A parent that is a file fails at once, before the request, as creating the folder there did; this only
+            // looks (nothing is created until the server's answer is known).
+            for (string? dir = Path.GetDirectoryName(destination); !string.IsNullOrEmpty(dir); dir = Path.GetDirectoryName(dir))
+            {
+                if (Directory.Exists(dir)) break;
+                if (File.Exists(dir)) throw new IOException($"The destination's folder '{dir}' is a file.");
+            }
+            // Without Resume the shared name was deleted at a failure, though a Resume call had kept it to continue from
+            // (or another download was writing it): a name of its own touches neither.
+            string partial = options.Resume ? destination + ".part" : destination + "." + Guid.NewGuid().ToString("N").Substring(0, 12) + ".part";
 
             try
             {
@@ -123,6 +156,10 @@ namespace ToolBelt.Net
                     try
                     {
                         return await AttemptAsync(client, url, destination, partial, options, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (MoreToFetch)
+                    {
+                        attempt--;   // progress, not a failure: each such answer appended at least one byte
                     }
                     catch (Exception ex) when (attempt < options.MaxAttempts && IsTransient(ex, cancellationToken))
                     {
@@ -155,6 +192,9 @@ namespace ToolBelt.Net
             public LocalFailure(Exception inner) : base(inner.Message, inner) { }
         }
 
+        // A resumed 206 covered only part of what was left: the next request continues after it.
+        private sealed class MoreToFetch : Exception { }
+
         private static T Local<T>(Func<T> action)
         {
             try { return action(); }
@@ -172,13 +212,21 @@ namespace ToolBelt.Net
         private static async Task<HttpDownloadResult> AttemptAsync(
             HttpClient client, string url, string destination, string partial, HttpDownloadOptions options, CancellationToken ct)
         {
+            // Nothing local is changed until the answer is known: the folder was created and a destination copied to the
+            // partial file before an unusable URL or answer failed.
+            bool fromDestination = false;
             long existing = Local(() =>
             {
-                string? directory = Path.GetDirectoryName(destination);
-                if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
                 if (!options.Resume) return 0L;
-                if (!File.Exists(partial) && File.Exists(destination)) File.Copy(destination, partial);
-                return File.Exists(partial) ? new FileInfo(partial).Length : 0L;
+                if (File.Exists(partial)) return new FileInfo(partial).Length;
+                fromDestination = File.Exists(destination);
+                return fromDestination ? new FileInfo(destination).Length : 0L;
+            });
+            // The destination taken as the partial download is copied only when its bytes are kept.
+            void TakeDestination() => Local(() =>
+            {
+                if (fromDestination && !File.Exists(partial)) File.Copy(destination, partial);
+                return 0;
             });
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -194,6 +242,7 @@ namespace ToolBelt.Net
             if (status == 416 && existing > 0 && range != null && range.Length == existing)
             {
                 // "bytes */N" with N == what we have: the partial file is already the whole file.
+                TakeDestination();
                 return Local(() => Finish(destination, partial, options, existing, existing, resumed: true));
             }
             if (status == 206 && existing > 0 && range == null)
@@ -203,20 +252,31 @@ namespace ToolBelt.Net
                 Discard(partial, destination);
                 throw new HttpDownloadException($"Server answered the resume of {url} with 206 but no Content-Range; the partial file was deleted, so the next download starts over.");
             }
-            if (status == 206 && existing > 0 && range!.From == existing)
+            long? end = null;   // where this answer's bytes end (a 206's range may stop short of the file's end)
+            if (status == 206 && range != null && range.From.HasValue && range.To.HasValue && range.Length is null
+                && (range.From == existing || range.From == 0))
+            {
+                // "bytes 0-99/*" was taken as the whole file: with no total there is no telling whether more follows.
+                throw new HttpDownloadException($"Server answered {url} with the range {range} but not the file's size, so the download cannot be known to be complete.");
+            }
+            if (status == 206 && existing > 0 && range!.From == existing && range.To.HasValue)
             {
                 resumed = true;
-                total = range.Length ?? (contentLength.HasValue ? existing + contentLength.Value : (long?)null);
+                total = range.Length;
+                end = range.To.Value + 1;
+                TakeDestination();
             }
-            else if (status == 206 && range != null && range.From == 0)
+            else if (status == 206 && range != null && range.From == 0 && range.To.HasValue)
             {
-                existing = 0; resumed = false;   // the server sent the whole file as one range
-                total = range.Length ?? contentLength;
+                existing = 0; resumed = false;   // the server sent the file from its start as one range
+                total = range.Length;
+                end = range.To.Value + 1;
             }
             else if (status >= 200 && status < 300 && status != 206)
             {
                 existing = 0; resumed = false;   // the server ignored the range (or there was none)
                 total = contentLength;
+                end = total;
             }
             else if (status == 206)
             {
@@ -245,8 +305,19 @@ namespace ToolBelt.Net
             else
                 throw new HttpDownloadException($"Server returned {status} ({response.ReasonPhrase}) for {url}.");
 
+            // A range that stops short of the end was retried whole as a truncated body (and failed every attempt the
+            // same way): under Resume the rest is asked for next; without it nothing may be asked for by range.
+            bool shortRange = end.HasValue && total.HasValue && end.Value < total.Value;
+            if (shortRange && !options.Resume)
+                throw new HttpDownloadException($"Server sent only the bytes {range!.From}-{range.To} of {total} for {url}; fetching the rest needs Resume.");
+            if (options.MaxBytes is long max && (total > max || existing > max))
+            {
+                Discard(partial, destination);
+                throw new HttpDownloadException($"The file at {url} is {total ?? existing} bytes, more than MaxBytes ({max}); the partial file was deleted.");
+            }
+
             long downloaded = existing;
-            bool overrun = false;
+            bool overrun = false, tooBig = false;
             Progress(options, downloaded, total);
 
             using (var idle = CancellationTokenSource.CreateLinkedTokenSource(ct))
@@ -260,10 +331,18 @@ namespace ToolBelt.Net
 #else
                     using Stream input = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
 #endif
-                    using var output = Local(() => new FileStream(partial, existing > 0 ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None));
+                    using var output = Local(() =>
+                    {
+                        string? directory = Path.GetDirectoryName(destination);
+                        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+                        return new FileStream(partial, existing > 0 ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None);
+                    });
                     var buffer = new byte[81920];
                     // CancelAfter takes at most int.MaxValue ms on .NET Framework (about 24.8 days); longer waits forever.
-                    TimeSpan readTimeout = options.ReadTimeout.TotalMilliseconds > int.MaxValue ? Timeout.InfiniteTimeSpan : options.ReadTimeout;
+                    // It is rounded up to whole milliseconds: CancelAfter truncates, so a sub-millisecond one timed out at once.
+                    double readMs = options.ReadTimeout.TotalMilliseconds;
+                    TimeSpan readTimeout = readMs > int.MaxValue || options.ReadTimeout == Timeout.InfiniteTimeSpan
+                        ? Timeout.InfiniteTimeSpan : TimeSpan.FromMilliseconds(Math.Ceiling(readMs));
                     while (true)
                     {
                         idle.CancelAfter(readTimeout);
@@ -273,7 +352,8 @@ namespace ToolBelt.Net
                         if (read == 0) break;
                         // A body longer than its declared total was written to disk without limit, then retried (and kept
                         // under Resume); nothing past the total is written.
-                        if (total.HasValue && read > total.Value - downloaded) { overrun = true; break; }
+                        if (end.HasValue && read > end.Value - downloaded) { overrun = true; break; }
+                        if (options.MaxBytes is long most && read > most - downloaded) { tooBig = true; break; }
                         try { await output.WriteAsync(buffer, 0, read, ct).ConfigureAwait(false); }
                         catch (IOException ex) { throw new LocalFailure(ex); }
                         downloaded += read;
@@ -297,10 +377,16 @@ namespace ToolBelt.Net
             if (overrun)
             {
                 Discard(partial, destination);   // what is there may not be the start of this file either
-                throw new HttpDownloadException($"The response from {url} was longer than its declared {total!.Value} bytes; the partial file was deleted.");
+                throw new HttpDownloadException($"The response from {url} was longer than its declared {end!.Value - existing} bytes; the partial file was deleted.");
             }
-            if (total.HasValue && downloaded != total.Value)
-                throw new IOException($"The response from {url} ended after {downloaded} of {total.Value} bytes.");
+            if (tooBig)
+            {
+                Discard(partial, destination);
+                throw new HttpDownloadException($"The response from {url} ran past MaxBytes ({options.MaxBytes}); the partial file was deleted.");
+            }
+            if (end.HasValue && downloaded != end.Value)
+                throw new IOException($"The response from {url} ended after {downloaded} of {end.Value} bytes.");
+            if (shortRange) throw new MoreToFetch();
             return Local(() => Finish(destination, partial, options, downloaded, total ?? -1, resumed));
         }
 

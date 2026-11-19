@@ -30,7 +30,11 @@ namespace ToolBelt.Security
         /// <summary>Derives a key from a password, encoded as UTF-8. A lone surrogate throws <see cref="ArgumentException"/>
         /// (the lenient encoding would make it the same password as U+FFFD).</summary>
         public static byte[] Pbkdf2(string password, byte[] salt, int iterations, int keyLength, KdfHash hash = KdfHash.Sha256)
-            => Pbkdf2(Utf8(password), salt, iterations, keyLength, hash);
+        {
+            byte[] bytes = Utf8(password);
+            try { return Pbkdf2(bytes, salt, iterations, keyLength, hash); }
+            finally { Array.Clear(bytes, 0, bytes.Length); }   // the password's bytes are not left for the GC to keep
+        }
 
 
         public static byte[] Pbkdf2(byte[] password, byte[] salt, int iterations, int keyLength, KdfHash hash = KdfHash.Sha256)
@@ -63,15 +67,20 @@ namespace ToolBelt.Security
                     saltPlusIndex[salt.Length + 3] = (byte)block;
                 }
 
+                // Each U and T is key material: cleared once used rather than left in memory.
                 byte[] u = prf.ComputeHash(saltPlusIndex);
                 var t = (byte[])u.Clone();
                 for (int iter = 1; iter < iterations; iter++)
                 {
-                    u = prf.ComputeHash(u);
+                    byte[] next = prf.ComputeHash(u);
+                    Array.Clear(u, 0, u.Length);
+                    u = next;
                     for (int k = 0; k < t.Length; k++) t[k] ^= u[k];
                 }
                 int offset = (block - 1) * hashLen;
                 Buffer.BlockCopy(t, 0, derived, offset, Math.Min(hashLen, keyLength - offset));
+                Array.Clear(u, 0, u.Length);
+                Array.Clear(t, 0, t.Length);
             }
             return derived;
         }

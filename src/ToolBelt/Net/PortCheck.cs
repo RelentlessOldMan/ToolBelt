@@ -13,6 +13,16 @@ namespace ToolBelt.Net
     /// </summary>
     public static class PortCheck
     {
+        // The DNS API names its parameter hostName (a name over 255 characters, say); the caller's is host.
+        private static Exception? BadHost(Exception ex)
+        {
+            Exception e = ex is AggregateException a ? a.GetBaseException() : ex;
+            if (!(e is ArgumentException arg) || arg.ParamName != "hostName") return null;
+            return e is ArgumentOutOfRangeException
+                ? new ArgumentOutOfRangeException("host", arg.Message)
+                : new ArgumentException(arg.Message, "host", arg);
+        }
+
         // Rounds up to whole milliseconds; anything past int.MaxValue ms (about 24.8 days) waits indefinitely.
         private static int WaitMilliseconds(TimeSpan timeout)
         {
@@ -39,6 +49,8 @@ namespace ToolBelt.Net
                     connect = client.ConnectAsync(host, port);   // may throw before it returns a task
                     completed = connect.Wait(WaitMilliseconds(timeout));
                 }
+                // A host the DNS API refuses (one over 255 characters) is a caller's mistake, not "unreachable".
+                catch (Exception ex) when (BadHost(ex) is Exception bad) { throw bad; }
                 catch { return false; } // connection refused / DNS failure surface here
 
                 if (!completed)
