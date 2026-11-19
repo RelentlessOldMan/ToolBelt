@@ -123,7 +123,7 @@ namespace ToolBelt.Numerics
         {
             if (random is null) throw new ArgumentNullException(nameof(random));
             if (!(rate > 0) || double.IsInfinity(rate)) throw new ArgumentOutOfRangeException(nameof(rate), rate, "Rate must be positive and finite.");
-            return -Math.Log(1.0 - random.NextDouble()) / rate;
+            return -Math.Log(1.0 - random.NextDouble()) / rate + 0.0;   // + 0.0: a draw of 0 gave −0 (−log 1)
         }
 
         /// <summary>

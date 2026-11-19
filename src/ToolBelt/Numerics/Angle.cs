@@ -42,12 +42,16 @@ namespace ToolBelt.Numerics
         }
 
         /// <summary>Interpolates from <paramref name="from"/> toward <paramref name="to"/> along the shortest arc, result in [0, 360).</summary>
+        // Stepped from the nearer end, so both ends are exact: from + (to − from)·1 rounded (−353.7 to 193.9 at t = 1 came
+        // out 193.9000000000001).
         public static double LerpDegrees(double from, double to, double t)
         {
-            double step = DifferenceDegrees(from, to) * t;
+            double diff = DifferenceDegrees(from, to);
+            bool fromEnd = t <= 0.5;
+            double step = diff * (fromEnd ? t : t - 1);
             if (double.IsInfinity(step))
                 throw new ArgumentOutOfRangeException(nameof(t), t, "The step from from toward to overflows.");
-            return NormalizeDegrees(from % 360.0 + step);
+            return NormalizeDegrees((fromEnd ? from : to) % 360.0 + step);
         }
 
         // ±∞ has no direction: every normalization of it was NaN. NaN still passes through.

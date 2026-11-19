@@ -31,7 +31,8 @@ namespace ToolBelt.Numerics
     /// Evaluates a series against lower/upper limits, reporting the count and location of violations and the
     /// worst deviation. Eliminates a mountain of ad-hoc comparison code and produces consistent, reportable
     /// output. A NaN sample is a violation with infinite deviation (it is not within any limits); the limits
-    /// must not be NaN (pass ±infinity for a one-sided check).
+    /// must not be NaN (pass ±infinity for a one-sided check). Among deviations past the double range, the worst is
+    /// still the sample furthest out; NaN and infinite samples tie, and the first of them wins.
     /// </summary>
     public static class ToleranceCheck
     {
@@ -53,9 +54,12 @@ namespace ToolBelt.Numerics
                 {
                     count++;
                     if (first < 0) first = i;
-                    // Distances past double.MaxValue overflow to ∞ and tied with the first one; halves decide those.
+                    // Distances past double.MaxValue overflow to ∞ and tied with the first one; halves decide those. Past an
+                    // infinite limit (both +∞, or both −∞) every distance is ∞ and so was every half, so the first sample was
+                    // reported as the worst: the sample itself decides there.
                     double half = double.IsNaN(v) ? double.PositiveInfinity
-                        : v < lowerLimit ? 0.5 * lowerLimit - 0.5 * v : 0.5 * v - 0.5 * upperLimit;
+                        : v < lowerLimit ? (double.IsInfinity(lowerLimit) ? -0.5 * v : 0.5 * lowerLimit - 0.5 * v)
+                        : double.IsInfinity(upperLimit) ? 0.5 * v : 0.5 * v - 0.5 * upperLimit;
                     if (deviation > worstDeviation || (double.IsInfinity(deviation) && half > worstHalf))
                     { worstDeviation = deviation; worstHalf = half; worstIndex = i; }
                 }

@@ -48,11 +48,7 @@ namespace ToolBelt.Numerics
         {
             if (!(p >= 0 && p <= 1)) throw new ArgumentOutOfRangeException(nameof(p), p, "Probability must be in [0, 1].");
             if (_sorted.Length == 1) return _sorted[0];
-            double position = p * (_sorted.Length - 1);
-            // p·(n − 1) rounds: p = 0.29 over 101 samples ranked 28.999999999999996, where Percentile(29) ranks 29. A p that
-            // is the nearest double to k / (n − 1) is rank k.
-            double k = Math.Round(position);
-            if (k / (_sorted.Length - 1) == p) position = k;
+            double position = Rank(p, _sorted.Length - 1);
             int lower = (int)Math.Floor(position);
             int upper = (int)Math.Ceiling(position);
             if (lower == upper) return _sorted[lower];
@@ -63,6 +59,23 @@ namespace ToolBelt.Numerics
             if (double.IsInfinity(a) && double.IsInfinity(b)) return frac < 0.5 ? a : b;   // −∞ to +∞: (1 − f)·a + f·b is NaN
             double d = b - a;
             return double.IsInfinity(d) ? (1 - frac) * a + frac * b : a + frac * d;
+        }
+
+        // p·(n − 1) rounds twice (p itself is already rounded): p = 0.29 over 101 samples ranked 28.999999999999996, where
+        // Percentile(29) ranks 29, and 0.7 over 198 ranked an ulp off 137.9 (an answer 3e-8 low for data i·1e6). A p that is
+        // the nearest double to k / (n − 1) is rank k; one that is the nearest double to a decimal of up to 15 places is
+        // ranked from that decimal, rounded once. Percentile forms its rank the same way, so the two agree.
+        private static double Rank(double p, int last)
+        {
+            double plain = p * last, k = Math.Round(plain);
+            if (k / last == p) return k;
+            double scale = 1;
+            for (int places = 0; places <= 15; places++, scale *= 10)
+            {
+                double m = Math.Round(p * scale);
+                if (m / scale == p) return m * last <= 9007199254740992.0 ? m * last / scale : plain;
+            }
+            return plain;
         }
     }
 }

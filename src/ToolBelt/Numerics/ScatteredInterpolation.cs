@@ -21,7 +21,7 @@ namespace ToolBelt.Numerics
             // A NaN or infinite point came back NaN, which here means "no samples within the radius".
             RequireFinite(x, nameof(x));
             RequireFinite(y, nameof(y));
-            return Evaluate(samples, x, y, power, nearest, radius, new List<(double, double)>());
+            return Evaluate(samples, x, y, power, nearest, radius, new List<(double, bool, double)>());
         }
 
         /// <summary>
@@ -43,7 +43,7 @@ namespace ToolBelt.Numerics
             if ((long)rows * columns > 0x7FFFFFC7) // Array.MaxLength: past it the allocation threw OutOfMemoryException
                 throw new ArgumentOutOfRangeException(nameof(rows), rows, $"A {rows} × {columns} grid exceeds Array.MaxLength (0x7FFFFFC7) cells.");
             var grid = new double[rows, columns];
-            var scratch = new List<(double, double)>(samples.Count);
+            var scratch = new List<(double, bool, double)>(samples.Count);
             for (int r = 0; r < rows; r++)
             {
                 double y = GridCoordinate(yMin, yMax, r, rows);
@@ -77,53 +77,44 @@ namespace ToolBelt.Numerics
         }
 
         private static double Evaluate(IReadOnlyList<(double X, double Y, double Value)> samples, double x, double y,
-            double power, int? nearest, double? radius, List<(double D, double V)> scratch)
+            double power, int? nearest, double? radius, List<(double D, bool Far, double V)> scratch)
         {
             // Distances, not squared distances: d² over- or underflowed (1e200 away, or 1e-160), and the weights 1/d^p
-            // then became ∞/∞ or 0/0. A distance beyond the double range (1e308 to −1e308) redoes them all in quarters,
-            // which only scales the weights' common factor: when every one overflowed the result was ∞/∞ = NaN.
-            double scale = 1;
-            for (int pass = 0; ; pass++)
+            // then became ∞/∞ or 0/0. A distance beyond the double range (1e308 to −1e308) is taken in quarters and marked
+            // far; the others stay as they are. (Redoing every distance in quarters rounded distinct subnormal distances
+            // to 0, and samples ε and 2ε away were then averaged as equally near: 6.5 for 4.4.) A far one is beyond any
+            // radius, which is finite.
+            scratch.Clear();
+            foreach (var s in samples)
             {
-                scratch.Clear();
-                double maxDistance = radius is double rr ? rr * scale : double.PositiveInfinity;
-                double minDistance = double.PositiveInfinity;
-                bool overflowed = false;
-                foreach (var s in samples)
-                {
-                    if (s.X == x && s.Y == y) return s.Value; // exact at a sample (first one wins for duplicates)
-                    double d = Hypot(scale * s.X - scale * x, scale * s.Y - scale * y);
-                    if (double.IsInfinity(d)) { overflowed = true; break; }
-                    if (d <= maxDistance)
-                    {
-                        scratch.Add((d, s.Value));
-                        if (d < minDistance) minDistance = d;
-                    }
-                }
-                if (overflowed && pass == 0) { scale = 0.25; continue; }
-                return Weighted(scratch, minDistance, power, nearest);
+                if (s.X == x && s.Y == y) return s.Value; // exact at a sample (first one wins for duplicates)
+                double d = Hypot(s.X - x, s.Y - y);
+                bool far = double.IsInfinity(d);
+                if (far) d = Hypot(0.25 * s.X - 0.25 * x, 0.25 * s.Y - 0.25 * y);
+                if (radius is double r && (far || d > r)) continue;
+                scratch.Add((d, far, s.Value));
             }
+            return Weighted(scratch, power, nearest);
         }
 
-        private static double Weighted(List<(double D, double V)> scratch, double minDistance, double power, int? nearest)
+        private static double Weighted(List<(double D, bool Far, double V)> scratch, double power, int? nearest)
         {
             if (scratch.Count == 0) return double.NaN;
-            if (minDistance == 0) // distances that underflowed to 0 in quarters: only those nearest count
-            {
-                double sum = 0; int count = 0;
-                foreach (var (d, v) in scratch) if (d == 0) { sum += v / scratch.Count; count++; }
-                return Clamp(sum / count * scratch.Count, scratch);
-            }
+            // Nearest first: every near distance is below every far one.
             if (nearest is int k && k < scratch.Count)
             {
-                scratch.Sort((a, b) => a.D.CompareTo(b.D));
+                scratch.Sort((a, b) => a.Far != b.Far ? (a.Far ? 1 : -1) : a.D.CompareTo(b.D));
                 scratch.RemoveRange(k, scratch.Count - k);
             }
+            double minDistance = double.PositiveInfinity;
+            bool minFar = true;
+            foreach (var (d, far, _) in scratch)
+                if (far == minFar ? d < minDistance : !far) { minDistance = d; minFar = far; }
             // Weights relative to the nearest sample, (dmin/d)^p in (0, 1]: same ratios, no overflow.
             double num = 0, den = 0;
-            foreach (var (d, v) in scratch)
+            foreach (var (d, far, v) in scratch)
             {
-                double w = Math.Pow(minDistance / d, power);
+                double w = Weight(minDistance, minFar, d, far, power);
                 num += w * v;
                 den += w;
             }
@@ -131,17 +122,28 @@ namespace ToolBelt.Numerics
             {
                 // Values near double.MaxValue overflowed the sum: average them divided by the count, then scale back.
                 num = 0;
-                foreach (var (d, v) in scratch) num += Math.Pow(minDistance / d, power) * (v / scratch.Count);
+                foreach (var (d, far, v) in scratch) num += Weight(minDistance, minFar, d, far, power) * (v / scratch.Count);
                 return Clamp(num / den * scratch.Count, scratch);
             }
             return Clamp(num / den, scratch);
         }
 
+        // (dmin/d)^p, with d in quarters when far. A ratio that underflows is taken through logarithms: with a small
+        // power it is still a real weight ((1e-330)^0.001 is 0.47, not 0).
+        private static double Weight(double minDistance, bool minFar, double d, bool far, double power)
+        {
+            double r = minDistance / d;
+            if (far && !minFar) r *= 0.25;
+            if (r >= 2.2250738585072014e-308) return Math.Pow(r, power);
+            double log = Math.Log(minDistance) - Math.Log(d) - (far && !minFar ? Math.Log(4) : 0);
+            return Math.Exp(power * log);
+        }
+
         // Within the range of the samples used, as promised: rounding left equal values of 0.1 at 0.09999999999999999.
-        private static double Clamp(double value, List<(double D, double V)> scratch)
+        private static double Clamp(double value, List<(double D, bool Far, double V)> scratch)
         {
             double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
-            foreach (var (_, v) in scratch) { if (v < lo) lo = v; if (v > hi) hi = v; }
+            foreach (var (_, _, v) in scratch) { if (v < lo) lo = v; if (v > hi) hi = v; }
             return value < lo ? lo : value > hi ? hi : value;
         }
 

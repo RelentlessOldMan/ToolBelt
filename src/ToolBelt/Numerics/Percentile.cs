@@ -31,8 +31,7 @@ namespace ToolBelt.Numerics
             if (sorted.Length == 1)
                 return sorted[0];
 
-            // Multiplied before dividing: p / 100 rounds first (the 29th percentile of 101 points ranked 28.999999999999996).
-            double rank = percentile * (sorted.Length - 1) / 100.0;
+            double rank = Rank(percentile, sorted.Length - 1);
             int lo = (int)Math.Floor(rank);
             int hi = (int)Math.Ceiling(rank);
             if (lo == hi)
@@ -44,6 +43,23 @@ namespace ToolBelt.Numerics
             if (double.IsInfinity(a) && double.IsInfinity(b)) return frac < 0.5 ? a : b;   // −∞ to +∞, as EmpiricalDistribution
             double d = b - a;
             return double.IsInfinity(d) ? (1 - frac) * a + frac * b : a + frac * d; // d overflows for ±1e308
+        }
+
+        // Multiplied before dividing: p / 100 rounds first (the 29th percentile of 101 points ranked 28.999999999999996).
+        // A percentile that is the nearest double to 100·k / (n − 1) is rank k, and one that is the nearest double to a
+        // decimal of up to 15 places is ranked from that decimal, rounded once (70.3·197 rounded before the division).
+        // EmpiricalDistribution.Quantile forms its rank the same way, so the two agree.
+        private static double Rank(double percentile, int last)
+        {
+            double plain = percentile * last / 100.0, k = Math.Round(plain);
+            if (k * 100 / last == percentile) return k;
+            double scale = 1;
+            for (int places = 0; places <= 15; places++, scale *= 10)
+            {
+                double m = Math.Round(percentile * scale);
+                if (m / scale == percentile) return m * last <= 9007199254740992.0 ? m * last / (scale * 100) : plain;
+            }
+            return plain;
         }
 
         /// <summary>The median (50th percentile).</summary>

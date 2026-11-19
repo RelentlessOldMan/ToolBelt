@@ -97,7 +97,13 @@ namespace ToolBelt.Numerics
             double h10 = s * (1 - s) * (1 - s);
             double h01 = s * s * (3 - 2 * s), h11 = s * s * (s - 1);
             // Difference form: h00·y0 + h01·y1 rounded off a flat segment (constant 0.1 came back 0.10000000000000003).
-            return (_y[i] + h01 * (_y[i + 1] - _y[i]) + h * (h10 * _t[i] + h11 * _t[i + 1])) / _sy;
+            double v = (_y[i] + h01 * (_y[i + 1] - _y[i]) + h * (h10 * _t[i] + h11 * _t[i + 1])) / _sy;
+            if (!double.IsInfinity(v) || _sy <= 1) return v;
+            // Tiny y scaled up, wide x scaled down: the slope terms can pass the double range in scaled units while the
+            // curve itself does not ({0, 1e-150, 1e200} against {0, 1e-200, 0} gave ∞ for about 7e148). Unscaled first
+            // (1/_sy is a power of two, so exact).
+            double inv = 1 / _sy;
+            return _yIn[i] + h01 * (_yIn[i + 1] - _yIn[i]) + h * h10 * (_t[i] * inv) + h * h11 * (_t[i + 1] * inv);
         }
 
         /// <summary>The first derivative (0 outside the data range, matching the clamped values).</summary>
