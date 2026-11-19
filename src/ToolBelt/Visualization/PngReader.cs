@@ -56,7 +56,7 @@ namespace ToolBelt.Visualization
             for (int i = 0; i < 8; i++) if (header[i] != Signature[i]) throw new InvalidDataException("Not a PNG file (bad signature).");
             ms.Write(header, 0, 8);
             var buffer = new byte[1 << 16];
-            long dataLimit = 0, data = 0, ancillary = 0;
+            long dataLimit = 0, data = 0, ancillary = 0, idats = 0;
             for (bool first = true; ; first = false)
             {
                 long start = ms.Length;
@@ -88,8 +88,13 @@ namespace ToolBelt.Visualization
                 // them took 1.1 GB).
                 if (skip && (ancillary += length + 12) > MaxAncillaryBytes)
                     throw new InvalidDataException($"PNG ancillary chunks pass {MaxAncillaryBytes} bytes.");
-                if (idat && (data += length + 12) > dataLimit)
+                // The cap is on the image data itself: counting each IDAT's 12 bytes of framing refused a legal file whose
+                // encoder wrote small chunks (1000 × 1000 in 4-byte IDATs), which Decode(byte[]) read. Empty IDATs, which
+                // count nothing, are bounded apart: no more chunks than the limit plus the data's own bytes.
+                if (idat && (data += length) > dataLimit)
                     throw new InvalidDataException("PNG image data is far larger than the image it describes.");
+                if (idat && ++idats > dataLimit + data)
+                    throw new InvalidDataException("PNG image data is split into implausibly many chunks.");
                 if (!skip && ms.Length + length + 12 > 0x7FFFFFC7) throw new InvalidDataException("PNG stream is too large (over 2 GB).");
                 uint crc = Crc32Update(0xFFFFFFFFu, header, 4, 4);
                 if (!skip) ms.Write(header, 0, 8);

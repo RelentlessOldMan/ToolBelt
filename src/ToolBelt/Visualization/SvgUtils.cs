@@ -162,14 +162,18 @@ namespace ToolBelt.Visualization
         /// The attributes that squeeze a text element into <paramref name="maxWidth"/> pixels (<c>textLength</c> with
         /// <c>lengthAdjust="spacingAndGlyphs"</c>, led by a space) when its estimated width is wider, else "". Append
         /// them inside the element's start tag so a label too long for its room stays on the chart, whole. A
-        /// <paramref name="maxWidth"/> of 0 or less, or ∞, sets no limit.
+        /// <paramref name="maxWidth"/> of 0 or less, or ∞, sets no limit, and so does one that writes as 0 at six decimals
+        /// (below 0.0000005).
         /// </summary>
         public static string FitWidth(string text, double fontSize, double maxWidth, bool bold = false)
         {
             if (double.IsNaN(maxWidth)) throw new ArgumentOutOfRangeException(nameof(maxWidth), maxWidth, "Width must not be NaN.");
             double w = EstimateWidth(text, fontSize, bold);
-            return maxWidth > 0 && !double.IsInfinity(maxWidth) && w > maxWidth
-                ? " textLength=\"" + Number(maxWidth) + "\" lengthAdjust=\"spacingAndGlyphs\""
+            // A positive width written as "0" (1e-7) squeezed the text to nothing: textLength="0", the very value that sets
+            // no limit.
+            string written = maxWidth > 0 && !double.IsInfinity(maxWidth) ? Number(maxWidth) : "0";
+            return written != "0" && w > maxWidth
+                ? " textLength=\"" + written + "\" lengthAdjust=\"spacingAndGlyphs\""
                 : "";
         }
 
@@ -183,6 +187,9 @@ namespace ToolBelt.Visualization
             for (int i = 0; i < text.Length; i++)
             {
                 char ch = text[i];
+                // Measured as EscapeText writes it: a control character or unpaired surrogate is written as U+FFFD, but
+                // counted 0 (a lone high surrogate 1000).
+                if (IsXmlIllegal(text, i)) ch = '\uFFFD';
                 if (char.IsHighSurrogate(ch) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
                 {
                     // An astral character: about an em, but nothing after a zero-width joiner (the parts of an emoji
@@ -218,8 +225,6 @@ namespace ToolBelt.Visualization
             // Combining marks of every block (only U+0300–036F were zero), joiners, variation selectors and other
             // format characters take no advance.
             if (IsZeroWidth(ch)) return 0;
-            if (char.IsLowSurrogate(ch)) return 0;                   // counted with its high surrogate
-            if (char.IsHighSurrogate(ch)) return 1000;               // astral (emoji etc.): about an em
             if (IsWide(ch)) return 1000;
             if (char.IsControl(ch)) return 0;
             return 556;                                              // average Latin/Greek/Cyrillic letter

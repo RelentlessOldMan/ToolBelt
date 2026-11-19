@@ -660,6 +660,7 @@ tests/
       BinaryImagesReview99Tests.cs (round 99: streamed PNG transparency, oversized PNG chunks refused at the header, SVG size message)
       BinaryImagesReview113Tests.cs (round 113: empty PNG chunks bounded, byte-at-a-time PNG streams, BMP sides over 32768, BITFIELDS masks over the pixels, Polyline null stroke)
       BinaryImagesReview129Tests.cs (round 129: image size checks that overflowed long in ImageBuffer, Bmp and PngReader)
+      BinaryImagesReview159Tests.cs (round 159: clipped lines matching the whole line inside the rectangle and empty rectangles; small IDATs through the PNG stream; SVG widths of what is written and tiny sizes; Luhn, Base58 and Base32 length limits; BMP masks after short headers)
       BitsTests.cs
       Crc16Tests.cs
       Crc32Tests.cs

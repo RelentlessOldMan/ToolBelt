@@ -49,7 +49,8 @@ namespace ToolBelt.Binary
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
 
-            var bytes = new List<byte>((int)((long)text.Length * 5 / 8 + 1));
+            // Sized from the text but capped: separators are skipped, and 400M of them allocated 250 MB for no bytes.
+            var bytes = new List<byte>((int)Math.Min((long)text.Length * 5 / 8 + 1, 1 << 16));
             int buffer = 0, bits = 0, symbols = 0;
             foreach (char raw in text)
             {

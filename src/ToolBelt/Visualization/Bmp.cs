@@ -93,10 +93,13 @@ namespace ToolBelt.Visualization
             bool hasAlpha = false;
             if (bpp == 32 && compression == 3)
             {
-                if (data.Length < 66 || (headerSize >= 56 && data.Length < 70)) throw new InvalidDataException("Truncated BMP channel masks.");
-                // After a 40-byte header the masks follow it; a pixel offset inside them read mask bytes as pixels.
-                if (offset < Math.Max(66, 14 + headerSize)) throw new InvalidDataException("BMP channel masks overlap the pixel data.");
-                uint r = unchecked((uint)Le32(data, 54)), g = unchecked((uint)Le32(data, 58)), b = unchecked((uint)Le32(data, 62));
+                // A header too short to hold the masks (40, or a non-standard 41 to 51) is followed by them; one of 44 bytes
+                // read them at 54, inside the header, and refused valid masks. From 52 bytes on they are in the header.
+                int masks = headerSize < 52 ? 14 + headerSize : 54;
+                if (data.Length < masks + 12 || (headerSize >= 56 && data.Length < 70)) throw new InvalidDataException("Truncated BMP channel masks.");
+                // A pixel offset inside masks that follow the header read mask bytes as pixels.
+                if (offset < Math.Max(masks + 12, 14 + headerSize)) throw new InvalidDataException("BMP channel masks overlap the pixel data.");
+                uint r = unchecked((uint)Le32(data, masks)), g = unchecked((uint)Le32(data, masks + 4)), b = unchecked((uint)Le32(data, masks + 8));
                 if (r != 0x00FF0000 || g != 0x0000FF00 || b != 0x000000FF) throw new InvalidDataException("Unsupported BMP channel masks.");
                 hasAlpha = headerSize >= 56 && unchecked((uint)Le32(data, 66)) == 0xFF000000;
             }

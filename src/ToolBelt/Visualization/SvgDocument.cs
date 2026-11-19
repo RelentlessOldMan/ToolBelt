@@ -71,6 +71,7 @@ namespace ToolBelt.Visualization
         {
             if (stroke != null) NonNegative(strokeWidth, nameof(strokeWidth));
             if (!(radius >= 0)) throw new ArgumentOutOfRangeException(nameof(radius), radius, "Radius must be non-negative.");
+            NonNegative(radius, nameof(radius));
             var e = new StringBuilder();
             e.Append("<circle cx=\"").Append(F(cx, nameof(cx))).Append("\" cy=\"").Append(F(cy, nameof(cy)))
              .Append("\" r=\"").Append(F(radius, nameof(radius))).Append('"');
@@ -173,6 +174,10 @@ namespace ToolBelt.Visualization
         private static void NonNegative(double value, string name)
         {
             if (!(value >= 0)) throw new ArgumentOutOfRangeException(name, value, "Must be non-negative.");
+            // As the constructor refuses for the canvas: a positive size written as "0" (font-size, r, stroke-width of
+            // 1e-7) drew nothing.
+            if (value > 0 && F(value, name) == "0")
+                throw new ArgumentOutOfRangeException(name, value, "Must be 0 or more than 0.0000005, so it does not round to 0 at six decimals.");
         }
 
         // NaN/∞ used to be written as "NaN"/"Infinity" (an unrenderable document) and -0.0000001 as "-0".

@@ -28,6 +28,12 @@ namespace ToolBelt.Binary
             int leadingZeros = 0;
             while (leadingZeros < data.Length && data[leadingZeros] == 0)
                 leadingZeros++;
+            // The text has a '1' per leading zero and, for the rest (below (b + 1)·256^(n − 1) with b its first byte), at most
+            // ⌈log58(b + 1) + (n − 1)·log58(256)⌉ digits. Past the CLR's longest string it threw OutOfMemoryException, where
+            // the other encoders throw ArgumentException. (The bound refuses at most a character or two more than fit.)
+            int rest = data.Length - leadingZeros;
+            if (leadingZeros + (rest == 0 ? 0 : Math.Ceiling(Math.Log(data[leadingZeros] + 1, 58) + (rest - 1) * 1.3656582373098)) > 0x3FFFFFDF)
+                throw new ArgumentException($"{data.Length} bytes is too long to encode as one Base58 string.", nameof(data));
 
             // The rest as a big-endian unsigned integer in 32-bit limbs, most significant first.
             int n = data.Length - leadingZeros;

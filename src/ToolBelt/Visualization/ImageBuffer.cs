@@ -125,12 +125,18 @@ namespace ToolBelt.Visualization
         /// <summary>
         /// Draws a line between real-valued pixel coordinates, clipped to the rectangle [left, right] × [top, bottom]
         /// before rounding, so a far off-canvas endpoint (anywhere in the double range) keeps its slope and costs
-        /// nothing. Nothing is drawn if a coordinate is NaN or infinite, or the segment misses the rectangle.
+        /// nothing. Nothing is drawn if a coordinate is NaN or infinite, the segment misses the rectangle, or the rectangle is
+        /// empty (left &gt; right or top &gt; bottom). Along the major axis it covers the columns (or rows) from the rounded
+        /// first to the rounded last point of the segment inside the rectangle, and each takes the line's own value there,
+        /// rounded (a tie toward the far end, as <see cref="DrawLine"/> breaks it) and kept inside the rectangle; so with
+        /// integer endpoints the pixels in the rectangle's interior are DrawLine's.
         /// </summary>
         public void DrawLineClipped(double x0, double y0, double x1, double y1, Rgba color,
             int left, int top, int right, int bottom)
         {
             if (!IsFinite(x0) || !IsFinite(y0) || !IsFinite(x1) || !IsFinite(y1)) return;
+            // A backwards rectangle is empty: it drew pixels, and an axis-parallel line threw DivideByZeroException.
+            if (left > right || top > bottom) return;
             // Clip along the major axis, reading each end off the line where it is cut. Liang–Barsky's parameter t lost
             // the far case: for endpoints at ±1e20 every t rounds to 0.5, so it picked the wrong edge and drew a corner-
             // to-corner diagonal, and x0 + t·dx cancelled catastrophically (pixels off at 1e17, the whole canvas at 1e200).
@@ -145,12 +151,30 @@ namespace ToolBelt.Visualization
             if (Math.Abs(hx) >= Math.Abs(hy))
             {
                 if (!ClipMajor(x0, y0, x1, y1, left, right, top, bottom, out var a, out var b)) return;
-                DrawLine(ToEdge(a.U, left, right), ToEdge(a.V, top, bottom), ToEdge(b.U, left, right), ToEdge(b.V, top, bottom), color);
+                PlotMajor(a.U, b.U, x0, y0, x1, y1, left, right, top, bottom, color, xMajor: true);
             }
             else
             {
                 if (!ClipMajor(y0, x0, y1, x1, top, bottom, left, right, out var a, out var b)) return;
-                DrawLine(ToEdge(a.V, left, right), ToEdge(a.U, top, bottom), ToEdge(b.V, left, right), ToEdge(b.U, top, bottom), color);
+                PlotMajor(a.U, b.U, y0, x0, y1, x1, top, bottom, left, right, color, xMajor: false);
+            }
+        }
+
+        // The clipped part's columns (rows when y is the major axis), each at the full line's rounded value. Drawing
+        // Bresenham between the rounded clip ends started its error term afresh at the cut, so the runs inside the
+        // rectangle shifted a pixel against the same line drawn whole ((37, 17)–(−1, 7) on a 20 × 15 canvas: every run),
+        // and where they shifted depended on where the rectangle's edge fell. Only the canvas's part is visited.
+        private void PlotMajor(double aU, double bU, double u0, double v0, double u1, double v1,
+            int uLo, int uHi, int vLo, int vHi, Rgba color, bool xMajor)
+        {
+            int size = xMajor ? Width : Height, across = xMajor ? Height : Width;
+            long from = Math.Max(0, ToEdge(Math.Min(aU, bU), uLo, uHi)), to = Math.Min(size - 1, ToEdge(Math.Max(aU, bU), uLo, uHi));
+            int tie = v1 > v0 ? 1 : v1 < v0 ? -1 : 0;
+            for (long u = from; u <= to; u++)
+            {
+                double v = Math.Max(vLo, Math.Min(vHi, RoundedAlong(u, u0, v0, u1, v1, tie)));
+                if (v < 0 || v >= across) continue;
+                if (xMajor) Put((int)u, (int)v, color); else Put((int)v, (int)u, color);
             }
         }
 
@@ -216,10 +240,11 @@ namespace ToolBelt.Visualization
             return (double)whole + (double)(rem >> shift) / (double)(den >> shift);
         }
 
-        // Along, rounded half-to-even to an integer from the exact value rather than from its nearest double. Up to 2^40
-        // the double is within about 2^-10, which settles the rounding unless it lies near a half (a slope of -1/2 through
-        // (-6998.66, 3499.33) crosses x = -39 a hair off 19.5); past 2^40, or near a half, it is computed exactly.
-        private static double RoundedAlong(double u, double u0, double v0, double u1, double v1)
+        // Along, rounded to an integer from the exact value rather than from its nearest double: a half to even (tie 0), up
+        // (tie 1) or down (tie −1). Up to 2^40 the double is within about 2^-10, which settles the rounding unless it lies
+        // near a half (a slope of -1/2 through (-6998.66, 3499.33) crosses x = -39 a hair off 19.5); past 2^40, or near a
+        // half, it is computed exactly.
+        private static double RoundedAlong(double u, double u0, double v0, double u1, double v1, int tie = 0)
         {
             const double Small = 1099511627776.0;                               // 2^40
             if (Math.Abs(u0) <= Small && Math.Abs(v0) <= Small && Math.Abs(u1) <= Small && Math.Abs(v1) <= Small)
@@ -231,7 +256,7 @@ namespace ToolBelt.Visualization
             BigInteger q = BigInteger.DivRem(num, den, out BigInteger r);
             if (r.Sign < 0) { q -= 1; r += den; }                               // floor
             int c = (r << 1).CompareTo(den);
-            if (c > 0 || (c == 0 && !q.IsEven)) q += 1;
+            if (c > 0 || (c == 0 && (tie > 0 || (tie == 0 && !q.IsEven)))) q += 1;
             return (double)q;
         }
 

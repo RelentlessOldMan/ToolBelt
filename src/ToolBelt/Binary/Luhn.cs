@@ -56,6 +56,9 @@ namespace ToolBelt.Binary
         public static string AppendCheckDigit(string payload)
         {
             int check = ComputeCheckDigit(payload);
+            // A payload of the longest string had no room for the digit: OutOfMemoryException.
+            if (payload.Length >= 0x3FFFFFDF)                                    // the CLR's longest string
+                throw new ArgumentException($"A payload of {payload.Length} digits is too long to take a check digit.", nameof(payload));
             return payload + (char)('0' + check);
         }
 

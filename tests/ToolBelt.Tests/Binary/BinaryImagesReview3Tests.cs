@@ -121,13 +121,7 @@ namespace ToolBelt.Tests.Binary
                 var actual = new ImageBuffer(200, 200);
                 actual.DrawLineClipped(X, Y, x1, y1, Rgba.White, left, top, right, bottom);
                 var expected = new ImageBuffer(200, 200);
-                var ends = ExactClip(X, Y, x1, y1, left, top, right, bottom);
-                if (ends != null)
-                {
-                    var (ax, ay, bx, by) = ends.Value;
-                    expected.DrawLine(ax, ay, bx, by, Rgba.White);
-                    drawn++;
-                }
+                if (ExpectClipped(expected, X, Y, x1, y1, left, top, right, bottom)) drawn++;
                 if (!actual.Pixels.SequenceEqual(expected.Pixels)) failures++;
             }
             Check.True(drawn > 400, "drawn " + drawn);
@@ -149,16 +143,57 @@ namespace ToolBelt.Tests.Binary
                 var actual = new ImageBuffer(150, 150);
                 actual.DrawLineClipped(x0, y0, x1, y1, Rgba.White, left, top, right, bottom);
                 var expected = new ImageBuffer(150, 150);
-                if (ExactClip(x0, y0, x1, y1, left, top, right, bottom) is var (ax, ay, bx, by))
-                    expected.DrawLine(ax, ay, bx, by, Rgba.White);
+                ExpectClipped(expected, x0, y0, x1, y1, left, top, right, bottom);
                 if (!actual.Pixels.SequenceEqual(expected.Pixels)) failures++;
             }
             Check.Equal(0, failures);
         }
 
-        // Liang–Barsky over exact rationals (t = n / d), then each end rounded half-to-even, as the method documents.
-        private static (int, int, int, int)? ExactClip(double x0, double y0, double x1, double y1, int left, int top, int right, int bottom)
+        // What the method documents, over exact rationals: the clipped part's major-axis ends rounded half-to-even, and
+        // each column (or row) between them at the line's exact value, rounded with a tie toward the far end, kept inside
+        // the rectangle. (Round 159: it drew Bresenham between the rounded ends, and the runs shifted.) False if it misses.
+        private static bool ExpectClipped(ImageBuffer image, double x0, double y0, double x1, double y1, int left, int top, int right, int bottom)
         {
+            if (!(ExactClip(x0, y0, x1, y1, left, top, right, bottom, out var t0, out var t1) is var (ax, ay, bx, by))) return false;
+            bool xMajor = Math.Abs(x1 * 0.5 - x0 * 0.5) >= Math.Abs(y1 * 0.5 - y0 * 0.5);   // the method's choice of axis
+            if (x0 == x1 && y0 == y1) { image.DrawLine(ax, ay, bx, by, Rgba.White); return true; }
+            var (U0, V0, U1, V1) = xMajor ? (Exact(x0), Exact(y0), Exact(x1), Exact(y1)) : (Exact(y0), Exact(x0), Exact(y1), Exact(x1));
+            int uLo = xMajor ? left : top, uHi = xMajor ? right : bottom, vLo = xMajor ? top : left, vHi = xMajor ? bottom : right;
+            int ua = xMajor ? ax : ay, ub = xMajor ? bx : by;
+            var dU = Sub(U1, U0);
+            var dV = Sub(V1, V0);
+            int tie = Cmp(V1, V0);
+            for (int u = Math.Min(ua, ub); u <= Math.Max(ua, ub); u++)
+            {
+                // v = V0 + (u − U0)·dV/dU
+                var k = Sub((new System.Numerics.BigInteger(u), System.Numerics.BigInteger.One), U0);
+                var v = Add(V0, (k.Item1 * dV.Item1 * dU.Item2, k.Item2 * dV.Item2 * dU.Item1));
+                var r = RoundTie(v, tie);
+                int w = (int)System.Numerics.BigInteger.Max(vLo, System.Numerics.BigInteger.Min(vHi, r));
+                int px = xMajor ? u : w, py = xMajor ? w : u;
+                if (px >= 0 && px < image.Width && py >= 0 && py < image.Height) image.SetPixel(px, py, Rgba.White);
+            }
+            return true;
+        }
+
+        private static System.Numerics.BigInteger RoundTie((System.Numerics.BigInteger N, System.Numerics.BigInteger D) v, int tie)
+        {
+            if (tie == 0) return RoundHalfEven(v);
+            var (n, d) = v.D.Sign < 0 ? (-v.N, -v.D) : (v.N, v.D);
+            var q = System.Numerics.BigInteger.DivRem(n, d, out var r);
+            if (r.Sign < 0) { q -= 1; r += d; }                                    // floor
+            int c = (2 * r).CompareTo(d);
+            return c > 0 || (c == 0 && tie > 0) ? q + 1 : q;
+        }
+
+        // Liang–Barsky over exact rationals (t = n / d), then each end rounded half-to-even.
+        private static (int, int, int, int)? ExactClip(double x0, double y0, double x1, double y1, int left, int top, int right, int bottom)
+            => ExactClip(x0, y0, x1, y1, left, top, right, bottom, out _, out _);
+
+        private static (int, int, int, int)? ExactClip(double x0, double y0, double x1, double y1, int left, int top, int right, int bottom,
+            out (System.Numerics.BigInteger N, System.Numerics.BigInteger D) t0Out, out (System.Numerics.BigInteger N, System.Numerics.BigInteger D) t1Out)
+        {
+            t0Out = t1Out = default;
             var (X0, Y0, X1, Y1) = (Exact(x0), Exact(y0), Exact(x1), Exact(y1));
             var dx = Sub(X1, X0);
             var dy = Sub(Y1, Y0);
@@ -175,6 +210,7 @@ namespace ToolBelt.Tests.Binary
             }
             var L = Exact(left); var R = Exact(right); var T = Exact(top); var B = Exact(bottom);
             if (!Edge(Neg(dx), Sub(X0, L)) || !Edge(dx, Sub(R, X0)) || !Edge(Neg(dy), Sub(Y0, T)) || !Edge(dy, Sub(B, Y0))) return null;
+            (t0Out, t1Out) = (t0, t1);
             int At((System.Numerics.BigInteger N, System.Numerics.BigInteger D) v0, (System.Numerics.BigInteger N, System.Numerics.BigInteger D) d,
                 (System.Numerics.BigInteger N, System.Numerics.BigInteger D) t, int lo, int hi)
             {
