@@ -112,11 +112,17 @@ namespace ToolBelt.Signal
             return m;
         }
 
+        // A power of two at or above the peak, so dividing by it is exact: dividing by the peak itself rounded, and an exact
+        // tie between two lags went to the far one once a peak was past 1e140 or under 1e-140 (2^497, 2^-608).
         private static double MaxAbs(double[] x)
         {
             double max = 0;
             foreach (double v in x) max = Math.Max(max, Math.Abs(v));
-            return max == 0 ? 1 : max;
+            if (max == 0) return 1;
+            double p = 1;
+            while (p < max && p < 8.98846567431158E307) p *= 2;              // 2^1023 at most
+            while (p / 2 >= max) p /= 2;
+            return p;
         }
 
         private static double[] Pad(double[] x, int length, double scale)

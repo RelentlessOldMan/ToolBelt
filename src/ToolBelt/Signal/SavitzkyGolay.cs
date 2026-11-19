@@ -81,7 +81,18 @@ namespace ToolBelt.Signal
             double downHalf = Math.Pow(2, -(exponent / 2)), downRest = Math.Pow(2, -(exponent - exponent / 2));
             double upHalf = Math.Pow(2, exponent / 2), upRest = Math.Pow(2, exponent - exponent / 2);
             double[] p = fit.Project(data, start, downHalf, downRest);
-            for (int e = from; e < to; e++) result[start + e] = fit.Evaluate(e, p) * upHalf * upRest;
+            for (int e = from; e < to; e++) result[start + e] = Back(fit.Evaluate(e, p), upHalf, upRest);
+        }
+
+        // The scaled value times 2^e. A value a rounding error over the largest double overflowed: the weights sum to a
+        // hair over 1, so a constant double.MaxValue came out ∞. Within 2^-40 of it, the value is taken as the largest
+        // double; a fit that truly overshoots it is still ∞.
+        private static double Back(double s, double upHalf, double upRest)
+        {
+            double r = s * upHalf * upRest;
+            if (!double.IsInfinity(r) || double.IsInfinity(s) || double.IsNaN(s)) return r;
+            double limit = double.MaxValue / upRest / upHalf;                // exact: powers of two
+            return Math.Abs(s) <= limit * (1 + 9.094947017729282E-13) ? Math.Sign(s) * double.MaxValue : r;
         }
 
         // Row(e)[k]: the weight of window sample k in the fitted polynomial's value at window position e. The fit is linear in
@@ -177,7 +188,7 @@ namespace ToolBelt.Signal
             int e = (int)Math.Ceiling(Math.Log(peak, 2));
             double down = Math.Pow(2, -e), s = 0;
             for (int k = 0; k < c.Length; k++) s += c[k] * (data[start + k] * down);
-            return s * Math.Pow(2, e / 2) * Math.Pow(2, e - e / 2);
+            return Back(s, Math.Pow(2, e / 2), Math.Pow(2, e - e / 2));
         }
 
         // Subnormal data: each weighted sample was rounded on the subnormal grid, so a constant ε came out 0 inside the

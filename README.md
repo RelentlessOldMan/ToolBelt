@@ -816,6 +816,7 @@ tests/
       SignalReview104Tests.cs (round 104: subnormal convolution, smoothing, vertices, inverse FFT and interpolation, rounded crossing hand-off, Hampel overflow, correlation ties, envelope coefficient, duty cycle and group delay at extremes, Goertzel aliasing)
       SignalReview115Tests.cs (seventh pass: many tied correlation lags, Goertzel aliases, cycle frequencies at extreme rates, Bluestein inverse subnormals, linear-time Hampel and Savitzky-Golay edges)
       SignalReview137Tests.cs (eighth pass: Savitzky-Golay order w - 1 as the identity, over-long lists as argument errors, finite group-delay input, finite Hampel thresholds, finite window measures, quiet bins of tiny spectra, tiny convolution overlaps beside a normal peak)
+      SignalReview153Tests.cs (ninth pass: infinite samples and a largest-double bin in Bluestein FFTs, group delay on uneven grids, Welch overlap rounding, correlation ties at extreme scales, a constant largest double in Savitzky-Golay, Hampel NaN counts)
       WindowTests.cs
       ZeroCrossingTests.cs
     Objects/

@@ -152,6 +152,26 @@ namespace ToolBelt.Signal
             int n = data.Length;
             double dir = inverse ? 1 : -1;
 
+            // A non-finite sample made every bin NaN ([∞, 0, 0] gave NaN everywhere, where the radix-2 path gives ∞ in each
+            // bin): the chirp convolution spreads ∞·0 and ∞ − ∞ to all of them. The finite samples go through the
+            // convolution; each non-finite one is added to every bin directly afterwards (AddNonFinite).
+            int[]? at = null;
+            Complex[]? odd = null;
+            int count = 0;
+            for (int k = 0; k < n; k++) if (!IsFinite(data[k])) count++;
+            if (count > 0)
+            {
+                at = new int[count];
+                odd = new Complex[count];
+                for (int k = 0, j = 0; k < n; k++)
+                {
+                    if (IsFinite(data[k])) continue;
+                    at[j] = k;
+                    odd[j++] = data[k];
+                    data[k] = Complex.Zero;
+                }
+            }
+
             // Chirp w[k] = exp(dir·iπk²/n). Reduce k² modulo 2n so the angle stays small and accurate.
             var chirp = new Complex[n];
             for (int k = 0; k < n; k++)
@@ -203,8 +223,57 @@ namespace ToolBelt.Signal
             {
                 var v = Scale(a[k], scale) * chirp[k];
                 if (post != 1) v = Scale(v, post);
-                data[k] = Scale(Scale(v, upHalf), upRest);
+                data[k] = new Complex(Back(v.Real, upHalf, upRest), Back(v.Imaginary, upHalf, upRest));
+            }
+            if (at != null) AddNonFinite(data, at, odd!, dir, post);
+        }
+
+        // Adds x[j]·e^(dir·2πijk/n)·post to every bin k, part by part, for the non-finite samples, as the definition does: a
+        // product with an exact zero (a zero part of the sample, or a twiddle on an axis) adds nothing, so ∞ + 0i at j = 0
+        // gives ∞ + 0i, not ∞ + NaN·i. A NaN part still makes every part it multiplies NaN. A bin already NaN in both parts
+        // is left, which keeps many infinities from costing n per sample.
+        private static void AddNonFinite(Complex[] data, int[] at, Complex[] x, double dir, double post)
+        {
+            int n = data.Length;
+            for (int k = 0; k < n; k++)
+            {
+                double re = data[k].Real, im = data[k].Imaginary;
+                for (int j = 0; j < at.Length && !(double.IsNaN(re) && double.IsNaN(im)); j++)
+                {
+                    long r = (long)at[j] * k % n;
+                    double c, s;
+                    if (r * 4 % n == 0)
+                    {
+                        int q = (int)(r * 4 / n);                       // a quarter turn: exact
+                        c = q == 0 ? 1 : q == 2 ? -1 : 0;
+                        s = q == 1 ? dir : q == 3 ? -dir : 0;
+                    }
+                    else
+                    {
+                        double ang = dir * 2 * Math.PI * r / n;
+                        c = Math.Cos(ang);
+                        s = Math.Sin(ang);
+                    }
+                    re += (Times(x[j].Real, c) - Times(x[j].Imaginary, s)) * post;
+                    im += (Times(x[j].Real, s) + Times(x[j].Imaginary, c)) * post;
+                }
+                data[k] = new Complex(re, im);
             }
         }
+
+        // The scaled part times 2^e. A bin whose value is the largest double came back a rounding error over it, and the
+        // scale-back overflowed: Forward([Max, 0, 0]) gave ∞ in bins 1 and 2. Within 2^-40 of it, the part is taken as the
+        // largest double; one truly past it is still ∞.
+        private static double Back(double s, double upHalf, double upRest)
+        {
+            double r = s * upHalf * upRest;
+            if (!double.IsInfinity(r) || double.IsInfinity(s) || double.IsNaN(s)) return r;
+            double limit = double.MaxValue / upRest / upHalf;                // exact: powers of two
+            return Math.Abs(s) <= limit * (1 + 9.094947017729282E-13) ? Math.Sign(s) * double.MaxValue : r;
+        }
+
+        // a·b, but 0 where one is an exact zero and the other is not NaN (∞·0 is a term the sum does not have).
+        private static double Times(double a, double b)
+            => (a == 0 && !double.IsNaN(b)) || (b == 0 && !double.IsNaN(a)) ? 0 : a * b;
     }
 }

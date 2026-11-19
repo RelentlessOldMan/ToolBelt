@@ -62,7 +62,9 @@ namespace ToolBelt.Signal
                 double mad = Mad(window, count, median, ref scratch);
                 // When the window is essentially constant, sigma collapses to 0 and the threshold with
                 // it — so any point that differs from the median is (correctly) flagged as an outlier.
-                if (double.IsNaN(samples[i]) || Outlier(samples[i], median, mad, nSigmas))
+                // A NaN whose median is NaN too (a window of −∞ and +∞) is left as it is, and not counted: CountOutliers
+                // reported a replacement that changed nothing.
+                if (double.IsNaN(samples[i]) ? !double.IsNaN(median) : Outlier(samples[i], median, mad, nSigmas))
                 {
                     result[i] = median;
                     replaced++;

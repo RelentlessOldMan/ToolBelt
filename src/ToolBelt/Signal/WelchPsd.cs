@@ -12,7 +12,8 @@ namespace ToolBelt.Signal
     {
         /// <summary>
         /// One-sided PSD (units of power per Hz) and its frequency axis. The signal is split into segments
-        /// of <paramref name="segmentLength"/> samples overlapping by <paramref name="overlap"/> (0–1),
+        /// of <paramref name="segmentLength"/> samples overlapping by <paramref name="overlap"/> (0–1; rounded down to whole
+        /// samples: n − step is the largest k with k / n ≤ overlap),
         /// each tapered by <paramref name="window"/>, and the periodograms are averaged. Segments are not detrended and the
         /// window is the symmetric one from <see cref="Window.Create"/>: this equals SciPy's
         /// <c>welch(x, fs, window=get_window(w, n, fftbins=False), nperseg=n, noverlap=n − step, detrend=False)</c>,
@@ -38,7 +39,14 @@ namespace ToolBelt.Signal
             if (windowPower == 0)
                 throw new ArgumentException($"A {window} window of {segmentLength} samples is all zeros; use a longer segment or another window.", nameof(segmentLength));
 
-            int step = Math.Max(1, (int)Math.Round(segmentLength * (1 - overlap)));
+            // The overlap is rounded down to whole samples (SciPy's noverlap = n // 2 at one half). Rounding the step to the
+            // nearest, ties to even, moved the real overlap either way: 0.75 was 0.8 at 10 samples and 0.714 at 14, and 0.5
+            // at 5 samples was 0.6. It is the largest k with k / n ≤ overlap, so 0.29 at 100 is 29 (0.29 · 100 is 28.999999999999996)
+            // and 4.0 / 9 at 9 is 4.
+            int noverlap = (int)Math.Min(segmentLength - 1, Math.Floor(overlap * segmentLength));
+            while (noverlap + 1 < segmentLength && (double)(noverlap + 1) / segmentLength <= overlap) noverlap++;
+            while (noverlap > 0 && (double)noverlap / segmentLength > overlap) noverlap--;
+            int step = Math.Max(1, segmentLength - noverlap);
             int bins = segmentLength / 2 + 1;
             bool even = segmentLength % 2 == 0;
             var psd = new double[bins];

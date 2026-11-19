@@ -67,8 +67,8 @@ namespace ToolBelt.Signal
 
         /// <summary>
         /// Group delay τ(f) = −dφ/dω, in seconds, from an <b>unwrapped</b> phase response (radians) sampled at
-        /// <paramref name="frequencies"/> (Hz, strictly increasing; spacing may vary): central differences inside, one-sided
-        /// at the ends. A pure delay of T seconds (φ = −2πfT) gives exactly T everywhere; dispersion shows up as variation.
+        /// <paramref name="frequencies"/> (Hz, strictly increasing; spacing may vary): central differences inside (on an
+        /// uneven grid the second-order one, NumPy's <c>gradient</c>), one-sided at the ends. A pure delay of T seconds (φ = −2πfT) gives exactly T everywhere; dispersion shows up as variation.
         /// Phases and frequencies must be finite.
         /// </summary>
         public static double[] GroupDelay(System.Collections.Generic.IReadOnlyList<double> unwrappedPhase, System.Collections.Generic.IReadOnlyList<double> frequencies)
@@ -78,6 +78,8 @@ namespace ToolBelt.Signal
             int n = unwrappedPhase.Count;
             if (n != frequencies.Count) throw new ArgumentException("Phase and frequency arrays must have the same length.", nameof(frequencies));
             if (n < 2) throw new ArgumentException("Need at least two points.", nameof(unwrappedPhase));
+            // Past Array.MaxLength the result threw OutOfMemoryException ("array dimensions exceeded"), after the whole check.
+            if (n > 0x7FFFFFC7) throw new ArgumentException($"The phase has {n} points, more than an array holds.", nameof(unwrappedPhase));
             // An infinite frequency passed the order check and made Δf infinite: the delay at it and at its finite
             // neighbour came out 0. A NaN phase only spread NaN.
             for (int i = 0; i < n; i++)
@@ -93,6 +95,43 @@ namespace ToolBelt.Signal
             for (int i = 0; i < n; i++)
             {
                 int lo = Math.Max(0, i - 1), hi = Math.Min(n - 1, i + 1);
+                // On an uneven grid the secant over [f(i−1), f(i+1)] is the slope at their midpoint, not at f(i): φ = −πf²
+                // (τ = f) at f = [0, 1, 10] gave 5 at f = 1. The two one-sided slopes are weighted by the far spacing,
+                // which is exact for a quadratic phase.
+                if (lo < i && i < hi && frequencies[i] - frequencies[lo] != frequencies[hi] - frequencies[i])
+                {
+                    tau[i] = Uneven(unwrappedPhase, frequencies, i);
+                    continue;
+                }
+                tau[i] = Delay(unwrappedPhase, frequencies, lo, hi);
+            }
+            return tau;
+        }
+
+        // Weighted mean of the one-sided delays either side of i, each weighted by the other side's spacing.
+        private static double Uneven(System.Collections.Generic.IReadOnlyList<double> phase, System.Collections.Generic.IReadOnlyList<double> f, int i)
+        {
+            double left = Delay(phase, f, i - 1, i), right = Delay(phase, f, i, i + 1);
+            if (left == right) return left;                                     // a pure delay stays exact
+            double a = f[i] - f[i - 1], b = f[i + 1] - f[i];
+            if (double.IsInfinity(a) || double.IsInfinity(b) || double.IsInfinity(a + b))
+            {
+                a = f[i] / 2 - f[i - 1] / 2;
+                b = f[i + 1] / 2 - f[i] / 2;
+            }
+            else if (a + b < 2.2250738585072014e-308)
+            {
+                a *= Up;                                                        // exact: a subnormal spacing loses no bits
+                b *= Up;
+            }
+            double sum = a + b;
+            return left * (b / sum) + right * (a / sum);
+        }
+
+        // −Δφ / (2π·Δf) between two points.
+        private static double Delay(System.Collections.Generic.IReadOnlyList<double> unwrappedPhase, System.Collections.Generic.IReadOnlyList<double> frequencies, int lo, int hi)
+        {
+            {
                 double dp = unwrappedPhase[hi] - unwrappedPhase[lo], df = frequencies[hi] - frequencies[lo];
                 // Frequencies spanning ±1e308 overflowed Δf or 2π·Δf and gave a delay of 0: the differences are halved
                 // where one overflowed, and 2π divided out last where 2π·Δf would.
@@ -103,15 +142,15 @@ namespace ToolBelt.Signal
                 }
                 double omega = 2 * Math.PI * df;
                 // A subnormal Δf lost bits in 2π·Δf (Δf = 3ε gave a delay 6% off): it is scaled up by 2^600 (exact) first.
-                if (omega < 2.2250738585072014e-308) tau[i] = -(dp / (2 * Math.PI * (df * Up))) * Up;
-                else tau[i] = double.IsInfinity(omega) ? -(dp / df) / (2 * Math.PI) : -dp / omega;
+                if (omega < 2.2250738585072014e-308) return -(dp / (2 * Math.PI * (df * Up))) * Up;
+                return double.IsInfinity(omega) ? -(dp / df) / (2 * Math.PI) : -dp / omega;
             }
-            return tau;
         }
 
         private static readonly double Up = Math.Pow(2, 600);
 
-        /// <summary>Wraps a single angle into the principal range (−π, π].</summary>
+        /// <summary>Wraps a single angle into the principal range (−π, π]. An infinite or NaN angle has no direction and gives
+        /// NaN, as <see cref="Math.Sin"/> does (<see cref="Unwrap"/> and <see cref="GroupDelay"/> refuse them).</summary>
         public static double Wrap(double angle)
         {
             double wrapped = angle % (2 * Math.PI);

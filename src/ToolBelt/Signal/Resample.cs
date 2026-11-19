@@ -76,7 +76,9 @@ namespace ToolBelt.Signal
 
         /// <summary>
         /// Downsamples by an integer <paramref name="factor"/>, averaging each block of
-        /// <paramref name="factor"/> samples first to suppress aliasing.
+        /// <paramref name="factor"/> samples first to suppress aliasing. The result has
+        /// <c>samples.Length / factor</c> samples: a trailing partial block (the last <c>Length % factor</c> samples) is
+        /// dropped, not averaged short (SciPy's <c>decimate</c> keeps ⌈n/q⌉ samples).
         /// </summary>
         public static double[] Decimate(double[] samples, int factor)
         {
