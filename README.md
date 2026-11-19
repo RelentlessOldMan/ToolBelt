@@ -761,6 +761,7 @@ tests/
       DocumentsConfigReview109Tests.cs (round 109: settings that would not load back, nested updates, linked and non-UTF-8 files, non-flags enum lists, null nested values, one duration syntax, Markdown rules and raw lists, empty figures, tiny PDF sizes, DOCX CR and footer)
       DocumentsConfigReview126Tests.cs (round 126: hidden config properties, exact durations up to TimeSpan.MaxValue, RequireAll names, undefined enums, fixed DOCX entry times, very wide DOCX tables, column-less HTML tables, nested Raw list items)
       DocumentsConfigReview151Tests.cs (round 151: settings loads and saves during another instance's replace, stale and ~RF temps, atomic DOCX and PDF saves, truncated PNGs, 63-column tables, PDF footer and tabs, copied figures, infinite and tiny thresholds, Markdown trailing '#', lists and empty code, HTML controls, the U+0130 slug)
+      DocumentsConfigReview160Tests.cs (round 160: long names and held files in PDF and DOCX saves, settings paths ending in a separator, loads during a save or of a file that vanishes mid-read and beside other stores' temps, report escaping and slugs on every runtime, infinity, NaN and -0 in the binder and environment, derived nested sections)
       DocumentsConfigReview155Tests.cs (round 155: a load during a slow save waits two seconds, then warns)
     Enums/
       EnumExtensionsTests.cs

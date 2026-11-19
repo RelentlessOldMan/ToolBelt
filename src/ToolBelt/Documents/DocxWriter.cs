@@ -343,7 +343,8 @@ namespace ToolBelt.Documents
             // Written beside the target, then moved over it: a full disk or a crash part-way left a truncated file where
             // the previous good one had been.
             string full = Path.GetFullPath(path);
-            string temp = full + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp";
+            // A short name of its own: the target's name plus a suffix failed for a legal name near 255 characters.
+            string temp = Path.Combine(Path.GetDirectoryName(full) ?? "", ".tb-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp");
             try
             {
                 using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
@@ -351,8 +352,22 @@ namespace ToolBelt.Documents
                     fs.Write(bytes, 0, bytes.Length);
                     fs.Flush(true);
                 }
-                if (File.Exists(full)) File.Replace(temp, full, null);
-                else File.Move(temp, full);
+                // A reader holding the old file (a viewer, File.ReadAllBytes) made the replace fail at once; it gets about
+                // half a second to let go.
+                using (var never = new System.Threading.ManualResetEventSlim(false))
+                    for (int attempt = 0; ; attempt++)
+                    {
+                        try
+                        {
+                            if (File.Exists(full)) File.Replace(temp, full, null);
+                            else File.Move(temp, full);
+                            break;
+                        }
+                        catch (IOException) when (attempt < 10 && File.Exists(temp))
+                        {
+                            never.Wait(50);
+                        }
+                    }
             }
             finally
             {

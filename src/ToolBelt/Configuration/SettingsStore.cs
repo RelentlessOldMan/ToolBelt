@@ -34,11 +34,12 @@ namespace ToolBelt.Configuration
     /// Unix its mode).
     /// A settings path that is a symbolic link is written through to its target; a save keeps the file's Hidden and System
     /// attributes, fails at once on a read-only file, waits about half a second for another reader of the file to let go,
-    /// and removes temp files that a crashed save left behind more than an hour ago.
+    /// and removes temp files that a crashed save left behind more than a day ago.
     /// A file that is not valid UTF-8 counts as corrupt, and one reached through a symbolic link is moved aside at its
     /// target. A value the type would reject when loaded back (setters that check each other) makes a save throw
     /// <see cref="InvalidOperationException"/>, as do Save, Update and Reset called from inside an Update's change. A path
-    /// that is a directory makes <see cref="LoadFrom"/> throw <see cref="ArgumentException"/>.
+    /// that is a directory, or ends in a directory separator, makes <see cref="LoadFrom"/> throw
+    /// <see cref="ArgumentException"/>. A load waits about half a second for another instance's save to let go of the file.
     /// Not thread-safe — save from one place.
     /// </summary>
     public sealed class SettingsStore<T> where T : class, new()
@@ -87,12 +88,20 @@ namespace ToolBelt.Configuration
             string full = System.IO.Path.GetFullPath(path);
             // A directory is no settings file: it loaded as "no file yet", and Save then failed with an access error.
             if (Directory.Exists(full)) throw new ArgumentException($"'{full}' is a directory, not a settings file.", nameof(path));
+            // Nor is a path ending in a separator: it loaded as "no file yet", and Save made the folder and then failed.
+            if (System.IO.Path.GetFileName(full).Length == 0) throw new ArgumentException($"'{full}' names a directory, not a settings file.", nameof(path));
             byte[] bytes;
-            for (int attempt = 0; ; attempt++)
+            using var never = new System.Threading.ManualResetEventSlim(false);
+            for (int attempt = 0, missing = 0; ; )
             {
-                if (!File.Exists(full))
+                // Through a symbolic link, at its target (where a save writes its temp file): a link to a file not made
+                // yet is there for File.Exists, though no read finds it. A link that will not resolve is left to the read.
+                string real;
+                try { real = LinkTarget(full); }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { real = full; }
+                if (!File.Exists(real))
                 {
-                    bool? back = Reappears(full);
+                    bool? back = Reappears(real);
                     if (back == false) return new SettingsStore<T>(full, new T(), null);
                     // The wait ran out with a save apparently still under way (another instance, or one that crashed in the
                     // last minute): the defaults come with a warning, where they were taken silently on a busy machine.
@@ -105,13 +114,23 @@ namespace ToolBelt.Configuration
                     bytes = File.ReadAllBytes(full);
                     break;
                 }
-                catch (FileNotFoundException) when (attempt < 3)
+                catch (FileNotFoundException) when (++missing < 20)
                 {
-                    // Gone since the Exists check: deleted, or another instance is replacing it. Look again.
+                    // Gone since the Exists check: deleted, or another instance is replacing it. Look again; the check
+                    // above then tells "no file" from a save under way. (A miss after three, counted with the sharing
+                    // retries, gave silent defaults during another save in about one load of 300.)
                 }
                 catch (FileNotFoundException)
                 {
-                    return new SettingsStore<T>(full, new T(), null);
+                    // There and gone again, time after time: saves keep replacing it.
+                    return new SettingsStore<T>(full, new T(),
+                        "Settings file kept disappearing while other saves replaced it; defaults were used.");
+                }
+                // Another instance's save holds the file for a moment: a load then returned defaults and refused to save
+                // (45% of loads beside two busy savers). It gets about half a second, as a save gives a reader.
+                catch (IOException ex) when (attempt++ < 10 && IsSharingViolation(ex))
+                {
+                    never.Wait(50);
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
@@ -157,6 +176,9 @@ namespace ToolBelt.Configuration
                 }
             }
         }
+
+        // ERROR_SHARING_VIOLATION or ERROR_LOCK_VIOLATION: the file is there and fine, only open elsewhere.
+        private static bool IsSharingViolation(IOException ex) => (ex.HResult & 0xFFFF) is 32 or 33;
 
         private static readonly UTF8Encoding Strict = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
@@ -221,7 +243,8 @@ namespace ToolBelt.Configuration
             string dir = System.IO.Path.GetDirectoryName(target)!;
             Directory.CreateDirectory(dir);
             // A fixed-length name: the file's own name plus 14 characters failed for names near the 255-character limit.
-            string temp = System.IO.Path.Combine(dir, ".tb-" + Guid.NewGuid().ToString("N") + ".tmp");
+            // Its first 8 hex digits tag the file it saves, so a load waits only for a save of its own file.
+            string temp = System.IO.Path.Combine(dir, ".tb-" + Tag(System.IO.Path.GetFileName(target)) + Guid.NewGuid().ToString("N").Substring(8) + ".tmp");
             RemoveStaleTemps(dir, System.IO.Path.GetFileName(target));
             FileAttributes keep = 0;
             // Read once, not after an Exists check: another instance replacing the file leaves no file at the name for a
@@ -318,16 +341,18 @@ namespace ToolBelt.Configuration
             }
         }
 
-        // This store's temp files in the folder, and those File.Replace leaves for the named file.
-        private static List<string> Temps(string dir, string name)
+        // The temp files of the stores in the folder (with own, only those saving the named file), and those File.Replace
+        // leaves for the named file.
+        private static List<string> Temps(string dir, string name, bool own = false)
         {
+            string tag = Tag(name);
             var found = new List<string>();
             try
             {
                 foreach (string f in Directory.EnumerateFiles(dir, ".tb-*.tmp"))
                 {
                     string n = System.IO.Path.GetFileName(f);
-                    if (n.Length == 40 && IsHex(n, 4, 32)) found.Add(f);
+                    if (n.Length == 40 && IsHex(n, 4, 32) && (!own || string.CompareOrdinal(n, 4, tag, 0, 8) == 0)) found.Add(f);
                 }
                 if (OperatingSystem.IsWindows() && name.IndexOfAny(new[] { '*', '?' }) < 0)
                     found.AddRange(Directory.EnumerateFiles(dir, name + "~RF*.TMP"));
@@ -351,7 +376,8 @@ namespace ToolBelt.Configuration
                 {
                     DateTime recent = DateTime.UtcNow.AddMinutes(-1);
                     bool saving = false;
-                    foreach (string f in Temps(dir, name))
+                    // Only this file's: another store's save in the folder made a load of a new file wait 2 s and warn.
+                    foreach (string f in Temps(dir, name, own: true))
                     {
                         try { if (File.GetLastWriteTimeUtc(f) > recent) { saving = true; break; } }
                         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
@@ -361,6 +387,15 @@ namespace ToolBelt.Configuration
                     never.Wait(10);
                     if (File.Exists(full)) return true;
                 }
+        }
+
+        // FNV-1a of the file name, as 8 hex digits; case-blind, as Windows names are. Unchecked: it wraps by design, and
+        // a build with overflow checks threw from every save and load.
+        private static string Tag(string name)
+        {
+            uint h = 2166136261;
+            foreach (char ch in name.ToUpperInvariant()) h = unchecked((h ^ ch) * 16777619);
+            return h.ToString("x8", System.Globalization.CultureInfo.InvariantCulture);
         }
 
         private static bool IsHex(string s, int start, int count)

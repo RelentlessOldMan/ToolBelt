@@ -20,9 +20,17 @@ namespace ToolBelt.Tests.Documents
             return dir;
         }
 
+        // The temp name a save of the given file writes: another store's save no longer delays this file's load.
+        internal static string SaveTemp(string dir, string fileName)
+        {
+            uint h = 2166136261;
+            foreach (char ch in fileName.ToUpperInvariant()) h = unchecked((h ^ ch) * 16777619);
+            return Path.Combine(dir, ".tb-" + h.ToString("x8", System.Globalization.CultureInfo.InvariantCulture) + Guid.NewGuid().ToString("N").Substring(8) + ".tmp");
+        }
+
         private static string FreshTemp(string dir)
         {
-            string temp = Path.Combine(dir, ".tb-" + Guid.NewGuid().ToString("N") + ".tmp");
+            string temp = SaveTemp(dir, "s.json");
             File.WriteAllText(temp, "{\"N\":5}");
             return temp;
         }

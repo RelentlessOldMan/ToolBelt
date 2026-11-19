@@ -47,7 +47,7 @@ folders). "Prior" is the confirmed-fix count from the 2026-10-05 sweep. That swe
 | 4  | Numerics core | the rest of `Numerics/*` (interpolation, root finding, integration, linear algebra, polynomial, streaming stats, random, fractions, units…) | 2,950 | ~3 | 9 | 8 / 176 | re-queue (8 bugs, one severe) |
 | 5  | Charts | `Visualization/` charts: SvgChart, Annotations, Waterfall, TimingDiagram, HexBin, MultiPanel, AxisTicks, ScatterMatrix, BoxPlot, LinePlot, PlotFrame, Histogram, BandChart, ErrorBarChart, HeatMap, Colorbar, Colormap, Palettes | 3,700 | ~3 | 9 | 13 / 176 | re-queue (13 bugs, none severe) |
 | 6  | Binary formats & images | `Binary/*`, `Visualization/` PngReader, PngWriter, Bmp, ImageBuffer, SvgDocument, SvgUtils | 3,400 | ~3 | 9 | 10 / 89 | re-queue (10 bugs, none severe) |
-| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 9 | 20 / 176 | re-queue (20 bugs, 1 severe) |
+| 7  | Documents & config | `Documents/*` (PDF, DOCX, report templates), `Configuration/*` | 2,900 | ~6 | 10 | 12 / 188 | re-queue (12 bugs, none severe) |
 | 8  | IO | `IO/*` (tar, directory copy, FileWatcher, atomic writes…) | 4,900 | ~3 | 9 | 6 / 173 | re-queue (6 bugs, none severe) |
 | 9  | Collections | `Collections/*` | 5,200 | ~1 | 9 | 5 / 116 | re-queue (5 bugs, none severe) |
 | 10 | Concurrency | `Threading/*`, `Resilience/*`, `Process/*`, `Runtime/*` | 3,100 | ~2 | 9 | 3 / 140 | re-queue (3 bugs, 1 severe) |
@@ -63,7 +63,7 @@ After all 17: re-run the sections flagged by the re-review rule, worst first. Re
 5 (done, round 19), 14 (done, round 20), 10 (done, round 21), 15 (done, round 22), 3 (done, round 23), 8 (done, round 24), 9 (done, round 25), 7 (done, round 26), 13 (done, round 27), 6 (done, round 28), 12 (done, round 29), then the 1-severe sections (1 (done, round 30), 2 (done, round 31), 11 (done, round 32), 16 (done, round 33), 17 (done, round 34)).
 
 Third pass (every section was re-queued by its second pass), worst first: severe count, then bugs in the last pass:
-7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); 1 (done, round 107); 3 (done, round 108). Seventh pass, same rule and order (severe count, then bugs in the sixth pass; ties by section number): 7 (done, round 109); 15 (done, round 110); 9 (done, round 111); 8 (done, round 112); 6 (done, round 113); 10 (done, round 114); 2 (done, round 115); 12 (done, round 116); 16 (done, round 117); 3 (done, round 118); 1 (done, round 119); 17 (done, round 120); 5 (done, round 121); 4 (done, round 122); 11 (done, round 123); 13 (done, round 124); 14 (done, round 125). Eighth pass, same rule and order (severe count, then bugs in the seventh pass; ties by section number): 7 (done, round 126); 9 (done, round 127); 10 (done, round 128); 6 (done, round 129); 4 (done, round 130); 15 (done, round 131); 17 (done, round 132); 1 (done, round 133); 5 (done, round 134); 12 (done, round 135); 14 (done, round 136); 2 (done, round 137); 8 (done, round 138); 16 (done, round 139); 3 (done, round 140); 11 (done, round 141); 13 (done, round 142). Ninth pass, same rule and order (severe count, then bugs in the eighth pass; ties by section number): 8 (done, round 143); 15 (done, round 144); 14 (done, round 145); 3 (done, round 146); 10 (done, round 147); 5 (done, round 148); 13 (done, round 149); 1 (done, round 150); 7 (done, round 151); 12 (done, round 152); 2 (done, round 153); 11 (done, round 154); 17 (done, round 155); 4 (done, round 156); 9 (done, round 157); 16 (done, round 158); 6 (done, round 159). Tenth pass, same rule and order (severe count, then bugs in the ninth pass; ties by section number): **next: 7**, then 12, 4, 14, 15, 10, 13, 5, 2, 6, 1, 3, 8, 9, 11, 16, 17 (round 46 was a cross-section round on flaky-test root
+7 (done, round 35), 4 (done, round 36), 5 (done, round 37), 14 (done, round 38), 2 (done, round 39), 8 (done, round 40), 15 (done, round 41), 10 (done, round 42), 12 (done, round 43), 9 (done, round 44), 3 (done, round 45), 13 (done, round 48), 16 (done, round 49), 11 (done, round 50), 17 (done, round 51), 6 (done, round 52), 1 (done, round 53); cross-cutting: throwing callbacks (done, round 54); cross-cutting: cancellation and dispose races (done, round 55); cross-cutting: non-finite and extreme numerics (done, round 56); cross-cutting: the whole suite on .NET Framework 4.8 and in the checked build (done, round 57). Fourth pass, every section re-queued, worst first (severe count, then bugs in the last pass): 8 (done, round 58), 14 (done, round 59), 17 (done, round 60), 4 (done, round 61), 5 (done, round 62), 7 (done, round 63), 13 (done, round 64), 15 (done, round 65), 3 (done, round 66), 1 (done, round 67), 6 (done, round 68), 12 (done, round 69), 2 (done, round 70), 9 (done, round 71), 10 (done, round 72), 16 (done, round 73), 11 (done, round 74). Fifth pass, same rule and order (severe count, then bugs in the fourth pass): 8 (done, round 75); 7 (done, round 76); 14 (done, round 77); 12 (done, round 78); 15 (done, round 79); 5 (done, round 80); 10 (done, round 81); 16 (done, round 82); 1 (done, round 83); 6 (done, round 84); 4 (done, round 85); 2 (done, round 86); 3 (done, round 87); 17 (done, round 88); 11 (done, round 89); 9 (done, round 90); 13 (done, round 91). Sixth pass, same rule and order (severe count, then bugs in the fifth pass): 13 (done, round 92); 14 (done, round 93); 8 (done, round 94); 4 (done, round 95); 9 (done, round 96); 10 (done, round 97); 11 (done, round 98); 6 (done, round 99); 7 (done, round 100); 5 (done, round 101); 16 (done, round 102); 12 (done, round 103); 2 (done, round 104); 17 (done, round 105); 15 (done, round 106); 1 (done, round 107); 3 (done, round 108). Seventh pass, same rule and order (severe count, then bugs in the sixth pass; ties by section number): 7 (done, round 109); 15 (done, round 110); 9 (done, round 111); 8 (done, round 112); 6 (done, round 113); 10 (done, round 114); 2 (done, round 115); 12 (done, round 116); 16 (done, round 117); 3 (done, round 118); 1 (done, round 119); 17 (done, round 120); 5 (done, round 121); 4 (done, round 122); 11 (done, round 123); 13 (done, round 124); 14 (done, round 125). Eighth pass, same rule and order (severe count, then bugs in the seventh pass; ties by section number): 7 (done, round 126); 9 (done, round 127); 10 (done, round 128); 6 (done, round 129); 4 (done, round 130); 15 (done, round 131); 17 (done, round 132); 1 (done, round 133); 5 (done, round 134); 12 (done, round 135); 14 (done, round 136); 2 (done, round 137); 8 (done, round 138); 16 (done, round 139); 3 (done, round 140); 11 (done, round 141); 13 (done, round 142). Ninth pass, same rule and order (severe count, then bugs in the eighth pass; ties by section number): 8 (done, round 143); 15 (done, round 144); 14 (done, round 145); 3 (done, round 146); 10 (done, round 147); 5 (done, round 148); 13 (done, round 149); 1 (done, round 150); 7 (done, round 151); 12 (done, round 152); 2 (done, round 153); 11 (done, round 154); 17 (done, round 155); 4 (done, round 156); 9 (done, round 157); 16 (done, round 158); 6 (done, round 159). Tenth pass, same rule and order (severe count, then bugs in the ninth pass; ties by section number): 7 (done, round 160); **next: 12**, then 4, 14, 15, 10, 13, 5, 2, 6, 1, 3, 8, 9, 11, 16, 17 (round 46 was a cross-section round on flaky-test root
 causes; its fixes are counted in the totals of 3, 10 and 15. Round 47 was the incomplete beta/gamma differential
 harness; its 4 fixes are counted in section 3.)
 
@@ -233,11 +233,55 @@ version. From round 57 versions are date-based, `YYYY.M.D.N` (see CLAUDE.md, "Gi
 | v2026.11.19.5 | 157 | Collections, ninth pass | 5 | (see tag) |
 | v2026.11.19.6 | 158 | WPF satellite, ninth pass | 5 | (see tag) |
 | v2026.11.19.7 | 159 | Binary formats & images, ninth pass | 10 | (see tag) |
+| v2026.11.19.8 | 160 | Documents & config, tenth pass | 12 | (see tag) |
 
 ## Round log
 
 <!-- One entry per round: date, section, findings raised / confirmed bugs / docs-or-hardening / rejected, the
      severe ones in a line each, and whether the section is re-queued. -->
+### Round 160: Documents & config, tenth pass (v2026.11.19.8)
+
+Two fresh reviewers (correctness, robustness): 11 bugs, none severe, two of them logged suspects (R100-2 and the
+casing behind R109-1), and one more found by the gates, so section 7 stays re-queued. This starts the tenth pass. The regression tests are in
+`DocumentsConfigReview160Tests` (12: nine failing on the old code on .NET 8 and the slug test on .NET Framework 4.8,
+each run by name under a 60 s timeout; the binder and escaping tests fail on both; plus guards that a file held past
+the retries still refuses to save and that a link to a file not made yet loads plain defaults). `DocumentsConfigReview151Tests.Save_ReadersNeverSeeAHalfWrittenFile` was flaky
+under load (it could finish before enough reads overlapped a save) and now reads for at least 2 s. The 151 and 155
+tests that fake another save now write the tagged temp name, and the name hash is unchecked (the overflow-checked
+build threw from every save and load before that).
+
+- **PdfWriter.Save and DocxWriter.Save** named the temp file after the target plus a suffix, so a legal name near 255
+  characters failed with IOException. The temp is a short name of its own in the same folder.
+- **PdfWriter.Save and DocxWriter.Save** failed at once when a reader held the old file (a viewer, File.ReadAllBytes).
+  The replace gets about half a second of retries.
+- **SettingsStore.LoadFrom** of a path ending in a directory separator loaded as "no file yet", and Save then made the
+  folder and failed. It throws ArgumentException, as a directory path does.
+- **SettingsStore.LoadFrom** during another instance's save returned defaults and refused to save (45% of loads beside
+  two busy savers). A sharing violation gets about half a second of retries.
+- **SettingsStore.LoadFrom** of a file not yet written waited 2 s and warned that a save was under way whenever any
+  store's recent temp file was in the folder. Temp names carry a hash of their file's name, and only its own count.
+- **SettingsStore.LoadFrom** of a file there for File.Exists but gone for the read three times running (another
+  save's replace each time) took "no file yet" without asking whether a save was under way: silent defaults the next
+  save would have written over the user's settings, in about one run in four of the round 151 concurrency test (found
+  by the verify gate). A link to a file not made yet is checked at its target, and repeated misses warn.
+- **SettingsStore** documented stale temps as removed after an hour; the code waits a day. The doc says a day.
+- **ReportBuilder** escaped HTML with its own copy that wrote lone surrogates, NUL and other C0/C1 controls raw (the
+  HtmlReport copy was fixed in round 151), so the page could not be written as UTF-8. It now writes U+FFFD as
+  HtmlReport does.
+- **ReportBuilder.Slug** lowered with ToLowerInvariant, which on .NET Framework leaves 379 letters (the Kelvin sign,
+  Cherokee, Georgian Mtavruli, Osage and others) in upper case, so anchors differed from GitHub's and from the net8
+  build (R109-1's cause; Deseret itself lowers on both). The missing mappings are applied first.
+- **ConfigBinder and EnvironmentVariables.GetDouble** on .NET Framework refused "infinity" and "nan" in every case
+  but one and read "-0" as +0 (R100-2). One invariant parse now reads them the same on every runtime.
+- **ConfigBinder and EnvironmentVariables.GetDouble** refused "∞" and "-∞" on every runtime, though the overflow check
+  exempted them. They bind to the infinities.
+- **ConfigBinder** bound a nested section into the property's declared type, so a derived instance's own keys were
+  dropped silently. It binds into the instance's type.
+
+Checked and clean: PDF and DOCX structure against the writers' own readers and the earlier references, table and
+callout HTML, the binder's collections, enums and nullable types, environment-variable lookups. Plausible, not
+confirmed, logged as R160-1.
+
 ### Round 159: Binary formats & images, ninth pass (v2026.11.19.7)
 
 Two fresh reviewers (correctness, robustness): 10 bugs, none severe, five of them logged suspects (R99-1, R113-1,

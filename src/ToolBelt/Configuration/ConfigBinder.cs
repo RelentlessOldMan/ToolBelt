@@ -174,7 +174,8 @@ namespace ToolBelt.Configuration
                         try { target = Activator.CreateInstance(pt)!; }
                         catch (TargetInvocationException ex) { errors.Add($"'{key}': {(ex.InnerException ?? ex).Message}"); continue; }
                     }
-                    BindInto(target, pt, values, section, key, sep, errors, depth + 1);
+                    // Into the instance's own type: a derived instance's extra properties were dropped silently.
+                    BindInto(target, target.GetType(), values, section, key, sep, errors, depth + 1);
                     if (CanSet(prop)) TrySet(prop, obj, target, key, errors);
                 }
                 else if (values.TryGetValue(key, out string? whole) && !string.IsNullOrEmpty(whole))
@@ -281,9 +282,28 @@ namespace ToolBelt.Configuration
             return list;
         }
 
-        // "1e400" overflows to ∞ on .NET Core but fails on .NET Framework: an error on both. "Infinity" itself is allowed.
+        // "1e400" overflows to ∞ on .NET Core but fails on .NET Framework: an error on both. "Infinity" and "∞" are allowed.
         private static bool Overflowed(string s, double v)
             => double.IsInfinity(v) && s.IndexOf("Infinity", StringComparison.OrdinalIgnoreCase) < 0 && s.IndexOf('\u221E') < 0;
+
+        // The same on every runtime: .NET Framework refused "infinity" and "nan" in any case but one, and read "-0" as +0.
+        // A sign, then Infinity, ∞ or NaN in any case, is the value it names; otherwise the invariant parse, with the sign
+        // of a zero kept.
+        private static bool TryParseFloat(string s, out double value)
+        {
+            string t = s.Trim();
+            bool minus = t.StartsWith("-", StringComparison.Ordinal);
+            string word = t.Length > 0 && (t[0] == '-' || t[0] == '+') ? t.Substring(1) : t;
+            if (word.Equals("Infinity", StringComparison.OrdinalIgnoreCase) || word == "\u221E")
+            {
+                value = minus ? double.NegativeInfinity : double.PositiveInfinity;
+                return true;
+            }
+            if (word.Equals("NaN", StringComparison.OrdinalIgnoreCase)) { value = double.NaN; return true; }
+            if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value)) return false;
+            if (value == 0 && minus) value = -0.0;
+            return true;
+        }
 
         private static Type Unwrap(Type type) => Nullable.GetUnderlyingType(type) ?? type;
 
@@ -349,11 +369,17 @@ namespace ToolBelt.Configuration
             // Floating point without AllowThousands: "0,5" (a decimal comma) is an error, not 5.
             if (t == typeof(double))
             {
-                if (double.TryParse(s, NumberStyles.Float, inv, out double d) && !Overflowed(s, d)) { value = d; return true; }
+                if (TryParseFloat(s, out double d) && !Overflowed(s, d)) { value = d; return true; }
                 return false;
             }
             if (t == typeof(float))
             {
+                // Parsed as a float (not a double then narrowed, which can round twice); the words and -0 as a double.
+                if (TryParseFloat(s, out double fd) && (double.IsNaN(fd) || fd == 0 || (double.IsInfinity(fd) && !Overflowed(s, fd))))
+                {
+                    value = (float)fd;
+                    return true;
+                }
                 if (float.TryParse(s, NumberStyles.Float, inv, out float fl) && !Overflowed(s, fl)) { value = fl; return true; }
                 return false;
             }

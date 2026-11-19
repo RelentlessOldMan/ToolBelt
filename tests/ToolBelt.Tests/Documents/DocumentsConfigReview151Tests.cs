@@ -218,8 +218,10 @@ namespace ToolBelt.Tests.Documents
                     });
                     saver.Start();
                     int reads = 0, torn = 0;
+                    // At least 2 s and 21 reads, up to 30 s: on one busy core the saver starved the reader ("only 3 reads").
                     var until = DateTime.UtcNow.AddSeconds(2);
-                    while (DateTime.UtcNow < until && failed is null)
+                    var limit = DateTime.UtcNow.AddSeconds(30);
+                    while ((DateTime.UtcNow < until || reads <= 20) && DateTime.UtcNow < limit && failed is null)
                     {
                         byte[] got;
                         try
@@ -352,7 +354,7 @@ namespace ToolBelt.Tests.Documents
             try
             {
                 string path = Path.Combine(dir, "s.json");
-                File.WriteAllText(Path.Combine(dir, ".tb-" + Guid.NewGuid().ToString("N") + ".tmp"), "{\"N\":5}");
+                File.WriteAllText(DocumentsConfigReview155Tests.SaveTemp(dir, "s.json"), "{\"N\":5}");
                 var writer = new Thread(() => { Thread.Sleep(100); File.WriteAllText(path, "{\"N\":5}"); });
                 writer.Start();
                 var store = SettingsStore<S>.LoadFrom(path);

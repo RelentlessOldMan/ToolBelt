@@ -487,7 +487,7 @@ namespace ToolBelt.Documents
             // GitHub keeps letters, marks, numbers, connector punctuation and '-', and turns each space into '-'. A
             // heading is one line, so a line break counts as the space it is rendered as.
             // Invariant casing leaves U+0130 (İ) as it is; GitHub lowers it to "i" plus a combining dot, as Unicode does.
-            string s = text.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Trim().Replace("\u0130", "i\u0307").ToLowerInvariant();
+            string s = Lower(text.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Trim().Replace("\u0130", "i\u0307"));
             var sb = new StringBuilder(s.Length);
             for (int i = 0; i < s.Length; i++)
             {
@@ -564,18 +564,63 @@ namespace ToolBelt.Documents
             _ => "NOTE",
         };
 
+        // As HtmlReport escapes: a lone surrogate (which can't be written as UTF-8), NUL and the other controls become
+        // U+FFFD. The title, headings, metadata, captions and callouts wrote them raw.
         private static string Esc(string text)
         {
             var sb = new StringBuilder(text.Length);
-            foreach (char ch in text)
+            for (int i = 0; i < text.Length; i++)
+            {
+                char ch = text[i];
                 switch (ch)
                 {
                     case '&': sb.Append("&amp;"); break;
                     case '<': sb.Append("&lt;"); break;
                     case '>': sb.Append("&gt;"); break;
-                    default: sb.Append(ch); break;
+                    default:
+                        if (char.IsSurrogate(ch))
+                        {
+                            if (char.IsHighSurrogate(ch) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) { sb.Append(ch).Append(text[++i]); break; }
+                            sb.Append("&#xFFFD;");
+                        }
+                        else if ((ch < ' ' && ch != '\t' && ch != '\n' && ch != '\f' && ch != '\r') || (ch >= '\u007f' && ch <= '\u009f')) sb.Append("&#xFFFD;");
+                        else sb.Append(ch);
+                        break;
                 }
+            }
             return sb.ToString();
+        }
+
+        // ToLowerInvariant, with the lowercase mappings .NET Framework's older tables lack (the Kelvin sign, Cherokee,
+        // Georgian Mtavruli, Osage and others: 379 letters that .NET 8 lowers), so a slug is GitHub's on every runtime.
+        // Each entry is first, last, delta, step; on a runtime that has them they change nothing.
+        private static readonly int[] MissingLower =
+        {
+            0x1C5, 0x1C5, 1, 1, 0x1C8, 0x1C8, 1, 1, 0x1CB, 0x1CB, 1, 1, 0x1F2, 0x1F2, 1, 1, 0x37F, 0x37F, 116, 1, 0x3F4,
+            0x3F4, -60, 1, 0x524, 0x52E, 1, 2, 0x10C7, 0x10C7, 7264, 1, 0x10CD, 0x10CD, 7264, 1, 0x13A0, 0x13EF, 38864, 1,
+            0x13F0, 0x13F5, 8, 1, 0x1C90, 0x1CBA, -3008, 1, 0x1CBD, 0x1CBF, -3008, 1, 0x1E9E, 0x1E9E, -7615, 1, 0x2126,
+            0x2126, -7517, 1, 0x212A, 0x212A, -8383, 1, 0x212B, 0x212B, -8262, 1, 0x2C70, 0x2C70, -10782, 1, 0x2C7E, 0x2C7F,
+            -10815, 1, 0x2CEB, 0x2CED, 1, 2, 0x2CF2, 0x2CF2, 1, 1, 0xA660, 0xA660, 1, 1, 0xA698, 0xA69A, 1, 2, 0xA78D,
+            0xA78D, -42280, 1, 0xA790, 0xA792, 1, 2, 0xA796, 0xA7A8, 1, 2, 0xA7AA, 0xA7AA, -42308, 1, 0xA7AB, 0xA7AB,
+            -42319, 1, 0xA7AC, 0xA7AC, -42315, 1, 0xA7AD, 0xA7AD, -42305, 1, 0xA7AE, 0xA7AE, -42308, 1, 0xA7B0, 0xA7B0,
+            -42258, 1, 0xA7B1, 0xA7B1, -42282, 1, 0xA7B2, 0xA7B2, -42261, 1, 0xA7B3, 0xA7B3, 928, 1, 0xA7B4, 0xA7BE, 1, 2,
+            0xA7C2, 0xA7C2, 1, 1, 0xA7C4, 0xA7C4, -48, 1, 0xA7C5, 0xA7C5, -42307, 1, 0xA7C6, 0xA7C6, -35384, 1, 0xA7C7,
+            0xA7C9, 1, 2, 0xA7F5, 0xA7F5, 1, 1, 0x104B0, 0x104D3, 40, 1, 0x10C80, 0x10CB2, 64, 1, 0x118A0, 0x118BF, 32, 1,
+            0x16E40, 0x16E5F, 32, 1, 0x1E900, 0x1E921, 34, 1
+        };
+
+        private static string Lower(string text)
+        {
+            var sb = new StringBuilder(text.Length);
+            for (int i = 0; i < text.Length; i++)
+            {
+                int c = text[i];
+                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) c = char.ConvertToUtf32(text[i], text[++i]);
+                for (int k = 0; k < MissingLower.Length; k += 4)
+                    if (c >= MissingLower[k] && c <= MissingLower[k + 1] && (c - MissingLower[k]) % MissingLower[k + 3] == 0) { c += MissingLower[k + 2]; break; }
+                if (c > 0xFFFF) sb.Append(char.ConvertFromUtf32(c)); else sb.Append((char)c);
+            }
+            return sb.ToString().ToLowerInvariant();
         }
 
         private static string Attr(string text) => Esc(text).Replace("\"", "&quot;");

@@ -76,9 +76,28 @@ namespace ToolBelt.Configuration
         public long GetLong(string name, long defaultValue) => Parse(name, s => long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out long v) ? v : (long?)null, "an integer") ?? defaultValue;
 
         public double GetDouble(string name, double defaultValue) => GetDouble(name) ?? defaultValue;
-        // "1e400" overflowed to ∞ on .NET Core but failed on .NET Framework: an error on both ("Infinity" itself is allowed).
-        public double? GetDouble(string name) => Parse(name, s => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double v)
+        // "1e400" overflowed to ∞ on .NET Core but failed on .NET Framework: an error on both ("Infinity" and "∞" are allowed).
+        public double? GetDouble(string name) => Parse(name, s => TryParseFloat(s, out double v)
             && !(double.IsInfinity(v) && s.IndexOf("Infinity", StringComparison.OrdinalIgnoreCase) < 0 && s.IndexOf('∞') < 0) ? v : (double?)null, "a number");
+
+        // The same on every runtime: .NET Framework refused "infinity" and "nan" in any case but one, and read "-0" as +0.
+        // A sign, then Infinity, ∞ or NaN in any case, is the value it names; otherwise the invariant parse, with the sign
+        // of a zero kept.
+        private static bool TryParseFloat(string s, out double value)
+        {
+            string t = s.Trim();
+            bool minus = t.StartsWith("-", StringComparison.Ordinal);
+            string word = t.Length > 0 && (t[0] == '-' || t[0] == '+') ? t.Substring(1) : t;
+            if (word.Equals("Infinity", StringComparison.OrdinalIgnoreCase) || word == "\u221E")
+            {
+                value = minus ? double.NegativeInfinity : double.PositiveInfinity;
+                return true;
+            }
+            if (word.Equals("NaN", StringComparison.OrdinalIgnoreCase)) { value = double.NaN; return true; }
+            if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value)) return false;
+            if (value == 0 && minus) value = -0.0;
+            return true;
+        }
 
         public bool GetBool(string name, bool defaultValue = false) => GetBoolOrNull(name) ?? defaultValue;
         public bool? GetBoolOrNull(string name) => Parse(name, ParseBool, "a boolean (true/false, 1/0, yes/no, on/off)");
