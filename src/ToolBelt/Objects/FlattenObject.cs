@@ -12,8 +12,9 @@ namespace ToolBelt.Objects
     /// something dumpable to a table, a CSV row or a structured log line, and what a configuration binder
     /// consumes. Reference cycles are broken (a repeated reference is not expanded again). A chain of getters that make a
     /// new object on every read (a struct's Perpendicular, a class's Reciprocal, a Ping whose Next is a new Pong whose
-    /// Next is a new Ping) is expanded only until its types have repeated three times along the path, and recorded as-is
-    /// beyond; a getter whose value is not a leaf is called twice, and a lazy sequence enumerated twice, to tell. An empty collection or dictionary, and an
+    /// Next is a new Ping) is expanded only until its types have repeated three times along the path (or 4,096 made
+    /// objects have been expanded below its first), and recorded as-is beyond (an object first expanded past such a
+    /// chain is expanded again by a shorter path); a getter whose value is not a leaf is called twice, and a lazy sequence enumerated twice, to tell. An empty collection or dictionary, and an
     /// object with no readable members, is recorded as-is. Two values whose paths spell the same key (a member
     /// <c>A_B</c> beside <c>A.B</c> with separator "_", or dictionary keys 1 and "1") throw rather than one silently
     /// replacing the other. A leaf or null root flattens to the single key "", which <c>UnflattenObject</c> refuses: it
@@ -33,7 +34,7 @@ namespace ToolBelt.Objects
 
             var result = new Dictionary<string, object?>();
             long keyChars = 0;
-            var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
+            var visited = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
             var snapshots = new Dictionary<object, object>(ObjectMembers.ReferenceComparer.Instance);
             // Trail: what the path followed (ObjectMembers.Trail), to end chains of made objects.
             var work = new Stack<(string Path, object? Value, ObjectMembers.Trail Trail)>();
@@ -52,7 +53,7 @@ namespace ToolBelt.Objects
 
         // Records a leaf, or lists the children to walk next.
         private static void Walk(string path, object? value, ObjectMembers.Trail trail, Dictionary<string, object?> result,
-            string sep, bool includeFields, HashSet<object> visited, Dictionary<object, object> snapshots,
+            string sep, bool includeFields, Dictionary<object, int> visited, Dictionary<object, object> snapshots,
             List<(string, object?, ObjectMembers.Trail)> children,
             ref long keyChars)
         {
@@ -78,8 +79,10 @@ namespace ToolBelt.Objects
                 return;
             }
 
-            // Guard against cycles, boxes included: a boxed struct can reach itself through an object-typed member.
-            if (!visited.Add(value))
+            // Guard against cycles, boxes included: a boxed struct can reach itself through an object-typed member. An object
+            // first expanded past a chain of made objects, where its own made members were cut, is expanded again by a
+            // shorter path: its contents reached no key.
+            if (!trail.TakeUp(visited, value))
             {
                 Record(result, path, shown); // already expanded elsewhere; record the reference as-is
                 return;

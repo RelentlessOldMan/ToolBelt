@@ -21,23 +21,49 @@ namespace ToolBelt.Objects
     /// </summary>
     public sealed class ObjectMapper<TSource, TTarget> where TTarget : new()
     {
-        private readonly HashSet<string> _ignored = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Kept by exact name: an entry names the target property of that exact name, or, when there is none, the ones
+        // matching it ignoring case. With Name and NAME on the target, Ignore("NAME") ignored both.
+        private readonly HashSet<string> _ignored = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<string, Func<TSource, object?>> _custom =
-            new Dictionary<string, Func<TSource, object?>>(StringComparer.OrdinalIgnoreCase);
+            new Dictionary<string, Func<TSource, object?>>(StringComparer.Ordinal);
 
-        /// <summary>Excludes a target property from mapping.</summary>
+        /// <summary>
+        /// Excludes a target property from mapping: the one of exactly that name, or, when there is none, those of that name
+        /// ignoring case.
+        /// </summary>
         public ObjectMapper<TSource, TTarget> Ignore(string targetProperty)
         {
             _ignored.Add(targetProperty ?? throw new ArgumentNullException(nameof(targetProperty)));
             return this;
         }
 
-        /// <summary>Supplies a custom value for a target property, overriding name matching.</summary>
+        /// <summary>
+        /// Supplies a custom value for a target property, overriding name matching: the one of exactly that name, or, when
+        /// there is none, those of that name ignoring case (the ordinal-first such entry, if several match).
+        /// </summary>
         public ObjectMapper<TSource, TTarget> ForMember(string targetProperty, Func<TSource, object?> selector)
         {
             if (targetProperty is null) throw new ArgumentNullException(nameof(targetProperty));
             _custom[targetProperty] = selector ?? throw new ArgumentNullException(nameof(selector));
             return this;
+        }
+
+        private bool Ignored(string name, HashSet<string> targetNames)
+        {
+            if (_ignored.Contains(name)) return true;
+            foreach (string e in _ignored)
+                if (!targetNames.Contains(e) && string.Equals(e, name, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        private Func<TSource, object?>? Custom(string name, HashSet<string> targetNames)
+        {
+            if (_custom.TryGetValue(name, out var exact)) return exact;
+            string? best = null;
+            foreach (string e in _custom.Keys)
+                if (!targetNames.Contains(e) && string.Equals(e, name, StringComparison.OrdinalIgnoreCase)
+                    && (best is null || string.CompareOrdinal(e, best) < 0)) best = e;
+            return best is null ? null : _custom[best];
         }
 
         /// <summary>Maps into a new target instance.</summary>
@@ -91,14 +117,17 @@ namespace ToolBelt.Objects
             foreach (string name in names)
                 if (!sourceProps.ContainsKey(name)) sourceProps[name] = exact[name];
 
-            foreach (PropertyInfo targetProp in typeof(TTarget).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            PropertyInfo[] targetProps = typeof(TTarget).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            var targetNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (PropertyInfo p in targetProps) targetNames.Add(p.Name);
+            foreach (PropertyInfo targetProp in targetProps)
             {
                 MethodInfo? setter = PublicAccessor(targetProp, setter: true);
                 if (setter is null || targetProp.GetIndexParameters().Length != 0
-                    || _ignored.Contains(targetProp.Name) || Hidden(targetProp, typeof(TTarget)) || IsByRefLike(targetProp.PropertyType)) continue;
+                    || Ignored(targetProp.Name, targetNames) || Hidden(targetProp, typeof(TTarget)) || IsByRefLike(targetProp.PropertyType)) continue;
 
                 object? value;
-                if (_custom.TryGetValue(targetProp.Name, out var selector))
+                if (Custom(targetProp.Name, targetNames) is Func<TSource, object?> selector)
                 {
                     value = selector(source);
                 }

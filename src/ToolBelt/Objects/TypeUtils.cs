@@ -244,7 +244,9 @@ namespace ToolBelt.Objects
                     && float.IsInfinity((float)big)) return Fail(targetType, out result);
                 // 1e-50 became 0f.
                 if (underlying == typeof(float) && value is double tiny && tiny != 0 && (float)tiny == 0) return Fail(targetType, out result);
-                if ((underlying == typeof(double) || underlying == typeof(float)) && !IntegerFits(value, underlying))
+                // An enum is checked as its number: (LongEnum)(2^53 + 1) became 2^53.
+                object numeric = value is Enum ? Convert.ChangeType(value, Enum.GetUnderlyingType(value.GetType()), CultureInfo.InvariantCulture) : value;
+                if ((underlying == typeof(double) || underlying == typeof(float)) && !IntegerFits(numeric, underlying))
                     return Fail(targetType, out result);
                 if (value is string str && ParseSpecial(str, underlying, out result)) return true;
                 // A floating target parses without thousands separators: the invariant "1,5" was 15, not a failure.
@@ -424,8 +426,9 @@ namespace ToolBelt.Objects
                 case double d:
                     return WholeLong(d, out number);
                 case decimal m:
-                    if (decimal.Truncate(m) != m || m < long.MinValue || m > long.MaxValue) return false;
-                    number = decimal.ToInt64(m);
+                    // Up to ulong.MaxValue: a ulong-backed enum's upper half was refused.
+                    if (decimal.Truncate(m) != m || m < long.MinValue || m > ulong.MaxValue) return false;
+                    number = m > long.MaxValue ? (object)decimal.ToUInt64(m) : decimal.ToInt64(m);
                     return true;
                 default:
                     return false;
@@ -435,9 +438,9 @@ namespace ToolBelt.Objects
         private static bool WholeLong(double d, out object? number)
         {
             number = null;
-            // −2^63 ≤ d < 2^63, a whole number (NaN fails both tests).
-            if (!(d >= -9223372036854775808.0 && d < 9223372036854775808.0) || Math.Floor(d) != d) return false;
-            number = (long)d;
+            // −2^63 ≤ d < 2^64, a whole number (NaN fails both tests); from 2^63 a ulong, for a ulong-backed enum.
+            if (!(d >= -9223372036854775808.0 && d < 18446744073709551616.0) || Math.Floor(d) != d) return false;
+            number = d < 9223372036854775808.0 ? (object)(long)d : (ulong)d;
             return true;
         }
 

@@ -140,6 +140,12 @@ namespace ToolBelt.Objects
         public const int MaxComputedDepth = 3;
 
         /// <summary>
+        /// How many made values (see <see cref="Trail"/>) a walk follows below the first made value on a path before it stops
+        /// descending there.
+        /// </summary>
+        public const int MaxComputedObjects = 4096;
+
+        /// <summary>
         /// The value to walk in place of <paramref name="value"/>: a <c>Memory&lt;T&gt;</c> or <c>ReadOnlyMemory&lt;T&gt;</c>
         /// becomes an array of its contents (its own properties are only Length, IsEmpty and the unreadable Span), and a
         /// default <c>ImmutableArray&lt;T&gt;</c> or <c>ArraySegment&lt;T&gt;</c>, which throws when enumerated, becomes null.
@@ -307,7 +313,9 @@ namespace ToolBelt.Objects
         /// ends it. A fresh value whose type already appeared as a fresh value along the path, or a struct copy whose type
         /// already appeared in the unbroken run of struct copies above it, is a repeat, and a walk stops descending once a
         /// path has more than <see cref="MaxComputedDepth"/> repeats. Stored data never repeats: stored objects are
-        /// stable, and a struct's fields cannot nest its own type.
+        /// stable, and a struct's fields cannot nest its own type. Below the first made value on a path, a walk follows at
+        /// most <see cref="MaxComputedObjects"/> made values in all, and stops descending past that: the depth limit alone
+        /// let a type with k properties each making a new one of itself grow about k^5 values (k = 30 ran out of memory).
         /// </summary>
         public sealed class Trail
         {
@@ -321,20 +329,43 @@ namespace ToolBelt.Objects
             /// <summary>The trail to a walk's root.</summary>
             public static readonly Trail Start = new Trail(null, null, 0);
 
-            private readonly Link? _fresh, _copies;
+            // Counts the made values below the first one on a path, shared by every path under it.
+            private sealed class Budget { public int Made; }
 
-            private Trail(Link? fresh, Link? copies, int repeats)
+            private readonly Link? _fresh, _copies;
+            private readonly Budget? _budget;
+            private readonly bool _spent;
+
+            private Trail(Link? fresh, Link? copies, int repeats, Budget? budget = null, bool spent = false)
             {
                 _fresh = fresh;
                 _copies = copies;
                 Repeats = repeats;
+                _budget = budget;
+                _spent = spent;
             }
 
             /// <summary>Repeats along the path so far.</summary>
             public int Repeats { get; }
 
             /// <summary>True once the path has more repeats than a walk follows.</summary>
-            public bool TooDeep => Repeats > MaxComputedDepth;
+            public bool TooDeep => Repeats > MaxComputedDepth || _spent;
+
+            // How much of what lies below a pair this path may cut: -1 for a path of stable reads only, else its repeats.
+            private int Rank => _spent ? MaxComputedDepth + 1 : _fresh is null && _copies is null ? -1 : Repeats;
+
+            /// <summary>
+            /// Whether a walk takes up <paramref name="pair"/> (a pair of objects, or one) on this path: the first time it is reached, or again by a path
+            /// that cuts less below it. A pair first reached past a chain of made objects had what lay under its own made
+            /// objects cut as too deep, and was then skipped when a direct path reached it, so a difference there was lost.
+            /// Each pair is taken up at most a few times, so cycles still end.
+            /// </summary>
+            public bool TakeUp<TKey>(Dictionary<TKey, int> seen, TKey pair) where TKey : notnull
+            {
+                if (seen.TryGetValue(pair, out int rank) && rank <= Rank) return false;
+                seen[pair] = Rank;
+                return true;
+            }
 
             /// <summary>The trail to <paramref name="value"/>, reached from here by a read of the given origin.</summary>
             public Trail Step(object? value, Origin origin)
@@ -353,7 +384,14 @@ namespace ToolBelt.Objects
                     repeat = Contains(_copies, type);
                     copies = new Link(type, _copies);
                 }
-                return new Trail(fresh, copies, Repeats + (repeat ? 1 : 0));
+                Budget? budget = _budget;
+                bool spent = _spent;
+                if (origin != Origin.Stable)
+                {
+                    budget ??= new Budget();
+                    spent |= ++budget.Made > MaxComputedObjects;
+                }
+                return new Trail(fresh, copies, Repeats + (repeat ? 1 : 0), budget, spent);
             }
 
             /// <summary>The trail of the two sides' paths together, for a walk over pairs: the more repeats, either side's types.</summary>

@@ -85,7 +85,7 @@ namespace ToolBelt.Objects
                     Expression member = Member(instance, typeof(TTarget), memberName, write: false);
                     if (member.Type != typeof(TValue))
                         member = ConvertTo(member, typeof(TValue), memberName);
-                    return Expression.Lambda<Func<TTarget, TValue>>(member, instance).Compile();
+                    return Expression.Lambda<Func<TTarget, TValue>>(NullChecked(instance, member), instance).Compile();
                 });
         }
 
@@ -116,8 +116,19 @@ namespace ToolBelt.Objects
                         source = Expression.Condition(
                             Expression.Property(value, "HasValue"), source, Expression.Default(member.Type));
                     Expression body = Expression.Assign(member, source);
-                    return Expression.Lambda<Action<TTarget, TValue>>(body, instance, value).Compile();
+                    return Expression.Lambda<Action<TTarget, TValue>>(NullChecked(instance, body), instance, value).Compile();
                 });
+        }
+
+        // A null instance of a reference type threw NullReferenceException; GetValue throws ArgumentNullException.
+        private static Expression NullChecked(ParameterExpression instance, Expression body)
+        {
+            if (instance.Type.IsValueType) return body;
+            var create = typeof(ArgumentNullException).GetConstructor(new[] { typeof(string) })!;
+            return Expression.Block(
+                Expression.IfThen(Expression.ReferenceEqual(instance, Expression.Constant(null, instance.Type)),
+                    Expression.Throw(Expression.New(create, Expression.Constant("instance")))),
+                body);
         }
 
         // A conversion between the member's type and TValue; none existing is the caller's type argument at fault.
@@ -138,8 +149,10 @@ namespace ToolBelt.Objects
             var box = Expression.Convert(member, typeof(object));
             var compiled = Expression.Lambda<Func<object, object?>>(box, param).Compile();
             // An instance of the wrong type threw InvalidCastException from the cast.
+            // A null instance threw NullReferenceException; GetValue throws ArgumentNullException.
             return o =>
             {
+                if (o is null) throw new ArgumentNullException("instance");
                 try { return compiled(o); }
                 catch (InvalidCastException ex) when (o != null && !type.IsInstanceOfType(o))
                 {
@@ -169,6 +182,7 @@ namespace ToolBelt.Objects
             // throws ArgumentException for the same misuse.
             return (o, v) =>
             {
+                if (o is null) throw new ArgumentNullException("instance");
                 try { compiled(o, v); }
                 catch (InvalidCastException ex) when (o != null && !type.IsInstanceOfType(o))
                 {

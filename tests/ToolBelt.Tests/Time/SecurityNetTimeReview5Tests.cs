@@ -123,7 +123,10 @@ namespace ToolBelt.Tests.Time
             loop.Start();
             Check.Equal(0, s.RunDue());
             now = new DateTimeOffset(2026, 1, 1, 10, 0, 59, 990, TimeSpan.Zero);
+            loop.InDelay.Reset();
             ScheduledJob job = s.Add("minutely", "* * * * *", () => { });
+            // Add wakes the loop (round 142); let its pass park before the clock moves, or the loop ran the job itself.
+            Check.True(loop.InDelay.Wait(5000), "the loop parked again");
             Check.Equal(new DateTimeOffset(2026, 1, 1, 10, 1, 0, TimeSpan.Zero), job.NextRun);
             now = new DateTimeOffset(2026, 1, 1, 10, 1, 0, 5, TimeSpan.Zero);   // back 5 ms from the last pass
             Check.Equal(1, Tick(s, job));

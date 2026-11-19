@@ -48,7 +48,9 @@ namespace ToolBelt.Objects
     /// the first path that reaches it, and its differences are reported there only (reporting them on every path made the
     /// output, and the time, grow exponentially with the depth of a graph whose nodes share children). A chain of getters that make a new object on every read
     /// (a struct's Perpendicular, a class's Reciprocal, a Ping whose Next is a new Pong whose Next is a new Ping) never
-    /// meets the same object twice, so it is followed only until its types have repeated three times along the path. A
+    /// meets the same object twice, so it is followed only until its types have repeated three times along the path (or
+    /// 4,096 made objects have been followed below its first); a pair first reached past such a chain is compared again
+    /// if a shorter path reaches it. A
     /// getter whose value is not a leaf is called twice, and a lazy sequence enumerated twice, to tell made objects from stored ones. The walk uses an explicit stack, so a deep graph cannot
     /// overflow the call stack. A property getter that throws propagates its own exception. A dictionary that implements
     /// only the generic interfaces (ExpandoObject) compares by key, and a key prints as <c>PropertyPath</c> parses it
@@ -110,7 +112,7 @@ namespace ToolBelt.Objects
             // Pairs already taken up: a pair met again (a cycle, or a shared object along another path) is not walked
             // again. Only pairs found equal were skipped before, so a shared pair that differed was walked and reported
             // once per path: exponential in the depth of a graph whose nodes share children.
-            var seen = new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance);
+            var seen = new Dictionary<(object, object), int>(ObjectMembers.ReferencePairComparer.Instance);
             var snapshots = new Dictionary<object, object>(ObjectMembers.ReferenceComparer.Instance);
             var work = new Stack<Frame>();
             work.Push(new Frame { Kind = Kind.Visit, A = a, B = b, Trail = ObjectMembers.Trail.Start });
@@ -137,7 +139,7 @@ namespace ToolBelt.Objects
 
         // Emits, in order, the frames that handle this pair: reports and child visits.
         private static void Visit(PathNode? path, object? a, object? b, ObjectMembers.Trail trail, ObjectComparisonOptions opt,
-            HashSet<(object, object)> seen, Dictionary<object, object> snapshots, List<Frame> output)
+            Dictionary<(object, object), int> seen, Dictionary<object, object> snapshots, List<Frame> output)
         {
             if (ReferenceEquals(a, b)) return;
             if (a is null || b is null) { output.Add(Report(path, a, b)); return; }
@@ -158,7 +160,7 @@ namespace ToolBelt.Objects
             }
 
             // Boxes too: a boxed struct can reach itself through an object-typed member.
-            if (!seen.Add((na, nb))) return;
+            if (!trail.TakeUp(seen, (na, nb))) return;
             if (seen.Count > ObjectMembers.MaxObjects) throw ObjectMembers.TooManyObjects();
 
             if (na is IDictionary da && nb is IDictionary db)

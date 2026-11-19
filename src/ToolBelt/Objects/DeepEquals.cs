@@ -33,7 +33,8 @@ namespace ToolBelt.Objects
     /// Dictionaries are equal when each holds every key of the other, whichever argument comes first. A chain of getters
     /// that make a new object on every read (a struct's Perpendicular, a class's Reciprocal, a Ping whose Next is a new
     /// Pong whose Next is a new Ping) never meets the same object twice, so the walk follows such a chain only until its
-    /// types have repeated three times along the path, and assumes equal beyond. A getter whose value is not a leaf is
+    /// types have repeated three times along the path (or 4,096 made objects have been followed below its first), and
+    /// assumes equal beyond. A pair first reached past such a chain is compared again if a shorter path reaches it. A getter whose value is not a leaf is
     /// called twice, and a lazy sequence (one with no count) enumerated twice, to tell made objects from stored ones.
     /// The walk uses an explicit stack, so a deep graph (a long linked list) cannot overflow the call stack. A property
     /// getter that throws propagates its own exception. A dictionary that implements only the generic interfaces
@@ -50,7 +51,7 @@ namespace ToolBelt.Objects
             var opt = options ?? new ObjectComparisonOptions();
             // Pairs already taken up are assumed equal: any difference reachable from them is found through their
             // first visit. That also ends cycles, through objects and collections alike.
-            var seen = new HashSet<(object, object)>(ObjectMembers.ReferencePairComparer.Instance);
+            var seen = new Dictionary<(object, object), int>(ObjectMembers.ReferencePairComparer.Instance);
             var snapshots = new Dictionary<object, object>(ObjectMembers.ReferenceComparer.Instance);
             // Trail: what the path to the pair followed (ObjectMembers.Trail), to end chains of made objects.
             var work = new Stack<(object? A, object? B, ObjectMembers.Trail Trail)>();
@@ -65,7 +66,7 @@ namespace ToolBelt.Objects
 
         // Compares what can be decided at this pair and pushes the child pairs; false on a difference.
         private static bool Step(object? a, object? b, ObjectMembers.Trail trail, ObjectComparisonOptions opt,
-            HashSet<(object, object)> seen, Dictionary<object, object> snapshots, Stack<(object?, object?, ObjectMembers.Trail)> work)
+            Dictionary<(object, object), int> seen, Dictionary<object, object> snapshots, Stack<(object?, object?, ObjectMembers.Trail)> work)
         {
             if (ReferenceEquals(a, b)) return true;
             if (a is null || b is null) return false;
@@ -79,7 +80,7 @@ namespace ToolBelt.Objects
                 return LeafEquals(a, b, opt);
 
             // Boxes too: a boxed struct can reach itself through an object-typed member.
-            if (!seen.Add((a, b))) return true;
+            if (!trail.TakeUp(seen, (a, b))) return true;
             if (seen.Count > ObjectMembers.MaxObjects) throw ObjectMembers.TooManyObjects();
 
             if (a is IDictionary da && b is IDictionary db)

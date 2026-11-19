@@ -107,7 +107,11 @@ namespace ToolBelt.Functional
             {
                 // Message is virtual and may be null, which Failure refuses: the caller's exception was lost to an
                 // ArgumentNullException.
-                return Result<T>.Failure(ex.Message ?? ex.GetType().FullName ?? ex.GetType().Name);
+                // A Message getter that throws let its exception out of Try; the type's name stands in.
+                string? message;
+                try { message = ex.Message; }
+                catch (Exception) { message = null; }
+                return Result<T>.Failure(message ?? ex.GetType().FullName ?? ex.GetType().Name);
             }
         }
     }
