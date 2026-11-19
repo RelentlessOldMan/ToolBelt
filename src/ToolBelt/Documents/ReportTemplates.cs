@@ -19,7 +19,8 @@ namespace ToolBelt.Documents
             if (string.IsNullOrWhiteSpace(markup) && (png is null || png.Length == 0))
                 throw new ArgumentException("A figure needs SVG markup or PNG bytes.", nameof(svg));
             Svg = svg;
-            Png = png;
+            // A copy: a buffer the caller reused before the report was built changed the figure.
+            Png = (byte[]?)png?.Clone();
         }
 
         public string Caption { get; }
@@ -134,7 +135,9 @@ namespace ToolBelt.Documents
             if (labelA is null) throw new ArgumentNullException(nameof(labelA));
             if (labelB is null) throw new ArgumentNullException(nameof(labelB));
             if (rows is null) throw new ArgumentNullException(nameof(rows));
-            if (!(flagPercent >= 0)) throw new ArgumentOutOfRangeException(nameof(flagPercent), flagPercent, "Must be non-negative.");
+            // Infinity turned flagging off and claimed "No metric changed by Infinity% or more".
+            if (!(flagPercent >= 0) || double.IsPositiveInfinity(flagPercent))
+                throw new ArgumentOutOfRangeException(nameof(flagPercent), flagPercent, "Must be finite and non-negative.");
             if (numberFormat is null) throw new ArgumentNullException(nameof(numberFormat));
             // Tried up front: an integer-only format ("X", "D") threw a bare FormatException partway through the build.
             try { 1.5.ToString(numberFormat, CultureInfo.InvariantCulture); }
@@ -153,22 +156,22 @@ namespace ToolBelt.Documents
                 // From a zero baseline there is no percent change, but a threshold of 0 still means "any change at all".
                 if (flagPercent == 0 && r.A == 0 && r.B != 0 && !double.IsNaN(r.B)) flagged.Add(r.Metric + " (from 0)");
                 else if (!double.IsNaN(p) && (flagPercent > 0 ? Math.Abs(p) >= flagPercent : p != 0))
-                    flagged.Add(r.Metric + " (" + Signed(p, "0.##") + "%)");
+                    flagged.Add(r.Metric + " (" + SignedPercent(p) + "%)");
             }
 
             if (list.Count == 0)
                 report.Callout(CalloutKind.Note, "No metrics to compare.");
             else if (flagged.Count > 0)
                 report.Callout(CalloutKind.Warning, flagged.Count.ToString(CultureInfo.InvariantCulture) + " metric(s) changed"
-                    + (flagPercent > 0 ? " by " + flagPercent.ToString("0.##", CultureInfo.InvariantCulture) + "% or more" : "")
+                    + (flagPercent > 0 ? " by " + Percent(flagPercent) + "% or more" : "")
                     + ": " + string.Join(", ", flagged) + ".");
             else
                 report.Callout(CalloutKind.Success, flagPercent > 0
-                    ? "No metric changed by " + flagPercent.ToString("0.##", CultureInfo.InvariantCulture) + "% or more."
+                    ? "No metric changed by " + Percent(flagPercent) + "% or more."
                     : "No metric changed.");
 
             if (largest != null)
-                report.Paragraph("Largest relative change: " + largest.Metric + ", " + Signed(largest.PercentChange, "0.##") + "%.");
+                report.Paragraph("Largest relative change: " + largest.Metric + ", " + SignedPercent(largest.PercentChange) + "%.");
 
             var table = new List<IReadOnlyList<string>>();
             foreach (var r in list)
@@ -180,7 +183,7 @@ namespace ToolBelt.Documents
                     r.A.ToString(numberFormat, CultureInfo.InvariantCulture) + u,
                     r.B.ToString(numberFormat, CultureInfo.InvariantCulture) + u,
                     Signed(r.Delta, numberFormat) + u,
-                    double.IsNaN(r.PercentChange) ? "n/a" : Signed(r.PercentChange, "0.##") + "%",
+                    double.IsNaN(r.PercentChange) ? "n/a" : SignedPercent(r.PercentChange) + "%",
                 });
             }
             report.Heading("Metrics").Table(new[] { "Metric", labelA, labelB, "Change", "Change %" }, table);
@@ -238,6 +241,14 @@ namespace ToolBelt.Documents
         }
 
         // "+1.5" / "-1.5"; a value that rounds to zero prints as "0", never "-0" or "+0".
+        // Two decimals, but never 0 for a percentage that isn't: a threshold of 0.001 read "changed by 0% or more".
+        private static string Percent(double v)
+        {
+            return v.ToString(v != 0 && Math.Abs(v) < 0.005 ? "G3" : "0.##", CultureInfo.InvariantCulture);
+        }
+
+        private static string SignedPercent(double v) => v == 0 ? "0" : (v > 0 ? "+" : "") + Percent(v);
+
         private static string Signed(double v, string format)
         {
             string s = v.ToString(format, CultureInfo.InvariantCulture);

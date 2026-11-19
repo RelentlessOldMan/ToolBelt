@@ -190,14 +190,25 @@ namespace ToolBelt.Documents
         {
             if (string.IsNullOrEmpty(text)) return text ?? "";
             var sb = new StringBuilder(text.Length);
-            foreach (char ch in text)
+            for (int i = 0; i < text.Length; i++)
             {
+                char ch = text[i];
                 switch (ch)
                 {
                     case '&': sb.Append("&amp;"); break;
                     case '<': sb.Append("&lt;"); break;
                     case '>': sb.Append("&gt;"); break;
-                    default: sb.Append(ch); break;
+                    default:
+                        // NUL was dropped by the parser, a lone surrogate can't be written as UTF-8, and other controls are
+                        // parse errors: each becomes U+FFFD, as a parser would show it.
+                        if (char.IsSurrogate(ch))
+                        {
+                            if (char.IsHighSurrogate(ch) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) { sb.Append(ch).Append(text[++i]); break; }
+                            sb.Append("&#xFFFD;");
+                        }
+                        else if ((ch < ' ' && ch != '\t' && ch != '\n' && ch != '\f' && ch != '\r') || (ch >= '\u007f' && ch <= '\u009f')) sb.Append("&#xFFFD;");
+                        else sb.Append(ch);
+                        break;
                 }
             }
             return sb.ToString();

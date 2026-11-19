@@ -462,7 +462,8 @@ namespace ToolBelt.Documents
                 if (PageNumbers)
                 {
                     string label = "Page " + (i + 1).ToString(CultureInfo.InvariantCulture) + " of " + pageCount.ToString(CultureInfo.InvariantCulture);
-                    double size = Math.Max(6, _fontSize * 0.75);
+                    // Shrunk to fit the page: at a large font size the label was centred far off both edges.
+                    double size = Math.Min(Math.Max(6, _fontSize * 0.75), 0.9 * _pageWidth / Measure(label, 1));
                     content += "0.4 g BT /F1 " + Num(size) + " Tf " + Num((_pageWidth - Measure(label, size)) / 2) + " " + Num(Math.Max(12, _margin / 2))
                                + " Td (" + Escape(label) + ") Tj ET 0 g\n";
                 }
@@ -486,7 +487,26 @@ namespace ToolBelt.Documents
         public void Save(string path)
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
-            File.WriteAllBytes(path, Build());
+            byte[] bytes = Build();
+            // Written beside the target, then moved over it: a full disk or a crash part-way left a truncated file where
+            // the previous good one had been.
+            string full = Path.GetFullPath(path);
+            string temp = full + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp";
+            try
+            {
+                using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    fs.Write(bytes, 0, bytes.Length);
+                    fs.Flush(true);
+                }
+                if (File.Exists(full)) File.Replace(temp, full, null);
+                else File.Move(temp, full);
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+            }
         }
 
         // ---------- outline ----------
@@ -570,6 +590,8 @@ namespace ToolBelt.Documents
         {
             var lines = new List<string>();
             if (text.Length == 0) { lines.Add(""); return lines; }
+            // A tab shows as a space, so it is a place to break too: words separated by tabs were split mid-word.
+            text = text.Replace('\t', ' ');
             // Leading spaces are kept (indented Lines output, aligned columns): they start the first line.
             int lead = 0;
             while (lead < text.Length && text[lead] == ' ') lead++;

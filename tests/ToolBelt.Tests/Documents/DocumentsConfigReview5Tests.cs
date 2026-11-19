@@ -465,8 +465,8 @@ namespace ToolBelt.Tests.Documents
                 string fresh = Path.Combine(dir, ".tb-" + Guid.NewGuid().ToString("N") + ".tmp");
                 string other = Path.Combine(dir, ".tb-mine.tmp");
                 foreach (string f in new[] { stale, fresh, other }) File.WriteAllText(f, "x");
-                File.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddHours(-2));
-                File.SetLastWriteTimeUtc(other, DateTime.UtcNow.AddHours(-2));
+                File.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddDays(-2));   // round 151: a day is the cutoff
+                File.SetLastWriteTimeUtc(other, DateTime.UtcNow.AddDays(-2));
                 SettingsStore<Plain>.LoadFrom(path).Save();
                 Check.False(File.Exists(stale), "the stale temp file is left");
                 Check.True(File.Exists(fresh) && File.Exists(other), "a file that isn't a stale temp was removed");

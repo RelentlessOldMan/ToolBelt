@@ -32,11 +32,7 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R98-3 | P3 | 11 | suspected | `TextDiff`'s largest allowed table is one 1 GB `ulong[]`, which a 32-bit or memory-capped process can fail to allocate (OutOfMemoryException) before the documented ArgumentException limit. Not probed. | review r98 |
 | R99-1 | P3 | 6 | suspected | `Base58.Encode` has no output-length guard, so a huge input likely ends in OutOfMemoryException rather than ArgumentException. Not probed. | review r99 |
 | R99-2 | P3 | 6 | suspected | A 32-bit bitfields BMP with a 40-byte header: the channel masks can overlap the pixel data, giving a misleading error rather than a clear one. | review r99 |
-| R100-1 | P3 | 7 | suspected | `ReportBuilder.GithubSlug` lowercases invariantly; GitHub's slugger may differ for a word-final sigma and for U+0130. Not checked against GitHub. | review r100 |
 | R100-2 | P3 | 7 | suspected | On .NET Framework, "infinity" (lower case), "∞" and floats near MaxValue may parse differently from net8 in ConfigBinder and EnvironmentVariables. Not run on net48. | review r100 |
-| R100-3 | P3 | 7 | suspected | Several SettingsStore instances saving one file at once: 8 threads gave UnauthorizedAccessException once the move retry ran out (no corruption). Documented "save from one place". | review r100 |
-| R100-4 | P3 | 7 | suspected | SettingsStore.Update: if the replace succeeds but restoring attributes then throws, Value is rolled back while the disk holds the new data. | review r100 |
-| R100-5 | P3 | 7 | suspected | SettingsStore's stale-temp cleanup judges age by LastWriteTimeUtc; on a share with a clock skewed by over an hour it could delete a live temp. | review r100 |
 | R102-1 | P3 | 16 | suspected | IncrementalCollection: a CollectionChanged handler that calls ResetAsync during ResetAsync's clear (one handler only) loads a page that the outer reset then overwrites (HasMoreItems, IsLoading). Not reproduced. | review r102 |
 | R102-2 | P3 | 16 | suspected | CountToVisibilityConverter.HasAny: an IEnumerable whose GetEnumerator returns null throws NullReferenceException; a one-shot sequence loses its first element to the check. | review r102 |
 | R102-3 | P3 | 16 | suspected | GlobalHotkeys.Register with a null callback for a gesture this instance already holds throws InvalidOperationException, not ArgumentNullException (Holds is checked first). | review r102 |
@@ -85,13 +81,9 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R108-4 | P3 | 3 | suspected | F upper tail at d1 near 1e-308 under a huge d2: −Expm1 of the leading term may lose relative precision. | review r108 |
 | R108-5 | P3 | 3 | suspected | KolmogorovSmirnovTwoSample uses the asymptotic p even at n = 3 (0.033 where the exact p is 0.1); documented as asymptotic. | review r108 |
 | R109-1 | P3 | 7 | suspected | ReportBuilder's heading slug lowers with ToLowerInvariant, which on .NET Framework leaves supplementary letters (Deseret) as they are: anchors may differ between builds. | review r109 |
-| R109-2 | P3 | 7 | suspected | DocxWriter checks only a PNG's 24-byte header, so a truncated PNG is embedded and Word reports damage (ToPdf rejects it). | review r109 |
-| R109-3 | P3 | 7 | suspected | DocxWriter table grid width 9360/columns is 0 past 9360 columns. | review r109 |
-| R109-4 | P3 | 7 | suspected | ReportTemplates.Comparison accepts flagPercent = ∞, which turns flagging off silently. | review r109 |
 | R109-5 | P3 | 7 | suspected | HtmlReport.CodeBlock with a language holding a space writes two CSS classes. | review r109 |
 | R109-6 | P3 | 7 | suspected | Two processes saving one SettingsStore file at once can still lose one writer's update after the retries. | review r109 |
 | R109-7 | P3 | 7 | suspected | PdfWriter.Code wraps by UTF-16 count, so a line with emoji wraps early. | review r109 |
-| R109-8 | P3 | 7 | suspected | HtmlReport passes U+0000 and lone surrogates through into the HTML text. | review r109 |
 | R110-1 | P3 | 15 | suspected | DpiInfo.Monitors throws when the per-monitor-v2 context is refused, where MonitorInfo falls back to v1 or returns an empty list. | review r110 |
 | R110-2 | P3 | 15 | suspected | Elevation.CurrentIntegrityLevel would read sub-authority -1 for a label SID with none. | review r110 |
 | R110-3 | P3 | 15 | suspected | RegistryUtils.DeleteKey of a path with a 300-character component throws ArgumentException where KeyExists, GetValue and DeleteValue report absent. | review r110 |
@@ -170,9 +162,8 @@ Status: `suspected` (not yet reproduced), `confirmed` (failing test or probe), `
 | R125-3 | P3 | 14 | suspected | A NaN or negative `FloatTolerance` is silently treated as exact instead of rejected. | review r125 |
 | R125-4 | P3 | 14 | suspected | Not covered: the reviewers' probes on .NET Framework 4.8, and `Memoize` and `AttributeCache` under concurrent use. GridPathfinding's near-tie heap was probed: costs a few ulps above Dijkstra's, paths optimal. | review r125 |
 | R136-1 | P3 | 14 | suspected | AttributeCache's static cache holds members and attributes strongly, so a collectible AssemblyLoadContext whose types were looked up cannot unload; ActivatorUtils.TryCreate runs a struct's explicit parameterless constructor and lets what it throws escape (as a class constructor's does: design?); TypeUtils' Uri to string uses Uri.ToString, which unescapes and may not round-trip; ConnectedComponents2D.LabelByValue with a non-transitive comparer may miscount a perimeter; Interval takes a null string endpoint as minus infinity; a path key holding ']' and both quotes cannot be spelled. Not probed. | review r136 |
-| R126-1 | P3 | 7 | suspected | `DocxWriter`: tables past Word's 63 columns build without a word; the PNG check reads only the header; `ReportFigure` keeps the caller's PNG array uncopied; `HtmlReport.ImageData` does not check the MIME type. | review r126 |
-| R126-2 | P3 | 7 | suspected | `PdfWriter`: code lines with emoji wrap early and lines split only by tabs never wrap; extra table cells are dropped silently; the footer may fall off the page at very large font sizes; AtTop has 1 pt of slack. | review r126 |
-| R126-3 | P3 | 7 | suspected | `MarkdownReport`: `Heading("Issue #")` loses the '#' (CommonMark reads it as a closing sequence); `CodeBlock("")` writes an empty line in the fence; a paragraph starting "1. x" may not be escaped. | review r126 |
+| R126-1 | P3 | 7 | suspected | `HtmlReport.ImageData` does not check the MIME type (round 151 fixed the DOCX column limit, the PNG check and `ReportFigure`'s copy). | review r126 |
+| R126-2 | P3 | 7 | suspected | `PdfWriter`: code lines with emoji wrap early; extra table cells are dropped silently; AtTop has 1 pt of slack (round 151 fixed tabs and the footer). | review r126 |
 | R126-4 | P3 | 7 | suspected | Not covered: SettingsStore across processes, on long paths and on corrupt files; PDF xref offsets past 10 digits; DOCX and PDF output through external validators; the reviewers' probes on .NET Framework 4.8. | review r126 |
 | R127-1 | P3 | 9 | suspected | `Counter.MostCommon` orders tied counts by dictionary order, which the doc does not define; `Aggregation.Pivot` hands its internal list to the aggregator, which could change it. | review r127 |
 | R127-2 | P3 | 9 | suspected | Not covered: LruCache, TtlCache and ObjectPool under concurrent stress; Bloom and Count-Min error rates by experiment; DataTableLite sort stability; Trie with odd Unicode; the reviewers' probes on .NET Framework 4.8. | review r127 |

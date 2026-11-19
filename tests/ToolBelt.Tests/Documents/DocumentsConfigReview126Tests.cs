@@ -124,11 +124,13 @@ namespace ToolBelt.Tests.Documents
 
         public void Docx_AVeryWideTableHasNoZeroWidthColumn()
         {
-            string[] headers = Enumerable.Range(0, 10_000).Select(i => "c").ToArray();
+            // Round 151: past Word's 63 columns a table is refused; the widest allowed has no zero-width column.
+            string[] headers = Enumerable.Range(0, DocxWriter.MaxColumns).Select(i => "c").ToArray();
             byte[] docx = new DocxWriter().Table(headers, new[] { headers }).Build();
             string xml = Entry(docx, "word/document.xml");
             Check.True(!xml.Contains("<w:gridCol w:w=\"0\"/>"), "a zero-width grid column");
-            Check.True(xml.Contains("<w:gridCol w:w=\"1\"/>"));
+            string[] wide = Enumerable.Range(0, 10_000).Select(i => "c").ToArray();
+            Check.Equal("headers", Check.Throws<ArgumentException>(() => new DocxWriter().Table(wide, new[] { wide })).ParamName);
         }
 
         // ---- HtmlReport ----

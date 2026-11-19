@@ -158,6 +158,8 @@ namespace ToolBelt.Documents
         {
             if (headers is null) throw new ArgumentNullException(nameof(headers));
             if (headers.Count == 0) throw new ArgumentException("A table needs at least one column.", nameof(headers));
+            // Word holds at most 63 columns: a wider table built, and Word reported the file damaged.
+            if (headers.Count > MaxColumns) throw new ArgumentException($"Word tables hold at most {MaxColumns} columns.", nameof(headers));
             if (rows is null) throw new ArgumentNullException(nameof(rows));
             // A rows enumerable that throws part-way left an unclosed <w:tbl> in the body, and the saved file was corrupt.
             int mark = _body.Length;
@@ -337,7 +339,26 @@ namespace ToolBelt.Documents
         public void Save(string path)
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
-            File.WriteAllBytes(path, Build());
+            byte[] bytes = Build();
+            // Written beside the target, then moved over it: a full disk or a crash part-way left a truncated file where
+            // the previous good one had been.
+            string full = Path.GetFullPath(path);
+            string temp = full + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp";
+            try
+            {
+                using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    fs.Write(bytes, 0, bytes.Length);
+                    fs.Flush(true);
+                }
+                if (File.Exists(full)) File.Replace(temp, full, null);
+                else File.Move(temp, full);
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+            }
         }
 
         private string FooterXml()
@@ -430,6 +451,9 @@ namespace ToolBelt.Documents
             return sb.ToString();
         }
 
+        /// <summary>The most columns a table may have (Word's limit).</summary>
+        public const int MaxColumns = 63;
+
         private static (int Width, int Height) PngSize(byte[] png)
         {
             byte[] sig = { 137, 80, 78, 71, 13, 10, 26, 10 };
@@ -439,6 +463,24 @@ namespace ToolBelt.Documents
             int w = (png[16] << 24) | (png[17] << 16) | (png[18] << 8) | png[19];
             int h = (png[20] << 24) | (png[21] << 16) | (png[22] << 8) | png[23];
             if (w <= 0 || h <= 0) throw new ArgumentException("PNG has an invalid size.", nameof(png));
+            // Only the header was read, so a truncated file was embedded and Word showed a broken image (ToPdf refused
+            // it): the chunks must run whole from IHDR through at least one IDAT to IEND.
+            bool data = false;
+            for (long at = 8; ; )
+            {
+                if (at + 12 > png.Length) throw new ArgumentException("The PNG is truncated.", nameof(png));
+                long length = ((long)png[at] << 24) | ((long)png[at + 1] << 16) | ((long)png[at + 2] << 8) | png[at + 3];
+                string type = Encoding.ASCII.GetString(png, (int)at + 4, 4);
+                if (at == 8 && length != 13) throw new ArgumentException("PNG has no IHDR.", nameof(png));
+                if (at + 12 + length > png.Length) throw new ArgumentException("The PNG is truncated.", nameof(png));
+                if (type == "IDAT" && length > 0) data = true;
+                at += 12 + length;
+                if (type == "IEND")
+                {
+                    if (!data) throw new ArgumentException("The PNG has no image data.", nameof(png));
+                    break;
+                }
+            }
             return (w, h);
         }
 

@@ -315,8 +315,9 @@ src/
       HtmlReport.cs         self-contained HTML doc with embedded CSS; escaping; base64 image embed
       PdfWriter.cs          hand-rolled PDF: exact base-14 metrics (font sizes ≤ 10,000 pt), wrapping, pagination, tables (header repeats),
                             PNG/RGBA images with alpha, bookmarks from headings, page numbers, code blocks, title
-      DocxWriter.cs         Word .docx via OOXML zip: mixed-format runs, real nested bullet/numbered lists, tables,
-                            PNG images, page breaks, header + "Page X of Y" footer, title/author
+      DocxWriter.cs         Word .docx via OOXML zip: mixed-format runs, real nested bullet/numbered lists, tables
+                            (up to Word's 63 columns, MaxColumns), PNG images, page breaks, header + "Page X of Y"
+                            footer, title/author; Save (here and in PdfWriter) replaces the file whole
       ReportBuilder.cs      typed report model (meta, TOC, props, tables, figures, code, callouts) -> HTML/MD/PDF/DOCX
       ReportTemplates.cs    ready-made RunSummary / Comparison (A vs B, deltas, flags) / PassFailMatrix reports
     Enums/
@@ -757,6 +758,7 @@ tests/
       DocumentsConfigReview100Tests.cs (round 100: read-only collections and unloadable values in settings, settings ACLs, lone-surrogate chars, PDF column ulp, binder null items, empty indexes, casing clashes and tree cost, env names with NUL)
       DocumentsConfigReview109Tests.cs (round 109: settings that would not load back, nested updates, linked and non-UTF-8 files, non-flags enum lists, null nested values, one duration syntax, Markdown rules and raw lists, empty figures, tiny PDF sizes, DOCX CR and footer)
       DocumentsConfigReview126Tests.cs (round 126: hidden config properties, exact durations up to TimeSpan.MaxValue, RequireAll names, undefined enums, fixed DOCX entry times, very wide DOCX tables, column-less HTML tables, nested Raw list items)
+      DocumentsConfigReview151Tests.cs (round 151: settings loads and saves during another instance's replace, stale and ~RF temps, atomic DOCX and PDF saves, truncated PNGs, 63-column tables, PDF footer and tabs, copied figures, infinite and tiny thresholds, Markdown trailing '#', lists and empty code, HTML controls, the U+0130 slug)
     Enums/
       EnumExtensionsTests.cs
       EnumReview89Tests.cs (round 89 review regressions: alias descriptions, exact-case parse, ulong flags)

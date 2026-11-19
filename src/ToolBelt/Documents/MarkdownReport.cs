@@ -39,7 +39,13 @@ namespace ToolBelt.Documents
         {
             if (level < 1 || level > 6) throw new ArgumentOutOfRangeException(nameof(level), level, "Heading level must be 1–6.");
             if (text is null) throw new ArgumentNullException(nameof(text));
-            Block(new string('#', level) + " " + text.Trim());
+            // A heading is one line: "a\nb" rendered as the heading "a" and a paragraph "b".
+            text = OneLine(text).Trim();
+            // A trailing run of '#' after a space (or alone) is a closing sequence, so "Issue #" rendered as "Issue".
+            int run = text.Length;
+            while (run > 0 && text[run - 1] == '#') run--;
+            if (run < text.Length && (run == 0 || text[run - 1] == ' ' || text[run - 1] == '\t')) text = text.Insert(run, "\\");
+            Block(new string('#', level) + " " + text);
             return this;
         }
 
@@ -54,8 +60,9 @@ namespace ToolBelt.Documents
         public MarkdownReport Paragraph(string text)
         {
             if (text is null) throw new ArgumentNullException(nameof(text));
-            Block(text.Trim());
-            return this;
+            // A paragraph is Markdown, as Raw is: one starting "1. x" right after a numbered list joined it as an item, and
+            // one starting "- x" took in the bullet list after it.
+            return Raw(text);
         }
 
         /// <summary>Adds a bulleted list.</summary>
@@ -124,7 +131,9 @@ namespace ToolBelt.Documents
             // The fence must be longer than any backtick run in the code, or a ``` line inside would close it early.
             string fence = new string('`', Math.Max(3, LongestRun(code, '`') + 1));
             string info = (language ?? "").Replace("`", "").Replace("\r", " ").Replace("\n", " ").Trim();
-            Block(fence + info + "\n" + code.TrimEnd('\n') + "\n" + fence);
+            // Empty code wrote a blank line between the fences, which renders as one empty line of code.
+            string body = code.TrimEnd('\r', '\n');
+            Block(fence + info + "\n" + (body.Length == 0 ? "" : body + "\n") + fence);
             return this;
         }
 
@@ -159,6 +168,9 @@ namespace ToolBelt.Documents
         {
             if (markdown is null) throw new ArgumentNullException(nameof(markdown));
             string block = markdown.Trim();
+            // A block that starts with an item of the list just written joined that list ("1. x" after a numbered list):
+            // an empty HTML comment between them ends the list.
+            if (_lastMarker != '\0' && FirstItemMarker(block) == _lastMarker) Block("<!-- -->");
             Block(block);
             // Raw Markdown that ends in a list (a hand-built table of contents) is a list too: the next list must not join it.
             // The list may end in a continuation or lazy line ("- a\n  b", "- a\nlazy"), so the last item line anywhere in
@@ -177,6 +189,13 @@ namespace ToolBelt.Documents
                 if (marker != '\0') { _lastMarker = marker; contentAt = indent + ContentOffset(rest); }
             }
             return this;
+        }
+
+        // The marker of the block's first line when it is an outer list item, else '\0'.
+        private static char FirstItemMarker(string block)
+        {
+            int end = block.IndexOfAny(new[] { '\r', '\n' });
+            return ListMarker(end < 0 ? block : block.Substring(0, end));
         }
 
         // Where an item's text starts after its marker: past one to four spaces, else (none, or five or more) one column.

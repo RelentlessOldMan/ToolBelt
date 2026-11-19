@@ -86,22 +86,30 @@ namespace ToolBelt.Configuration
             string full = System.IO.Path.GetFullPath(path);
             // A directory is no settings file: it loaded as "no file yet", and Save then failed with an access error.
             if (Directory.Exists(full)) throw new ArgumentException($"'{full}' is a directory, not a settings file.", nameof(path));
-            if (!File.Exists(full)) return new SettingsStore<T>(full, new T(), null);
             byte[] bytes;
-            try
+            for (int attempt = 0; ; attempt++)
             {
-                bytes = File.ReadAllBytes(full);
-            }
-            catch (FileNotFoundException)
-            {
-                return new SettingsStore<T>(full, new T(), null);                // deleted since the Exists check
-            }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
-            {
-                // Locked or unreadable: the file may well be fine, so leave it where it is, and don't let a save replace it
-                // (the first Update after a lock at startup overwrote the user's file with defaults).
-                return new SettingsStore<T>(full, new T(),
-                    $"Settings file could not be read ({ex.Message}); defaults were used, and saving is refused until Reset.", unread: true);
+                if (!File.Exists(full) && !Reappears(full)) return new SettingsStore<T>(full, new T(), null);
+                try
+                {
+                    bytes = File.ReadAllBytes(full);
+                    break;
+                }
+                catch (FileNotFoundException) when (attempt < 3)
+                {
+                    // Gone since the Exists check: deleted, or another instance is replacing it. Look again.
+                }
+                catch (FileNotFoundException)
+                {
+                    return new SettingsStore<T>(full, new T(), null);
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    // Locked or unreadable: the file may well be fine, so leave it where it is, and don't let a save replace it
+                    // (the first Update after a lock at startup overwrote the user's file with defaults).
+                    return new SettingsStore<T>(full, new T(),
+                        $"Settings file could not be read ({ex.Message}); defaults were used, and saving is refused until Reset.", unread: true);
+                }
             }
             try
             {
@@ -204,15 +212,17 @@ namespace ToolBelt.Configuration
             Directory.CreateDirectory(dir);
             // A fixed-length name: the file's own name plus 14 characters failed for names near the 255-character limit.
             string temp = System.IO.Path.Combine(dir, ".tb-" + Guid.NewGuid().ToString("N") + ".tmp");
-            RemoveStaleTemps(dir);
+            RemoveStaleTemps(dir, System.IO.Path.GetFileName(target));
             FileAttributes keep = 0;
-            if (File.Exists(target))
+            // Read once, not after an Exists check: another instance replacing the file leaves no file at the name for a
+            // moment, and the save failed there with FileNotFoundException.
+            FileAttributes? old = AttributesOf(target);
+            if (old is FileAttributes found)
             {
-                FileAttributes old = File.GetAttributes(target);
                 // A read-only file went through the whole retry loop before failing.
-                if ((old & FileAttributes.ReadOnly) != 0)
+                if ((found & FileAttributes.ReadOnly) != 0)
                     throw new UnauthorizedAccessException($"The settings file '{target}' is read-only.");
-                keep = old & (FileAttributes.Hidden | FileAttributes.System);
+                keep = found & (FileAttributes.Hidden | FileAttributes.System);
             }
             byte[] json = JsonSerializer.SerializeToUtf8Bytes(value, Options);
             // A value no load could read back (an interface-typed property, say) was saved, and from then on every
@@ -238,7 +248,10 @@ namespace ToolBelt.Configuration
                 }
                 // A Unix file's mode (0600 for one holding a token) became the umask default.
                 if (!OperatingSystem.IsWindows() && File.Exists(target))
-                    File.SetUnixFileMode(temp, File.GetUnixFileMode(target));
+                {
+                    try { File.SetUnixFileMode(temp, File.GetUnixFileMode(target)); }
+                    catch (FileNotFoundException) { }                            // replaced by another instance just now
+                }
                 // Another reader holding the file (an editor, a scanner, another instance loading it) made the move fail at
                 // once; it gets about half a second to let go.
                 using (var never = new System.Threading.ManualResetEventSlim(false))
@@ -252,14 +265,20 @@ namespace ToolBelt.Configuration
                             else File.Move(temp, target, overwrite: true);
                             break;
                         }
-                        catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < 10 && File.Exists(target))
+                        // Also when the target is missing: another instance replacing it leaves no file at the name for a
+                        // moment, and the save failed at once. The next attempt moves the temp file into place.
+                        catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < 10 && File.Exists(temp))
                         {
                             never.Wait(50);
                         }
                     }
-                // The move gave the file the temp file's attributes, so a hidden settings file became visible.
+                // The move gave the file the temp file's attributes, so a hidden settings file became visible. The save has
+                // happened by now, so this is best effort: a failure here rolled Value back while the file held the new data.
                 if (keep != 0 && OperatingSystem.IsWindows())
-                    File.SetAttributes(target, File.GetAttributes(target) | keep);
+                {
+                    try { File.SetAttributes(target, File.GetAttributes(target) | keep); }
+                    catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+                }
             }
             finally
             {
@@ -269,22 +288,66 @@ namespace ToolBelt.Configuration
             }
         }
 
-        // A save cut short by a crash or power loss left its temp file, and they piled up. One more than an hour old is
-        // no longer being written; one still open can't be deleted, and any error is ignored.
-        private static void RemoveStaleTemps(string dir)
+        // The file's attributes, or null when there is no file (or it is gone for a moment mid-replace).
+        private static FileAttributes? AttributesOf(string path)
         {
+            try { return File.GetAttributes(path); }
+            catch (Exception ex) when (ex is FileNotFoundException || ex is DirectoryNotFoundException) { return null; }
+        }
+
+        // A save cut short by a crash or power loss left its temp file, and they piled up; so did the "name~RF....TMP" copy
+        // a failed File.Replace leaves. One more than a day old is no longer being written (an hour was too close for a
+        // share whose clock runs behind); one still open can't be deleted, and any error is ignored.
+        private static void RemoveStaleTemps(string dir, string name)
+        {
+            DateTime cutoff = DateTime.UtcNow.AddDays(-1);
+            foreach (string f in Temps(dir, name))
+            {
+                try { if (File.GetLastWriteTimeUtc(f) < cutoff) File.Delete(f); }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+            }
+        }
+
+        // This store's temp files in the folder, and those File.Replace leaves for the named file.
+        private static List<string> Temps(string dir, string name)
+        {
+            var found = new List<string>();
             try
             {
-                DateTime cutoff = DateTime.UtcNow.AddHours(-1);
                 foreach (string f in Directory.EnumerateFiles(dir, ".tb-*.tmp"))
                 {
                     string n = System.IO.Path.GetFileName(f);
-                    if (n.Length != 40 || !IsHex(n, 4, 32)) continue;
-                    try { if (File.GetLastWriteTimeUtc(f) < cutoff) File.Delete(f); }
-                    catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+                    if (n.Length == 40 && IsHex(n, 4, 32)) found.Add(f);
                 }
+                if (OperatingSystem.IsWindows() && name.IndexOfAny(new[] { '*', '?' }) < 0)
+                    found.AddRange(Directory.EnumerateFiles(dir, name + "~RF*.TMP"));
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+            return found;
+        }
+
+        // A file missing while another instance saves it (File.Replace leaves no file at the name for a moment) loaded as
+        // "no file yet", with no warning, and the next save overwrote the user's settings with defaults. While a temp file
+        // written in the last minute is there, the load waits up to half a second for the file to come back.
+        private static bool Reappears(string full)
+        {
+            string dir = System.IO.Path.GetDirectoryName(full)!, name = System.IO.Path.GetFileName(full);
+            if (!Directory.Exists(dir)) return false;
+            using (var never = new System.Threading.ManualResetEventSlim(false))
+                for (int i = 0; i < 50; i++)
+                {
+                    DateTime recent = DateTime.UtcNow.AddMinutes(-1);
+                    bool saving = false;
+                    foreach (string f in Temps(dir, name))
+                    {
+                        try { if (File.GetLastWriteTimeUtc(f) > recent) { saving = true; break; } }
+                        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+                    }
+                    if (!saving) break;
+                    never.Wait(10);
+                    if (File.Exists(full)) return true;
+                }
+            return File.Exists(full);
         }
 
         private static bool IsHex(string s, int start, int count)

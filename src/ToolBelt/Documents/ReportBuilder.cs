@@ -486,7 +486,8 @@ namespace ToolBelt.Documents
             if (text is null) throw new ArgumentNullException(nameof(text));
             // GitHub keeps letters, marks, numbers, connector punctuation and '-', and turns each space into '-'. A
             // heading is one line, so a line break counts as the space it is rendered as.
-            string s = text.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Trim().ToLowerInvariant();
+            // Invariant casing leaves U+0130 (İ) as it is; GitHub lowers it to "i" plus a combining dot, as Unicode does.
+            string s = text.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Trim().Replace("\u0130", "i\u0307").ToLowerInvariant();
             var sb = new StringBuilder(s.Length);
             for (int i = 0; i < s.Length; i++)
             {
