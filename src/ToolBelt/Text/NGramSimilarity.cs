@@ -7,7 +7,8 @@ namespace ToolBelt.Text
     /// String similarity based on character n-grams. <see cref="Dice"/> is the Sørensen–Dice coefficient
     /// over the n-gram multiset (counts with multiplicity); <see cref="Jaccard"/> is the Jaccard index
     /// over the distinct n-gram set. Both return a value in [0, 1] (1 = identical). Two strings too short
-    /// to yield any n-gram are treated as similar (1.0) only if they are equal.
+    /// to yield any n-gram are treated as similar (1.0) only if they are equal. Grams are taken over code points: a
+    /// surrogate pair is one character (a lone surrogate counts as one of its own).
     /// </summary>
     public static class NGramSimilarity
     {
@@ -15,19 +16,20 @@ namespace ToolBelt.Text
         public static double Dice(string a, string b, int n = 2)
         {
             Validate(a, b, n);
-            int totalA = Math.Max(0, a.Length - n + 1), totalB = Math.Max(0, b.Length - n + 1);
+            int[] pa = CodePoints(a), pb = CodePoints(b);
+            int totalA = Math.Max(0, pa.Length - n + 1), totalB = Math.Max(0, pb.Length - n + 1);
             if (totalA + totalB == 0)
                 return a == b ? 1.0 : 0.0;
             if (totalA == 0 || totalB == 0)
                 return 0.0;
 
-            int[] id = GramClasses(a, b, n, out int classes);
+            int[] id = GramClasses(pa, pb, n, out int classes);
             var countA = new int[classes];
             for (int i = 0; i < totalA; i++) countA[id[i]]++;
             long intersection = 0;
             for (int j = 0; j < totalB; j++)
             {
-                int c = id[a.Length + j];
+                int c = id[pa.Length + j];
                 if (countA[c] > 0) { countA[c]--; intersection++; }
             }
             return 2.0 * intersection / ((long)totalA + totalB);
@@ -37,16 +39,17 @@ namespace ToolBelt.Text
         public static double Jaccard(string a, string b, int n = 2)
         {
             Validate(a, b, n);
-            int totalA = Math.Max(0, a.Length - n + 1), totalB = Math.Max(0, b.Length - n + 1);
+            int[] pa = CodePoints(a), pb = CodePoints(b);
+            int totalA = Math.Max(0, pa.Length - n + 1), totalB = Math.Max(0, pb.Length - n + 1);
             if (totalA + totalB == 0)
                 return a == b ? 1.0 : 0.0;
             if (totalA == 0 || totalB == 0)
                 return 0.0;
 
-            int[] id = GramClasses(a, b, n, out int classes);
+            int[] id = GramClasses(pa, pb, n, out int classes);
             var seen = new byte[classes];   // bit 1: in a, bit 2: in b
             for (int i = 0; i < totalA; i++) seen[id[i]] |= 1;
-            for (int j = 0; j < totalB; j++) seen[id[a.Length + j]] |= 2;
+            for (int j = 0; j < totalB; j++) seen[id[pa.Length + j]] |= 2;
             long intersection = 0, union = 0;
             foreach (byte f in seen)
             {
@@ -61,18 +64,18 @@ namespace ToolBelt.Text
         // renumbered pairs of length-k ranks, sorted by two counting passes, so it costs O((|a| + |b|) log n) whatever the
         // text. Grams were told apart by a rolling hash mod 2^64, and Thue–Morse blocks share one for any base: 2 million
         // such characters took 3.5 minutes, and repetitive text compared every repeat in full.
-        private static int[] GramClasses(string a, string b, int n, out int classes)
+        private static int[] GramClasses(int[] a, int[] b, int n, out int classes)
         {
             long total = (long)a.Length + b.Length;
             if (total > int.MaxValue - 2)
                 throw new ArgumentException("The two strings together are too long to compare.", nameof(b));
             int length = (int)total;
 
-            // Rank 0: the characters, numbered densely in code-unit order.
-            var chars = new char[length];
-            a.CopyTo(0, chars, 0, a.Length);
-            b.CopyTo(0, chars, a.Length, b.Length);
-            var distinct = (char[])chars.Clone();
+            // Rank 0: the code points, numbered densely in order.
+            var chars = new int[length];
+            Array.Copy(a, 0, chars, 0, a.Length);
+            Array.Copy(b, 0, chars, a.Length, b.Length);
+            var distinct = (int[])chars.Clone();
             Array.Sort(distinct);
             int d = 0;
             for (int i = 0; i < distinct.Length; i++)
@@ -123,6 +126,28 @@ namespace ToolBelt.Text
                 next[i] = dense;
             }
             return dense + 1;
+        }
+
+        // The code points of s. Grams were UTF-16 units, so two emoji from one surrogate block shared a "gram" (their high
+        // surrogate): Jaccard("x\U0001F600", "x\U0001F601", 1) was 0.5, not 1/3. A lone surrogate stays a unit of its own
+        // (its value is below every astral code point, so it never equals one).
+        private static int[] CodePoints(string s)
+        {
+            int count = 0;
+            for (int i = 0; i < s.Length; i++, count++)
+                if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1])) i++;
+            var points = new int[count];
+            int k = 0;
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+                {
+                    points[k++] = char.ConvertToUtf32(s[i], s[i + 1]);
+                    i++;
+                }
+                else points[k++] = s[i];
+            }
+            return points;
         }
 
         private static int Second(int[] rank, int i, int offset) => i + offset < rank.Length ? rank[i + offset] + 1 : 0;

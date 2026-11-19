@@ -79,6 +79,9 @@ namespace ToolBelt.Text
         /// cut (on a character boundary, never inside an escape sequence or surrogate pair) and ended with
         /// <paramref name="ellipsis"/> when too wide. A wide character that would straddle the edge is replaced by padding.
         /// An unfinished escape sequence at the end of the text is dropped when padding or an ellipsis goes after it.
+        /// An ellipsis wider than <paramref name="width"/> is left out. The ellipsis may hold escape sequences but no other
+        /// control character, no unpaired surrogate, and may not start with a combining mark (which would join the last
+        /// character kept): any of those threw off the width or the UTF-16 of the result.
         /// </summary>
         public static string Fit(string text, int width, Alignment alignment = Alignment.Left, char pad = ' ', bool truncate = true, string ellipsis = "…")
         {
@@ -87,6 +90,10 @@ namespace ToolBelt.Text
             // Padding counts characters, so a wide or zero-width pad broke "exactly width columns" ('中' gave 9 for 5).
             // A lone surrogate measured one column and padded the text with invalid UTF-16.
             if (char.IsSurrogate(pad) || DisplayWidth(pad.ToString()) != 1) throw new ArgumentOutOfRangeException(nameof(pad), pad, "The pad character must be one column wide.");
+            // The ellipsis was taken as it came: a tab measured no columns but a terminal shows up to eight, a lone
+            // surrogate made the result invalid UTF-16, and a leading combining mark joined the last character kept, so
+            // the cut did not show.
+            if (ellipsis != null) ValidateEllipsis(ellipsis);
             int current = DisplayWidth(text);
             if (current > width)
             {
@@ -125,6 +132,27 @@ namespace ToolBelt.Text
                 k = end + 1;
             }
             return k < text.Length && text[k] == '\uFE0F' ? text.Remove(k, 1) : text;
+        }
+
+        private static void ValidateEllipsis(string ellipsis)
+        {
+            for (int i = 0; i < ellipsis.Length; i++)
+            {
+                char c = ellipsis[i];
+                if (char.IsHighSurrogate(c) && i + 1 < ellipsis.Length && char.IsLowSurrogate(ellipsis[i + 1])) { i++; continue; }
+                if (char.IsSurrogate(c))
+                    throw new ArgumentException("The ellipsis holds an unpaired surrogate.", nameof(ellipsis));
+                if (c != '\u001b' && (c < ' ' || (c >= '\u007f' && c <= '\u009f')))
+                    throw new ArgumentException("The ellipsis holds a control character.", nameof(ellipsis));
+            }
+            if (ellipsis.Length > 0 && !(ellipsis[0] >= '\uFE00' && ellipsis[0] <= '\uFE0F'))
+            {
+                // A leading variation selector is dropped by Cut; any other mark would join the last character kept.
+                var category = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ellipsis, 0);
+                if (category == System.Globalization.UnicodeCategory.NonSpacingMark || category == System.Globalization.UnicodeCategory.SpacingCombiningMark
+                    || category == System.Globalization.UnicodeCategory.EnclosingMark)
+                    throw new ArgumentException("The ellipsis starts with a combining mark.", nameof(ellipsis));
+            }
         }
 
         private static string Cut(string text, int width, string ellipsis, char pad)

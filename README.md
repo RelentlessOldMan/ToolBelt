@@ -486,7 +486,7 @@ src/
       MiddleEllipsis.cs     truncate keeping head + tail
       NaturalComparer.cs    natural sort order (img2 < img10)
       QueryString.cs        URL query-string build + parse (percent-encoding)
-      NGramSimilarity.cs    Dice & Jaccard similarity over character n-grams
+      NGramSimilarity.cs    Dice & Jaccard similarity over character n-grams (code points)
       RomanNumerals.cs      integer <-> Roman numeral (1..3999, validated)
       Slug.cs               URL/filename-safe slugs (diacritic folding; separator '-', '_', '.' or '~')
       Soundex.cs            American Soundex phonetic key
@@ -974,6 +974,7 @@ tests/
       TextReview98Tests.cs (round 98 review regressions: escapes cut short, emoji selector past escapes and on supplementary symbols, glob masks by token group)
       TextReview123Tests.cs  (round 123: letters with no one-letter capital in every case style, NanoId's default size, emoji selector past a control inside an escape)
       TextReview141Tests.cs  (round 141: .NET Framework casing gaps, emoji selector beside pads, ellipses and cut escapes, null newline, Ulid draw order, overlapping tokenizer roles)
+      TextReview154Tests.cs  (round 154: n-grams over code points, Dedent keeping every CR, ellipses Fit refuses)
       MiscReviewRegressionTests.cs  (2026-10-05 review regressions: Text, Cli, Threading, Time, Diagnostics, Collections)
       TruncateTests.cs
       WordWrapTests.cs

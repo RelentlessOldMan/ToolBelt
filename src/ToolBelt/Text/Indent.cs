@@ -32,7 +32,7 @@ namespace ToolBelt.Text
 
         /// <summary>
         /// Removes the longest whitespace prefix common to all non-blank lines. Whitespace-only lines become empty
-        /// (keeping a trailing <c>\r</c>), as in Python's <c>textwrap.dedent</c>.
+        /// (keeping their <c>\r</c> characters), as in Python's <c>textwrap.dedent</c>.
         /// </summary>
         public static string Dedent(string text)
         {
@@ -54,12 +54,21 @@ namespace ToolBelt.Text
 
             for (int i = 0; i < lines.Length; i++)
             {
+                // Every \r stays: a whitespace-only line kept one at most, so "  \r\r" (two lines ended by lone CRs) lost one.
                 if (lines[i].Trim().Length == 0)
-                    lines[i] = lines[i].EndsWith("\r", StringComparison.Ordinal) ? "\r" : "";
+                    lines[i] = new string('\r', CountCarriageReturns(lines[i]));
                 else if (!string.IsNullOrEmpty(common) && lines[i].StartsWith(common, StringComparison.Ordinal))
                     lines[i] = lines[i].Substring(common!.Length);
             }
             return string.Join("\n", lines);
+        }
+
+        private static int CountCarriageReturns(string line)
+        {
+            int count = 0;
+            foreach (char c in line)
+                if (c == '\r') count++;
+            return count;
         }
 
         private static string LeadingWhitespace(string line)

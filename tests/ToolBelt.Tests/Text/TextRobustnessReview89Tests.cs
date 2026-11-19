@@ -31,12 +31,19 @@ namespace ToolBelt.Tests.Text
             return (double)inter / (ga.Count + gb.Count - inter);
         }
 
+        // Grams over characters, a surrogate pair as one (round 154: grams were UTF-16 units).
         private static Dictionary<string, int> Grams(string s, int n)
         {
-            var d = new Dictionary<string, int>(StringComparer.Ordinal);
-            for (int i = 0; i + n <= s.Length; i++)
+            var units = new List<string>();
+            for (int i = 0; i < s.Length; i++)
             {
-                string g = s.Substring(i, n);
+                if (i + 1 < s.Length && char.IsSurrogatePair(s[i], s[i + 1])) { units.Add(s.Substring(i, 2)); i++; }
+                else units.Add(s[i].ToString());
+            }
+            var d = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i + n <= units.Count; i++)
+            {
+                string g = string.Join("", units.GetRange(i, n));
                 d.TryGetValue(g, out int c);
                 d[g] = c + 1;
             }
