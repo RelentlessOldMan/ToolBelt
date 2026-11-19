@@ -91,7 +91,9 @@ namespace ToolBelt.WinForms
 
         /// <summary>
         /// Applies a saved placement to <paramref name="form"/> (sets manual start position), after moving it onto
-        /// a currently attached monitor if it would otherwise be unreachable. See <see cref="EnsureOnScreen"/>.
+        /// a currently attached monitor if it would otherwise be unreachable. See <see cref="EnsureOnScreen"/>. A state
+        /// without a positive size (<c>default</c>, or what a failed <see cref="FormState.TryParse"/> gives) leaves the form
+        /// as it is.
         /// </summary>
         public static void Apply(Form form, FormState state)
             => Apply(form, state, CurrentWorkingAreas());
@@ -105,10 +107,13 @@ namespace ToolBelt.WinForms
         {
             if (form is null) throw new ArgumentNullException(nameof(form));
             if (workingAreas is null) throw new ArgumentNullException(nameof(workingAreas));
+            // An empty state still set a manual start position and Normal: the out value of a failed TryParse pinned a
+            // centred form to (0,0) and dropped a designer-set Maximized.
+            if (state.Bounds.Width <= 0 || state.Bounds.Height <= 0)
+                return;
             form.StartPosition = FormStartPosition.Manual;
             form.WindowState = FormWindowState.Normal;
-            if (!state.Bounds.IsEmpty)
-                form.Bounds = EnsureOnScreen(state.Bounds, workingAreas);
+            form.Bounds = EnsureOnScreen(state.Bounds, workingAreas);
             form.WindowState = state.WindowState;
         }
 

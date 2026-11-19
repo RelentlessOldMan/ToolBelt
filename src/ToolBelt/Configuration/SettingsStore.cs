@@ -20,7 +20,8 @@ namespace ToolBelt.Configuration
     /// <see cref="LoadWarning"/>) rather than crashing the app on every launch, and a file that can't be read at all
     /// (locked, no permission) also yields defaults with a warning, left in place and not overwritten (<see cref="Save"/>
     /// and <see cref="Update"/> throw until <see cref="Reset"/> deliberately replaces it); unknown properties from newer
-    /// versions are ignored and missing ones keep their defaults; NaN and ±∞ in floating-point settings round-trip.
+    /// versions are ignored and missing ones keep their defaults; a file missing while another save is under way is waited
+    /// for up to two seconds, then defaults are used with a warning; NaN and ±∞ in floating-point settings round-trip.
     /// Get-only properties load too: a collection (<c>List&lt;string&gt; Recent { get; } = new()</c>, a queue, a stack, a
     /// concurrent collection, or one declared as <c>IEnumerable&lt;T&gt;</c>) is cleared and refilled from the file, and an
     /// object is filled in place (one that is null, an array or a read-only collection keeps its default). A public
@@ -89,7 +90,16 @@ namespace ToolBelt.Configuration
             byte[] bytes;
             for (int attempt = 0; ; attempt++)
             {
-                if (!File.Exists(full) && !Reappears(full)) return new SettingsStore<T>(full, new T(), null);
+                if (!File.Exists(full))
+                {
+                    bool? back = Reappears(full);
+                    if (back == false) return new SettingsStore<T>(full, new T(), null);
+                    // The wait ran out with a save apparently still under way (another instance, or one that crashed in the
+                    // last minute): the defaults come with a warning, where they were taken silently on a busy machine.
+                    if (back is null)
+                        return new SettingsStore<T>(full, new T(),
+                            "Settings file was missing while another save appeared to be under way; defaults were used.");
+                }
                 try
                 {
                     bytes = File.ReadAllBytes(full);
@@ -328,13 +338,16 @@ namespace ToolBelt.Configuration
 
         // A file missing while another instance saves it (File.Replace leaves no file at the name for a moment) loaded as
         // "no file yet", with no warning, and the next save overwrote the user's settings with defaults. While a temp file
-        // written in the last minute is there, the load waits up to half a second for the file to come back.
-        private static bool Reappears(string full)
+        // written in the last minute is there, the load waits up to two seconds for the file to come back: true if it did,
+        // false if no save is under way, null if one still was when the wait ran out. (The wait was 50 rounds of 10 ms, and
+        // a saver held up longer than that on a busy machine still gave silent defaults.)
+        private static bool? Reappears(string full)
         {
             string dir = System.IO.Path.GetDirectoryName(full)!, name = System.IO.Path.GetFileName(full);
             if (!Directory.Exists(dir)) return false;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             using (var never = new System.Threading.ManualResetEventSlim(false))
-                for (int i = 0; i < 50; i++)
+                while (true)
                 {
                     DateTime recent = DateTime.UtcNow.AddMinutes(-1);
                     bool saving = false;
@@ -343,11 +356,11 @@ namespace ToolBelt.Configuration
                         try { if (File.GetLastWriteTimeUtc(f) > recent) { saving = true; break; } }
                         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
                     }
-                    if (!saving) break;
+                    if (!saving) return File.Exists(full);
+                    if (clock.ElapsedMilliseconds >= 2000) return File.Exists(full) ? true : (bool?)null;
                     never.Wait(10);
                     if (File.Exists(full)) return true;
                 }
-            return File.Exists(full);
         }
 
         private static bool IsHex(string s, int start, int count)

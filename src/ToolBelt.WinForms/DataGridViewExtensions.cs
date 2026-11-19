@@ -76,8 +76,10 @@ namespace ToolBelt.WinForms
         public static string SelectionToTsv(this DataGridView grid, bool includeHeaders = false)
         {
             if (grid is null) throw new ArgumentNullException(nameof(grid));
+            // A cell in a hidden row counted (SelectAll selects them): alone it gave a header-only result, and it widened
+            // the column span the visible rows were written over.
             var selected = grid.SelectedCells.Cast<DataGridViewCell>()
-                .Where(c => c.OwningColumn.Visible && !c.OwningRow.IsNewRow)
+                .Where(c => c.OwningColumn.Visible && c.OwningRow.Visible && !c.OwningRow.IsNewRow)
                 .ToList();
             if (selected.Count == 0) return string.Empty;
 
@@ -130,7 +132,7 @@ namespace ToolBelt.WinForms
         {
             if (grid is null) throw new ArgumentNullException(nameof(grid));
             if (writer is null) throw new ArgumentNullException(nameof(writer));
-            if (delimiter == '"' || delimiter == '\r' || delimiter == '\n') throw new ArgumentException("Invalid delimiter.", nameof(delimiter));
+            ValidateDelimiter(delimiter);
             var columns = grid.Columns.Cast<DataGridViewColumn>()
                 .Where(c => !visibleColumnsOnly || c.Visible)
                 .OrderBy(c => c.DisplayIndex).ToList();
@@ -163,14 +165,29 @@ namespace ToolBelt.WinForms
         /// Saves the grid as CSV (see <see cref="ToCsv(DataGridView, TextWriter, bool, bool, char, bool)"/>); UTF-8 with a
         /// byte-order mark by default, so Excel detects the encoding. The file is written beside the target and moved over
         /// it at the end, so a failure partway (a throwing CellFormatting handler, a full disk) leaves any previous file
-        /// as it was.
+        /// as it was. A symbolic link is followed (the file it names is replaced, the link kept); a device such as NUL or
+        /// an alternate data stream is written directly.
         /// </summary>
         public static void SaveCsv(this DataGridView grid, string path, Encoding? encoding = null, bool includeHeaders = true, char delimiter = ',', bool escapeFormulas = false)
         {
             if (grid is null) throw new ArgumentNullException(nameof(grid));
             if (path is null) throw new ArgumentNullException(nameof(path));
-            if (delimiter == '"' || delimiter == '\r' || delimiter == '\n') throw new ArgumentException("Invalid delimiter.", nameof(delimiter));
+            ValidateDelimiter(delimiter);
+            Encoding enc = encoding ?? new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
             string full = Path.GetFullPath(path);
+            // A device (NUL) or an alternate data stream cannot take a file moved over it: the temp file beside it failed
+            // (FileNotFoundException, "The parameter is incorrect"). Those are written directly.
+            if (full.StartsWith(@"\\.\", StringComparison.Ordinal) || Path.GetFileName(full).IndexOf(':') >= 0)
+            {
+                using var direct = new StreamWriter(full, false, enc);
+                grid.ToCsv(direct, includeHeaders, true, delimiter, escapeFormulas);
+                return;
+            }
+            // A symbolic link was replaced by a plain file and the file it named kept the old data: the move goes over the
+            // link's final target instead.
+            var info = new FileInfo(full);
+            if (info.LinkTarget is not null && info.ResolveLinkTarget(returnFinalTarget: true) is FileSystemInfo target)
+                full = target.FullName;
             // The temp file sits beside the target; its name is shortened when the target's plus the 13-character suffix
             // would pass the 255-character file-name limit (an IOException for names a direct write handles).
             string suffix = "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp";
@@ -178,7 +195,7 @@ namespace ToolBelt.WinForms
             string temp = name.Length + suffix.Length <= 255 ? full + suffix : Path.Combine(Path.GetDirectoryName(full)!, "~csv" + suffix);
             try
             {
-                using (var writer = new StreamWriter(temp, false, encoding ?? new UTF8Encoding(encoderShouldEmitUTF8Identifier: true)))
+                using (var writer = new StreamWriter(temp, false, enc))
                     grid.ToCsv(writer, includeHeaders, true, delimiter, escapeFormulas);
                 File.Move(temp, full, overwrite: true);
             }
@@ -187,6 +204,13 @@ namespace ToolBelt.WinForms
                 try { File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { }
                 throw;
             }
+        }
+
+        // A surrogate delimiter was written as U+FFFD by every encoder, so no reader could split the fields again.
+        private static void ValidateDelimiter(char delimiter)
+        {
+            if (delimiter == '"' || delimiter == '\r' || delimiter == '\n' || char.IsSurrogate(delimiter))
+                throw new ArgumentException("Invalid delimiter.", nameof(delimiter));
         }
 
         // An image cell's formatted value is a Bitmap, decoded afresh (and never disposed) on every read, whose text is just
