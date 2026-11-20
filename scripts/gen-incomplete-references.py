@@ -180,25 +180,39 @@ BETA_HEADER = ['x', 'a', 'b', 'I_x(a,b)', 'kappa']
 GAMMA_HEADER = ['a', 'x', 'P(a,x)', 'Q(a,x)', 'kappa_P', 'kappa_Q']
 
 def grid():
+    """A point whose reference fails keeps the row an earlier run wrote (it was dropped, and the run still exited 0), and
+    the run exits 1 so the failure is not missed."""
     os.makedirs(DATA, exist_ok=True)
-    old = {tuple(r[:3]): r[4] for r in read(BETA)}
+    failed = 0
+    old = {tuple(r[:3]): r for r in read(BETA)}
     rows = []
     for x, a, b in beta_points():
         key = (repr(x), repr(a), repr(b)); t0 = time.time()
         try: v = fmt(beta_ref(x, a, b))
-        except Exception as e: print('beta', key, type(e).__name__, e); continue
-        rows.append(list(key) + [v, old.get(key, '')])
+        except Exception as e:
+            failed += 1
+            print('beta', key, type(e).__name__, e, '(kept the old row)' if key in old else '(no old row)', flush=True)
+            if key in old: rows.append(old[key])
+            continue
+        rows.append(list(key) + [v, old[key][4] if key in old else ''])
         print('beta', TAB.join(key), v, '%.1fs' % (time.time() - t0), flush=True)
     write(BETA, BETA_HEADER, rows)
-    old = {tuple(r[:2]): r[4:6] for r in read(GAMMA)}
+    old = {tuple(r[:2]): r for r in read(GAMMA)}
     rows = []
     for a, x in gamma_points():
         key = (repr(a), repr(x))
         try: p, q = gamma_ref(a, x)
-        except Exception as e: print('gamma', key, type(e).__name__, e); continue
-        rows.append(list(key) + [fmt(p), fmt(q)] + old.get(key, ['', '']))
+        except Exception as e:
+            failed += 1
+            print('gamma', key, type(e).__name__, e, '(kept the old row)' if key in old else '(no old row)', flush=True)
+            if key in old: rows.append(old[key])
+            continue
+        rows.append(list(key) + [fmt(p), fmt(q)] + (old[key][4:6] if key in old else ['', '']))
         print('gamma', TAB.join(key), flush=True)
     write(GAMMA, GAMMA_HEADER, rows)
+    if failed:
+        print(failed, 'references failed', flush=True)
+        sys.exit(1)
 
 def fill_kappa():
     """The test writes need files of the key columns (plus P or Q for gamma) of rows over 16 eps that have no kappa.

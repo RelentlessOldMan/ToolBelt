@@ -899,6 +899,7 @@ tests/
       DistributionsTests.cs
       DistributionsTailTests.cs      (closed forms, identities, deep-tail round trips)
       DistributionReferenceTests.cs  (+ DistributionReferenceData.cs: 337 mpmath reference values, 20 digits computed at 40-digit precision)
+      DistributionReferenceReview185Tests.cs  (round 185: every reference probability in [0, 1], no cancellation noise)
       InferenceAccuracyTests.cs      (worked examples + simulated coverage / false-positive rates)
       StatisticsReviewTests.cs       (review regressions: extreme tails, huge df, round-off variance, non-finite inputs, SPC)
       StatisticsReview2Tests.cs      (second-pass regressions: scale invariance at 1e±170, far-tail quantiles, lnΓ near 1 and 2)
@@ -1230,7 +1231,8 @@ scripts/
   test.ps1                  build once + launch the test exe directly (-Configuration X; other args go to the runner; 20 min cap per suite)
   bump-version.ps1          works out the next YYYY.M.D.N release version, writes it to Directory.Build.props, prints it
   bump-version-tests.ps1    grades bump-version.ps1 on a scratch copy against a model (600 random versions; verify.sh runs it)
-  verify.sh                 full verify (Git Bash): sln build, the four suites, MathChecks, the bump-version self-test, ConsumerSmoke; one line per suite
+  tooling-tests.sh          checks checked-build.sh's path handling, test.ps1's -Configuration and gen-incomplete-references.py's failed rows (verify.sh runs it)
+  verify.sh                 full verify (Git Bash): sln build, the four suites, MathChecks, the bump-version and tooling self-tests, ConsumerSmoke; one line per suite
   checked-build.sh          core suite against an overflow-checked library build, in a scratch worktree
   net48.sh                  chosen core test folders (at least one) on .NET Framework 4.8 against the netstandard2.0 build
   coverage.ps1              line/branch coverage of the core via the coverlet.console global tool (+ HTML report)

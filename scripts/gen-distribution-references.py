@@ -122,7 +122,10 @@ for d1, d2 in [(0.7, 3.0), (5.0, 12.0), (996.8231650075872, 93.6624351281333), (
 # F with one enormous df (regression/ANOVA F-tests at large n): the regime where the beta continued fraction alone
 # loses ~1e-8. mpmath's betainc does not converge here, so both masses come from the all-positive series
 # I_y(a, b) = y^a (1−y)^b / (a·B(a, b)) · Σ (a+b)ₙ/(a+1)ₙ yⁿ, summed for whichever of y, 1 − y is small (it converges
-# like e^z with z ≈ (a+b)·y, a few hundred terms here); the other mass is 1 − it, at enough extra digits to keep 40.
+# like e^z with z ≈ (a+b)·y: a few hundred terms for most rows, millions for the most extreme); the other mass is 1 − it.
+# At 400 digits that complement keeps 40 only down to about 1e-350; below that it is cancellation noise (it wrote
+# -1.6e-394 for FSurvival(30; 300, 1e8)), and the true mass is below the smallest double, so it is written as 0. A mass
+# the series sums directly is exact at any size.
 def ibeta_series(y, a, b):
     term, total, n = mpf(1), mpf(1), 0
     while True:
@@ -137,12 +140,15 @@ def f_masses_series(x, d1, d2):
     with mp.workdps(400):
         x, d1, d2 = mpf(x), mpf(d1), mpf(d2)
         y, yc = d1 * x / (d1 * x + d2), d2 / (d1 * x + d2)
+        floor = mpf(10) ** -350   # below this a complement 1 - series is noise (see above)
         if y <= yc:
             lower = ibeta_series(y, d1 / 2, d2 / 2)
             upper = 1 - lower
+            if upper < floor: upper = mpf(0)
         else:
             upper = ibeta_series(yc, d2 / 2, d1 / 2)
             lower = 1 - upper
+            if lower < floor: lower = mpf(0)
         return +lower, +upper
 
 for d1, d2 in [(1.0, 1e6), (1.0, 1e8), (2.0, 1e9), (5.0, 1e9), (20.0, 1e9), (300.0, 1e8), (1e9, 3.0)]:

@@ -11,7 +11,15 @@ $Configuration = "Debug"
 $RunnerArgs = @()
 for ($i = 0; $i -lt $args.Count; $i++) {
     $a = [string]$args[$i]
-    if ($a -eq "-Configuration" -and $i + 1 -lt $args.Count) { $i++; $Configuration = [string]$args[$i] }
+    if ($a -eq "-Configuration") {
+        # With no value after it, the flag went to every runner as a filter and the build ran in Debug; a value that is
+        # itself a flag ("-Configuration -Configuration Release") built into bin\-Configuration and died at the launch.
+        if ($i + 1 -ge $args.Count -or ([string]$args[$i + 1]).StartsWith("-")) {
+            Write-Host "-Configuration needs a configuration name after it (Debug or Release)." -ForegroundColor Red
+            exit 2
+        }
+        $i++; $Configuration = [string]$args[$i]
+    }
     elseif ($a -ne "--") { $RunnerArgs += $a }
 }
 

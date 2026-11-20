@@ -16,7 +16,9 @@ set -o pipefail
 WT=${1:-${TMPDIR:-/tmp}/toolbelt-checked-wt}
 case "$WT" in /* | [A-Za-z]:*) ;; *) WT="$(pwd)/$WT" ;; esac
 # A trailing slash put the lock inside the folder ("dir/.lock"), which mkdir could not make before the folder existed.
-while [ "${#WT}" -gt 1 ] && [ "${WT%/}" != "$WT" ]; do WT=${WT%/}; done
+# A backslash is a separator too: "dir\" made "dir\.lock", so the folder was created and then refused as not a scratch
+# worktree, and "dir\" and "dir" took different locks.
+while [ "${#WT}" -gt 1 ] && { [ "${WT%/}" != "$WT" ] || [ "${WT%\\}" != "$WT" ]; }; do WT=${WT%/}; WT=${WT%\\}; done
 cd "$(dirname "$0")/.."
 REPO=$(pwd)
 MARK=.toolbelt-checked-wt
