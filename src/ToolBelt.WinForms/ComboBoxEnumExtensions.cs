@@ -31,11 +31,22 @@ namespace ToolBelt.WinForms
             return comboBox.SelectedItem is TEnum value ? value : null;
         }
 
-        /// <summary>Selects the item equal to <paramref name="value"/>, or clears the selection if no item equals it.</summary>
+        /// <summary>
+        /// Selects the item equal to <paramref name="value"/>, or clears the selection if no item equals it. An editable
+        /// box shows the selected item's text (or none), replacing any text the user typed.
+        /// </summary>
         public static void SetSelectedEnum<TEnum>(this ComboBox comboBox, TEnum value) where TEnum : struct, Enum
         {
             if (comboBox is null) throw new ArgumentNullException(nameof(comboBox));
-            comboBox.SelectedIndex = comboBox.Items.IndexOf(value);
+            int index = comboBox.Items.IndexOf(value);
+            comboBox.SelectedIndex = index;
+            // Setting the index it already had changed nothing, so in an editable box the text the user had typed stayed,
+            // showing something other than the selection (or than nothing, with GetSelectedEnum returning null).
+            if (comboBox.DropDownStyle == ComboBoxStyle.DropDownList) return;
+            string shown = index < 0 ? "" : comboBox.GetItemText(comboBox.Items[index]) ?? "";
+            if (comboBox.Text == shown) return;
+            comboBox.Text = shown;
+            if (comboBox.SelectedIndex != index) comboBox.SelectedIndex = index;   // the text picked another item, ignoring case
         }
     }
 }

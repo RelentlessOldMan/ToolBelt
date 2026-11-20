@@ -1207,6 +1207,7 @@ tests/
     WinFormsReview120Tests.cs (round 120: one-column and formula-escaped CSV, unformattable cells and non-string headers, long SaveCsv names, a dead UI thread, disposed plot images, zoom limits, script summary and locks)
     WinFormsReview132Tests.cs (round 132: deep-zoom pixel placement, an overflowing wheel power, FindItem skipping hosted controls and blank paths, strict FormState.TryParse, the runner's --list exit code)
     WinFormsReview155Tests.cs (round 155: hidden rows in a selection, SaveCsv to NUL, streams and links, surrogate delimiters, Apply of an empty state)
+    WinFormsReview176Tests.cs (round 176: other buttons during a pan, a zoom by 1, typed text in SetSelectedEnum, AutoSizeColumns on a Fill grid)
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
                             fits, root-finding, statistics)
@@ -1220,7 +1221,8 @@ scripts/
   build.ps1                 build wrapper (disables the persistent build server)
   test.ps1                  build once + launch the test exe directly (-Configuration X; other args go to the runner; 20 min cap per suite)
   bump-version.ps1          works out the next YYYY.M.D.N release version, writes it to Directory.Build.props, prints it
-  verify.sh                 full verify (Git Bash): sln build, the four suites, MathChecks, ConsumerSmoke; one line per suite
+  bump-version-tests.ps1    grades bump-version.ps1 on a scratch copy against a model (600 random versions; verify.sh runs it)
+  verify.sh                 full verify (Git Bash): sln build, the four suites, MathChecks, the bump-version self-test, ConsumerSmoke; one line per suite
   checked-build.sh          core suite against an overflow-checked library build, in a scratch worktree
   net48.sh                  chosen core test folders (at least one) on .NET Framework 4.8 against the netstandard2.0 build
   coverage.ps1              line/branch coverage of the core via the coverlet.console global tool (+ HTML report)

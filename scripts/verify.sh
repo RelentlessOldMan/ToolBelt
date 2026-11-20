@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full verify: builds ToolBelt.sln (Release), runs the four test suites, then the Math.NET / mpmath cross-checks
-# (tests/ToolBelt.MathChecks, outside the solution) and the external-consumer smoke (samples/ConsumerSmoke, outside it
+# (tests/ToolBelt.MathChecks, outside the solution), the bump-version.ps1 self-test and the external-consumer smoke (samples/ConsumerSmoke, outside it
 # too) on net8.0, net48 and net8.0-windows with the satellites. Prints one summary line per suite; each suite's full output goes
 # to <log dir>/verify-<suite>.log (default: $TMPDIR or /tmp; a relative path is from where you run it). Exits non-zero if the build or any suite fails.
 # Run from Git Bash on Windows (the satellites target net8.0-windows). Each suite, MathChecks included, is capped at
@@ -26,6 +26,10 @@ for s in ToolBelt.Tests:net8.0 ToolBelt.Windows.Tests:net8.0-windows ToolBelt.Wp
   timeout 900 "$exe" < /dev/null > "$LOG/verify-$p.log" 2>&1 || rc=1
   echo "$p: $(tail -1 "$LOG/verify-$p.log")"
 done
+
+# The release script's version counter, graded against a model on a scratch copy (it never touches the real props).
+timeout 300 powershell -NoProfile -File scripts/bump-version-tests.ps1 < /dev/null > "$LOG/verify-bump-version.log" 2>&1 || rc=1
+echo "bump-version: $(tail -1 "$LOG/verify-bump-version.log")"
 
 timeout 900 dotnet run --project tests/ToolBelt.MathChecks -c Release -p:UseSharedCompilation=false < /dev/null > "$LOG/verify-MathChecks.log" 2>&1 || rc=1
 echo "MathChecks: $(tail -1 "$LOG/verify-MathChecks.log")"

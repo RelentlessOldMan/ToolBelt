@@ -138,8 +138,8 @@ namespace ToolBelt.WinForms
         /// <summary>
         /// The (zoom, offset) after zooming by <paramref name="factor"/> about <paramref name="at"/>, clamped to [min, max].
         /// A zoom that would leave (0, ∞) — e.g. underflow with <paramref name="minZoom"/> 0 — leaves the view unchanged, and
-        /// so does a clamp that would reverse the direction (zooming in on a view already above <paramref name="maxZoom"/>),
-        /// or an offset that would overflow <see cref="float"/>.
+        /// so does a factor of 1, a clamp that would reverse the direction (zooming in on a view already above
+        /// <paramref name="maxZoom"/>), or an offset that would overflow <see cref="float"/>.
         /// </summary>
         public static (double Zoom, PointF Offset) ZoomAbout(double zoom, PointF offset, PointF at, double factor, double minZoom = 0, double maxZoom = double.MaxValue)
         {
@@ -158,7 +158,8 @@ namespace ToolBelt.WinForms
         {
             double target = Math.Max(minZoom, Math.Min(maxZoom, zoom * factor));
             if (!(target > 0) || double.IsInfinity(target)) return (zoom, ox, oy);
-            if (factor > 1 ? target < zoom : target > zoom) return (zoom, ox, oy);
+            // A factor of 1 has no direction: above a lowered MaxZoom it snapped the view down to the limit.
+            if (factor == 1 || (factor > 1 ? target < zoom : target > zoom)) return (zoom, ox, oy);
             double f = target / zoom;
             // The content point under `at` must stay under it: at = c·z + o = c·z' + o'.
             double nx = atX - (atX - ox) * f, ny = atY - (atY - oy) * f;
@@ -382,16 +383,37 @@ namespace ToolBelt.WinForms
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
+            // Only the left button ends the pan: a right-click during a drag ended it with the left button still held.
+            if (e.Button != MouseButtons.Left) return;
             _dragFrom = null;
             Capture = false;
+        }
+
+        private bool _otherButtonUp;
+
+        protected override void WndProc(ref Message m)
+        {
+            // WinForms releases capture after every button-up, so a right, middle or X release during a left drag took
+            // capture away and OnMouseCaptureChanged ended the pan. Keep the drag through that release and take capture back.
+            const int WM_RBUTTONUP = 0x205, WM_MBUTTONUP = 0x208, WM_XBUTTONUP = 0x20C, MK_LBUTTON = 1;
+            if (_dragFrom != null && (m.Msg == WM_RBUTTONUP || m.Msg == WM_MBUTTONUP || m.Msg == WM_XBUTTONUP)
+                && ((long)m.WParam & MK_LBUTTON) != 0)
+            {
+                _otherButtonUp = true;
+                try { base.WndProc(ref m); }
+                finally { _otherButtonUp = false; }
+                if (_dragFrom != null && !Capture) Capture = true;
+                return;
+            }
+            base.WndProc(ref m);
         }
 
         protected override void OnMouseCaptureChanged(EventArgs e)
         {
             base.OnMouseCaptureChanged(e);
             // Capture taken away mid-drag (Alt+Tab, a dialog) means no MouseUp comes; a later move with the button held
-            // would pan from the stale start point.
-            _dragFrom = null;
+            // would pan from the stale start point. (WinForms' own release after another button's up is not that.)
+            if (!_otherButtonUp) _dragFrom = null;
         }
 
         protected override void OnMouseDoubleClick(MouseEventArgs e)

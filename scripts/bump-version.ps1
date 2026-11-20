@@ -13,9 +13,15 @@ function Get-NextVersion([string]$current) {
     $todayKey = $today.Year * 10000 + $today.Month * 100 + $today.Day
     # Spaces or a newline around the value (an indented <Version>) once failed the match and reset N to 0, reusing a version.
     $current = $current.Trim()
-    if ($current -match '^(\d+)\.(\d+)\.(\d+)\.(\d+)$') {
-        $y, $m, $d, $n = [int]$Matches[1], [int]$Matches[2], [int]$Matches[3], [int]$Matches[4]
+    if ($current -match '^(\d{1,18})\.(\d{1,18})\.(\d{1,18})\.(\d{1,18})$') {
+        $y, $m, $d, $n = [long]$Matches[1], [long]$Matches[2], [long]$Matches[3], [long]$Matches[4]
+        # An impossible date (2026.13.1) counted as later than today, so N went on bumping on it until the next year.
+        if ($y -lt 1 -or $y -gt 9999 -or $m -lt 1 -or $m -gt 12 -or $d -lt 1 -or $d -gt [DateTime]::DaysInMonth($y, $m)) {
+            throw "Unrecognised <Version> '$current': $y-$m-$d is not a date"
+        }
         if ($y * 10000 + $m * 100 + $d -ge $todayKey) {      # same day (or a later date): bump N
+            # A version part above 65534 fails the build (CS7034), and the bad version was already written back.
+            if ($n -ge 65534) { throw "<Version> '$current' has used up the build numbers for its date (65534 at most)" }
             return "$y.$m.$d.$($n + 1)"
         }
     }
