@@ -46,7 +46,7 @@ namespace ToolBelt.Signal
         /// <summary>
         /// Resamples from <paramref name="sourceRate"/> to <paramref name="targetRate"/> (Hz) by linear interpolation. Output
         /// sample k is at time k/<paramref name="targetRate"/>, the same start as the input; the output covers the input's
-        /// duration (length round(N·target/source)), and points past the last input sample hold its value.
+        /// duration (length round(N·target/source), a half rounded up), and points past the last input sample hold its value.
         /// </summary>
         public static double[] ToRate(double[] samples, double sourceRate, double targetRate)
         {
@@ -54,7 +54,8 @@ namespace ToolBelt.Signal
             if (!(sourceRate > 0) || double.IsInfinity(sourceRate)) throw new ArgumentOutOfRangeException(nameof(sourceRate), sourceRate, "Source rate must be positive and finite.");
             if (!(targetRate > 0) || double.IsInfinity(targetRate)) throw new ArgumentOutOfRangeException(nameof(targetRate), targetRate, "Target rate must be positive and finite.");
             if (samples.Length == 0) throw new ArgumentException("Input must be non-empty.", nameof(samples));
-            double length = Math.Round(samples.Length * (targetRate / sourceRate));
+            // Halves went to even: 5 samples halved gave 2 and 7 gave 4.
+            double length = Math.Round(samples.Length * (targetRate / sourceRate), MidpointRounding.AwayFromZero);
             // Past Array.MaxLength (not int.MaxValue) the result threw OutOfMemoryException.
             if (!(length <= 0x7FFFFFC7)) throw new ArgumentOutOfRangeException(nameof(targetRate), targetRate, "The resampled signal would be too long for an array.");
             int newLength = Math.Max(1, (int)length);

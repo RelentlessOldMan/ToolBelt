@@ -36,8 +36,10 @@ namespace ToolBelt.Signal
             var w = new double[length];
             if (length == 1) { w[0] = 1.0; return w; }
 
+            // The first half, mirrored: computed across the whole length, w[n] and w[N-1-n] differed in the last bits at almost
+            // every N from 4 on (cos x against cos(2 pi - x)), where the symmetric definition makes them equal.
             double denom = length - 1;
-            for (int n = 0; n < length; n++)
+            for (int n = 0; n <= (length - 1) / 2; n++)
             {
                 double x = 2.0 * Math.PI * n / denom;
                 w[n] = type switch
@@ -53,6 +55,7 @@ namespace ToolBelt.Signal
                         - 0.083578947 * Math.Cos(3 * x) + 0.006947368 * Math.Cos(4 * x),
                     _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown window type."),
                 };
+                w[length - 1 - n] = w[n];
             }
             return w;
         }

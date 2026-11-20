@@ -34,7 +34,8 @@ namespace ToolBelt.Signal
             // Values near ±double.MaxValue overflowed 2·centre or left − right (the offset came out −0 or NaN): the same in
             // quarters, which is exact there.
             if (IsFinite(left) && IsFinite(center) && IsFinite(right)
-                && (double.IsInfinity(2 * center) || double.IsInfinity(left - right) || double.IsInfinity(left - 2 * center + right)))
+                && (double.IsInfinity(2 * center) || double.IsInfinity(left - right)
+                    || double.IsInfinity(left - center) || double.IsInfinity(right - center)))
             {
                 var (o, p) = Vertex(left / 4, center / 4, right / 4);
                 return (o, p * 4);
@@ -54,7 +55,9 @@ namespace ToolBelt.Signal
 
         private static (double Offset, double Peak) Vertex(double left, double center, double right)
         {
-            double denom = left - 2 * center + right;
+            // (left − c) + (right − c): left − 2c + right cancelled on a near-flat peak, 55,921 ulps off the exact vertex at
+            // (6.2434219313738834e144, 6.243479082300001e144, 6.243452974771369e144). Close values subtract exactly.
+            double denom = (left - center) + (right - center);
             if (denom == 0) return (0, center);
             double delta = 0.5 * (left - right) / denom;
             return (delta, center - 0.25 * (left - right) * delta);
@@ -68,8 +71,20 @@ namespace ToolBelt.Signal
             if (!(left > 0)) throw new ArgumentOutOfRangeException(nameof(left), left, "Gaussian interpolation needs positive values.");
             if (!(center > 0)) throw new ArgumentOutOfRangeException(nameof(center), center, "Gaussian interpolation needs positive values.");
             if (!(right > 0)) throw new ArgumentOutOfRangeException(nameof(right), right, "Gaussian interpolation needs positive values.");
-            var (delta, logPeak) = Parabolic(Math.Log(left), Math.Log(center), Math.Log(right));
-            return (delta, Math.Exp(logPeak));
+            // Fitted to the logs relative to the centre: logs of size 700 cancelled, so the offset depended on the scale
+            // (-0.000352 for values near 1.906, -0.002262 for the same times 2^1000), and the height, exp(ln c), lost up to 264
+            // ulps (a flat 1e300 came back 9.999999999999763e299, double.Epsilon came back 0).
+            var (delta, logGain) = Parabolic(LogRatio(left, center), 0, LogRatio(right, center));
+            double peak = center * Math.Exp(logGain);
+            if (double.IsInfinity(peak)) peak = Math.Exp(Math.Log(center) + logGain);
+            return (delta, peak);
+        }
+
+        // ln(v / c), from the logs only when the ratio leaves the normal range.
+        private static double LogRatio(double v, double c)
+        {
+            double q = v / c;
+            return q >= 2.2250738585072014E-308 && !double.IsInfinity(q) ? Math.Log(q) : Math.Log(v) - Math.Log(c);
         }
 
         /// <summary>

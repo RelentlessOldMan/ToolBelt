@@ -165,23 +165,91 @@ namespace ToolBelt.Signal
             bool raw = sa > Low && sa < High && sb > Low && sb < High;
             if (raw) sa = sb = 1;
             if (!any) return (lag, value, false);
-            if (work > budget) return (nearest, Direct(reference, delayed, sa, sb, nearest), raw);
+            if (work > budget) return (nearest, Direct(reference, delayed, sa, sb, nearest).Sum, raw);
             int bestLag = 0;
-            double best = double.NegativeInfinity;
-            foreach (int k in candidates)
+            double best = double.NegativeInfinity, bestBound = 0;
+            var sums = new (double Sum, double Bound)[candidates.Count];
+            for (int i = 0; i < candidates.Count; i++)
             {
-                double v = Direct(reference, delayed, sa, sb, k);
-                if (v > best || (v == best && Math.Abs(k) < Math.Abs(bestLag))) { best = v; bestLag = k; }
+                int k = candidates[i];
+                sums[i] = Direct(reference, delayed, sa, sb, k);
+                if (sums[i].Sum > best || (sums[i].Sum == best && Math.Abs(k) < Math.Abs(bestLag))) { best = sums[i].Sum; bestBound = sums[i].Bound; bestLag = k; }
             }
-            return (bestLag, best, raw);
+            // The direct sums round as well, so they broke exact ties too ([-2, 0, -1, -2, 2, 2] against
+            // [-2e100, -2e100, -1e100, 2e100] gave lag -2, though lags -1 and -2 are equal): the sums within their rounding
+            // bounds of the best are compared exactly, while their length stays within the budget.
+            var close = new List<int>();
+            long exactWork = 0;
+            for (int i = 0; i < candidates.Count; i++)
+                if (sums[i].Sum >= best - (bestBound + sums[i].Bound))
+                {
+                    close.Add(i);
+                    exactWork += Math.Min(reference.Length, delayed.Length - candidates[i]) - Math.Max(0, -candidates[i]);
+                }
+            if (close.Count < 2 || exactWork > budget) return (bestLag, best, raw);
+            var ra = Decompose(reference);
+            var da = Decompose(delayed);
+            int e0 = MinExponent(ra) + MinExponent(da);
+            int pick = -1;
+            BigInteger pickSum = BigInteger.Zero;
+            foreach (int i in close)
+            {
+                BigInteger s = ExactDot(ra, da, candidates[i], e0);
+                if (pick < 0 || s > pickSum || (s == pickSum && Math.Abs(candidates[i]) < Math.Abs(candidates[pick]))) { pick = i; pickSum = s; }
+            }
+            return (candidates[pick], sums[pick].Sum, raw);
         }
 
-        // sum_l delayed[l + k]·reference[l] on the scaled samples.
-        private static double Direct(double[] reference, double[] delayed, double sa, double sb, int k)
+        // sum_l delayed[l + k]·reference[l] on the scaled samples, and a bound on its rounding error (each scaled sample
+        // within an ulp or, below the normal range, the smallest subnormal; each product and partial sum within an ulp).
+        private static (double Sum, double Bound) Direct(double[] reference, double[] delayed, double sa, double sb, int k)
         {
-            double sum = 0;
+            double sum = 0, abs = 0;
             int from = Math.Max(0, -k), to = Math.Min(reference.Length, delayed.Length - k);
-            for (int l = from; l < to; l++) sum += reference[l] / sa * (delayed[l + k] / sb);
+            for (int l = from; l < to; l++)
+            {
+                double p = reference[l] / sa * (delayed[l + k] / sb);
+                sum += p;
+                abs += Math.Abs(p);
+            }
+            double n = to - from;
+            return (sum, 2.3e-16 * (n + 4) * abs + 4 * (n + 1) * double.Epsilon);
+        }
+
+        // Each sample as an integer mantissa times a power of two (zero has mantissa 0).
+        private static (long Mantissa, int Exponent)[] Decompose(double[] x)
+        {
+            var r = new (long, int)[x.Length];
+            for (int i = 0; i < x.Length; i++)
+            {
+                long bits = BitConverter.DoubleToInt64Bits(x[i]);
+                int exp = (int)((bits >> 52) & 0x7FF);
+                long man = bits & 0xFFFFFFFFFFFFFL;
+                if (exp == 0) exp = 1; else man |= 1L << 52;
+                r[i] = (bits < 0 ? -man : man, exp - 1075);
+            }
+            return r;
+        }
+
+        private static int MinExponent((long Mantissa, int Exponent)[] x)
+        {
+            int min = int.MaxValue;
+            foreach (var v in x) if (v.Mantissa != 0) min = Math.Min(min, v.Exponent);
+            return min == int.MaxValue ? 0 : min;
+        }
+
+        // The exact correlation at lag k, in units of 2^e0.
+        private static BigInteger ExactDot((long Mantissa, int Exponent)[] reference, (long Mantissa, int Exponent)[] delayed, int k, int e0)
+        {
+            BigInteger sum = BigInteger.Zero;
+            int from = Math.Max(0, -k), to = Math.Min(reference.Length, delayed.Length - k);
+            for (int l = from; l < to; l++)
+            {
+                var a = reference[l];
+                var b = delayed[l + k];
+                if (a.Mantissa == 0 || b.Mantissa == 0) continue;
+                sum += (new BigInteger(a.Mantissa) * b.Mantissa) << (a.Exponent + b.Exponent - e0);
+            }
             return sum;
         }
 

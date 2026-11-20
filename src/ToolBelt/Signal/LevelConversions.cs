@@ -59,8 +59,9 @@ namespace ToolBelt.Signal
             double rms = Rms(samples);
             if (rms == 0) return double.NegativeInfinity;
             double ratio = rms / fullScale;
-            // The ratio under- or overflowed (1e-300 against 1e100 read −∞, which is reserved for silence).
-            if (ratio == 0 || double.IsInfinity(ratio)) return 20.0 * (Math.Log10(rms) - Math.Log10(fullScale));
+            // The ratio under- or overflowed (1e-300 against 1e100 read −∞, which is reserved for silence), or went subnormal
+            // and lost its digits (1e-300 against 1.4e23 read −6466.124 dB for −6462.923).
+            if (!(ratio >= 2.2250738585072014E-308) || double.IsInfinity(ratio)) return 20.0 * (Math.Log10(rms) - Math.Log10(fullScale));
             return 20.0 * Math.Log10(ratio);
         }
     }

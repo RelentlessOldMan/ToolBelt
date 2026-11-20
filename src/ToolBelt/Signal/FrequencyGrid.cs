@@ -50,7 +50,7 @@ namespace ToolBelt.Signal
 
         /// <summary>
         /// The one-sided bin whose center is closest to <paramref name="frequency"/> (Hz); frequencies beyond either end
-        /// (±∞ included) give bin 0 or N/2.
+        /// (±∞ included) give bin 0 or N/2. A frequency exactly between two centres goes to the higher bin.
         /// </summary>
         public static int NearestBin(double frequency, int fftLength, double sampleRate)
         {
@@ -59,7 +59,8 @@ namespace ToolBelt.Signal
             double ratio = frequency * fftLength / sampleRate;
             // f·N overflowed for a huge in-range frequency, giving N/2.
             if (double.IsInfinity(ratio) && !double.IsInfinity(frequency)) ratio = frequency / sampleRate * fftLength;
-            double bin = Math.Round(ratio);   // clamp as a double: the int cast overflows
+            // Clamped as a double: the int cast overflows. Ties went to the even bin (2.5 to 2, 3.5 to 4).
+            double bin = Math.Round(ratio, MidpointRounding.AwayFromZero);
             int max = fftLength / 2;
             if (!(bin > 0)) return 0;
             return bin >= max ? max : (int)bin;
