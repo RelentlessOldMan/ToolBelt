@@ -16,8 +16,10 @@ namespace ToolBelt.Visualization
     /// <see cref="MaxPixels"/>), so memory is the image plus about twice the compressed data (up to three times when
     /// decoding a stream). Deflate expands at most 1032-fold, so
     /// data too short to hold the image fails as truncated before the image is allocated: a tiny file claiming a huge
-    /// image can't force a huge allocation. Decompressed data past the last scanline is checksummed and
-    /// ignored, as libpng does. Ancillary chunks (gamma, text, ICC profiles) are ignored.
+    /// image can't force a huge allocation. Decompressed data past the last scanline is ignored, as libpng does: up to as
+    /// much again as the image (at least 64 KiB) it is inflated and the zlib checksum verified; past that, the rest and
+    /// the checksum are not checked, so padding can't make a small file inflate without bound. Ancillary chunks (gamma,
+    /// text, ICC profiles) are ignored.
     /// </summary>
     public static class PngReader
     {

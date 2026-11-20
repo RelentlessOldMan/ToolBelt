@@ -662,6 +662,7 @@ tests/
       BinaryImagesReview129Tests.cs (round 129: image size checks that overflowed long in ImageBuffer, Bmp and PngReader)
       BinaryImagesReview159Tests.cs (round 159: clipped lines matching the whole line inside the rectangle and empty rectangles; small IDATs through the PNG stream; SVG widths of what is written and tiny sizes; Luhn, Base58 and Base32 length limits; BMP masks after short headers)
       BinaryImagesReview169Tests.cs (round 169: PNG deflate streams with no final block or with data before the Adler-32, against random images at every compression level; huge IHDR widths reported unsigned)
+      BinaryImagesReview191Tests.cs (round 191: astral letters and line separators in the SVG width estimate, a tiny positive stroke width)
       BitsTests.cs
       Crc16Tests.cs
       Crc32Tests.cs

@@ -105,7 +105,8 @@ namespace ToolBelt.Visualization
 
         /// <summary>
         /// <c>stroke="…" stroke-width="…"</c> (plus opacity and an optional dash pattern) for an optional color;
-        /// null yields an empty string (no stroke).
+        /// null yields an empty string (no stroke). A positive width too small to write at six decimals is written as
+        /// 0.000001, the smallest that is still a stroke.
         /// </summary>
         public static string StrokeAttributes(Rgba? stroke, double width = 1, string? dashArray = null)
         {
@@ -113,7 +114,10 @@ namespace ToolBelt.Visualization
             if (!(width >= 0)) throw new ArgumentOutOfRangeException(nameof(width), width, "Stroke width must be non-negative.");   // SVG rejects a negative one
             Rgba c = stroke.Value;
             var sb = new StringBuilder();
-            sb.Append("stroke=\"").Append(Color(c)).Append("\" stroke-width=\"").Append(Number(width, nameof(width))).Append('"');
+            // A positive width written as "0" (1e-7) dropped the stroke: stroke-width="0" draws nothing.
+            string written = Number(width, nameof(width));
+            if (written == "0" && width > 0) written = "0.000001";
+            sb.Append("stroke=\"").Append(Color(c)).Append("\" stroke-width=\"").Append(written).Append('"');
             if (c.A != 255) sb.Append(" stroke-opacity=\"").Append(Opacity(c)).Append('"');
             if (!string.IsNullOrEmpty(dashArray)) sb.Append(" stroke-dasharray=\"").Append(EscapeAttribute(dashArray!)).Append('"');
             return sb.ToString();
@@ -151,7 +155,7 @@ namespace ToolBelt.Visualization
         /// Estimates the rendered width of <paramref name="text"/> in a Helvetica/Arial-like sans-serif at
         /// <paramref name="fontSize"/>, from the standard Helvetica advance widths for printable ASCII. Non-ASCII
         /// letters use an average width, East Asian wide characters and emoji a full em (an emoji joined by U+200D, or a
-        /// flag's pair of regional indicators, counts once), and combining marks, joiners and variation selectors zero
+        /// flag's pair of regional indicators, counts once), and combining marks, joiners, variation selectors and line breaks (including U+2028 and U+2029) zero
         /// (classed by Unicode 15.0 on every framework, so the estimate is the same everywhere). Bold is approximated by a uniform widening. An estimate for layout (centering, right-aligning, avoiding overlap)
         /// — the real width depends on the viewer's font, so leave a little slack.
         /// </summary>
@@ -192,15 +196,17 @@ namespace ToolBelt.Visualization
                 if (IsXmlIllegal(text, i)) ch = '\uFFFD';
                 if (char.IsHighSurrogate(ch) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
                 {
-                    // An astral character: about an em, but nothing after a zero-width joiner (the parts of an emoji
-                    // sequence render as one glyph), for a skin-tone modifier, or for an astral mark or tag.
+                    // An astral character: nothing after a zero-width joiner (the parts of an emoji sequence render as one
+                    // glyph), for a skin-tone modifier, or for an astral mark or tag; an em for a wide one (emoji, CJK
+                    // extensions, kana and Tangut), and the average letter otherwise: every astral character counted an
+                    // em, so a math-bold A or a Deseret letter measured 1000 where é is 556.
                     int cp = char.ConvertToUtf32(ch, text[i + 1]);
                     // A flag is a pair of regional indicators, paired left to right: the second of a pair counted
                     // another em.
                     bool indicator = cp >= 0x1F1E6 && cp <= 0x1F1FF, second = indicator && flagHalf;
                     flagHalf = indicator && !flagHalf;
                     bool zero = joined || second || (cp >= 0x1F3FB && cp <= 0x1F3FF) || IsZeroWidth(cp);
-                    units += zero ? 0 : 1000;
+                    units += zero ? 0 : IsWideAstral(cp) ? 1000 : 556;
                     joined = false;
                     i++;
                     continue;
@@ -222,6 +228,7 @@ namespace ToolBelt.Visualization
         {
             if (ch >= 32 && ch <= 126) return HelveticaWidths[ch - 32];
             if (ch == '\u00A0') return 278;                          // no-break space: a space
+            if (ch == '\u2028' || ch == '\u2029') return 0;          // line and paragraph separators break, as \n does (they were 556)
             // Combining marks of every block (only U+0300–036F were zero), joiners, variation selectors and other
             // format characters take no advance.
             if (IsZeroWidth(ch)) return 0;
@@ -338,6 +345,11 @@ namespace ToolBelt.Visualization
             0xA490, 0xA4C6, 0xA828, 0xA82B, 0xA836, 0xA837, 0xA839, 0xA839, 0xAA77, 0xAA79, 0xFD40, 0xFD4F,
             0xFDCF, 0xFDCF, 0xFDFD, 0xFDFF, 0xFFE4, 0xFFE4, 0xFFE8, 0xFFE8, 0xFFED, 0xFFEE, 0xFFFC, 0xFFFD,
         };
+
+        // East Asian wide outside the Basic Multilingual Plane, by block: Tangut, Khitan, kana supplements and Nushu; the
+        // emoji and pictograph planes from Mahjong tiles to Symbols and Pictographs Extended-A; CJK extensions B onward.
+        private static bool IsWideAstral(int cp)
+            => (cp >= 0x16FE0 && cp <= 0x1B2FF) || (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x20000 && cp <= 0x3FFFD);
 
         private static bool IsWide(char ch)
             => (ch >= 'ᄀ' && ch <= 'ᅟ')    // Hangul Jamo
