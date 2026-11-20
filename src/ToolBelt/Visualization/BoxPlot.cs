@@ -198,7 +198,12 @@ namespace ToolBelt.Visualization
                 {
                     double oy = MapY(o);
                     if (oy >= top && oy <= bottom)
-                        image.DrawRectangle(cx - 1, (int)Math.Round(oy) - 1, 3, 3, options.OutlierColor, filled: true);
+                    {
+                        // Cut to the plot area: an outlier on the edge painted a pixel into the margin.
+                        int x0 = Math.Max(left, cx - 1), x1 = Math.Min(right, cx + 1);
+                        int y0 = Math.Max(top, (int)Math.Round(oy) - 1), y1 = Math.Min(bottom, (int)Math.Round(oy) + 1);
+                        if (x0 <= x1 && y0 <= y1) image.DrawRectangle(x0, y0, x1 - x0 + 1, y1 - y0 + 1, options.OutlierColor, filled: true);
+                    }
                 }
             }
             return image;

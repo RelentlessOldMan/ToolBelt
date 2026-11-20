@@ -126,8 +126,9 @@ namespace ToolBelt.Visualization
                         }
                         if (o.ShowCorrelation && Pearson(columns[col], columns[row]) is double r0)
                         {
-                            // Rounded first, then zero unsigned: r = −0.001 printed "−0.00".
-                            double r = Math.Round(r0, 2);
+                            // Rounded first, then zero unsigned: r = −0.001 printed "−0.00". Half away from zero, as the
+                            // format rounds: an exact r = −0.125 read "−0.12".
+                            double r = Math.Round(r0, 2, MidpointRounding.AwayFromZero);
                             if (r == 0) r = 0;
                             sb.Append("<text x=\"").Append(SvgUtils.Number(x0 + size - 4)).Append("\" y=\"").Append(SvgUtils.Number(y0 + 12))
                               .Append("\" text-anchor=\"end\" fill=\"#555\" stroke=\"#fafafa\" stroke-width=\"3\" paint-order=\"stroke\">r = ").Append(r.ToString("0.00", CultureInfo.InvariantCulture)).Append("</text>\n");

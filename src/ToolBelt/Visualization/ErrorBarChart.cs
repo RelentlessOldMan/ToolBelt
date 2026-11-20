@@ -105,12 +105,19 @@ namespace ToolBelt.Visualization
                     image.DrawLineClipped(px - cap, loY, px + cap, loY, options.Color, left, top, right, bottom);  // lower cap
                 }
                 if (py >= top && py <= bottom)
-                    image.DrawRectangle(ix - 1, (int)Math.Round(py) - 1, 3, 3, options.Color, filled: true); // marker
+                    Marker(image, ix, (int)Math.Round(py), options.Color, left, top, right, bottom);
             }
             return image;
         }
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
+        // A 3×3 marker cut to the plot area: one on the edge painted a pixel into the margin on every side.
+        private static void Marker(ImageBuffer image, int x, int y, Rgba color, int left, int top, int right, int bottom)
+        {
+            int x0 = Math.Max(left, x - 1), x1 = Math.Min(right, x + 1), y0 = Math.Max(top, y - 1), y1 = Math.Min(bottom, y + 1);
+            if (x0 <= x1 && y0 <= y1) image.DrawRectangle(x0, y0, x1 - x0 + 1, y1 - y0 + 1, color, filled: true);
+        }
 
         // One explicit limit past all the data (or with no data at all) opens the axis beyond it, as SvgChart's and
         // HexBin's axes do: Min = 100 over data 0..10 drew a reversed 100..10 axis.

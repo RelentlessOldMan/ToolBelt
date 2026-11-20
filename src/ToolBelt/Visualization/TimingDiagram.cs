@@ -66,7 +66,8 @@ namespace ToolBelt.Visualization
         /// <summary>
         /// A digital line from sampled data: high above <paramref name="highThreshold"/>, low below
         /// <paramref name="lowThreshold"/> (hysteresis between), edges at sample times. Starts unknown until the first
-        /// sample outside the band.
+        /// sample outside the band. A NaN sample (a dropout) is unknown, and so is the line after it until a sample
+        /// leaves the band.
         /// </summary>
         public static TimingSignal FromSamples(string name, IReadOnlyList<double> samples, double sampleRate, double lowThreshold, double highThreshold, double startTime = 0)
         {
@@ -89,7 +90,8 @@ namespace ToolBelt.Visualization
             c.Add((startTime, null));
             for (int i = 0; i < samples.Count; i++)
             {
-                bool? next = samples[i] > highThreshold ? true : samples[i] < lowThreshold ? false : level;
+                // NaN is neither above nor below, so it held the last level: a dropout drew as a valid high or low.
+                bool? next = double.IsNaN(samples[i]) ? null : samples[i] > highThreshold ? true : samples[i] < lowThreshold ? false : level;
                 if (next != level) { c.Add((startTime + i / sampleRate, next)); level = next; }
             }
             return Digital(name, c);

@@ -205,7 +205,7 @@ namespace ToolBelt.Visualization
             {
                 // Bars are centred on their x, so the axis must reach half a slot past the end bars (they were
                 // cut to half width). The slot is the closest spacing of bar centres, else 1.
-                double gap = BarSpacing(series);
+                double gap = BarSpacing(series, o.YAxis);
                 // Held finite: bars at 0 and 1.7e308 padded the axis to ±∞, which AxisTicks refused (naming its "min").
                 Extend(ref dxMin, ref dxMax, Math.Max(-double.MaxValue, dxMin.Value - gap / 2));
                 Extend(ref dxMin, ref dxMax, Math.Min(double.MaxValue, dxMax!.Value + gap / 2));
@@ -285,7 +285,7 @@ namespace ToolBelt.Visualization
         private static int CapTicks(int maxTicks, double pixels)
             => maxTicks < 2 ? maxTicks : (int)Math.Min(maxTicks, Math.Max(2, Math.Min(pixels, 10000)));
 
-        private static double BarSpacing(IReadOnlyList<Series> series)
+        private static double BarSpacing(IReadOnlyList<Series> series, AxisKind yAxis)
         {
             double best = double.PositiveInfinity;
             foreach (Series s in series)
@@ -294,7 +294,10 @@ namespace ToolBelt.Visualization
                 var xs = new List<double>();
                 for (int i = 0; i < s.Y.Count; i++)
                 {
-                    double x = s.X?[i] ?? i;
+                    // Only bars that are drawn, as BarWidth: a NaN-y sample 2e-12 from a bar padded the axis by 1e-12, so
+                    // the end bars were cut to half width.
+                    double x = s.X?[i] ?? i, y = s.Y[i];
+                    if (double.IsNaN(y) || double.IsInfinity(y) || (yAxis == AxisKind.Log && !(y > 0))) continue;
                     if (!double.IsNaN(x) && !double.IsInfinity(x)) xs.Add(x);
                 }
                 xs.Sort();

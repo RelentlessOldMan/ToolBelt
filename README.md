@@ -1071,6 +1071,7 @@ tests/
       ChartsReview101Tests.cs (round 101: histogram edges over huge ranges, far values mapped without overflow, finite bar padding, margin and image-size validation, an End before every change, FormatSeconds unit boundary)
       ChartsReview121Tests.cs (round 121: lines to far points, band alpha compositing, huge callout offsets, drawn-bar widths, default frames, one-pixel colorbars, tick rounding past 2^52, subnormal waterfall ranges, undefined enums)
       ChartsReview134Tests.cs (round 134: equal explicit limits, the first x label's margin, box fences past MaxValue, band envelopes and far centre lines, far whiskers, clip underflow, whole colormap stop ranges, scatter-matrix legends and subnormal bins, timing clocks, markers and hatching, hex-bin index limits, shared ranges beside empty panels)
+      ChartsReview167Tests.cs (round 167: AxisTicks against a brute-force step search, one-ulp spans, tight tick bounds and labels, Time near MaxValue and past 2^53 s, subnormal decades, NaN samples, drawn-bar padding, edge markers, half-away r labels)
       DocsVizReviewRegressionTests.cs  (2026-10-05 review regressions: Documents and Visualization)
     Resilience/
       RetryTests.cs
