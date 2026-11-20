@@ -66,16 +66,20 @@ namespace ToolBelt.Signal
         {
             var analytic = Analytic(samples);
             var env = new double[analytic.Length];
-            for (int i = 0; i < env.Length; i++) env[i] = analytic[i].Magnitude;
+            for (int i = 0; i < env.Length; i++) env[i] = Magnitude(analytic[i]);
             return env;
         }
+
+        // |z| with an infinite part is ∞: Complex.Magnitude of (∞, NaN) is NaN on .NET Core and ∞ on .NET Framework.
+        private static double Magnitude(Complex z) => double.IsInfinity(z.Real) || double.IsInfinity(z.Imaginary) ? double.PositiveInfinity : z.Magnitude;
 
         /// <summary>The instantaneous phase (radians, wrapped to (−π, π]) of the analytic signal.</summary>
         public static double[] InstantaneousPhase(double[] samples)
         {
             var analytic = Analytic(samples);
             var phase = new double[analytic.Length];
-            for (int i = 0; i < phase.Length; i++) phase[i] = analytic[i].Phase;
+            // Rounding noise of −2e-16 in the imaginary part of a negative constant gave exactly −π, outside (−π, π].
+            for (int i = 0; i < phase.Length; i++) { double p = analytic[i].Phase; phase[i] = p == -Math.PI ? Math.PI : p; }
             return phase;
         }
 

@@ -92,6 +92,25 @@ namespace ToolBelt.Signal
             if (n <= 1) { if (post != 1) for (int k = 0; k < n; k++) data[k] = Scale(data[k], post); return; }
             if ((n & (n - 1)) == 0)
             {
+                // An infinite sample spread ∞·0 and ∞ − ∞ through the butterflies: Forward([0, ∞, 0, 0]) gave (∞, NaN) where
+                // the definition gives (∞, 0). As Bluestein: the finite samples are transformed, each non-finite one added
+                // to every bin directly.
+                int count = 0;
+                for (int k = 0; k < n; k++) if (!IsFinite(data[k])) count++;
+                int[]? at = null;
+                Complex[]? odd = null;
+                if (count > 0)
+                {
+                    at = new int[count];
+                    odd = new Complex[count];
+                    for (int k = 0, j = 0; k < n; k++)
+                    {
+                        if (IsFinite(data[k])) continue;
+                        at[j] = k;
+                        odd[j++] = data[k];
+                        data[k] = Complex.Zero;
+                    }
+                }
                 // Subnormal inputs lost bits in the twiddle products ([7ε, 3ε, 5ε, 0, 0, 0, 0, 0] was 8% off in bins 1 and 7),
                 // so a tiny input is scaled up by 2^600 (exact) and back, as Bluestein does. Huge inputs overflowed the partial
                 // sums (four 1e308s gave NaN in bins that are 0), so from 2^512 they are scaled down by 2^-512 the same way: the
@@ -104,6 +123,7 @@ namespace ToolBelt.Signal
                 Radix2(data, inverse);
                 double back = 1 / down * post;                                          // exact: powers of two
                 if (back != 1) for (int k = 0; k < n; k++) data[k] = Scale(data[k], back);
+                if (at != null) AddNonFinite(data, at, odd!, inverse ? 1 : -1, post);
                 return;
             }
             Bluestein(data, inverse, paramName, post);

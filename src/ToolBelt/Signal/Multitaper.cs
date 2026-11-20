@@ -42,7 +42,7 @@ namespace ToolBelt.Signal
                 var fft = Fft.Forward(tapered);
                 for (int b = 0; b < bins; b++)
                 {
-                    double mag = fft[b].Magnitude;
+                    double mag = Magnitude(fft[b]);
                     double scale = (b == 0 || (even && b == n / 2)) ? 1.0 : 2.0;
                     psd[b] += scale * mag * mag;
                 }
@@ -69,5 +69,9 @@ namespace ToolBelt.Signal
         private static int Exponent(double peak)
             => !double.IsInfinity(peak) && !double.IsNaN(peak) && peak > 0
                 ? (int)Math.Ceiling(Math.Log(peak, 2)) : 0;
+
+        // |z| with an infinite part is ∞: Complex.Magnitude of (∞, NaN) is NaN on .NET Core and ∞ on .NET Framework, so
+        // the same spectrum read differently on the two.
+        private static double Magnitude(System.Numerics.Complex z) => double.IsInfinity(z.Real) || double.IsInfinity(z.Imaginary) ? double.PositiveInfinity : z.Magnitude;
     }
 }

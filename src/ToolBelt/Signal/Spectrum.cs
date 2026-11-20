@@ -27,7 +27,7 @@ namespace ToolBelt.Signal
             {
                 bool edge = k == 0 || (n % 2 == 0 && k == n / 2);
                 double scale = edge ? 1.0 / n : 2.0 / n;
-                double magnitude = fft[k].Magnitude;
+                double magnitude = Magnitude(fft[k]);
                 // A bin of (Max, Max) has a magnitude past double.MaxValue but an amplitude that fits: halve the parts first.
                 if (double.IsInfinity(magnitude) && !double.IsInfinity(fft[k].Real) && !double.IsInfinity(fft[k].Imaginary))
                     result[k] = new Complex(fft[k].Real / 2, fft[k].Imaginary / 2).Magnitude * (2 * scale);
@@ -56,5 +56,9 @@ namespace ToolBelt.Signal
                 amp[i] = 20.0 * Math.Log10(Math.Max(amp[i], floor));
             return amp;
         }
+
+        // |z| with an infinite part is ∞: Complex.Magnitude of (∞, NaN) is NaN on .NET Core and ∞ on .NET Framework, so
+        // the same spectrum read differently on the two.
+        private static double Magnitude(Complex z) => double.IsInfinity(z.Real) || double.IsInfinity(z.Imaginary) ? double.PositiveInfinity : z.Magnitude;
     }
 }

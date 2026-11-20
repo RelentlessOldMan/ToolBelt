@@ -38,6 +38,17 @@ namespace ToolBelt.Signal
 
             int n = samples.Length;
             var result = (double[])samples.Clone();
+            // On the subnormal grid the medians and the threshold rounded (2.9652ε to 3ε), so [−2, −2, 0, 3, 0, 0, 2]·ε
+            // missed the outlier it has at scale 1. Tiny data is worked on scaled by 2^600 (exact), as Fft does.
+            double largest = 0;
+            foreach (double v in samples) if (!double.IsNaN(v) && !double.IsInfinity(v)) largest = Math.Max(largest, Math.Abs(v));
+            double up = largest > 0 && largest < 3.054936363499605e-151 ? Math.Pow(2, 600) : 1;   // 2^-500
+            if (up != 1)
+            {
+                var scaled = new double[n];
+                for (int k = 0; k < n; k++) scaled[k] = samples[k] * up;
+                samples = scaled;
+            }
             var window = new double[(int)Math.Min(n, 2L * halfWindow + 1)];   // a window never holds more than the record
             replaced = 0;
 
@@ -66,7 +77,7 @@ namespace ToolBelt.Signal
                 // reported a replacement that changed nothing.
                 if (double.IsNaN(samples[i]) ? !double.IsNaN(median) : Outlier(samples[i], median, mad, nSigmas))
                 {
-                    result[i] = median;
+                    result[i] = up == 1 ? median : median / up;
                     replaced++;
                 }
             }
