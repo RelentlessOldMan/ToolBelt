@@ -163,7 +163,8 @@ namespace ToolBelt.Logging
             {
                 // An inner sink that hung hung Dispose with it. Past the limit the drain goes on, and closes the sink at its end.
                 bool done;
-                try { done = drain.Wait(limit); }
+                // Rounded up to a whole millisecond: Wait truncates, so a limit under 1 ms did not wait at all.
+                try { done = drain.Wait(TimeSpan.FromTicks((limit.Ticks + TimeSpan.TicksPerMillisecond - 1) / TimeSpan.TicksPerMillisecond * TimeSpan.TicksPerMillisecond)); }
                 catch { done = true; /* best-effort drain */ }
                 if (!done) { CloseAfter(drain); return; }
             }

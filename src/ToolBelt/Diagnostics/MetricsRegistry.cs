@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 
 namespace ToolBelt.Diagnostics
 {
@@ -70,7 +71,11 @@ namespace ToolBelt.Diagnostics
             public readonly List<double> Kept = new List<double>();
             public long Count;
             public double Min = double.PositiveInfinity, Max = double.NegativeInfinity;
-            public double Sum, ScaledSum;                                     // ScaledSum is Σ v·2⁻¹⁰²⁴, for when Sum overflows
+            // The exact sum as non-overlapping partials (Shewchuk), in two tiers: values of at least 2⁻⁹⁵⁸ scaled by 2⁻⁶⁴
+            // (exact, and no count overflows them) and smaller ones unscaled. A sum of v·2⁻¹⁰²⁴ made every sample below 4
+            // subnormal: beside Max, Max, −Max, −Max, a 1e-5 averaged 1.4e-10 relative off and a 1e-20 averaged 0.
+            public double[] Big = new double[4], Small = new double[4];
+            public int NBig, NSmall;
             public Random? Random;
         }
 
@@ -109,8 +114,8 @@ namespace ToolBelt.Diagnostics
                 s.Count++;
                 if (value < s.Min) s.Min = value;
                 if (value > s.Max) s.Max = value;
-                s.Sum += value;
-                s.ScaledSum += value * TwoToMinus1024;
+                if (Math.Abs(value) >= BigFrom) Accumulate(ref s.Big, ref s.NBig, value * TwoToMinus64);
+                else Accumulate(ref s.Small, ref s.NSmall, value);
                 if (s.Kept.Count < _maxSamples) s.Kept.Add(value);
                 else
                 {
@@ -129,7 +134,7 @@ namespace ToolBelt.Diagnostics
             // blocked every Increment for about 3 s.
             Dictionary<string, long> counters;
             Dictionary<string, double> gauges;
-            var copies = new List<KeyValuePair<string, (double[] Kept, long Count, double Min, double Max, double Sum, double ScaledSum)>>();
+            var copies = new List<KeyValuePair<string, (double[] Kept, long Count, double Min, double Max, double[] Big, double[] Small)>>();
             lock (_gate)
             {
                 counters = new Dictionary<string, long>(_counters);
@@ -138,8 +143,12 @@ namespace ToolBelt.Diagnostics
                     if (kv.Value.Count > 0)
                     {
                         Samples s = kv.Value;
-                        copies.Add(new KeyValuePair<string, (double[], long, double, double, double, double)>(
-                            kv.Key, (s.Kept.ToArray(), s.Count, s.Min, s.Max, s.Sum, s.ScaledSum)));
+                        var big = new double[s.NBig];
+                        var small = new double[s.NSmall];
+                        Array.Copy(s.Big, big, s.NBig);
+                        Array.Copy(s.Small, small, s.NSmall);
+                        copies.Add(new KeyValuePair<string, (double[], long, double, double, double[], double[])>(
+                            kv.Key, (s.Kept.ToArray(), s.Count, s.Min, s.Max, big, small)));
                     }
                 if (reset) { _counters.Clear(); _gauges.Clear(); _timers.Clear(); }
             }
@@ -151,9 +160,9 @@ namespace ToolBelt.Diagnostics
                 // The mean is the same under the cap and past it: under it, an overflowing sum fell back to adding v/n in
                 // sorted order, where large opposite terms swallowed the small ones (Max, Max, -Max, -Max, 6 gave 0, and
                 // 1.2 past the cap).
-                double mean = c.Sum / c.Count;
-                if (double.IsInfinity(mean) || double.IsNaN(mean)) mean = c.ScaledSum / c.Count * TwoTo512 * TwoTo512;
-                mean = Math.Max(c.Min, Math.Min(c.Max, mean));
+                // The exact sum over the count, rounded once, so it needs no clamp to [min, max]: Math.Min and Math.Max order
+                // −0 and +0 differently on .NET Framework, so one −0 sample averaged −0 on .NET 8 and +0 there (now +0).
+                double mean = ExactMean(c.Big, c.Small, c.Count);
                 var kept = new List<double>(c.Kept);
                 kept.Sort();
                 timers[kv.Key] = new TimerStats(c.Count, c.Min, c.Max, mean, Quantile(kept, 0.50), Quantile(kept, 0.95), Quantile(kept, 0.99));
@@ -161,8 +170,86 @@ namespace ToolBelt.Diagnostics
             return new MetricsSnapshot(counters, gauges, timers);
         }
 
-        private const double TwoTo512 = 1.3407807929942597e154;
-        private const double TwoToMinus1024 = 5.562684646268003e-309;
+        private const double TwoToMinus64 = 1.0 / 18446744073709551616.0;
+        private const double BigFrom = 4.1045368012983762e-289; // 2⁻⁹⁵⁸: scaled by 2⁻⁶⁴ it is still normal
+
+        // Adds v to the exact sum held as non-overlapping partials, smallest first (Shewchuk; Python's math.fsum).
+        private static void Accumulate(ref double[] partials, ref int count, double v)
+        {
+            int k = 0;
+            for (int i = 0; i < count; i++)
+            {
+                double y = partials[i];
+                if (Math.Abs(v) < Math.Abs(y)) { double t = v; v = y; y = t; }
+                double hi = v + y;
+                double lo = y - (hi - v);
+                if (lo != 0) partials[k++] = lo;
+                v = hi;
+            }
+            if (k == partials.Length) Array.Resize(ref partials, 2 * k);
+            partials[k++] = v;
+            count = k;
+        }
+
+        // (Σ big·2⁶⁴ + Σ small) / count rounded once to the nearest double, ties to even; an exact zero sum averages +0,
+        // as the plain sum (from +0) gives it.
+        private static double ExactMean(double[] big, double[] small, long count)
+        {
+            const int Base = -1074 - 64;                    // every partial is a multiple of 2^Base
+            BigInteger total = BigInteger.Zero;
+            foreach (double p in big) total += Scaled(p, 64 - Base);
+            foreach (double p in small) total += Scaled(p, -Base);
+            if (total.IsZero) return 0;
+            bool negative = total.Sign < 0;
+            total = BigInteger.Abs(total);
+            // total·2^Base / count: a quotient of at least 64 bits beyond the count, its remainder kept as a sticky bit.
+            BigInteger q = BigInteger.DivRem(total << 128, count, out BigInteger rem);
+            q = (q << 1) | (rem.IsZero ? BigInteger.Zero : BigInteger.One);
+            double r = RoundToDouble(q, Base - 129);
+            return negative ? -r : r;
+        }
+
+        // x·2^shift as an integer (x a multiple of 2^-shift).
+        private static BigInteger Scaled(double x, int shift)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int be = (int)((bits >> 52) & 0x7FF);
+            long m = bits & 0xFFFFFFFFFFFFFL;
+            if (be == 0) be = 1; else m |= 1L << 52;
+            BigInteger v = new BigInteger(m) << (be - 1075 + shift);
+            return bits < 0 ? -v : v;
+        }
+
+        // m·2^e (m > 0) rounded once to the nearest double, ties to even, subnormals included.
+        private static double RoundToDouble(BigInteger m, long e)
+        {
+            long top = BitLength(m) - 1 + e;               // floor(log2 (m·2^e))
+            if (top > 1023) return double.PositiveInfinity;
+            long q = Math.Max(top - 52, -1074);            // the result's ulp
+            long shift = q - e;
+            BigInteger kept;
+            if (shift <= 0) kept = m << (int)-shift;
+            else
+            {
+                kept = m >> (int)shift;
+                BigInteger rest = m - (kept << (int)shift), half = BigInteger.One << (int)(shift - 1);
+                if (rest > half || (rest == half && !kept.IsEven)) kept += 1;
+            }
+            double r = (long)kept;                         // at most 2^53, so exact
+            return q >= -1022 ? r * Pow2((int)q) : r * Pow2(-1022) * Pow2((int)(q + 1022));
+        }
+
+        private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52); // −1022 ≤ k ≤ 1023
+
+        private static long BitLength(BigInteger m)
+        {
+            byte[] b = m.ToByteArray();
+            int i = b.Length - 1;
+            while (i > 0 && b[i] == 0) i--;
+            long n = 8L * i;
+            for (int t = b[i]; t != 0; t >>= 1) n++;
+            return n;
+        }
 
         private static double Quantile(List<double> sorted, double p)
         {

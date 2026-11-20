@@ -160,7 +160,7 @@ namespace ToolBelt.Diagnostics
         }
 
         /// <summary>
-        /// Registers a synchronous probe. It runs on the thread pool so a blocking probe can still be timed out
+        /// Registers a synchronous probe. It runs on a thread of its own so a blocking probe can still be timed out
         /// (and abandoned) without stalling the others. While an abandoned run has not returned, later checks don't start
         /// another: they report <paramref name="failureStatus"/> straight away.
         /// </summary>
@@ -180,7 +180,9 @@ namespace ToolBelt.Diagnostics
                 var previous = Volatile.Read(ref last);
                 if (previous != null && !previous.Item1.IsCompleted && previous.Item2.IsCancellationRequested)
                     return Task.FromResult(new ProbeResult(failureStatus, "The previous run of this probe has not returned."));
-                Task<ProbeResult> run = Task.Run(probe);
+                // Its own thread, as for the start: a blocking probe on the pool starved the timeout's timer of a thread.
+                Task<ProbeResult> run = Task.Factory.StartNew(probe, CancellationToken.None,
+                    TaskCreationOptions.DenyChildAttach | TaskCreationOptions.LongRunning, TaskScheduler.Default);
                 Volatile.Write(ref last, Tuple.Create(run, token));
                 return run;
             }, timeout, failureStatus);
@@ -231,7 +233,7 @@ namespace ToolBelt.Diagnostics
             Task<ProbeResult> probeTask;
             try
             {
-                // Started on the thread pool: an "async" probe that blocks before its first await would otherwise run on this
+                // Started on another thread: an "async" probe that blocks before its first await would otherwise run on this
                 // thread, defeating the timeout race and holding up every probe after it. While the last start has not
                 // returned (the probe is still blocked before its first await), no new one starts, as for a synchronous
                 // probe: each check took one more pool thread, without limit. Only an abandoned start (its token
@@ -240,9 +242,12 @@ namespace ToolBelt.Diagnostics
                 if (previous != null && !previous.Item1.IsCompleted && previous.Item2.IsCancellationRequested)
                     return new ProbeReport(reg.Name, reg.FailureStatus, "The previous run of this probe has not returned.", watch.Elapsed, false, null);
                 CancellationToken probeToken = probeCts.Token;
+                // On a thread of its own (LongRunning), not a pool thread: with the pool starved (one core), a probe that
+                // blocked held the only worker, the timeout's continuation waited behind it, and a probe hung 400 ms
+                // against a 100 ms timeout reported Healthy.
                 Task<Task<ProbeResult>> start = Task.Factory.StartNew(
                     () => reg.Probe(probeToken) ?? throw new InvalidOperationException("The probe returned a null task."),
-                    CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+                    CancellationToken.None, TaskCreationOptions.DenyChildAttach | TaskCreationOptions.LongRunning, TaskScheduler.Default);
                 Volatile.Write(ref reg.Starting, Tuple.Create(start, probeToken));
                 probeTask = start.Unwrap();
             }
@@ -252,7 +257,7 @@ namespace ToolBelt.Diagnostics
                 return new ProbeReport(reg.Name, reg.FailureStatus, MessageOf(ex), watch.Elapsed, false, ex);
             }
 
-            Task timeoutTask = Task.Delay(reg.Timeout, delayCts.Token);
+            Task timeoutTask = Task.Delay(WholeMilliseconds(reg.Timeout), delayCts.Token);
             Task winner = await Task.WhenAny(probeTask, timeoutTask).ConfigureAwait(false);
             delayCts.Cancel(); // release the timer if the probe won
 
@@ -304,6 +309,11 @@ namespace ToolBelt.Diagnostics
                 CancellationToken.None,
                 TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
                 TaskScheduler.Default);
+
+        // Rounded up to a whole millisecond: the timers truncate, so a timeout under 1 ms raced a zero delay and a probe
+        // that returned at once was sometimes reported as timed out.
+        private static TimeSpan WholeMilliseconds(TimeSpan t)
+            => t <= TimeSpan.Zero ? t : TimeSpan.FromTicks((t.Ticks + TimeSpan.TicksPerMillisecond - 1) / TimeSpan.TicksPerMillisecond * TimeSpan.TicksPerMillisecond);
 
         private static void ValidateTimeout(TimeSpan timeout, string paramName)
         {

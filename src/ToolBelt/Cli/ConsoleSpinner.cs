@@ -32,7 +32,6 @@ namespace ToolBelt.Cli
         private readonly bool _isConsole;
         private string _message;
         private int _frame, _lastWidth;
-        private volatile int _drawingThread;   // the thread inside a Tick's draw, or 0
         private bool _disposed;
 
         /// <param name="message">Text shown beside the spinner.</param>
@@ -105,9 +104,7 @@ namespace ToolBelt.Cli
             {
                 if (_disposed || !_interactive) return;
                 _frame = (_frame + 1) % _frames.Length;
-                _drawingThread = Environment.CurrentManagedThreadId;
-                try { Quietly(Draw); }   // a broken writer threw out of Tick, though the class promises drawing never throws
-                finally { _drawingThread = 0; }
+                Quietly(Draw);   // a broken writer threw out of Tick, though the class promises drawing never throws
             }
         }
 
@@ -131,9 +128,10 @@ namespace ToolBelt.Cli
             }
             finally
             {
-                // Not from inside a draw on the loop (a writer that stops the spinner): the loop waited for itself, forever.
-                // It ends on its own once the draw returns, as it sees the cancellation.
-                if (_drawingThread != Environment.CurrentManagedThreadId)
+                // Not from inside a draw (a writer that stops the spinner), which holds the gate: from the loop's draw the loop
+                // waited for itself, and from the Message setter's it waited for a loop blocked on the gate, both forever.
+                // The loop ends on its own once the draw returns, as it sees the cancellation.
+                if (!Monitor.IsEntered(_gate))
                 {
                     try { _loop?.Wait(); } catch (AggregateException) { }
                     _cts.Dispose();

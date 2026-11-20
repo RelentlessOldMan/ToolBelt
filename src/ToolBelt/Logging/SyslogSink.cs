@@ -216,7 +216,9 @@ namespace ToolBelt.Logging
             {
                 // TcpClient.Connect has no timeout (an unreachable host takes ~21 s on Windows), so race the async connect.
                 System.Threading.Tasks.Task connect = client.ConnectAsync(_host, _port);
-                if (!connect.Wait(_connectTimeout))
+                // Rounded up to a whole millisecond: Wait truncates, so under 1 ms the connect was never waited for and
+                // every connect to a live collector failed into the back-off.
+                if (!connect.Wait(TimeSpan.FromTicks((_connectTimeout.Ticks + TimeSpan.TicksPerMillisecond - 1) / TimeSpan.TicksPerMillisecond * TimeSpan.TicksPerMillisecond)))
                 {
                     _ = connect.ContinueWith(t => _ = t.Exception, System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
                     throw new SocketException((int)SocketError.TimedOut);

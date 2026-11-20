@@ -84,8 +84,8 @@ namespace ToolBelt.Cli
         }
 
         /// <summary>
-        /// Lists the options numbered from 1 and returns the chosen index (a number or an option's exact text, any
-        /// case). A number is read as a position first, so an option whose text is itself a number in range is
+        /// Lists the options numbered from 1 and returns the chosen index (a number or an option's text, any case,
+        /// both trimmed of surrounding white space). A number is read as a position first, so an option whose text is itself a number in range is
         /// reachable only by its position.
         /// </summary>
         public int Choose(string question, IReadOnlyList<string> options, int? defaultIndex = null)
@@ -103,7 +103,8 @@ namespace ToolBelt.Cli
                 string t = s.Trim();
                 if (int.TryParse(t, NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) && n >= 1 && n <= options.Count) return (true, n - 1, null);
                 for (int i = 0; i < options.Count; i++)
-                    if (string.Equals(options[i], t, StringComparison.OrdinalIgnoreCase)) return (true, i, null);
+                    // Trimmed as the input is: an option " Beta " could never be chosen by its text.
+                    if (string.Equals(options[i]?.Trim(), t, StringComparison.OrdinalIgnoreCase)) return (true, i, null);
                 return (false, 0, $"Please enter 1–{options.Count}.");
             }, showDefault: false, defaultLabel: defaultIndex is int dl ? (dl + 1).ToString(CultureInfo.InvariantCulture) : null, context: question);
         }
