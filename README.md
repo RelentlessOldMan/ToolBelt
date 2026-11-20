@@ -988,6 +988,7 @@ tests/
       TextReview123Tests.cs  (round 123: letters with no one-letter capital in every case style, NanoId's default size, emoji selector past a control inside an escape)
       TextReview141Tests.cs  (round 141: .NET Framework casing gaps, emoji selector beside pads, ellipses and cut escapes, null newline, Ulid draw order, overlapping tokenizer roles)
       TextReview154Tests.cs  (round 154: n-grams over code points, Dedent keeping every CR, ellipses Fit refuses)
+      TextReview174Tests.cs (round 174: runs of leading variation selectors in TextAlign, U+0345 in CaseConverter on .NET Framework)
       MiscReviewRegressionTests.cs  (2026-10-05 review regressions: Text, Cli, Threading, Time, Diagnostics, Collections)
       TruncateTests.cs
       WordWrapTests.cs

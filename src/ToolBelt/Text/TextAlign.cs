@@ -120,18 +120,27 @@ namespace ToolBelt.Text
 
         private const int MaxStringLength = 0x3FFFFFDF;
 
-        // The text without a U+FE0F that has no base: one at the start, or after only escape sequences that hold no
-        // control character (WidthAt looks past those).
+        // The text without the U+FE0Fs that have no base: those at the start, or after only escape sequences that hold no
+        // control character (WidthAt looks past those). All of them: dropping only the first left the next to join the
+        // pad ("\uFE0F\uFE0F" fitted to 1 with '█' measured 2).
         private static string DropLeadingSelector(string text)
         {
             int k = 0;
-            while (k < text.Length && text[k] == '\u001b')
+            while (k < text.Length)
             {
+                if (text[k] == '\uFE0F')
+                {
+                    int run = k;
+                    while (run < text.Length && text[run] == '\uFE0F') run++;
+                    text = text.Remove(k, run - k);
+                    continue;
+                }
+                if (text[k] != '\u001b') break;
                 int end = SkipEscape(text, k);
                 if (HoldsControl(text, k, end)) return text;
                 k = end + 1;
             }
-            return k < text.Length && text[k] == '\uFE0F' ? text.Remove(k, 1) : text;
+            return text;
         }
 
         private static void ValidateEllipsis(string ellipsis)

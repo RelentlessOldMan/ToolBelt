@@ -20,7 +20,8 @@ namespace ToolBelt.Text
     /// Unicode's full upper and title case ('ß' → "SS" and "Ss", 'ﬁ' → "FI" and "Fi", 'ŉ' → "ʼN"), so the Turkish dotted
     /// and dotless i, 'ß' and the ligatures don't survive a trip through an upper-case style. Nor do the lower-case letters
     /// whose capital lowers to another letter: final 'ς' and long 'ſ' come back as 'σ' and 's' ("λόγος" → "ΛΌΓΟΣ" →
-    /// "λόγοσ"), as do the Greek symbol forms ('ϐ' → 'β'), 'ẛ' and U+1FBE. Such a letter is lower-case
+    /// "λόγοσ"), as do the Greek symbol forms ('ϐ' → 'β'), 'ẛ', U+1FBE and the combining ypogegrammeni U+0345, whose
+    /// capital is 'Ι' (it comes back as 'ι'). Such a letter is lower-case
     /// at the start of a word or after the word's one capital ("Bß" in "BßX" is a word), and otherwise continues the run
     /// it is in ("STRAßE" is one word); for the rule above it is not a lower-case letter. A letter with no case of its
     /// own continues the word it is in; a digraph such as 'ǆ' is titlecased ('ǅ').
@@ -215,17 +216,18 @@ namespace ToolBelt.Text
 
 #if !NET5_0_OR_GREATER
         // .NET Framework's invariant casing lacks mappings far older than its Unicode 8 letter tables: 'ς' and 'µ' stayed
-        // lower-case in CONSTANT_CASE ("λόγος" gave "ΛΌΓΟς"), the Kelvin sign upper-case in snake_case. These are .NET 8's
+        // lower-case in CONSTANT_CASE ("λόγος" gave "ΛΌΓΟς"), the Kelvin sign upper-case in snake_case, and the combining
+        // ypogegrammeni U+0345 stayed a mark where .NET 8 gives 'Ι' ("a\u0345b" in CONSTANT_CASE). These are .NET 8's
         // simple mappings that .NET Framework leaves alone, Cherokee by range; one applies only where the runtime left the
         // character unchanged and knows the target as a letter (Georgian Mtavruli, Unicode 11, is not one there).
         private const string UpperFrom =
             "\u00B5\u017F\u01C5\u01C8\u01CB\u01F2\u023F\u0240\u0252\u025C\u0261\u0265\u0266\u026A\u026C\u0282"
-            + "\u0287\u029D\u029E\u03C2\u03D0\u03D1\u03D5\u03D6\u03F0\u03F1\u03F3\u03F5\u0525\u0527\u0529\u052B"
+            + "\u0287\u029D\u029E\u0345\u03C2\u03D0\u03D1\u03D5\u03D6\u03F0\u03F1\u03F3\u03F5\u0525\u0527\u0529\u052B"
             + "\u052D\u052F\u1D8E\u1E9B\u1FBE\u2CEC\u2CEE\u2CF3\u2D27\u2D2D\uA661\uA699\uA69B\uA791\uA793\uA794"
             + "\uA797\uA799\uA79B\uA79D\uA79F\uA7A1\uA7A3\uA7A5\uA7A7\uA7A9\uA7B5\uA7B7\uAB53";
         private const string UpperTo =
             "\u039C\u0053\u01C4\u01C7\u01CA\u01F1\u2C7E\u2C7F\u2C70\uA7AB\uA7AC\uA78D\uA7AA\uA7AE\uA7AD\uA7C5"
-            + "\uA7B1\uA7B2\uA7B0\u03A3\u0392\u0398\u03A6\u03A0\u039A\u03A1\u037F\u0395\u0524\u0526\u0528\u052A"
+            + "\uA7B1\uA7B2\uA7B0\u0399\u03A3\u0392\u0398\u03A6\u03A0\u039A\u03A1\u037F\u0395\u0524\u0526\u0528\u052A"
             + "\u052C\u052E\uA7C6\u1E60\u0399\u2CEB\u2CED\u2CF2\u10C7\u10CD\uA660\uA698\uA69A\uA790\uA792\uA7C4"
             + "\uA796\uA798\uA79A\uA79C\uA79E\uA7A0\uA7A2\uA7A4\uA7A6\uA7A8\uA7B4\uA7B6\uA7B3";
         private const string LowerFrom =
