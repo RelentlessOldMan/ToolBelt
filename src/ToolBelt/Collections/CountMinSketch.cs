@@ -17,7 +17,7 @@ namespace ToolBelt.Collections
     {
         // .NET Framework hashes a double or float NaN by its bits and a decimal by its scale, so equal keys (NaNs with
         // other payloads, 1.0m and 1.00m) fell into separate buckets: one key counted twice. Keys of those types hash
-        // by value; everything else uses the default comparer.
+        // by value, and so do such values inside a tuple or an object key; everything else uses the default comparer.
         private static class ValueKeys
         {
             public static IEqualityComparer<TK> For<TK>()
@@ -29,6 +29,7 @@ namespace ToolBelt.Collections
                     : typeof(TK) == typeof(double?) ? new NullableKeys<double>(DoubleKeys.Instance)
                     : typeof(TK) == typeof(float?) ? new NullableKeys<float>(SingleKeys.Instance)
                     : typeof(TK) == typeof(decimal?) ? new NullableKeys<decimal>(DecimalKeys.Instance)
+                    : IsTuple(typeof(TK)) || (!typeof(TK).IsValueType && !typeof(TK).IsSealed) ? new DeepKeys<TK>()
                     : (object?)null;
                 if (c is not null) return (IEqualityComparer<TK>)c;
 #endif
@@ -71,6 +72,56 @@ namespace ToolBelt.Collections
                 public bool Equals(TV? x, TV? y) => x.HasValue ? y.HasValue && _inner.Equals(x.Value, y.Value) : !y.HasValue;
                 public int GetHashCode(TV? v) => v.HasValue ? _inner.GetHashCode(v.Value) : 0;
             }
+
+            // Tuples (System.ValueTuple and System.Tuple, nested too) and keys of a type that can hold a boxed value
+            // (object, an interface, an unsealed class) hashed a NaN inside them by its bits as well: (NaN, 1) and
+            // (NaN with another payload, 1) are Equals but counted twice, and SequenceComparer gave them different hashes.
+            // Equality stays the default; the hash walks tuples and hashes doubles, floats and decimals by value.
+            private sealed class DeepKeys<TV> : IEqualityComparer<TV>
+            {
+                private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, Func<object, object?>[]?> Members =
+                    new System.Collections.Concurrent.ConcurrentDictionary<Type, Func<object, object?>[]?>();
+
+                public bool Equals(TV x, TV y) => EqualityComparer<TV>.Default.Equals(x, y);
+                public int GetHashCode(TV v) => Hash(v);
+
+                private static int Hash(object? o)
+                {
+                    if (o is null) return 0;
+                    if (o is double d) return DoubleKeys.Instance.GetHashCode(d);
+                    if (o is float f) return SingleKeys.Instance.GetHashCode(f);
+                    if (o is decimal m) return DecimalKeys.Instance.GetHashCode(m);
+                    Func<object, object?>[]? items = Members.GetOrAdd(o.GetType(), TupleItems);
+                    if (items is null) return o.GetHashCode();
+                    int h = 17;
+                    foreach (Func<object, object?> item in items)
+                        h = unchecked(h * 31 + Hash(item(o)));
+                    return h;
+                }
+
+                // The items of a tuple type, in a fixed order; null for any other type.
+                private static Func<object, object?>[]? TupleItems(Type t)
+                {
+                    if (!IsTuple(t)) return null;
+                    var flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance;
+                    System.Reflection.MemberInfo[] members = t.IsValueType ? t.GetFields(flags) : (System.Reflection.MemberInfo[])t.GetProperties(flags);
+                    Array.Sort(members, (a, b) => string.CompareOrdinal(a.Name, b.Name));
+                    var items = new Func<object, object?>[members.Length];
+                    for (int i = 0; i < members.Length; i++)
+                        items[i] = members[i] is System.Reflection.FieldInfo field
+                            ? (Func<object, object?>)field.GetValue
+                            : ((System.Reflection.PropertyInfo)members[i]).GetValue;
+                    return items;
+                }
+            }
+
+            private static bool IsTuple(Type t)
+            {
+                if (!t.IsGenericType) return false;
+                string? name = t.GetGenericTypeDefinition().FullName;
+                return name is not null && (name.StartsWith("System.ValueTuple`", StringComparison.Ordinal)
+                    || name.StartsWith("System.Tuple`", StringComparison.Ordinal));
+            }
 #endif
         }
 
@@ -94,13 +145,16 @@ namespace ToolBelt.Collections
         public long TotalCount { get; private set; }
 
         /// <param name="width">Counters per row; larger reduces collision over-count. Must be positive.</param>
-        /// <param name="depth">Number of hash rows; larger reduces the chance of a bad estimate. Must be positive.</param>
+        /// <param name="depth">Number of hash rows; larger reduces the chance of a bad estimate. Must be positive, and width × depth
+        /// at most Array.MaxLength.</param>
         /// <param name="comparer">Equality/hash comparer for items; defaults to <see cref="EqualityComparer{T}.Default"/>.</param>
         public CountMinSketch(int width = 2048, int depth = 5, IEqualityComparer<T>? comparer = null)
         {
             // Past Array.MaxLength the row allocation threw OutOfMemoryException.
             if (width < 1 || width > ArrayMaxLength) throw new ArgumentOutOfRangeException(nameof(width), width, "Width must be in [1, Array.MaxLength] (0x7FFFFFC7; 0x7FEFFFFF on .NET Framework).");
             if (depth < 1 || depth > ArrayMaxLength) throw new ArgumentOutOfRangeException(nameof(depth), depth, "Depth must be in [1, Array.MaxLength] (0x7FFFFFC7; 0x7FEFFFFF on .NET Framework).");
+            // Each checked alone, 0x7FFFFFC7 by 0x7FFFFFC7 asked for 2^62 counters and threw OutOfMemoryException.
+            if ((long)width * depth > ArrayMaxLength) throw new ArgumentOutOfRangeException(nameof(depth), depth, "Width × depth must be at most Array.MaxLength (0x7FFFFFC7; 0x7FEFFFFF on .NET Framework).");
 
             _width = width;
             _depth = depth;
