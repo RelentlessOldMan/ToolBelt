@@ -193,22 +193,34 @@ namespace ToolBelt.Numerics
             double max = x.Max();
             // Scale-free: the shape equation is invariant to scaling. As a difference of logs, since v/max underflowed to 0
             // (ln 0 = −∞) when the sample spanned more than the double range.
-            double[] ly = x.Select(v => Math.Log(v) - Math.Log(max)).ToArray();
-            if (ly.Max() - ly.Min() < 1e-14) throw new ArgumentException("All values are equal; the shape cannot be estimated.", nameof(sample));
+            // Near the maximum as ln(1 + d), d = v/max − 1 (exact there): Math.Log(v) − Math.Log(max) rounded each log to an
+            // ulp of ln x, which for tight data (CV 1e-10) was a 1e-5 share of the spread, and the shape and log-likelihood
+            // came out 4e-6 off.
+            double lmax = Math.Log(max);
+            double[] ly = x.Select(v =>
+            {
+                double d = (v - max) / max;
+                return d >= -0.5 ? d + Log1pmx(d) : Math.Log(v) - lmax;
+            }).ToArray();
+            // Only equal values are "all equal": distinct values within a few ulps ({1, 1 + 4ε, 1 + 8ε}) were reported so.
+            if (x.Min() == max) throw new ArgumentException("All values are equal; the shape cannot be estimated.", nameof(sample));
             double meanLy = ly.Average();
+            // The logs about their mean, so the shape equation is a sum of terms of the spread's own size.
+            double[] cy = ly.Select(l => l - meanLy).ToArray();
+            double cmax = cy.Max();
 
             // g(k) = Σ y^k ln y / Σ y^k − 1/k − mean(ln y), increasing in k.
             double G(double k, out double dg)
             {
                 double s0 = 0, s1 = 0, s2 = 0;
-                foreach (double l in ly)
+                foreach (double c in cy)
                 {
-                    double w = Math.Exp(k * l);
-                    s0 += w; s1 += w * l; s2 += w * l * l;
+                    double w = Math.Exp(k * (c - cmax));
+                    s0 += w; s1 += w * c; s2 += w * c * c;
                 }
                 double m = s1 / s0;
                 dg = s2 / s0 - m * m + 1 / (k * k);
-                return m - 1 / k - meanLy;
+                return m - 1 / k;
             }
             // Bracket the root of the shape equation; very tight data (CV ≲ 0.1%) has shape far above 1000. The equal-values
             // guard admits log spreads down to 1e-14, whose shape is ~1e14: a bracket capped at 1e12 returned 1e12 for them.
@@ -216,7 +228,7 @@ namespace ToolBelt.Numerics
             while (G(hi, out _) < 0 && hi < 1e17) { lo = hi; hi *= 10; }
             if (G(hi, out _) < 0) throw new ArgumentException("The values are too close together for the shape to be estimated.", nameof(sample));
             while (G(lo, out _) > 0 && lo > 1e-12) { hi = lo; lo /= 10; }
-            double kk = 1.2 / Math.Sqrt(Math.Max(1e-12, ly.Select(l => (l - meanLy) * (l - meanLy)).Average())); // ≈ π/(√6·sd(ln x))
+            double kk = 1.2 / Math.Sqrt(Math.Max(1e-300, cy.Select(c => c * c).Average())); // ≈ π/(√6·sd(ln x))
             kk = Math.Min(Math.Max(kk, lo * 2), hi / 2);
             for (int i = 0; i < 200; i++)
             {
@@ -233,8 +245,14 @@ namespace ToolBelt.Numerics
             // For a tiny shape the power underflows (or overflows) although λ itself is representable: in logs.
             if (!(lambda > 0) || double.IsInfinity(lambda)) lambda = Math.Exp(Math.Log(max) + Math.Log(sumYk / n) / kk);
             double shapeK = kk;
-            double sumLogX = x.Select(v => Math.Log(v)).Sum();
-            double ll = n * Math.Log(kk) - n * kk * Math.Log(lambda) + (kk - 1) * sumLogX - x.Sum(v => Math.Pow(v / lambda, shapeK));
+            // ll = Σ[ln k − ln xᵢ + k·tᵢ − e^(k·tᵢ)] with k·tᵢ = k·ln(xᵢ/λ) = k·lᵢ − ln(S/n): no term of size n·k·ln λ to cancel
+            // (the direct form lost 4e-6 of the log-likelihood at CV 1e-10).
+            double lnMean = Math.Log(sumYk / n), ll = n * Math.Log(kk) - n * lmax;
+            foreach (double l in ly)
+            {
+                double kt = kk * l - lnMean;
+                ll += -l + kt - Math.Exp(kt);
+            }
             Func<double, double> cdf = v => v <= 0 ? 0 : -Expm1(-Math.Pow(v / lambda, shapeK)); // 1 − e^(−t), accurate for small t
             return Make(DistributionFamily.Weibull, P("shape", kk, "scale", lambda), ll, x, cdf);
         }

@@ -48,16 +48,27 @@ namespace ToolBelt.Quality
                     throw new ArgumentException($"Pair [{i}] has a non-finite value or difference.", nameof(methodA));
             }
             // Mean about the first difference: a constant offset gives exactly that bias and a zero spread.
-            var (bias, sd) = MeanSd(diffs);
+            var (m, s, p) = MeanSd(diffs);
 
-            return new AgreementResult(bias, sd, bias - z * sd, bias + z * sd);
+            return new AgreementResult(m * p, s * p, Limit(m, -z, s, p), Limit(m, z, s, p));
+        }
+
+        // (m + z·s)·p, the limit bias ± z·sd in the data's units p. Formed from the unscaled bias and sd, z·sd overflowed
+        // (or sd itself did) before the bias was added: the upper limit was +∞ where it is 7.9e307 (nine −MaxValue and
+        // one +MaxValue against zeros). Scaling by a power of two is exact, so in-range data give the same bits.
+        private static double Limit(double m, double z, double s, double p)
+        {
+            double h = z * s;
+            if (!double.IsInfinity(h)) return (m + h) * p;
+            return m * p + z * (s * p);   // a z near MaxValue over data far below 1
         }
 
         // Mean and sample standard deviation of finite data, in units of the largest magnitude p (a power of two, so
         // normal-range data give the same bits): the mean about the first value, so a constant sample has exactly that
         // mean and zero spread, and the deviations squared relative to the largest. Unscaled, the sums overflowed for
         // data near 1e308 and the squares under- or overflowed for data near 1e±160.
-        private static (double Mean, double Sd) MeanSd(IReadOnlyList<double> x)
+        // Returned in units of p: mean and sd are Mean·Scale and Sd·Scale.
+        private static (double Mean, double Sd, double Scale) MeanSd(IReadOnlyList<double> x)
         {
             int n = x.Count;
             double big = 0;
@@ -72,7 +83,7 @@ namespace ToolBelt.Quality
             double s = Pow2Scale(max), ss = 0, sd = 0;
             for (int i = 0; i < n; i++) { double d = (x[i] / p - mean) / s; ss += d * d; sd += d; }
             ss = Math.Max(0, ss - sd * sd / n);
-            return (mean * p, Math.Sqrt(ss / (n - 1)) * s * p);
+            return (mean, Math.Sqrt(ss / (n - 1)) * s, p);
         }
 
         // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same

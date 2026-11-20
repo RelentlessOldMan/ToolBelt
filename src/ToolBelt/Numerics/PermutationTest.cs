@@ -84,8 +84,18 @@ namespace ToolBelt.Numerics
             for (int i = 0; i < na; i++) pooled[i] = a[i];
             for (int i = 0; i < b.Count; i++) pooled[na + i] = b[i];
             double observed;
+            // For the default statistic, the original values scaled by a power of two (exact) so their sums cannot overflow.
+            // mean(A) − mean(B) = ΣA·(1/na + 1/nb) − Σ/nb rises with ΣA, so a rearrangement is ranked against the observed
+            // split by ΣA as a double-double, as Paired ranks sign patterns: at the 1e-12 relative tolerance, means that
+            // differ by 36 ulps read as ties ({5, 1720000000000004} against {2} gave p = 1 for an exact 2/3).
+            double[]? raw = null;
             if (statistic is null)
             {
+                double big = 0;
+                foreach (double v in pooled) big = Math.Max(big, Math.Abs(v));
+                double unit = big > 1e300 / n ? Math.Pow(2, -64) : 1;
+                raw = new double[n];
+                for (int i = 0; i < n; i++) raw[i] = pooled[i] * unit;
                 // The default statistic on data centred once, with compensated sums. Summed raw, its rounding error was
                 // eps times the data's offset (1000.7 and 1000.3 swapped between groups came out 3e-14 apart, past the
                 // tie tolerance), so rearrangements holding exactly the observed values were not counted and an exact
@@ -103,6 +113,25 @@ namespace ToolBelt.Numerics
 
             var ga = new double[na];
             var gb = new double[n - na];
+            var ra = new double[na];
+            double tol = 0, obsHi = 0, obsLo = 0;
+            int greater = 0, less = 0;
+            if (raw != null)
+            {
+                double absSum = 0;
+                foreach (double v in raw) absSum += Math.Abs(v);
+                tol = 4.0 * n * n * (Eps * Eps) * absSum;
+                Array.Copy(raw, 0, ra, 0, na);
+                PairSum(ra, out obsHi, out obsLo);
+            }
+            void Rank()
+            {
+                PairSum(ra, out double hi, out double lo);
+                double s = hi - obsHi, bb = s - hi, e = (hi - (s - bb)) + (-obsHi - bb);   // TwoSum: hi − obsHi = s + e exactly
+                double diff = s + (e + (lo - obsLo));
+                if (diff >= -tol) greater++;
+                if (diff <= tol) less++;
+            }
             double total = Binomial(n, na);
             bool exact = total <= permutations;
             // Sized up front (total is exact below 1e12): grown as a list and then copied, it was held twice.
@@ -117,12 +146,14 @@ namespace ToolBelt.Numerics
                 {
                     Split(pooled, idx, ga, gb);
                     nulls[at++] = statistic(ga, gb);
+                    if (raw != null) { for (int i = 0; i < na; i++) ra[i] = raw[idx[i]]; Rank(); }
                     if (!NextCombination(idx, n)) break;
                 }
             }
             else
             {
                 var work = (double[])pooled.Clone();
+                var rawWork = raw is null ? null : (double[])raw.Clone();
                 for (int r = 0; r < permutations; r++)
                 {
                     // Partial Fisher–Yates: the first na positions become a random group A.
@@ -130,13 +161,18 @@ namespace ToolBelt.Numerics
                     {
                         int j = i + random.Next(n - i);
                         (work[i], work[j]) = (work[j], work[i]);
+                        if (rawWork != null) (rawWork[i], rawWork[j]) = (rawWork[j], rawWork[i]);
                     }
                     Array.Copy(work, 0, ga, 0, na);
                     Array.Copy(work, na, gb, 0, n - na);
                     nulls[at++] = statistic(ga, gb);
+                    if (rawWork != null) { Array.Copy(rawWork, 0, ra, 0, na); Rank(); }
                 }
             }
-            return Result(observed, nulls, exact, alternative);
+            if (raw is null) return Result(observed, nulls, exact, alternative);
+            foreach (double v in nulls)
+                if (double.IsNaN(v)) throw new InvalidOperationException("The statistic returned NaN on a rearrangement.");
+            return Result(observed, nulls, exact, alternative, greater, less);
         }
 
         /// <summary>

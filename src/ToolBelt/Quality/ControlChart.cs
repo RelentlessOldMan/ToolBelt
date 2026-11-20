@@ -46,14 +46,14 @@ namespace ToolBelt.Quality
             // moving range the limits collapse onto the mean, and an ulp would put every point beyond them.
             double x0 = data[0] / p, sum = 0;
             for (int i = 0; i < data.Count; i++) sum += data[i] / p - x0;
-            double mean = (x0 + sum / data.Count) * p;
+            double ms = x0 + sum / data.Count;
 
             double sumRange = 0;
             for (int i = 1; i < data.Count; i++) sumRange += Math.Abs(data[i] / p - data[i - 1] / p);
-            double meanRange = sumRange / (data.Count - 1) * p;
-
-            double spread = IndividualsSigmaFactor * meanRange;
-            return new ControlLimits(mean, mean - spread, mean + spread);
+            // The limits in units of p too: 2.66·MR̄ overflowed before the mean was added, so a finite limit (6.9e307 for
+            // data swinging between ±MaxValue about a negative mean) came out infinite.
+            double spread = IndividualsSigmaFactor * (sumRange / (data.Count - 1));
+            return new ControlLimits(ms * p, (ms - spread) * p, (ms + spread) * p);
         }
 
         // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same
