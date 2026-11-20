@@ -133,7 +133,10 @@ namespace ToolBelt.Time
 
                 // Jump to two days before the next day that can match: offsets differ by under 48 hours, so the walk still
                 // reaches that day's offset changes (and a spring-forward gap on it) minute by minute.
-                if (!_months[wall.Month] || !DayMatches(wall))
+                // Not while the clock may still fall back within two days: it can carry the wall clock back onto a day
+                // before NextMatchingDay's (a fall-back at 00:01 Sunday repeats Saturday 23:01-23:59), and the jump
+                // leapt over that second pass, so `* 23 * * 6` ran a week late and `*/5 * 6 11 *` a year late.
+                if ((!_months[wall.Month] || !DayMatches(wall)) && !FallsBackWithin(timeZone, t, offset, limit))
                 {
                     long day = NextMatchingDay(wall);
                     if (day < 0) break;
@@ -204,6 +207,20 @@ namespace ToolBelt.Time
             TimeSpan smallest = TimeSpan.MaxValue;
             foreach (TimeSpan o in zone.GetAmbiguousTimeOffsets(instant)) if (o < smallest) smallest = o;
             return instant.Offset == smallest;   // the clock went back, so the later pass has the smaller offset
+        }
+
+        // True if the offset drops below `offset` at some hour in the next two days (offsets differ by under 48 hours, so
+        // no fall-back further off can bring the wall clock back to today or earlier). Sampled hourly, as the walk's hour
+        // steps check offsets.
+        private static bool FallsBackWithin(TimeZoneInfo zone, long t, TimeSpan offset, long limit)
+        {
+            long end = Math.Min(t + 2 * TimeSpan.TicksPerDay, Math.Min(limit, DateTime.MaxValue.Ticks));
+            for (long s = t + TimeSpan.TicksPerHour; ; s += TimeSpan.TicksPerHour)
+            {
+                if (s > end) s = end;
+                if (OffsetAt(zone, s) < offset) return true;
+                if (s == end) return false;
+            }
         }
 
         private static TimeSpan OffsetAt(TimeZoneInfo zone, long utcTicks)

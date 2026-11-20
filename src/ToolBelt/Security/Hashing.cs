@@ -39,9 +39,22 @@ namespace ToolBelt.Security
         /// <summary>
         /// Hashes data that arrives in pieces (a socket, a capture loop, chunks you already have in memory) without
         /// buffering it: <c>using var h = Hashing.CreateIncremental(); h.Append(chunk); … h.GetHashAndReset()</c>.
+        /// Null means SHA-256. A name that is empty (a default <see cref="HashAlgorithmName"/>) or not a hash the platform
+        /// knows throws <see cref="ArgumentException"/> naming <paramref name="algorithm"/>.
         /// </summary>
         public static IncrementalHash CreateIncremental(HashAlgorithmName? algorithm = null)
-            => IncrementalHash.CreateHash(algorithm ?? HashAlgorithmName.SHA256);
+        {
+            var name = algorithm ?? HashAlgorithmName.SHA256;
+            // A default name threw ArgumentNullException (ArgumentException with a bare resource key on .NET Framework)
+            // naming hashAlgorithm, and an unknown one CryptographicException.
+            if (string.IsNullOrEmpty(name.Name))
+                throw new ArgumentException("The hash algorithm name is empty.", nameof(algorithm));
+            try { return IncrementalHash.CreateHash(name); }
+            catch (CryptographicException ex)
+            {
+                throw new ArgumentException("Unknown hash algorithm '" + name.Name + "'.", nameof(algorithm), ex);
+            }
+        }
 
         private static byte[] HashFile(HashAlgorithm algorithm, string path)
         {

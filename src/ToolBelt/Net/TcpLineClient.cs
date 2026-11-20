@@ -50,7 +50,9 @@ namespace ToolBelt.Net
             TimeSpan? connectTimeout = null, TimeSpan? readTimeout = null, TimeSpan? writeTimeout = null, Encoding? encoding = null)
         {
             if (host is null) throw new ArgumentNullException(nameof(host));
-            if (host.Length == 0) throw new ArgumentException("Host must not be empty.", nameof(host));
+            // A blank host went to DNS and failed as SocketException "No such host is known" (PortCheck and HostInfo
+            // refuse it).
+            if (host.Trim().Length == 0) throw new ArgumentException("Host must not be empty or blank.", nameof(host));
             if (port < IPEndPoint.MinPort || port > IPEndPoint.MaxPort)
                 throw new ArgumentOutOfRangeException(nameof(port), port, "Port must be in [0, 65535].");
             int connectMs = ToMilliseconds(connectTimeout ?? TimeSpan.FromSeconds(30), nameof(connectTimeout));
