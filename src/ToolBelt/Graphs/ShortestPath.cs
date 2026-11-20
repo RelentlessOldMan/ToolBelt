@@ -32,7 +32,10 @@ namespace ToolBelt.Graphs
     /// </summary>
     public static class ShortestPath
     {
-        /// <summary>Fewest-edges path, treating every edge as unit cost.</summary>
+        /// <summary>
+        /// Fewest-edges path, treating every edge as unit cost. An edge of weight +∞ counts as no edge, as it does for
+        /// <see cref="Dijkstra{T}"/> and <c>MinimumSpanningTree</c>.
+        /// </summary>
         public static ShortestPathResult<T> BreadthFirst<T>(Graph<T> graph, T source, T target) where T : notnull
         {
             if (graph is null) throw new ArgumentNullException(nameof(graph));
@@ -52,8 +55,10 @@ namespace ToolBelt.Graphs
                 T v = queue.Dequeue();
                 if (cmp.Equals(v, target))
                     return Build(source, target, prev, cmp, HopCount(source, target, prev, cmp));
-                foreach (var (to, _) in graph.Neighbors(v))
+                foreach (var (to, weight) in graph.Neighbors(v))
                 {
+                    // A lone +∞ edge was walked as one hop (Found, Distance 1) where Dijkstra reports no path.
+                    if (double.IsPositiveInfinity(weight)) continue;
                     if (seen.Add(to))
                     {
                         prev[to] = v;

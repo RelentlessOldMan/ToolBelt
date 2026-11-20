@@ -45,6 +45,7 @@ namespace ToolBelt.Objects
         {
             if (type is null) throw new ArgumentNullException(nameof(type));
             if (memberName is null) throw new ArgumentNullException(nameof(memberName));
+            CheckType(type);
             return Getters.GetOrAdd((type, memberName), key => BuildGetter(key.Type, key.Member));
         }
 
@@ -53,6 +54,7 @@ namespace ToolBelt.Objects
         {
             if (type is null) throw new ArgumentNullException(nameof(type));
             if (memberName is null) throw new ArgumentNullException(nameof(memberName));
+            CheckType(type);
             return Setters.GetOrAdd((type, memberName), key => BuildSetter(key.Type, key.Member));
         }
 
@@ -118,6 +120,14 @@ namespace ToolBelt.Objects
                     Expression body = Expression.Assign(member, source);
                     return Expression.Lambda<Action<TTarget, TValue>>(NullChecked(instance, body), instance, value).Compile();
                 });
+        }
+
+        // typeof(void) threw InvalidOperationException from the cast to it; a pointer, by-ref or open generic type only
+        // threw ArgumentException("type") because the expression library happened to name its own parameter so.
+        private static void CheckType(Type type)
+        {
+            if (type == typeof(void) || type.IsPointer || type.IsByRef || type.ContainsGenericParameters)
+                throw new ArgumentException($"{type} has no instances whose members can be accessed.", nameof(type));
         }
 
         // A null instance of a reference type threw NullReferenceException; GetValue throws ArgumentNullException.

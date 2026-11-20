@@ -848,6 +848,7 @@ tests/
       ObjectsReview136Tests.cs (eighth pass: struct defaults without their constructor, DateTime text round trips, exact-case enum names in conversions and path keys, quoted path keys in Flatten and PropertyDiff, invariant Cell text, plain attribute arrays, wrong-type accessor arguments)
       ObjectsReview145Tests.cs (ninth pass: bounded fan-out of made objects, pairs and objects revisited by a shorter path, enums to floating values and ulong enums, exact names in ObjectMapper, null instances in ExpressionAccessor, Result.Try with a throwing Message)
       ObjectsReview163Tests.cs (tenth pass: path keys of every key type read back (BigInteger, DateOnly, TimeOnly, Half, Int128, nint, tuples), keys holding both quotes, invariant tuple keys, double to float only when the float names the value, structs without Equals and signed NaN alike on .NET Framework)
+      ObjectsGraphsReview179Tests.cs (round 179: infinite edges in breadth-first search against Dijkstra on unit weights, void and other instance-less types in ExpressionAccessor)
     Identifiers/
       NanoIdTests.cs
       ShortGuidTests.cs
