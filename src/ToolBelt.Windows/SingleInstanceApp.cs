@@ -101,7 +101,8 @@ namespace ToolBelt.Windows
         /// Claims the instance named <paramref name="appId"/> for this user session, or forwards <paramref name="args"/>
         /// to the instance that already holds it (waiting up to <paramref name="forwardTimeout"/>, default 5 s, for a
         /// primary that is still starting up; <see cref="Timeout.InfiniteTimeSpan"/> or <see cref="TimeSpan.MaxValue"/>
-        /// waits without limit). If the forward fails because the primary exited meanwhile, this launch becomes the
+        /// waits without limit). Each attempt still gets at least 1 s, so a zero timeout reaches a primary that is running
+        /// (it serves one launch at a time, and a 1 ms attempt between two of them lost the launch). If the forward fails because the primary exited meanwhile, this launch becomes the
         /// primary instead (<see cref="IsPrimary"/> true), so it handles its own arguments. App ids compare without
         /// regard to case ("Contoso.Viewer" and "contoso.viewer" are one instance).
         /// </summary>
@@ -166,6 +167,10 @@ namespace ToolBelt.Windows
             return SetForegroundWindow(hwnd);
         }
 
+        // A primary that is up gets this long to answer even under a zero timeout: a busy machine delays its listener by
+        // hundreds of milliseconds (a 100 ms floor still lost launches under load).
+        private const int MinAttemptMs = 1000;
+
         // sent: the message reached a primary (which may have delivered it), so it must not go out again.
         private static bool Forward(string pipeName, IReadOnlyList<string> args, TimeSpan timeout, out bool sent)
         {
@@ -190,12 +195,14 @@ namespace ToolBelt.Windows
                 try
                 {
                     using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.CurrentUserOnly | PipeOptions.Asynchronous);
-                    client.Connect((int)Math.Max(1, Math.Min(RemainingMs(), 1000)));
+                    // At least MinAttemptMs: the listener builds its next pipe after each client, and a 1 ms connect (a zero
+                    // timeout) that fell in that gap lost the launch to a primary that was up and ready.
+                    client.Connect((int)Math.Max(MinAttemptMs, Math.Min(RemainingMs(), 1000)));
                     // Pipes don't support ReadTimeout. Past the deadline (5 s, or what is left of the forward timeout, which a
                     // stalled primary otherwise stretched) a timer cancels the pipe's I/O, so a primary that took the
                     // connection and then stopped reading or writing can't hang this launch. It repeats every 50 ms: a cancel
                     // that lands between two calls has nothing to cancel. (Blocking on the async calls was sync-over-async.)
-                    using var cancelIo = new Timer(CancelPipeIo, client, Math.Max(1, Math.Min(RemainingMs(), 5000)), 50);
+                    using var cancelIo = new Timer(CancelPipeIo, client, Math.Max(MinAttemptMs, Math.Min(RemainingMs(), 5000)), 50);
                     var pid = new byte[4];
                     client.ReadExactly(pid);
                     AllowSetForegroundWindow(BitConverter.ToInt32(pid, 0));           // let the primary come to the front

@@ -31,6 +31,12 @@ namespace ToolBelt.Windows
         {
             if (fileName is null) throw new ArgumentNullException(nameof(fileName));
             if (fileName.Length == 0) throw new ArgumentException("File name must not be empty.", nameof(fileName));
+            // The shell reads C strings: text after a NUL was dropped, so a different file or a shorter command line ran.
+            if (fileName.IndexOf('\0') >= 0) throw new ArgumentException("File name must not contain a NUL character.", nameof(fileName));
+            if (arguments != null && arguments.IndexOf('\0') >= 0)
+                throw new ArgumentException("Arguments must not contain a NUL character.", nameof(arguments));
+            if (workingDirectory != null && workingDirectory.IndexOf('\0') >= 0)
+                throw new ArgumentException("Working directory must not contain a NUL character.", nameof(workingDirectory));
 
             var psi = new ProcessStartInfo
             {
@@ -81,6 +87,8 @@ namespace ToolBelt.Windows
             foreach (string arg in arguments)
             {
                 if (arg is null) throw new ArgumentException("Arguments must not be null.", nameof(arguments));
+                // The command line is a C string: "a\0b c" read back as just "a", losing the rest.
+                if (arg.IndexOf('\0') >= 0) throw new ArgumentException("Arguments must not contain a NUL character.", nameof(arguments));
                 if (!first) sb.Append(' ');
                 first = false;
                 AppendQuoted(sb, arg);
