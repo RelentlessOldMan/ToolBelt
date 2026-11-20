@@ -113,8 +113,8 @@ namespace ToolBelt.Signal
         {
             Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * x), z2 = z1 * z1;
             Complex direct = c0 + c1 * z1 + c2 * z2;
-            if (!Cancels(direct.Magnitude, c0, c1, c2) || !TryRoots(c0, c1, c2, out Complex r1, out Complex r2)) return direct;
-            Complex p = c0 * OffsetOnCircle(x, r1) * OffsetOnCircle(x, r2);
+            if (!Cancels(direct.Magnitude, c0, c1, c2) || !TryOffsets(c0, c1, c2, x, out Complex o1, out Complex o2, out _, out _)) return direct;
+            Complex p = c0 * o1 * o2;
             if (x - Math.Round(x) < 0) p = Complex.Conjugate(p);
             p *= z2;
             return IsFinite(p.Real) && IsFinite(p.Imaginary) ? p : direct;
@@ -125,8 +125,8 @@ namespace ToolBelt.Signal
         {
             Complex z1 = Complex.FromPolarCoordinates(1, -2 * Math.PI * x), z2 = z1 * z1;
             double direct = (c0 + c1 * z1 + c2 * z2).Magnitude;
-            if (!Cancels(direct, c0, c1, c2) || !TryRoots(c0, c1, c2, out Complex r1, out Complex r2)) return direct;
-            double factored = Math.Abs(c0) * DistanceOnCircle(x, r1) * DistanceOnCircle(x, r2);
+            if (!Cancels(direct, c0, c1, c2) || !TryOffsets(c0, c1, c2, x, out Complex o1, out Complex o2, out _, out _)) return direct;
+            double factored = Math.Abs(c0) * Hypot(o1.Real, o1.Imaginary) * Hypot(o2.Real, o2.Imaginary);
             return IsFinite(factored) ? factored : direct;
         }
 
@@ -148,6 +148,45 @@ namespace ToolBelt.Signal
             r1 = q / c0;
             r2 = c2 / q;
             return true;
+        }
+
+        // The offsets e^(jω) − r of the point z = e^(j2π|x|) from the two roots of c0·z² + c1·z + c2, each with the m for
+        // which −r / (e^(jω) − r) = −m / offset. A real root is taken as TryRoots gives it (m = r). A complex pair
+        // ρ·e^(±jφ) is taken from the coefficients: ρ² = c2/c0 and φ from the exact discriminant. From TryRoots a pair on
+        // the circle (c0 == c2, a notch) came out at a radius off 1 by about 1e-16, which at the notch centre made the
+        // group delay 1e12 samples instead of 9167, and the null 1.5 to 22 dB too shallow. Its offsets are
+        // e^(±jφ)·(e^(jδ) − ρ) for δ = ω ∓ φ, with e^(jδ) − ρ = −(2·sin²(δ/2) + (ρ − 1)) + j·sin δ; the rotations e^(±jφ)
+        // cancel in the product and in −r / offset (m = ρ), so they are left out.
+        private static bool TryOffsets(double c0, double c1, double c2, double x, out Complex o1, out Complex o2, out Complex m1, out Complex m2)
+        {
+            double p1 = c1 * c1, p2 = c0 * (4 * c2);
+            double d = (p1 - p2) + (ProductError(c1, c1, p1) - ProductError(c0, 4 * c2, p2));
+            if (d < 0 && c0 != 0)
+            {
+                double rho = Math.Sqrt(c2 / c0), rhoLessOne = (c2 - c0) / c0 / (rho + 1);
+                double y = Math.Sqrt(-d), s = c0 > 0 ? 1 : -1;
+                double angle = Math.Atan2(y, -s * c1), fromPi = Math.Atan2(y, s * c1);
+                double a = Math.Abs(x - Math.Round(x)), d1, d2;                 // in [0, 0.5], exact
+                if (a <= 0.25) { double w = 2 * Math.PI * a; d1 = w - angle; d2 = w + angle; }
+                else { double b = 2 * Math.PI * (0.5 - a); d1 = fromPi - b; d2 = -(b + fromPi); }   // ω = π − b, φ = π − fromPi
+                o1 = PairOffset(d1, rhoLessOne);
+                o2 = PairOffset(d2, rhoLessOne);
+                m1 = m2 = rho;
+                if (IsFinite(rho) && rho != 0 && IsFinite(o1.Real) && IsFinite(o1.Imaginary) && IsFinite(o2.Real) && IsFinite(o2.Imaginary)) return true;
+            }
+            o1 = o2 = m1 = m2 = Complex.Zero;
+            if (!TryRoots(c0, c1, c2, out Complex r1, out Complex r2)) return false;
+            o1 = OffsetOnCircle(x, r1);
+            o2 = OffsetOnCircle(x, r2);
+            m1 = r1;
+            m2 = r2;
+            return true;
+        }
+
+        private static Complex PairOffset(double delta, double rhoLessOne)
+        {
+            double s = Math.Sin(delta / 2);
+            return new Complex(-(2 * s * s + rhoLessOne), Math.Sin(delta));
         }
 
         // a·b − p for p = a·b rounded, exactly (Dekker's product); 0 where the split overflows.
@@ -183,9 +222,14 @@ namespace ToolBelt.Signal
             Complex p = c0 + c1 * z1 + c2 * z2;
             double direct = ((c1 * z1 + 2 * c2 * z2) / p).Real;
             double size = Math.Abs(c0) + Math.Abs(c1) + Math.Abs(c2);
-            if (!(p.Magnitude <= 1e-6 * size) || c0 == 0 || !TryRoots(c0, c1, c2, out Complex r1, out Complex r2)) return direct;
+            // The direct sum's error grows as (size / |P|)²: at |P| = 1e-6·size it was 4e-6 relative (a notch 1e-6 off its
+            // centre), so the roots are used from 1e-2·size.
+            if (!(p.Magnitude <= 1e-2 * size) || c0 == 0 || !TryOffsets(c0, c1, c2, x, out Complex o1, out Complex o2, out Complex m1, out Complex m2)) return direct;
+            // Exactly on a root the delay is undefined. The direct sum, which this fell back to, gave a first-order
+            // low-pass 0.66 samples at Nyquist, where |H| = 0 (orders 2 and up gave NaN).
+            if (o1 == Complex.Zero || o2 == Complex.Zero) return double.NaN;
             // The sign of x only conjugates both terms (a real root, or swaps a conjugate pair), so the real part holds.
-            double factored = (-r1 / OffsetOnCircle(x, r1)).Real + (-r2 / OffsetOnCircle(x, r2)).Real;
+            double factored = (-m1 / o1).Real + (-m2 / o2).Real;
             return IsFinite(factored) ? factored : direct;
         }
 
@@ -199,6 +243,14 @@ namespace ToolBelt.Signal
         {
             CheckResponseArguments(frequency, sampleRate);
             return PolynomialMagnitude(B0, B1, B2, Cycles(frequency, sampleRate));
+        }
+
+        // ln |∏(e^(j2πx) − r)| over roots that come in conjugate pairs (so the sign of x does not matter).
+        internal static double LogDistance(List<Complex> roots, double frequency, double sampleRate)
+        {
+            double x = Cycles(frequency, sampleRate), sum = 0;
+            foreach (var r in roots) sum += Math.Log(DistanceOnCircle(x, r));
+            return sum;
         }
 
         // |e^(j2πx) − r| for a root r of a real polynomial (so the sign of x does not matter). The point is taken relative
@@ -651,7 +703,8 @@ namespace ToolBelt.Signal
         /// <summary>|H| in decibels at <paramref name="frequency"/> Hz (−∞ at an exact zero).</summary>
         /// <remarks>Summed per section, with each numerator taken from its roots where the direct sum cancels: deep in
         /// the stop band of a high-order design |H| underflowed (−8000 dB came out as −∞) and the numerator next to its
-        /// zeros at Nyquist cancelled completely.</remarks>
+        /// zeros at Nyquist cancelled completely. Within a few ulps of a zero's angle on the unit circle (a notch at its
+        /// centre frequency) the depth of the null, by then about −200 dB or less, is set by rounding.</remarks>
         public double MagnitudeDb(double frequency, double sampleRate)
         {
             double db = 0;
@@ -1549,7 +1602,18 @@ namespace ToolBelt.Signal
             var sections = ToSections(z, p, logK);
             foreach (var s in sections)
                 if (!s.IsWellConditioned()) throw spec != null ? SpecTooExtreme(spec) : SpecOrEdge(EdgeTooClose(1 - s.A1 + s.A2 < 1 + s.A1 + s.A2, twoEdges, edgeName, f1, f2));
-            return new IirFilter(sections);
+            var filter = new IirFilter(sections);
+            // Rounding the coefficients can still move the response at an edge when its poles crowd the circle, which
+            // the per-section test does not see: EllipticHighPass(16, 2.775, 24.438, 0.0889, 15476) (edge at 5.7e-6·fs)
+            // had +0.90 dB at its edge, where the design has −2.775 dB, and an elliptic high-pass of order 11 with
+            // rp 0.6746 dB had −0.4746 dB. So the sections must hold the design's gain at each edge to 0.01 dB.
+            foreach (double f in twoEdges ? new[] { f1, f2 } : new[] { f1 })
+            {
+                double exact = 20 / Math.Log(10) * (logK.Real + Biquad.LogDistance(z, f, sampleRate) - Biquad.LogDistance(p, f, sampleRate));
+                if (Biquad.IsFinite(exact) && !(Math.Abs(filter.MagnitudeDb(f, sampleRate) - exact) <= 0.01))
+                    throw spec != null ? SpecTooExtreme(spec) : SpecOrEdge(EdgeTooClose(f / sampleRate > 0.25, twoEdges, edgeName, f1, f2));
+            }
+            return filter;
 
             // A very selective elliptic or Chebyshev design (order 15 with 3 dB ripple and 10 dB attenuation) has prototype
             // poles within 1e-11 of the jω axis, which no edge can hold: that was blamed on a mid-band cutoff "too close

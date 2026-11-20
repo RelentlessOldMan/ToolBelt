@@ -25,11 +25,19 @@ namespace ToolBelt.Tests.Control
 
         // The denominator was summed directly, which next to a pole near the unit circle lost its digits: this elliptic
         // high-pass's pass-band edge read −0.184 dB (−0.209 through Response). The reference, −0.474614 dB, is the
-        // filter's own sections evaluated exactly in mpmath at 60 digits.
+        // filter's own sections evaluated exactly in mpmath at 60 digits. They are the sections EllipticHighPass(11,
+        // 0.6746060043311932, 3.7811020546517495, fc, fs) gave until round 170, which now refuses that design: they miss
+        // its −0.6746 dB at the edge.
         public void Iir_MagnitudeNextToAPole_IsTakenFromTheRoots()
         {
             const double fc = 3188.5956914197245, fs = 24005303.363861687;
-            var f = IirFilter.EllipticHighPass(11, 0.6746060043311932, 3.7811020546517495, fc, fs);
+            var f = new IirFilter(
+                new Biquad(0.8287241811812442, -1.657447785136065, 0.8287241811812442, -1.9999992888922535, 0.9999999854250644),
+                new Biquad(0.9834350879009769, -1.9668694908031876, 0.9834350879009766, -1.9999993032202183, 0.9999999997571996),
+                new Biquad(0.9931769288216235, -1.986353166626214, 0.9931769288216232, -1.9999984289654789, 0.9999991252479943),
+                new Biquad(1.2264323996102655, -1.2264323996102655, 0, -0.9994070642141338, 0),
+                new Biquad(0.9852502718704154, -1.9704998574775145, 0.9852502718704153, -1.999999303458972, 0.9999999999960227),
+                new Biquad(1.0220855323834095, -2.044170398743394, 1.0220855323834093, -1.9999473838616497, 0.9999480652866688));
             Check.Close(-0.4746136, f.MagnitudeDb(fc, fs), 1e-4);
             Check.Close(-0.4746136, 20 * Math.Log10(f.Response(fc, fs).Magnitude), 1e-4);
             Check.Close(-0.4746136, 20 * Math.Log10(f.Response(-fc, fs).Magnitude), 1e-4);
