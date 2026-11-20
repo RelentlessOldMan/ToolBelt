@@ -64,6 +64,15 @@ namespace ToolBelt.Threading
         public double CompareExchange(double newValue, double comparand) => Interlocked.CompareExchange(ref _value, newValue, comparand);
 
         /// <summary>The value in the invariant culture, round-trippable (de-DE gave "1,5"; .NET Framework kept 15 digits).</summary>
-        public override string ToString() => Value.ToString("R", CultureInfo.InvariantCulture);
+        public override string ToString()
+        {
+            double v = Value;
+            // .NET Framework's "R" printed 0.84551240822557006 as "0.84551240822557", which reads back one ulp lower, and
+            // -0.0 as "0"; G17 always reads back, so it is the fallback when the shorter text does not.
+            if (v == 0 && BitConverter.DoubleToInt64Bits(v) < 0) return "-0";
+            string s = v.ToString("R", CultureInfo.InvariantCulture);
+            if (double.IsNaN(v) || double.IsInfinity(v)) return s;
+            return double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) == v ? s : v.ToString("G17", CultureInfo.InvariantCulture);
+        }
     }
 }

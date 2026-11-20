@@ -64,7 +64,9 @@ namespace ToolBelt.Resilience
             }
             try
             {
-                return await operation(cancellationToken).ConfigureAwait(false);
+                // A null task threw NullReferenceException.
+                return await (operation(cancellationToken) ?? throw new InvalidOperationException("The operation returned a null task."))
+                    .ConfigureAwait(false);
             }
             finally
             {
@@ -78,7 +80,7 @@ namespace ToolBelt.Resilience
             if (operation is null) throw new ArgumentNullException(nameof(operation));
             return ExecuteAsync(async ct =>
             {
-                await operation(ct).ConfigureAwait(false);
+                await (operation(ct) ?? throw new InvalidOperationException("The operation returned a null task.")).ConfigureAwait(false);
                 return true;
             }, cancellationToken);
         }

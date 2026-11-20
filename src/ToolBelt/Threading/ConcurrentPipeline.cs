@@ -42,6 +42,10 @@ namespace ToolBelt.Threading
         private readonly Queue<T> _queue = new Queue<T>();
         private readonly object _gate = new object();
         private readonly SemaphoreSlim _signal = new SemaphoreSlim(0);
+        // A wake-up is pending (under _gate). A release per item piled up one per item while a backlog kept the consumer
+        // from waiting (300,000 after 300,000 items), and at int.MaxValue TryEnqueue threw SemaphoreFullException for an
+        // item it had queued.
+        private bool _wakePending;
         private readonly SemaphoreSlim? _space;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly Task _loop;
@@ -134,6 +138,7 @@ namespace ToolBelt.Threading
                 {
                     throw new ObjectDisposedException(GetType().Name);
                 }
+                bool wake;
                 lock (_gate)
                 {
                     if (_completed == 1)
@@ -144,12 +149,13 @@ namespace ToolBelt.Threading
                     // Granted a slot as Dispose ran: the item was buffered for a consumer that had stopped.
                     if (Volatile.Read(ref _disposed) == 1) throw new ObjectDisposedException(GetType().Name);
                     _queue.Enqueue(item);
+                    wake = Wake();
                 }
-                _signal.Release();
+                if (wake) _signal.Release();
                 return true;
             }
 
-            bool evicted = false;
+            bool evicted = false, wakeDrop;
             lock (_gate)
             {
                 // The drop policies never looked: after Dispose a full buffer dropped (or evicted) and returned, and a
@@ -170,9 +176,18 @@ namespace ToolBelt.Threading
                     evicted = true;
                 }
                 _queue.Enqueue(item);
+                // Replacing an item adds nothing to wake for: a release per eviction piled up one wake-up per drop.
+                wakeDrop = !evicted && Wake();
             }
-            // Replacing an item adds nothing to wake for: a release per eviction piled up one wake-up per drop.
-            if (!evicted) _signal.Release();
+            if (wakeDrop) _signal.Release();
+            return true;
+        }
+
+        // Under _gate: true when the caller should release the signal (no wake-up was pending).
+        private bool Wake()
+        {
+            if (_wakePending) return false;
+            _wakePending = true;
             return true;
         }
 
@@ -187,10 +202,15 @@ namespace ToolBelt.Threading
         public async Task CompleteAsync()
         {
             // Under the gate, so no enqueue can land after the consumer has seen "completed and empty".
-            lock (_gate) Volatile.Write(ref _completed, 1);
+            bool wake;
+            lock (_gate)
+            {
+                Volatile.Write(ref _completed, 1);
+                wake = Wake();
+            }
             // Wake the consumer so it can observe completion. After a Dispose this threw the disposed semaphore's
             // ObjectDisposedException, even for a pipeline that had drained before it; the signal is never disposed now.
-            _signal.Release();
+            if (wake) _signal.Release();
             // From the consumer, waiting for the drain waited on the caller itself: it hung, and so did every later
             // CompleteAsync and Dispose.
             if (InConsumer()) return;
@@ -211,6 +231,8 @@ namespace ToolBelt.Threading
                     lock (_gate) _drained = _completed == 1 && _queue.Count == 0; // nothing was left to lose
                     break;
                 }
+                // Cleared before the drain, so an item queued after this point releases again.
+                lock (_gate) _wakePending = false;
 
                 while (true)
                 {
@@ -227,7 +249,8 @@ namespace ToolBelt.Threading
                     s_consuming.Value = flow;
                     try
                     {
-                        try { _consumer(item, ct).GetAwaiter().GetResult(); }
+                        // A null task was reported as NullReferenceException.
+                        try { (_consumer(item, ct) ?? throw new InvalidOperationException("The consumer returned a null task.")).GetAwaiter().GetResult(); }
                         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
                         catch (Exception ex)
                         {

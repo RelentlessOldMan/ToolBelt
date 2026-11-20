@@ -70,6 +70,8 @@ namespace ToolBelt.Threading
 
         internal Task WaitAsync(CancellationToken cancellationToken)
         {
+            // A cancelled token wins, as for AsyncManualResetEvent: an unpaused wait succeeded with it.
+            if (cancellationToken.IsCancellationRequested) return Task.FromCanceled(cancellationToken);
             Task? wait;
             lock (_gate) wait = _resumed?.Task;
             if (wait == null) return Task.CompletedTask;
@@ -97,7 +99,10 @@ namespace ToolBelt.Threading
 
         public bool IsPaused => _source?.IsPaused ?? false;
 
-        /// <summary>Completes at once when not paused; otherwise when resumed (or throws when <paramref name="cancellationToken"/> fires).</summary>
+        /// <summary>
+        /// Completes at once when not paused; otherwise when resumed (or throws when <paramref name="cancellationToken"/>
+        /// fires). A token already cancelled wins: the wait is cancelled even when not paused.
+        /// </summary>
         public Task WaitWhilePausedAsync(CancellationToken cancellationToken = default)
             => _source?.WaitAsync(cancellationToken) ?? Task.CompletedTask;
     }

@@ -43,13 +43,28 @@ namespace ToolBelt.Runtime
             TimeSpan previous = TimeSpan.Zero;
             foreach (var (name, elapsed) in _milestones)
             {
-                double stepMs = (elapsed - previous).TotalMilliseconds;
-                // The sign written once: a clock that stepped back printed "(+   -5.0 ms)".
-                sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,8:F1} ms ({1}{2,7:F1} ms)  {3}",
-                    elapsed.TotalMilliseconds, stepMs < 0 ? "-" : "+", Math.Abs(stepMs), name));
+                // Lines are joined rather than trimmed: TrimEnd took the last name's trailing spaces with the newline.
+                if (sb.Length > 0) sb.AppendLine();
+                long step = elapsed.Ticks - previous.Ticks;
+                // The sign written once: a clock that stepped back printed "(+   -5.0 ms)". Tenths of a millisecond are
+                // rounded from whole ticks, half away from zero, so a step back under 0.05 ms is "+0.0" rather than "-0.0"
+                // on .NET Core and "0.0" on .NET Framework, and F1's framework-dependent rounding of a double is not used.
+                string stepText = Tenths(step, out bool stepNegative);
+                string total = Tenths(elapsed.Ticks, out bool negative);
+                sb.Append(string.Format(CultureInfo.InvariantCulture, "{0,8} ms ({1}{2,7} ms)  {3}",
+                    (negative ? "-" : "") + total, stepNegative ? "-" : "+", stepText, name));
                 previous = elapsed;
             }
-            return sb.ToString().TrimEnd();
+            return sb.ToString();
+        }
+
+        // |ticks| in milliseconds to one decimal, rounded half away from zero; negative only when that is not 0.0.
+        private static string Tenths(long ticks, out bool negative)
+        {
+            ulong magnitude = ticks < 0 ? (ulong)(-(ticks + 1)) + 1 : (ulong)ticks;
+            ulong tenths = (magnitude + 500) / 1000;                                // 1,000 ticks = 0.1 ms
+            negative = ticks < 0 && tenths != 0;
+            return (tenths / 10).ToString(CultureInfo.InvariantCulture) + "." + (tenths % 10).ToString(CultureInfo.InvariantCulture);
         }
     }
 }

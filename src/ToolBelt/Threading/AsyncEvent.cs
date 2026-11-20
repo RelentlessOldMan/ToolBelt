@@ -47,7 +47,7 @@ namespace ToolBelt.Threading
             foreach (var handler in Snapshot())
             {
                 if (cancellationToken.IsCancellationRequested) { canceled = true; break; }
-                try { await handler(args, cancellationToken).ConfigureAwait(false); }
+                try { await (handler(args, cancellationToken) ?? throw NullTask()).ConfigureAwait(false); }
                 // A handler that honoured the caller's cancellation is the stop, not a failure (it was reported as both).
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { canceled = true; break; }
                 catch (Exception ex) { exceptions.Add(ex); }
@@ -102,11 +102,14 @@ namespace ToolBelt.Threading
 
         // The handler's own exception, as InvokeSequentialAsync catches it. Left to fault the task, an
         // OperationCanceledException made it Canceled and was replaced by a new TaskCanceledException.
+        // A handler returning a null task threw NullReferenceException.
+        private static InvalidOperationException NullTask() => new InvalidOperationException("A handler returned a null task.");
+
         private static async Task<Exception?> RunGuarded(Func<TArgs, CancellationToken, Task> handler, TArgs args, CancellationToken ct)
         {
             try
             {
-                await handler(args, ct).ConfigureAwait(false);
+                await (handler(args, ct) ?? throw NullTask()).ConfigureAwait(false);
                 return null;
             }
             catch (Exception ex) { return ex; }

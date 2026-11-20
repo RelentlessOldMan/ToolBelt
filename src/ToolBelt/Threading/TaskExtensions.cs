@@ -79,6 +79,12 @@ namespace ToolBelt.Threading
         public static async Task<TResult> WithCancellation<TResult>(this Task<TResult> task, CancellationToken cancellationToken)
         {
             if (task is null) throw new ArgumentNullException(nameof(task));
+            // A cancelled token wins, as for AsyncManualResetEvent and SemaphoreSlim: a finished task's result came back.
+            if (cancellationToken.IsCancellationRequested)
+            {
+                Observe(task);
+                throw new OperationCanceledException(cancellationToken);
+            }
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             using (cancellationToken.Register(() => tcs.TrySetResult(true)))
             {

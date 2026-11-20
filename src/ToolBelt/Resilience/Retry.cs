@@ -120,13 +120,21 @@ namespace ToolBelt.Resilience
             for (int attempt = 1; ; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                bool nullTask = false;
                 try
                 {
-                    return await operation(cancellationToken).ConfigureAwait(false);
+                    // A null task threw NullReferenceException, which was retried with backoff until the attempts ran out.
+                    Task<T>? running = operation(cancellationToken);
+                    if (running is null)
+                    {
+                        nullTask = true;
+                        throw new InvalidOperationException("The operation returned a null task.");
+                    }
+                    return await running.ConfigureAwait(false);
                 }
                 // ShouldRetry is called in the catch, not a filter: an exception thrown inside a filter is swallowed and the
                 // filter taken as false, so a predicate's own bug vanished and the operation's exception came out instead.
-                catch (Exception ex) when (attempt < policy.MaxAttempts)
+                catch (Exception ex) when (attempt < policy.MaxAttempts && !nullTask)
                 {
                     // The caller cancelled: stop now, with the operation's own cancellation if it threw one. It went through
                     // ShouldRetry and a backoff, and came out as the delay's TaskCanceledException (or waited out a delay that
@@ -153,11 +161,14 @@ namespace ToolBelt.Resilience
             CancellationToken cancellationToken = default)
         {
             Guard.NotNull(operation);
-            return ExecuteAsync<bool>(async ct =>
-            {
-                await operation(ct).ConfigureAwait(false);
-                return true;
-            }, policy, cancellationToken);
+            // A null task is passed on as null, so the generic overload reports it rather than retrying it.
+            return ExecuteAsync<bool>(ct => operation(ct) is Task t ? Done(t) : null!, policy, cancellationToken);
+        }
+
+        private static async Task<bool> Done(Task task)
+        {
+            await task.ConfigureAwait(false);
+            return true;
         }
     }
 }

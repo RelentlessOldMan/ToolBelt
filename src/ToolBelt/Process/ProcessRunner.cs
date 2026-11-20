@@ -214,7 +214,7 @@ namespace ToolBelt.Process
             public Exception? CallbackError;
             public int Done;             // the run has returned (or thrown): no more callbacks
             public int CallbacksRunning; // raised before Done is checked, so StopCallbacks can wait for the ones under way
-            public long Lines;           // reads that returned text so far, so a wait for the output can tell flowing from quiet
+            public long Lines;           // reads that returned text and callbacks finished, so a wait can tell flowing from quiet
             public long LinesSeen;
 
             public Task Exited => ExitedSource.Task;
@@ -356,11 +356,14 @@ namespace ToolBelt.Process
             catch (ObjectDisposedException) { }
         }
 
-        // No line read and no callback running for a whole grace period: what is holding the pipes open has gone quiet.
+        // Nothing read and no callback finished for a whole grace period: what is holding the pipes open has gone quiet.
+        // A callback that finishes counts as progress, so a slow one working through a backlog keeps the run going; one
+        // stuck on a single call does not (it required no callback running, so a call that took 6 s held the run 6 s,
+        // and one that never returned hung it, though the docs bound that wait to a second).
         private static bool Quiet(RunState run)
         {
             long lines = Interlocked.Read(ref run.Lines);
-            bool quiet = lines == run.LinesSeen && Volatile.Read(ref run.CallbacksRunning) == 0;
+            bool quiet = lines == run.LinesSeen;
             run.LinesSeen = lines;
             return quiet;
         }
@@ -391,6 +394,7 @@ namespace ToolBelt.Process
                 if (Volatile.Read(ref run.Done) != 0) return;
                 try { callback(line); }
                 catch (Exception ex) { Interlocked.CompareExchange(ref run.CallbackError, ex, null); }
+                Interlocked.Increment(ref run.Lines); // progress, for Quiet
             }
             finally { Interlocked.Decrement(ref run.CallbacksRunning); }
         }

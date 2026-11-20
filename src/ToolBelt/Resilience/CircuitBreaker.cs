@@ -86,9 +86,18 @@ namespace ToolBelt.Resilience
                 _trialInFlight = true;
             }
 
+            bool nullTask = false;
             try
             {
-                T result = await operation(cancellationToken).ConfigureAwait(false);
+                // A null task threw NullReferenceException, counted as a dependency failure: the caller's bug opened the
+                // breaker on everyone.
+                Task<T>? running = operation(cancellationToken);
+                if (running is null)
+                {
+                    nullTask = true;
+                    throw new InvalidOperationException("The operation returned a null task.");
+                }
+                T result = await running.ConfigureAwait(false);
                 OnSuccess(trial, generation);
                 return result;
             }
@@ -96,7 +105,7 @@ namespace ToolBelt.Resilience
             {
                 throw; // the caller gave up; that says nothing about the dependency
             }
-            catch (Exception)
+            catch (Exception) when (!nullTask)
             {
                 // A clock that threw here replaced the operation's exception, and the failure went uncounted. With no time,
                 // an opening is dated "the next time the clock is read" (a clock behind the opening restarts the timeout).
@@ -116,11 +125,14 @@ namespace ToolBelt.Resilience
         public Task ExecuteAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken = default)
         {
             Guard.NotNull(operation);
-            return ExecuteAsync(async ct =>
-            {
-                await operation(ct).ConfigureAwait(false);
-                return true;
-            }, cancellationToken);
+            // A null task is passed on as null, so the generic overload reports it rather than counting it.
+            return ExecuteAsync(ct => operation(ct) is Task t ? Done(t) : null!, cancellationToken);
+        }
+
+        private static async Task<bool> Done(Task task)
+        {
+            await task.ConfigureAwait(false);
+            return true;
         }
 
         private void ApplyElapsedTimeout(DateTimeOffset now)

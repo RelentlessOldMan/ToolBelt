@@ -65,7 +65,8 @@ namespace ToolBelt.Threading
             {
                 try
                 {
-                    await _work(ct).ConfigureAwait(false);
+                    // A null task was reported as NullReferenceException.
+                    await (_work(ct) ?? throw new InvalidOperationException("The work returned a null task.")).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -78,7 +79,7 @@ namespace ToolBelt.Threading
 
                 try
                 {
-                    await _delay(_interval, ct).ConfigureAwait(false);
+                    await (_delay(_interval, ct) ?? throw new InvalidOperationException("The delay returned a null task.")).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) // a delay's own OCE is a failure, reported
                 {

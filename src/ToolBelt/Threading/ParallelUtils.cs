@@ -13,7 +13,9 @@ namespace ToolBelt.Threading
     /// genuine framework gap. At most <c>maxConcurrency</c> bodies run at once, and no body outlives the
     /// call: on cancellation, a failure, or an exception from enumerating the source, the bodies already
     /// started are awaited first. Cancellation by the caller surfaces as <see cref="OperationCanceledException"/>
-    /// (unless a body failed for real, which surfaces as <see cref="AggregateException"/>). An exception from the
+    /// when it cut the work short (an item not started, or a body that stopped on the token) or the token was cancelled
+    /// before the call; a cancel that lands after every body has finished is not reported (unless a body failed for real,
+    /// which surfaces as <see cref="AggregateException"/>). An exception from the
     /// source is rethrown as it is, or, when bodies had failed too, as an <see cref="AggregateException"/> holding it
     /// first and then the bodies' failures.
     /// </summary>
@@ -36,6 +38,9 @@ namespace ToolBelt.Threading
             // Bodies in flight, plus one for the enumeration; a list of every started task grew with the source.
             int inFlight = 1;
             var allDone = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            cancellationToken.ThrowIfCancellationRequested();
+            // Work was cut short by cancellation: an item never started, or a body stopped on the token.
+            int cutShort = 0;
 
             try
             {
@@ -47,6 +52,7 @@ namespace ToolBelt.Threading
                     }
                     catch (OperationCanceledException)
                     {
+                        Volatile.Write(ref cutShort, 1);
                         break; // the caller cancelled, or a sibling failed (fail-fast); sorted out below
                     }
 
@@ -56,13 +62,16 @@ namespace ToolBelt.Threading
                     {
                         try
                         {
-                            await body(captured, linked.Token).ConfigureAwait(false);
+                            // A null task threw NullReferenceException.
+                            await (body(captured, linked.Token) ?? throw new InvalidOperationException("The body returned a null task."))
+                                .ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
                             // A cancellation once the linked token has fired (the caller's or our fail-fast) is
                             // expected; keep only real failures.
-                            if (!(ex is OperationCanceledException && linked.IsCancellationRequested))
+                            if (ex is OperationCanceledException && linked.IsCancellationRequested) Volatile.Write(ref cutShort, 1);
+                            else
                             {
                                 exceptions.Add(ex);
                                 if (!collectAllExceptions) Cancel(linked, exceptions);
@@ -98,7 +107,7 @@ namespace ToolBelt.Threading
 
             if (!exceptions.IsEmpty)
                 throw new AggregateException(exceptions);
-            cancellationToken.ThrowIfCancellationRequested();
+            if (Volatile.Read(ref cutShort) == 1) cancellationToken.ThrowIfCancellationRequested();
         }
 
         // Cancels the bodies' token. A callback a body registered on it may throw: that is the body's failure, collected
