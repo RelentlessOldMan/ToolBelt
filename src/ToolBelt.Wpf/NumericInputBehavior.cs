@@ -142,10 +142,23 @@ namespace ToolBelt.Wpf
             // A value already past a limit can only move further away as more digits are typed.
             double v = ParseLoose(text, nf);
             if (double.IsInfinity(v)) return false; // more digits than a double holds
+            // The limits are those Coerce and StepValue clamp to, so what they write can be edited: with Minimum above
+            // Maximum, or no shown value in range ([0.25, 0.26] at one decimal), they wrote a value refused here.
+            FilterBounds(rules, out double min, out double max);
             // A positive value above a negative maximum is still reachable by typing a sign in front, unless even its
             // negation is below the minimum.
-            if (!negative && v > rules.Maximum && (rules.Maximum >= 0 || -v < rules.Minimum)) return false;
-            if (negative && rules.Minimum <= 0 && v < rules.Minimum) return false;
+            if (!negative && v > max && (max >= 0 || -v < min)) return false;
+            if (negative && min <= 0 && v < min) return false;
+            if (sawSep)
+            {
+                // After the separator the integer part is fixed: the most the value can grow is to its digits with 9s
+                // up to the last place. "1.5" was accepted for [5, 10] and became "5.00" on losing focus.
+                double most = Math.Abs(ParseLoose(text + new string('9', rules.DecimalPlaces - fracDigits), nf));
+                double least = Math.Abs(v);
+                bool positiveReaches = least <= max && most >= min;
+                bool negativeReaches = rules.AllowsNegative && -least >= min && -most <= max;
+                if (negative ? !negativeReaches : !positiveReaches && !negativeReaches) return false;
+            }
             return true;
         }
 
@@ -210,11 +223,17 @@ namespace ToolBelt.Wpf
             box.CaretIndex = box.Text.Length;
         }
 
-        /// <summary>Clamps, rounds and reformats the box's text (what happens when it loses focus).</summary>
+        /// <summary>
+        /// Clamps, rounds and reformats the box's text (what happens when it loses focus); text with no digits (a lone sign
+        /// or separator) is cleared.
+        /// </summary>
         public static void Normalize(TextBox box)
         {
             if (box is null) throw new ArgumentNullException(nameof(box));
-            string? coerced = Coerce(box.Text ?? "", RulesFor(box));
+            string text = box.Text ?? "";
+            string? coerced = Coerce(text, RulesFor(box));
+            // A lone sign or separator ("-", ".", "-.") is accepted while typing but holds no number: it stayed in the box.
+            if (coerced is null && text.Length > 0 && !HasDigit(text)) coerced = "";
             if (coerced != null && coerced != box.Text) box.Text = coerced;
         }
 
@@ -468,6 +487,19 @@ namespace ToolBelt.Wpf
 
         // Clamps to the bounds moved inward to the shown precision — clamping to a raw 0.25 at one decimal formatted back
         // out of range as "0.2" — and to finite values, so the text never reads "∞". Minimum wins an empty range.
+        private static bool HasDigit(string s)
+        {
+            foreach (char c in s) if (c >= '0' && c <= '9') return true;
+            return false;
+        }
+
+        // The widest of the range and what Clamp maps its ends to (Minimum when it exceeds Maximum, or a rounded bound).
+        private static void FilterBounds(NumericInputRules r, out double min, out double max)
+        {
+            min = Math.Min(r.Minimum, Clamp(r.Minimum, r));
+            max = Math.Max(r.Maximum, Clamp(r.Maximum, r));
+        }
+
         private static double Clamp(double v, NumericInputRules r)
         {
             double min = Finite(r.Minimum), max = Finite(r.Maximum);

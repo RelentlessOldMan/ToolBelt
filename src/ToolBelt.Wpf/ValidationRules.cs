@@ -122,12 +122,17 @@ namespace ToolBelt.Wpf
 
         /// <summary>
         /// Inclusive range for comparable values (null passes — combine with <see cref="Required"/>). Strings compare
-        /// ordinally, so the result does not depend on the current culture.
+        /// ordinally, so the result does not depend on the current culture, whether <typeparamref name="T"/> is
+        /// <see cref="string"/> or a type a string is (object, IComparable).
         /// </summary>
         public RuleBuilder<T> Range(T min, T max, string? message = null)
         {
             // Comparer<string>.Default compares in the culture current at each check: "chyba" left ["a", "d"] under cs-CZ.
-            IComparer<T> cmp = typeof(T) == typeof(string) ? (IComparer<T>)(object)StringComparer.Ordinal : Comparer<T>.Default;
+            // As object or IComparable, strings still went through the culture: only T == string was ordinal.
+            IComparer<T> cmp = typeof(T) == typeof(string) ? (IComparer<T>)(object)StringComparer.Ordinal
+                : typeof(T).IsAssignableFrom(typeof(string))
+                    ? Comparer<T>.Create((a, b) => a is string sa && b is string sb ? string.CompareOrdinal(sa, sb) : Comparer<T>.Default.Compare(a, b))
+                    : Comparer<T>.Default;
             // The default comparer orders NaN below everything: a NaN minimum was ignored and a NaN value then passed.
             if (IsNaN(min)) throw new ArgumentOutOfRangeException(nameof(min), "min must not be NaN.");
             if (IsNaN(max)) throw new ArgumentOutOfRangeException(nameof(max), "max must not be NaN.");

@@ -233,8 +233,11 @@ namespace ToolBelt.Wpf
         /// <summary>Throw when a dialog has no scripted answer (default), instead of answering "cancelled".</summary>
         public bool Strict { get; set; } = true;
 
-        /// <summary>Every dialog requested so far, in order.</summary>
-        public IReadOnlyList<DialogCall> Calls => _calls;
+        /// <summary>
+        /// Every dialog requested so far, in order: a snapshot, which later calls don't change and which can't be cast
+        /// back to the record (it was the live list, so it grew, and a cast to List could clear it).
+        /// </summary>
+        public IReadOnlyList<DialogCall> Calls => _calls.ToArray();
 
         /// <summary>The most recent request, or null.</summary>
         public DialogCall? LastCall => _calls.Count == 0 ? null : _calls[_calls.Count - 1];

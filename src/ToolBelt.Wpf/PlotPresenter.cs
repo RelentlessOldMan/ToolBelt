@@ -192,6 +192,9 @@ namespace ToolBelt.Wpf
             if (double.IsNaN(f) || double.IsInfinity(f)) return view;
             Matrix m = view;
             m.ScaleAt(f, f, viewPoint.X, viewPoint.Y);
+            // current * (target / current) can miss target by an ulp, leaving the scale just outside the bounds.
+            m.M11 = Clamp(m.M11, minZoom, maxZoom);
+            m.M22 = Clamp(m.M22, minZoom, maxZoom);
             return m.HasInverse && IsFinite(m) ? m : view;   // ViewToContent and panning invert the view
         }
 
