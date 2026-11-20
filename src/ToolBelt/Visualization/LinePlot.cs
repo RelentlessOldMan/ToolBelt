@@ -86,7 +86,9 @@ namespace ToolBelt.Visualization
             // out-of-range value cast to int gave int.MinValue, and DrawLine's Math.Abs then overflowed.
             double MapX(double x) => frame.MapX(x);
             double MapY(double y) => frame.MapY(y);
-            int Px(double v) => (int)Math.Round(v);
+            // Halves away from zero, as Annotations rounds: to even, a scatter point and a VerticalLine at the same x
+            // landed a column apart for a quarter of the x values.
+            int Px(double v) => (int)Math.Round(v, MidpointRounding.AwayFromZero);
 
             foreach (Series s in series)
             {
@@ -118,7 +120,12 @@ namespace ToolBelt.Visualization
                             break;
                         case PlotStyle.Scatter:
                             if (px >= left && px <= right && py >= top && py <= bottom)
-                                image.DrawRectangle(Px(px) - 1, Px(py) - 1, 3, 3, s.Color, filled: true);
+                            {
+                                // Cut to the plot area: a point on the frame painted over it and into the margin.
+                                int x0 = Math.Max(left, Px(px) - 1), x1 = Math.Min(right, Px(px) + 1);
+                                int y0 = Math.Max(top, Px(py) - 1), y1 = Math.Min(bottom, Px(py) + 1);
+                                image.DrawRectangle(x0, y0, x1 - x0 + 1, y1 - y0 + 1, s.Color, filled: true);
+                            }
                             break;
                         case PlotStyle.Bar:
                             if (px >= left && px <= right)

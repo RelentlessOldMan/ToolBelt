@@ -67,6 +67,8 @@ namespace ToolBelt.Tests.Visualization
         // ---------- callouts and arrows with huge offsets ----------
 
         // The leader of a callout 1e200 px to the side was clipped from its far end (x0 + t·dx cancels): nothing was drawn.
+        // Since round 178 the tail is held inside the plot, where the SVG layer puts the label, so the leader stops a
+        // label's width short of the edge.
         public void Raster_CalloutWithAHugeOffset_DrawsItsLeaderToTheEdge()
         {
             var frame = new PlotFrame(0, 0, 100, 100, 0, 1, 0, 1);
@@ -74,7 +76,7 @@ namespace ToolBelt.Tests.Visualization
             {
                 var img = new ImageBuffer(101, 101, Rgba.White);
                 new Annotations().Callout(0.5, 0.5, "x", dx: dx, dy: 0, color: Ink).Draw(img, frame);
-                int edge = dx > 0 ? 100 : 0, mid = dx > 0 ? 80 : 20;
+                int edge = dx > 0 ? 90 : 10, mid = dx > 0 ? 80 : 20;
                 Check.Equal(Ink, img.GetPixel(edge, 50), "edge pixel, dx " + dx);
                 Check.Equal(Ink, img.GetPixel(mid, 50), "middle pixel, dx " + dx);
                 Check.Equal(Rgba.White, img.GetPixel(mid, 40), "off the line, dx " + dx);

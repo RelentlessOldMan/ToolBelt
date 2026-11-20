@@ -541,7 +541,7 @@ src/
       Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops; MapFraction spans any stop range)
       Colorbar.cs           render a colormap as a gradient legend strip (vertical/horizontal)
       HeatMap.cs            render a 2-D grid via a colormap (cell size, range, NaN color)
-      Histogram.cs          bin 1-D data (exposed) and render the counts as bars (at most one bin per pixel column; explicit min = max counts only that value)
+      Histogram.cs          bin 1-D data (exposed; decimal edges exact, rounded once) and render the counts as bars (at most one bin per pixel column; explicit min = max counts only that value)
       BoxPlot.cs            five-number summary + Tukey whiskers/outliers; side-by-side boxes
       ErrorBarChart.cs      points with symmetric vertical error bars (auto-scales to caps)
       BandChart.cs          shaded band between lower/upper curves + optional center line
@@ -1080,6 +1080,7 @@ tests/
       ChartsReview121Tests.cs (round 121: lines to far points, band alpha compositing, huge callout offsets, drawn-bar widths, default frames, one-pixel colorbars, tick rounding past 2^52, subnormal waterfall ranges, undefined enums)
       ChartsReview134Tests.cs (round 134: equal explicit limits, the first x label's margin, box fences past MaxValue, band envelopes and far centre lines, far whiskers, clip underflow, whole colormap stop ranges, scatter-matrix legends and subnormal bins, timing clocks, markers and hatching, hex-bin index limits, shared ranges beside empty panels)
       ChartsReview167Tests.cs (round 167: AxisTicks against a brute-force step search, one-ulp spans, tight tick bounds and labels, Time near MaxValue and past 2^53 s, subnormal decades, NaN samples, drawn-bar padding, edge markers, half-away r labels)
+      ChartsReview178Tests.cs (round 178: scatter points and reference lines on the same column, markers, callouts and arrowheads kept out of the margin, short arrows, SVG arrows on huge frames, labels held inside the plot, huge and infinite box-plot values, decimal histogram edges rounded once, colormap halves)
       DocsVizReviewRegressionTests.cs  (2026-10-05 review regressions: Documents and Visualization)
     Resilience/
       RetryTests.cs

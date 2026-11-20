@@ -172,7 +172,7 @@ namespace ToolBelt.Visualization
             if (!string.IsNullOrEmpty(it.Label))
             {
                 // Squeezed to the plot's right edge: a long label ran off the chart.
-                double tx = Math.Min(x0, x1) + 4, ty = Math.Min(y0, y1) + fontSize + 2;
+                double tx = Math.Min(x0, x1) + 4, ty = Baseline(Math.Min(y0, y1) + fontSize + 2, f, fontSize);
                 Text(sb, tx, ty, it.Label!, Opaque(it.Color), "start", fontSize, f.Right - 2 - tx);
             }
         }
@@ -203,7 +203,7 @@ namespace ToolBelt.Visualization
             {
                 // Above the line at its right end; below it when there is no room at the top.
                 // Squeezed into the plot when wider: it ran off the left edge of the chart.
-                double ty = y1 - 3 - fontSize < f.Top ? y1 + fontSize + 2 : y1 - 4;
+                double ty = Baseline(y1 - 3 - fontSize < f.Top ? y1 + fontSize + 2 : y1 - 4, f, fontSize);
                 Text(sb, f.Right - 4, ty, it.Label!, it.Color, "end", fontSize, f.Right - 4 - (f.Left + 2));
             }
             else
@@ -214,7 +214,7 @@ namespace ToolBelt.Visualization
                 double w = SvgUtils.EstimateTextWidth(it.Label!, fontSize);
                 double roomRight = f.Right - 2 - (x1 + 4), roomLeft = x1 - 4 - (f.Left + 2);
                 bool flip = w > roomRight && (w <= roomLeft || roomLeft > roomRight);
-                Text(sb, flip ? x1 - 4 : x1 + 4, f.Top + fontSize + 2, it.Label!, it.Color, flip ? "end" : "start",
+                Text(sb, flip ? x1 - 4 : x1 + 4, Baseline(f.Top + fontSize + 2, f, fontSize), it.Label!, it.Color, flip ? "end" : "start",
                     fontSize, flip ? roomLeft : roomRight);
             }
         }
@@ -230,20 +230,7 @@ namespace ToolBelt.Visualization
                 if (!f.ContainsX(it.A) || !f.ContainsY(it.B)) return;
                 tipX = f.MapX(it.A); tipY = f.MapY(it.B);
                 if (double.IsNaN(tipX) || double.IsNaN(tipY)) return;
-                tailX = tipX + it.C; tailY = tipY + it.D;
-
-                // Keep the label (and so the arrow's tail) inside the plot: a point near an edge would otherwise push
-                // its pixel-offset label off the chart. Horizontal room depends on which way the text runs.
-                double w = SvgUtils.EstimateTextWidth(it.Label ?? "", fontSize);
-                runsLeft = tipX >= tailX; // label anchored "end"
-                double minX = f.Left + 2 + (runsLeft ? w : 0), maxX = f.Right - 2 - (runsLeft ? 0 : w);
-                // Wider than the plot, the label starts at the edge it runs from and is squeezed to the plot below: the
-                // clamp was skipped, and the label ran off the chart.
-                if (minX <= maxX) tailX = Math.Max(minX, Math.Min(maxX, tailX));
-                else tailX = runsLeft ? f.Right - 2 : f.Left + 2;
-                above = tipY >= tailY;
-                double minY = f.Top + 2 + (above ? fontSize + 3 : 0), maxY = f.Bottom - 2 - (above ? 0 : fontSize);
-                if (minY <= maxY) tailY = Math.Max(minY, Math.Min(maxY, tailY));
+                CalloutTail(it, f, tipX, tipY, fontSize, out tailX, out tailY, out runsLeft, out above);
                 sb.Append("<circle cx=\"").Append(SvgUtils.Number(tipX)).Append("\" cy=\"").Append(SvgUtils.Number(tipY))
                   .Append("\" r=\"3\" ").Append(SvgUtils.FillAttributes(it.Color)).Append("/>\n");
             }
@@ -256,16 +243,16 @@ namespace ToolBelt.Visualization
             }
 
             // Stop the shaft short of a callout's marker so the head stays visible.
-            double len = Math.Sqrt((tipX - tailX) * (tipX - tailX) + (tipY - tailY) * (tipY - tailY));
-            if (len > 1e-9)
+            double gap = it.Kind == Kind.Callout ? 4 : 0;
+            if (Direction(tailX, tailY, tipX, tipY, out double ux, out double uy, out double len) && len - gap > 1e-9)
             {
-                double ux = (tipX - tailX) / len, uy = (tipY - tailY) / len;
-                double gap = it.Kind == Kind.Callout ? 4 : 0;
                 double hx = tipX - ux * gap, hy = tipY - uy * gap;
+                // A head no longer than the arrow: an 8-px head on a 2-px arrow ran its shaft and base back past the tail.
+                double headLength = Math.Min(HeadLength, len - gap);
                 sb.Append("<line x1=\"").Append(SvgUtils.Number(tailX)).Append("\" y1=\"").Append(SvgUtils.Number(tailY))
-                  .Append("\" x2=\"").Append(SvgUtils.Number(hx - ux * HeadLength * 0.8)).Append("\" y2=\"").Append(SvgUtils.Number(hy - uy * HeadLength * 0.8))
+                  .Append("\" x2=\"").Append(SvgUtils.Number(hx - ux * headLength * 0.8)).Append("\" y2=\"").Append(SvgUtils.Number(hy - uy * headLength * 0.8))
                   .Append("\" ").Append(SvgUtils.StrokeAttributes(it.Color, it.Width)).Append("/>\n");
-                var head = ArrowHead(hx, hy, ux, uy);
+                var head = ArrowHead(hx, hy, ux, uy, headLength);
                 sb.Append("<polygon points=\"");
                 for (int i = 0; i < head.Length; i++)
                 {
@@ -279,9 +266,49 @@ namespace ToolBelt.Visualization
             {
                 // Label sits at the tail, on the side away from the target.
                 string anchor = runsLeft ? "end" : "start";
-                double ty = tailY + (above ? -3 : fontSize);
+                double ty = Baseline(tailY + (above ? -3 : fontSize), f, fontSize);
                 Text(sb, tailX, ty, it.Label!, it.Color, anchor, fontSize, runsLeft ? tailX - (f.Left + 2) : f.Right - 2 - tailX);
             }
+        }
+
+        // A label's baseline held inside the plot, as a callout's is: a thin band at the bottom, an arrow's tail on the top
+        // edge, or a line's label on a short plot put the text over the axis labels. A plot shorter than the text keeps
+        // the baseline at the bottom.
+        private static double Baseline(double y, PlotFrame f, double fontSize)
+            => Math.Min(f.Bottom - 2, Math.Max(f.Top + 2 + fontSize, y));
+
+        // Keeps the label (and so the arrow's tail) inside the plot: a point near an edge would otherwise push its
+        // pixel-offset label off the chart. Horizontal room depends on which way the text runs. Shared by the SVG and
+        // raster layers: the raster callout took the raw offset and ran through the margin to the image edge.
+        private static void CalloutTail(Item it, PlotFrame f, double tipX, double tipY, double fontSize,
+            out double tailX, out double tailY, out bool runsLeft, out bool above)
+        {
+            tailX = tipX + it.C; tailY = tipY + it.D;
+            double w = SvgUtils.EstimateTextWidth(it.Label ?? "", fontSize);
+            runsLeft = tipX >= tailX; // label anchored "end"
+            double minX = f.Left + 2 + (runsLeft ? w : 0), maxX = f.Right - 2 - (runsLeft ? 0 : w);
+            // Wider than the plot, the label starts at the edge it runs from and is squeezed to the plot below: the
+            // clamp was skipped, and the label ran off the chart.
+            if (minX <= maxX) tailX = Math.Max(minX, Math.Min(maxX, tailX));
+            else tailX = runsLeft ? f.Right - 2 : f.Left + 2;
+            above = tipY >= tailY;
+            double minY = f.Top + 2 + (above ? fontSize + 3 : 0), maxY = f.Bottom - 2 - (above ? 0 : fontSize);
+            if (minY <= maxY) tailY = Math.Max(minY, Math.Min(maxY, tailY));
+            else tailY = Math.Max(f.Top, Math.Min(f.Bottom, tailY));
+        }
+
+        // The unit direction from (x0, y0) to (x1, y1) and its length, from halved, scaled deltas: the squares overflowed
+        // on a frame 1e200 px wide (a zero direction, the head a point and the shaft run to the tip).
+        private static bool Direction(double x0, double y0, double x1, double y1, out double ux, out double uy, out double len)
+        {
+            ux = uy = len = 0;
+            double dx = x1 * 0.5 - x0 * 0.5, dy = y1 * 0.5 - y0 * 0.5, sc = Math.Max(Math.Abs(dx), Math.Abs(dy));
+            if (!(sc * 2 >= 1e-9) || double.IsInfinity(sc)) return false;
+            double hyp = Math.Sqrt((dx / sc) * (dx / sc) + (dy / sc) * (dy / sc));
+            len = 2 * sc * hyp;
+            if (!(len >= 1e-9)) return false;
+            ux = dx / sc / hyp; uy = dy / sc / hyp;
+            return true;
         }
 
         // Squeezed to maxWidth when its estimate is wider (no limit when maxWidth ≤ 0: no room at all to fit it to).
@@ -331,8 +358,11 @@ namespace ToolBelt.Visualization
                         if (!frame.ContainsX(it.A) || !frame.ContainsY(it.B)) break;
                         double tx = frame.MapX(it.A), ty = frame.MapY(it.B);
                         if (double.IsNaN(tx) || double.IsNaN(ty)) break;
-                        image.DrawRectangle(Px(tx) - 2, Px(ty) - 2, 5, 5, it.Color, filled: true);
-                        RasterArrow(image, tx + it.C, ty + it.D, tx, ty, it.Color, gap: 4);
+                        // Cut to the plot area: a point on the frame painted 2 px into the margin.
+                        FillClipped(image, Px(tx) - 2, Px(ty) - 2, 5, 5, it.Color, frame);
+                        // The tail where the SVG layer puts it (at its default font size), inside the plot.
+                        CalloutTail(it, frame, tx, ty, 11, out double cx, out double cy, out _, out _);
+                        RasterArrow(image, frame, cx, cy, tx, ty, it.Color, gap: 4);
                         break;
                     }
                     case Kind.Arrow:
@@ -340,7 +370,7 @@ namespace ToolBelt.Visualization
                         if (!frame.ContainsX(it.A) || !frame.ContainsY(it.B) || !frame.ContainsX(it.C) || !frame.ContainsY(it.D)) break;
                         double x1 = frame.MapX(it.A), y1 = frame.MapY(it.B), x2 = frame.MapX(it.C), y2 = frame.MapY(it.D);
                         if (double.IsNaN(x1) || double.IsNaN(y1) || double.IsNaN(x2) || double.IsNaN(y2)) break;
-                        RasterArrow(image, x1, y1, x2, y2, it.Color, gap: 0);
+                        RasterArrow(image, frame, x1, y1, x2, y2, it.Color, gap: 0);
                         break;
                     }
                 }
@@ -368,19 +398,27 @@ namespace ToolBelt.Visualization
                     image.SetPixel(x, y, Blend(image.GetPixel(x, y), it.Color));
         }
 
-        private static void RasterArrow(ImageBuffer image, double tailX, double tailY, double tipX, double tipY, Rgba color, double gap)
+        private static void RasterArrow(ImageBuffer image, PlotFrame f, double tailX, double tailY, double tipX, double tipY, Rgba color, double gap)
         {
             // Scaled, from halved deltas: the squares overflowed for dx = 1e200 (len = ∞, a NaN direction, no arrow).
-            double dx = tipX * 0.5 - tailX * 0.5, dy = tipY * 0.5 - tailY * 0.5, sc = Math.Max(Math.Abs(dx), Math.Abs(dy));
-            if (!(sc * 2 >= 1e-9) || double.IsInfinity(sc)) return;
-            double hyp = Math.Sqrt((dx / sc) * (dx / sc) + (dy / sc) * (dy / sc));
-            if (2 * sc * hyp < 1e-9) return;
-            double ux = dx / sc / hyp, uy = dy / sc / hyp;
+            if (!Direction(tailX, tailY, tipX, tipY, out double ux, out double uy, out double len) || !(len - gap > 1e-9)) return;
             double hx = tipX - ux * gap, hy = tipY - uy * gap;
-            StyledLine(image, tailX, tailY, hx, hy, color, LineDash.Solid, 1);
-            var head = ArrowHead(hx, hy, ux, uy);
-            StyledLine(image, head[0].X, head[0].Y, head[1].X, head[1].Y, color, LineDash.Solid, 1);
-            StyledLine(image, head[0].X, head[0].Y, head[2].X, head[2].Y, color, LineDash.Solid, 1);
+            PlotLine(image, f, tailX, tailY, hx, hy, color);
+            var head = ArrowHead(hx, hy, ux, uy, Math.Min(HeadLength, len - gap));
+            PlotLine(image, f, head[0].X, head[0].Y, head[1].X, head[1].Y, color);
+            PlotLine(image, f, head[0].X, head[0].Y, head[2].X, head[2].Y, color);
+        }
+
+        // A 1-px segment cut to the plot area: the wings of a head at a point on the frame reached 4 px into the margin.
+        private static void PlotLine(ImageBuffer image, PlotFrame f, double x0, double y0, double x1, double y1, Rgba color)
+        {
+            double dx = x1 - x0, dy = y1 - y0, t0 = 0, t1 = 1;
+            double l = Px(f.Left), r = Px(f.Right), t = Px(f.Top), b = Px(f.Bottom);
+            if (!Clip(-dx, x0 - l, ref t0, ref t1) || !Clip(dx, r - x0, ref t0, ref t1)
+                || !Clip(-dy, y0 - t, ref t0, ref t1) || !Clip(dy, b - y0, ref t0, ref t1))
+                return;
+            StyledLine(image, t0 == 0 ? x0 : x0 + t0 * dx, t0 == 0 ? y0 : y0 + t0 * dy,
+                t1 == 1 ? x1 : x0 + t1 * dx, t1 == 1 ? y1 : y0 + t1 * dy, color, LineDash.Solid, 1);
         }
 
         /// <summary>
@@ -448,10 +486,11 @@ namespace ToolBelt.Visualization
         private const double HeadHalfWidth = 3.5;
 
         /// <summary>Triangle points: the tip, then the two barbs.</summary>
-        private static (double X, double Y)[] ArrowHead(double tipX, double tipY, double ux, double uy)
+        // A head of the given length (at most HeadLength), its width in proportion.
+        private static (double X, double Y)[] ArrowHead(double tipX, double tipY, double ux, double uy, double length)
         {
-            double bx = tipX - ux * HeadLength, by = tipY - uy * HeadLength;
-            double nx = -uy * HeadHalfWidth, ny = ux * HeadHalfWidth;
+            double bx = tipX - ux * length, by = tipY - uy * length, half = HeadHalfWidth * length / HeadLength;
+            double nx = -uy * half, ny = ux * half;
             return new[] { (tipX, tipY), (bx + nx, by + ny), (bx - nx, by - ny) };
         }
 
@@ -491,6 +530,13 @@ namespace ToolBelt.Visualization
         private static double ClampY(double py, PlotFrame f) => double.IsNaN(py) ? py : Math.Max(f.Top, Math.Min(f.Bottom, py));
 
         // Held to ±1e9 first: a frame far outside the image (Left = −1e12) wrapped the cast, or threw under checked arithmetic.
+        private static void FillClipped(ImageBuffer image, int x, int y, int w, int h, Rgba color, PlotFrame f)
+        {
+            int x0 = Math.Max(x, Px(f.Left)), y0 = Math.Max(y, Px(f.Top));
+            int x1 = Math.Min(x + w - 1, Px(f.Right)), y1 = Math.Min(y + h - 1, Px(f.Bottom));
+            if (x1 >= x0 && y1 >= y0) image.DrawRectangle(x0, y0, x1 - x0 + 1, y1 - y0 + 1, color, filled: true);
+        }
+
         private static int Px(double v) => (int)Math.Round(Math.Max(-1e9, Math.Min(1e9, v)), MidpointRounding.AwayFromZero);
 
         // Capped before the cast: 1e10 wrapped to int.MinValue (a 1-px line), or threw under checked arithmetic.

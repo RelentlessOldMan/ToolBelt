@@ -75,7 +75,8 @@ namespace ToolBelt.Visualization
 
         private static byte Channel(byte a, byte b, double f)
         {
-            int v = (int)Math.Round(a + (b - a) * f);
+            // Halves up, as the chart layers round: to even, the midpoint of 0..1 gave 0 and of 1..2 gave 2.
+            int v = (int)Math.Round(a + (b - a) * f, MidpointRounding.AwayFromZero);
             return (byte)(v < 0 ? 0 : v > 255 ? 255 : v);
         }
 
