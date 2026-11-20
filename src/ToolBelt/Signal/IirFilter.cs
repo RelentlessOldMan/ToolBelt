@@ -1,8 +1,10 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Numerics;
+using System.Text;
 
 namespace ToolBelt.Signal
 {
@@ -233,7 +235,51 @@ namespace ToolBelt.Signal
             return IsFinite(factored) ? factored : direct;
         }
 
-        public override string ToString() => FormattableString.Invariant($"b=[{B0}, {B1}, {B2}] a=[1, {A1}, {A2}]");
+        // The shortest text that reads back as each coefficient, as .NET writes it: .NET Framework's default wrote 15
+        // digits (0.30000000000000004 as 0.3), so logged coefficients did not round-trip.
+        public override string ToString() => "b=[" + Text(B0) + ", " + Text(B1) + ", " + Text(B2) + "] a=[1, " + Text(A1) + ", " + Text(A2) + "]";
+
+        // As .NET's "R" (its default) writes a double: the fewest digits that read back as the value (the nearest such, as
+        // "E" rounds), laid out in exponent form from 10^17 or below 10^-4. −0 is "-0".
+        private static string Text(double v)
+        {
+            CultureInfo inv = CultureInfo.InvariantCulture;
+            if (double.IsNaN(v) || double.IsInfinity(v)) return v.ToString(inv);
+            if (v == 0) return BitConverter.DoubleToInt64Bits(v) < 0 ? "-0" : "0";
+            string e = "";
+            for (int p = 1; p <= 17; p++)
+            {
+                e = v.ToString("E" + (p - 1).ToString(inv), inv);
+                if (ReadDouble(e) == v) break;
+            }
+            bool negative = e[0] == '-';
+            int at = e.IndexOf('E');
+            int start = negative ? 1 : 0;
+            string digits = e.Substring(start, at - start).Replace(".", "").TrimEnd('0');
+            int exponent = int.Parse(e.Substring(at + 1), NumberStyles.AllowLeadingSign, inv);
+            var sb = new StringBuilder();
+            if (negative) sb.Append('-');
+            if (exponent >= 17 || exponent < -4)
+            {
+                sb.Append(digits[0]);
+                if (digits.Length > 1) sb.Append('.').Append(digits, 1, digits.Length - 1);
+                sb.Append('E').Append(exponent < 0 ? '-' : '+').Append(Math.Abs(exponent).ToString("00", inv));
+            }
+            else if (exponent < 0)
+                sb.Append("0.").Append('0', -exponent - 1).Append(digits);
+            else if (digits.Length <= exponent + 1)
+                sb.Append(digits).Append('0', exponent + 1 - digits.Length);
+            else
+                sb.Append(digits, 0, exponent + 1).Append('.').Append(digits, exponent + 1, digits.Length - exponent - 1);
+            return sb.ToString();
+        }
+
+        // .NET Framework's double.Parse throws OverflowException where .NET's gives infinity ("2E+308", tried for MaxValue).
+        private static double ReadDouble(string s)
+        {
+            try { return double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture); }
+            catch (OverflowException) { return s[0] == '-' ? double.NegativeInfinity : double.PositiveInfinity; }
+        }
 
         /// <summary>
         /// |numerator| at <paramref name="frequency"/>: B0 + B1·z⁻¹ + B2·z⁻² directly, or, when that sum cancels (next to a

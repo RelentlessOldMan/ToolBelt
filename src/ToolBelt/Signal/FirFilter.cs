@@ -239,6 +239,10 @@ namespace ToolBelt.Signal
                 if (!(hz > 0 && hz / sampleRate < 0.5)) throw new ArgumentOutOfRangeException(name, hz, "Edge frequencies must be between 0 and Nyquist (sampleRate / 2), exclusive.");
                 if (i > 0 && !(hz > edges[i - 1].Hz)) throw new ArgumentException("The low edge must be below the high edge.", name);
                 normalized[i] = 2 * (hz / sampleRate);
+                // A ratio that underflowed to 0 passed the check above: a low-pass then blamed taps ("no gain"), and a
+                // band or high-pass edge was taken as 0. Two edges that round to one ratio make an empty band.
+                if (normalized[i] == 0) throw new ArgumentOutOfRangeException(name, hz, "Edge frequency is too small relative to the sample rate to represent.");
+                if (i > 0 && !(normalized[i] > normalized[i - 1])) throw new ArgumentException("The edges are too close together to represent at this sample rate.", name);
             }
 
             // Band edges in units of Nyquist, as (left, right) pairs: pass-zero designs start a band at 0, and a design

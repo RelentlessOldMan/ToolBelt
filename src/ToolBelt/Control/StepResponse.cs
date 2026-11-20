@@ -96,8 +96,10 @@ namespace ToolBelt.Control
             if (!IsFinite(y0)) throw new ArgumentOutOfRangeException(nameof(initialValue), y0, "The initial value must be finite.");
             if (!IsFinite(yf)) throw new ArgumentOutOfRangeException(nameof(finalValue), yf, "The final value must be finite.");
             double step = yf - y0;
-            if (double.IsInfinity(step)) throw new ArgumentException("The step from the initial to the final value is too large to represent.", nameof(values));
-            if (step == 0) throw new ArgumentException("The initial and final values are equal: there is no step to analyse.", nameof(values));
+            // The explicit value is blamed when one was passed: values was blamed for samples that did change.
+            string blamed = finalValue.HasValue ? nameof(finalValue) : initialValue.HasValue ? nameof(initialValue) : nameof(values);
+            if (double.IsInfinity(step)) throw new ArgumentException("The step from the initial to the final value is too large to represent.", blamed);
+            if (step == 0) throw new ArgumentException("The initial and final values are equal: there is no step to analyse.", blamed);
             double t0 = times[0];
             double U(int i) => Normalized(values[i], y0, step);         // 0 at the start, 1 at the end, in the step's direction
 

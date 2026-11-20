@@ -8,14 +8,19 @@ namespace ToolBelt.Control
     /// anti-windup, and derivative-on-measurement (to avoid the derivative "kick" when the setpoint
     /// changes). The time step is passed explicitly to <see cref="Update"/>, so behaviour is fully
     /// deterministic and testable against a simulated plant. Not thread-safe.
+    /// Anti-windup judges the whole tentative output: a step whose proportional or derivative part alone takes the output
+    /// past a limit (with derivative on error, the kick of a setpoint step) integrates only up to that limit, or not at
+    /// all when the output is already past it.
     /// </summary>
     public sealed class PidController
     {
         private readonly double _kp, _ki, _kd, _min, _max;
         private readonly bool _derivativeOnMeasurement;
         private double _integral, _lastError, _lastMeasurement;
-        // The integral is held in units of 2^600 (it is _integral / Scale) once it outgrows double: with a small Ki and wide
-        // limits an integral past double.MaxValue was never taken, so the output stayed at 0 where it is 2e10.
+        // The integral is held in units of 2^1200 (it is _integral / Scale / Scale) once it outgrows double: with a small Ki
+        // and wide limits an integral past double.MaxValue was never taken, so the output stayed at 0 where it is 2e10.
+        // Units of 2^600 still ran out past about 4e488 (Ki 1e-300, error 1e300 over dt 1e200 stayed at 0, not 1e200);
+        // 2^1200 holds every integral whose term Ki·∫ is finite for a finite Ki.
         private bool _big;
         private double _lastSetpoint;   // the scaled retry rebuilds the last error from it: a stored error that overflowed stays ∞
         private bool _hasLast;
@@ -76,8 +81,10 @@ namespace ToolBelt.Control
             bool big = false;
             if (double.IsInfinity(integral) && _ki != 0)
             {
-                double stepBig = (Setpoint * Scale - measurement * Scale) * dt;
-                integral = Shrink((_big ? _integral : _integral * Scale) + stepBig, out big);
+                // In units of 2^1200; for dt < 1 the product with dt comes first, which cannot overflow.
+                double e = Setpoint * Scale - measurement * Scale;
+                double stepBig = dt >= 1 ? e * (dt * Scale) : e * dt * Scale;
+                integral = Shrink((_big ? _integral : _integral * Scale * Scale) + stepBig, out big);
             }
             double tentative = proportional + Term(integral, big) + derivative;
             // P and D overflowing with opposite signs made this NaN, so neither windup test fired and the integral took
@@ -101,11 +108,18 @@ namespace ToolBelt.Control
                 double atLimit = (limit - proportional - derivative) / _ki;
                 bool atBig = false;
                 // With P or D overflowed the difference is formed in units of 2^-600 (∞ there was always discarded); an
-                // integral past double.MaxValue is kept in units of 2^600.
+                // integral past double.MaxValue is kept in units of 2^1200. The scaling comes before the division by a
+                // small Ki, where the quotient overflowed
+                // (a tiny Ki is scaled up instead, as gap·2^-600 underflowed).
                 if (double.IsNaN(atLimit) || double.IsInfinity(atLimit))
-                    atLimit = Shrink((limit * Scale - ScaledProportional(measurement) - ScaledDerivative(measurement, dt)) / _ki, out atBig);
+                {
+                    double gap = limit * Scale - ScaledProportional(measurement) - ScaledDerivative(measurement, dt);
+                    atLimit = Shrink(Math.Abs(_ki) < 1e-100 ? gap / (_ki / Scale) : gap / _ki * Scale, out atBig);
+                }
                 // By signs: the product underflowed (5e-201 × 1e-200), so an I-only loop at tiny scales never moved.
-                double moved = atBig || _big ? (atBig ? atLimit : atLimit * Scale) - (_big ? _integral : _integral * Scale) : atLimit - _integral;
+                double moved = atBig || _big
+                    ? (atBig ? atLimit : atLimit * Scale * Scale) - (_big ? _integral : _integral * Scale * Scale)
+                    : atLimit - _integral;
                 if (!double.IsNaN(atLimit) && !double.IsInfinity(atLimit) && Math.Sign(moved) * Math.Sign(error) > 0)
                 {
                     _integral = atLimit;
@@ -148,19 +162,25 @@ namespace ToolBelt.Control
 
         private const double Scale = 2.4099198651028841e-181;                    // 2^-600
 
-        // An integral given in units of 2^600 (big) back in ordinary units where it fits: the big form is kept only while
-        // it must be. The input is in units of 2^600.
+        // An integral given in units of 2^1200 (big) back in ordinary units where it fits: the big form is kept only while
+        // it must be. The input is in units of 2^1200.
         private static double Shrink(double integralBig, out bool big)
         {
-            double plain = integralBig / Scale;
+            double plain = integralBig / Scale / Scale;
             big = double.IsInfinity(plain) || Math.Abs(plain) > 1e300;
             return big ? integralBig : plain;
         }
 
-        private double Term(double integral, bool big) => big ? _ki * integral / Scale : _ki * integral;
+        // A tiny Ki is scaled up first: Ki·integral underflowed where the term is finite.
+        private double Term(double integral, bool big) =>
+            !big ? _ki * integral : Math.Abs(_ki) < 1e-100 ? _ki / Scale * integral / Scale : _ki * integral / Scale / Scale;
 
         private double ScaledOutput(double measurement, double dt, double integral, bool big) =>
-            (ScaledProportional(measurement) + (big ? _ki * integral : _ki * Scale * integral) + ScaledDerivative(measurement, dt)) / Scale;
+            (ScaledProportional(measurement) + ScaledIntegral(integral, big) + ScaledDerivative(measurement, dt)) / Scale;
+
+        // Ki·integral in units of 2^-600.
+        private double ScaledIntegral(double integral, bool big) =>
+            !big ? _ki * Scale * integral : Math.Abs(_ki) < 1e-100 ? _ki / Scale * integral : _ki * integral / Scale;
 
         // Terms that overflow with opposite signs even in units of 2^-600 (kp 1e200 against a derivative over a subnormal
         // dt) summed to NaN, which the clamp passed through. Their magnitudes are compared as logarithms: the largest term
@@ -179,7 +199,7 @@ namespace ToolBelt.Control
             }
             double p = Setpoint * 0.5 - measurement * 0.5;
             Add(Math.Sign(_kp) * Math.Sign(p), Math.Log(Math.Abs(_kp)) + Math.Log(Math.Abs(p)) + Ln2);
-            Add(Math.Sign(_ki) * Math.Sign(integral), Math.Log(Math.Abs(_ki)) + Math.Log(Math.Abs(integral)) - (big ? Math.Log(S) : 0));
+            Add(Math.Sign(_ki) * Math.Sign(integral), Math.Log(Math.Abs(_ki)) + Math.Log(Math.Abs(integral)) - (big ? 2 * Math.Log(S) : 0));
             if (_hasLast && _kd != 0)
             {
                 double d = _derivativeOnMeasurement

@@ -50,7 +50,12 @@ namespace ToolBelt.Control
             double gain = predictedCovariance >= _measurementNoise
                 ? 1 / (1 + _measurementNoise / predictedCovariance)
                 : predictedCovariance / _measurementNoise / (1 + predictedCovariance / _measurementNoise);
-            double estimate = (1 - gain) * Estimate + gain * measurement;
+            // 1 − K = R/(P + R), formed directly: 1 − gain rounded to 0 once R/P fell below about 1e-16, dropping the
+            // prior (estimate 1e8 with P 1e16 and R 1 updated to 0 for a measurement of 0, not 1e-8).
+            double keep = predictedCovariance >= _measurementNoise
+                ? _measurementNoise / predictedCovariance / (1 + _measurementNoise / predictedCovariance)
+                : 1 / (1 + predictedCovariance / _measurementNoise);
+            double estimate = keep * Estimate + gain * measurement;
             Estimate = Math.Max(Math.Min(Estimate, measurement), Math.Min(Math.Max(Estimate, measurement), estimate));
             // = (1 − K)·P = PR/(P + R), without 0·∞. For P < R it is formed from P: K·R lost P when P/R underflowed (P
             // 1e-30, R 1e300 came out 0, so a filter with no process noise ignored every later measurement).

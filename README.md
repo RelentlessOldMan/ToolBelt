@@ -737,6 +737,7 @@ tests/
       FiltersControlReview119Tests.cs (round 119: PID integral and slew limiter past overflow, IIR steady state and response as mantissa and exponent, argument blame)
       FiltersControlReview133Tests.cs (round 133: Kaiser at 8 dB, responses next to a pole from exact roots, subnormal Nyquist checks, overflow rescue ahead of a NaN, Kalman and PID at tiny scales, Cohen-Coon at huge tau, StepResponse arguments, the slew limiter's halved path)
       FiltersControlReview150Tests.cs (round 150: PID terms overflowing with opposite signs, an integral past double.MaxValue, Td underflow in the open-loop rules, band edges that cancelled, edges at Nyquist or 0, the subnormal flush after a large sample)
+      FiltersControlReview190Tests.cs (round 190: the lag and Kalman blends over long steps, +0 gains, a PID integral past 4e488, FIR edges that underflow at the sample rate, Biquad text on every runtime, FitStep and Analyze ParamNames)
     Diagnostics/
       BenchmarkTests.cs
       MetricsRegistryTests.cs

@@ -87,7 +87,9 @@ namespace ToolBelt.Control
             if (initialValue is double iv && (double.IsNaN(iv) || double.IsInfinity(iv))) throw new ArgumentOutOfRangeException(nameof(initialValue), iv, "The initial value must be finite.");
             if (finalValue is double fv && (double.IsNaN(fv) || double.IsInfinity(fv))) throw new ArgumentOutOfRangeException(nameof(finalValue), fv, "The final value must be finite.");
             double y0 = initialValue ?? values[0], yf = finalValue ?? values[n - 1];
-            if (yf == y0) throw new ArgumentException("The output did not change: nothing to fit.", nameof(values));
+            // The explicit value is blamed when one was passed: values was blamed for samples that did change.
+            if (yf == y0) throw new ArgumentException("The output did not change: nothing to fit.",
+                finalValue.HasValue ? nameof(finalValue) : initialValue.HasValue ? nameof(initialValue) : nameof(values));
             // Finite values can still be more than double.MaxValue apart; the fit then works on halved values.
             double scale = double.IsInfinity(yf - y0) ? 0.5 : 1, change = yf * scale - y0 * scale;
 
@@ -170,9 +172,10 @@ namespace ToolBelt.Control
                 double kd = kp * derivativeTime;
                 if (double.IsInfinity(kd) || kd == 0) throw new ArgumentOutOfRangeException(nameof(derivativeTime), derivativeTime, "Kd = Kp · Td is not representable for this Kp.");
             }
-            Kp = kp;
+            // + 0.0 turns −0 into 0, which ToString wrote as "-0" on .NET and "0" on .NET Framework.
+            Kp = kp + 0.0;
             IntegralTime = integralTime;
-            DerivativeTime = derivativeTime;
+            DerivativeTime = derivativeTime + 0.0;
         }
 
         public double Kp { get; }
@@ -184,9 +187,10 @@ namespace ToolBelt.Control
         public double DerivativeTime { get; }
 
         // IntegralTime is 0 only in default(PidGains), which has no gains at all.
-        public double Ki => double.IsPositiveInfinity(IntegralTime) || IntegralTime == 0 ? 0 : Kp / IntegralTime;
+        public double Ki => double.IsPositiveInfinity(IntegralTime) || IntegralTime == 0 || Kp == 0 ? 0 : Kp / IntegralTime;
 
-        public double Kd => Kp * DerivativeTime;
+        // 0, not Kp·0, which is −0 for a reverse-acting (negative Kp) PI.
+        public double Kd => DerivativeTime == 0 || Kp == 0 ? 0 : Kp * DerivativeTime;
 
         public override string ToString() => string.Format(CultureInfo.InvariantCulture, "Kp={0:G5}, Ki={1:G5}, Kd={2:G5} (Ti={3:G5}, Td={4:G5})", Kp, Ki, Kd, IntegralTime, DerivativeTime);
     }

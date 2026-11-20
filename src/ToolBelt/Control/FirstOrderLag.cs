@@ -44,8 +44,11 @@ namespace ToolBelt.Control
                 return Value;
             }
             double alpha = TimeConstant == 0 ? 1 : -Expm1(-dt / TimeConstant);   // 1 − e^(−dt/τ), accurate for tiny dt
+            // e^(−dt/τ) itself, not 1 − alpha, which cancelled for a long step: decaying toward 0 over 40τ gave exactly 0,
+            // not e^-40 = 4.2e-18 (and 30τ was off by 1.7e-4).
+            double keep = TimeConstant == 0 ? 0 : Math.Exp(-dt / TimeConstant);
             // input − Value overflowed for far-apart finite values (∞, or NaN with dt = 0); interpolating can't.
-            double next = (1 - alpha) * Value + alpha * input;
+            double next = keep * Value + alpha * input;
             Value = Math.Max(Math.Min(Value, input), Math.Min(Math.Max(Value, input), next));
             return Value;
         }
