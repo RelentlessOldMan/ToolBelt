@@ -275,7 +275,8 @@ namespace ToolBelt.Visualization
             }
             if (!sawHeader) throw new InvalidDataException("PNG has no IHDR.");
             if (!sawEnd) throw new InvalidDataException("PNG is truncated (no IEND).");
-            if (width <= 0 || height <= 0 || (long)width * height > MaxPixels) throw new InvalidDataException($"Unsupported PNG size {width}x{height}.");
+            // Unsigned in the message, as Decode(Stream) reports it: a width of 2^31 read "-2147483648x1".
+            if (width <= 0 || height <= 0 || (long)width * height > MaxPixels) throw new InvalidDataException($"Unsupported PNG size {unchecked((uint)width)}x{unchecked((uint)height)}.");
             if (interlace > 1) throw new InvalidDataException("Unknown PNG interlace method.");
             int channels = colorType switch { 0 => 1, 2 => 3, 3 => 1, 4 => 2, 6 => 4, _ => throw new InvalidDataException($"Bad PNG colour type {colorType}.") };
             bool depthOk = colorType switch
@@ -427,6 +428,7 @@ namespace ToolBelt.Visualization
         private sealed class ZlibReader : IDisposable
         {
             private readonly DeflateStream _deflate;
+            private readonly Source _source;
             private readonly uint _adler;
             private readonly long _expected;
             private long _read;
@@ -446,7 +448,8 @@ namespace ToolBelt.Visualization
                     throw new InvalidDataException($"PNG image data is truncated ({zlib.Length} bytes can't inflate to {expected}).");
                 _adler = unchecked((uint)Be32(zlib, zlib.Length - 4));
                 _expected = expected;
-                _deflate = new DeflateStream(new MemoryStream(zlib, 2, zlib.Length - 6), CompressionMode.Decompress);
+                _source = new Source(zlib, 2, zlib.Length - 4);
+                _deflate = new DeflateStream(_source, CompressionMode.Decompress);
             }
 
             // Data past the last scanline is drained into the checksum and ignored (libpng and Pillow accept it); it used
@@ -460,6 +463,11 @@ namespace ToolBelt.Visualization
                 while (_read < limit)
                     if (Read(_block, 0, (int)Math.Min(_block.Length, limit - _read)) == 0)
                     {
+                        // DeflateStream ends quietly both at the final block and where its input runs out, and never
+                        // says what it left unread: a stream with no final block, or junk between the deflate data and
+                        // the Adler-32, was accepted. Source tells them apart.
+                        if (_source.Exhausted) throw new InvalidDataException("PNG image data is truncated (the deflate stream has no final block).");
+                        if (!_source.AllServed) throw new InvalidDataException("Data after the end of the deflate stream in PNG data.");
                         if (((_b << 16) | _a) != _adler) throw new InvalidDataException("zlib checksum mismatch in PNG data (or data after the end of the zlib stream).");
                         return;
                     }
@@ -506,6 +514,40 @@ namespace ToolBelt.Visualization
             }
 
             public void Dispose() => _deflate.Dispose();
+
+            // The deflate data, with its last byte served on its own. A well-formed stream ends in that byte, so the
+            // inflater must ask for it; one that ends earlier never does (the bytes left are junk), and one with no final
+            // block asks past it (Exhausted). DeflateStream reads its input only when the inflater has used all it has.
+            private sealed class Source : Stream
+            {
+                private readonly byte[] _data;
+                private readonly int _end;
+                private int _pos;
+
+                public Source(byte[] data, int start, int end) { _data = data; _pos = start; _end = end; }
+
+                public bool Exhausted { get; private set; }
+                public bool AllServed => _pos == _end;
+
+                public override int Read(byte[] buffer, int offset, int count)
+                {
+                    if (_pos >= _end) { Exhausted = true; return 0; }
+                    int n = Math.Min(count, _pos < _end - 1 ? _end - 1 - _pos : 1);
+                    Buffer.BlockCopy(_data, _pos, buffer, offset, n);
+                    _pos += n;
+                    return n;
+                }
+
+                public override bool CanRead => true;
+                public override bool CanSeek => false;
+                public override bool CanWrite => false;
+                public override long Length => throw new NotSupportedException();
+                public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+                public override void Flush() { }
+                public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+                public override void SetLength(long value) => throw new NotSupportedException();
+                public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            }
         }
 
         private static int Be32(byte[] b, int i) => unchecked((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]);

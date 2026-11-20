@@ -187,8 +187,8 @@ namespace ToolBelt.Visualization
             for (int i = 0; i < text.Length; i++)
             {
                 char ch = text[i];
-                // Measured as EscapeText writes it: a control character or unpaired surrogate is written as U+FFFD, but
-                // counted 0 (a lone high surrogate 1000).
+                // Measured as EscapeText writes it: a control character or unpaired surrogate is written as U+FFFD and
+                // counted as one.
                 if (IsXmlIllegal(text, i)) ch = '\uFFFD';
                 if (char.IsHighSurrogate(ch) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
                 {
