@@ -9,18 +9,18 @@ namespace ToolBelt.Time
     /// <summary>
     /// Parses and formats ISO 8601 duration strings (e.g. <c>PT1H30M</c>, <c>P1DT2H3M4S</c>, <c>P1W</c>)
     /// as <see cref="TimeSpan"/>. Weeks and days are accepted; years and months are NOT (they are not a
-    /// fixed number of ticks). <see cref="Format"/> emits days/hours/minutes/seconds (never weeks or
-    /// years), so it round-trips through <see cref="Parse"/>. Sub-second precision is preserved to the
-    /// tick.
+    /// fixed number of ticks), and weeks stand alone (<c>P1W</c>, not <c>P1W2D</c>), as ISO 8601 has it.
+    /// <see cref="Format"/> emits days/hours/minutes/seconds (never weeks or years), so it round-trips through
+    /// <see cref="Parse"/>. Sub-second precision is preserved to the tick; finer digits are rounded to the nearest tick.
     /// </summary>
     public static class Iso8601Duration
     {
         // Order matters: weeks/days before an optional T section of hours/minutes/(fractional)seconds. ASCII digits only
         // ([0-9], not \d, which also matches other scripts' digits), a T must be followed by at least one component, and
         // \z (not $, which also matches before a final newline) ends the input. The seconds fraction takes ISO's decimal
-        // comma as well as a point (PT1,5S was rejected).
+        // comma as well as a point (PT1,5S was rejected). Weeks are a form of their own (P1W2D was taken as 9 days).
         private static readonly Regex Pattern = new Regex(
-            @"^(?<neg>-)?P(?=[0-9T])(?:(?<w>[0-9]+)W)?(?:(?<d>[0-9]+)D)?(?:T(?=[0-9])(?:(?<h>[0-9]+)H)?(?:(?<m>[0-9]+)M)?(?:(?<s>[0-9]+(?:[.,][0-9]+)?)S)?)?\z",
+            @"^(?<neg>-)?P(?:(?<w>[0-9]+)W|(?=[0-9T])(?:(?<d>[0-9]+)D)?(?:T(?=[0-9])(?:(?<h>[0-9]+)H)?(?:(?<m>[0-9]+)M)?(?:(?<s>[0-9]+(?:[.,][0-9]+)?)S)?)?)\z",
             RegexOptions.CultureInvariant);
 
         /// <summary>Parses an ISO 8601 duration. Throws <see cref="FormatException"/> on invalid input.</summary>
@@ -113,8 +113,11 @@ namespace ToolBelt.Time
                 return checked(long.Parse(s, CultureInfo.InvariantCulture) * TimeSpan.TicksPerSecond);
 
             long whole = long.Parse(s.Substring(0, dot), CultureInfo.InvariantCulture);
-            string frac = (s.Substring(dot + 1) + "0000000").Substring(0, 7); // pad/truncate to 100ns ticks
+            string digits = s.Substring(dot + 1);
+            string frac = (digits + "0000000").Substring(0, 7); // pad to 100ns ticks
             long fracTicks = long.Parse(frac, CultureInfo.InvariantCulture);
+            // Finer digits were dropped (PT1.99999999S gave 1.9999999 s): rounded half up, which can carry into the seconds.
+            if (digits.Length > 7 && digits[7] >= '5') fracTicks++;
             return checked(whole * TimeSpan.TicksPerSecond + fracTicks);
         }
     }

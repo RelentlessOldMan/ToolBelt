@@ -43,7 +43,16 @@ namespace ToolBelt.Time
         // over whole (NextMatchingDay), so the longer window costs nothing for a schedule that matches often.
         private const int SearchDays = 146097 + 2;
         private const long SearchTicks = SearchDays * TimeSpan.TicksPerDay;
-        private const string NotFound = "No occurrence found within 400 years (or before the end of the calendar); the expression is unsatisfiable.";
+        private const string NotFound = "No occurrence found within 400 years; the expression is unsatisfiable.";
+
+        // The calendar ending was reported as an unsatisfiable expression (`0 0 1 1 *` after 9999-01-02).
+        private sealed class CalendarEnded : InvalidOperationException
+        {
+            public CalendarEnded() : base("No occurrence before the end of the calendar (9999-12-31).") { }
+        }
+
+        private static Exception NoneBefore(long first, long limit)
+            => limit < first + SearchTicks ? new CalendarEnded() : new InvalidOperationException(NotFound);
 
         public CronSchedule(string expression)
         {
@@ -90,7 +99,7 @@ namespace ToolBelt.Time
                 else
                     return new DateTimeOffset(wall, after.Offset);
             }
-            throw new InvalidOperationException(NotFound);
+            throw NoneBefore(first, limit);
         }
 
         /// <summary>
@@ -105,7 +114,7 @@ namespace ToolBelt.Time
 
             // Walk UTC instants, testing each one's wall time in the zone, until the search window or the calendar ends.
             long first = FloorToMinute(after.UtcTicks) + TimeSpan.TicksPerMinute;
-            if (first > DateTime.MaxValue.Ticks) throw new InvalidOperationException(NotFound);   // after is in the calendar's last minute
+            if (first > DateTime.MaxValue.Ticks) throw new CalendarEnded();   // after is in the calendar's last minute
             TimeSpan offset = OffsetAt(timeZone, first);
             if (first + offset.Ticks < 0)   // a zone behind UTC: its wall clock starts later than year 1's UTC
             {
@@ -170,7 +179,7 @@ namespace ToolBelt.Time
                 t = next;
                 offset = nextOffset;
             }
-            throw new InvalidOperationException(NotFound);
+            throw t < first + SearchTicks ? new CalendarEnded() : new InvalidOperationException(NotFound);
         }
 
         // True if a wall time strictly between lastWall and gapEnd (the wall times a spring-forward skipped) matches;
@@ -228,7 +237,8 @@ namespace ToolBelt.Time
 
         private static long FloorToMinute(long ticks) => ticks - ticks % TimeSpan.TicksPerMinute;
 
-        /// <summary>The next <paramref name="count"/> occurrences after <paramref name="after"/>.</summary>
+        /// <summary>The next <paramref name="count"/> occurrences after <paramref name="after"/>: fewer (perhaps none) when
+        /// the calendar ends first.</summary>
         public IReadOnlyList<DateTimeOffset> GetNextOccurrences(DateTimeOffset after, int count)
         {
             if (count < 0) throw new ArgumentOutOfRangeException(nameof(count), count, "Count must not be negative.");
@@ -236,7 +246,9 @@ namespace ToolBelt.Time
             var cursor = after;
             for (int i = 0; i < count; i++)
             {
-                cursor = GetNextOccurrence(cursor);
+                // The calendar ending threw away the occurrences already found.
+                try { cursor = GetNextOccurrence(cursor); }
+                catch (CalendarEnded) { break; }
                 result.Add(cursor);
             }
             return result;

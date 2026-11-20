@@ -41,7 +41,7 @@ namespace ToolBelt.Net
         private long _skipped;                    // characters skipped of an overlong line since it last threw
 
         /// <param name="host">The host to connect to.</param>
-        /// <param name="port">The TCP port, 0-65535.</param>
+        /// <param name="port">The TCP port, 1-65535.</param>
         /// <param name="connectTimeout">How long to wait for the connection; default 30 s.</param>
         /// <param name="readTimeout">How long a read may wait for data; null waits indefinitely.</param>
         /// <param name="writeTimeout">How long a write may block; null waits indefinitely.</param>
@@ -53,8 +53,9 @@ namespace ToolBelt.Net
             // A blank host went to DNS and failed as SocketException "No such host is known" (PortCheck and HostInfo
             // refuse it).
             if (host.Trim().Length == 0) throw new ArgumentException("Host must not be empty or blank.", nameof(host));
-            if (port < IPEndPoint.MinPort || port > IPEndPoint.MaxPort)
-                throw new ArgumentOutOfRangeException(nameof(port), port, "Port must be in [0, 65535].");
+            // Port 0 was accepted, and failed later as a SocketException: no connection can be made to it.
+            if (port < 1 || port > IPEndPoint.MaxPort)
+                throw new ArgumentOutOfRangeException(nameof(port), port, "Port must be in [1, 65535].");
             int connectMs = ToMilliseconds(connectTimeout ?? TimeSpan.FromSeconds(30), nameof(connectTimeout));
             int readMs = readTimeout.HasValue ? ToMilliseconds(readTimeout.Value, nameof(readTimeout)) : Timeout.Infinite;
             int writeMs = writeTimeout.HasValue ? ToMilliseconds(writeTimeout.Value, nameof(writeTimeout)) : Timeout.Infinite;

@@ -60,7 +60,11 @@ namespace ToolBelt.Net
             // For IPv6 it also takes "[::1]:80" (dropping the port) and a scope id, differently on each runtime: CIDR text is
             // hex groups, with an optional decimal dotted quad at the end.
             if (addr.AddressFamily == AddressFamily.InterNetworkV6 && !IsPlainIPv6(host)) return false;
-            if (!int.TryParse(text.Substring(slash + 1).Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int prefix)) return false;
+            // The prefix is plain decimal, as the octets are: "/024", "/ 24" and a run of leading zeros were accepted.
+            string digits = text.Substring(slash + 1).TrimEnd();
+            if (digits.Length == 0 || digits.Length > 3 || (digits.Length > 1 && digits[0] == '0')) return false;
+            foreach (char c in digits) if (c < '0' || c > '9') return false;
+            int prefix = int.Parse(digits, NumberStyles.None, CultureInfo.InvariantCulture);
 
             int bits = TotalBits(addr.AddressFamily);
             if (prefix < 0 || prefix > bits) return false;
@@ -70,12 +74,17 @@ namespace ToolBelt.Net
 
         /// <summary>True if <paramref name="address"/> is in this block (same family and same masked network). An
         /// IPv4-mapped IPv6 address (<c>::ffff:a.b.c.d</c>, how a dual-mode socket reports an IPv4 peer) is tested as
-        /// its IPv4 address against an IPv4 block, as IpUtils does; an IPv6 block still sees it as IPv6.</summary>
+        /// its IPv4 address against an IPv4 block, as IpUtils does, and an IPv4 address is tested as its mapped form
+        /// against a block of mapped addresses (one inside <c>::ffff:0:0/96</c>, so <c>::ffff:10.0.0.0/104</c> contains
+        /// 10.1.2.3); any other IPv6 block, <c>::/0</c> included, holds no IPv4 address.</summary>
         public bool Contains(IPAddress address)
         {
             if (address is null) throw new ArgumentNullException(nameof(address));
             // It never matched, so a deny list of IPv4 blocks let every dual-mode peer through.
             if (Family == AddressFamily.InterNetwork && address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
+            // The other way round it never matched: a mapped block missed the IPv4 address it names.
+            else if (Family == AddressFamily.InterNetworkV6 && address.AddressFamily == AddressFamily.InterNetwork
+                     && PrefixLength >= 96 && Network.IsIPv4MappedToIPv6) address = address.MapToIPv6();
             if (address.AddressFamily != Family) return false;
             byte[] masked = Mask(address.GetAddressBytes(), PrefixLength);
             byte[] network = Network.GetAddressBytes();

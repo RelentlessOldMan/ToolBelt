@@ -164,9 +164,11 @@ namespace ToolBelt.Tests.Time
 
         public void Cron_GetNextOccurrences_HugeCountDoesNotPreallocate()
         {
-            // new List(int.MaxValue) threw OutOfMemoryException before searching; the calendar ends first.
+            // new List(int.MaxValue) threw OutOfMemoryException before searching; the calendar ends first, and (round
+            // 192) the occurrences up to it are returned.
             var s = new CronSchedule("0 0 * * *");
-            Check.Throws<InvalidOperationException>(() => s.GetNextOccurrences(new DateTimeOffset(9999, 6, 1, 0, 0, 0, TimeSpan.Zero), int.MaxValue));
+            var from = new DateTimeOffset(9999, 6, 1, 0, 0, 0, TimeSpan.Zero);
+            Check.Equal((int)(new DateTime(9999, 12, 31) - from.DateTime).TotalDays, s.GetNextOccurrences(from, int.MaxValue).Count);
         }
 
         // ---- CronScheduler ----

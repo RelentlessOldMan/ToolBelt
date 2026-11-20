@@ -59,6 +59,9 @@ namespace ToolBelt.Security
         /// <summary>True if the stored hash used fewer iterations than <paramref name="currentIterations"/> (upgrade it on next login).</summary>
         public static bool NeedsRehash(string encoded, int currentIterations = DefaultIterations)
         {
+            // Checked as Hash checks it: -5 answered false, as though the hash were strong enough.
+            if (currentIterations < 1 || currentIterations > MaxIterations)
+                throw new ArgumentOutOfRangeException(nameof(currentIterations), currentIterations, "Iterations must be in [1, MaxIterations].");
             return Parse(encoded).Iterations < currentIterations;
         }
 
@@ -68,7 +71,9 @@ namespace ToolBelt.Security
             string[] parts = encoded.Split('$');
             if (parts.Length != 4 || parts[0] != Prefix)
                 throw new FormatException("Encoded hash is not a recognized PBKDF2-SHA256 string.");
-            if (!int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out int iterations)
+            // Hash never writes a leading zero ("01" was accepted, unlike a non-canonical salt).
+            if ((parts[1].Length > 1 && parts[1][0] == '0')
+                || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out int iterations)
                 || iterations < 1 || iterations > MaxIterations)
                 throw new FormatException("Encoded hash has an invalid iteration count.");
             byte[] salt, hash;
@@ -81,6 +86,10 @@ namespace ToolBelt.Security
             {
                 throw new FormatException("Encoded hash has an invalid salt or digest.", ex);
             }
+            // Convert.FromBase64String skips whitespace, so " salt ", a trailing newline and the like verified, though the
+            // docs say a string Hash did not write throws.
+            if (Convert.ToBase64String(salt) != parts[2] || Convert.ToBase64String(hash) != parts[3])
+                throw new FormatException("Encoded hash has a salt or digest that is not canonical base64.");
             if (salt.Length == 0)
                 throw new FormatException("Encoded hash has an empty salt.");
             // Verify derives as many bytes as the digest holds: a forged digest of megabytes would cost thousands of

@@ -30,8 +30,8 @@ namespace ToolBelt.Security
         public static byte[] Md5(byte[] data) => Compute(MD5.Create(), data);
 
         /// <summary>SHA-256 of a file, streamed (any size).</summary>
-        public static byte[] Sha256File(string path) => HashFile(SHA256.Create(), path);
-        public static byte[] Sha512File(string path) => HashFile(SHA512.Create(), path);
+        public static byte[] Sha256File(string path) { CheckPath(path); return HashFile(SHA256.Create(), path); }
+        public static byte[] Sha512File(string path) { CheckPath(path); return HashFile(SHA512.Create(), path); }
 
         /// <summary>Lowercase hex SHA-256 of a file — the form <c>sha256sum</c> prints.</summary>
         public static string Sha256FileHex(string path) => ToHex(Sha256File(path));
@@ -56,9 +56,16 @@ namespace ToolBelt.Security
             }
         }
 
-        private static byte[] HashFile(HashAlgorithm algorithm, string path)
+        // Checked before the hash object is made (a null path left it undisposed); an empty path failed inside FileStream,
+        // with ParamName null on .NET Framework.
+        private static void CheckPath(string path)
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
+            if (path.Length == 0) throw new ArgumentException("The path is empty.", nameof(path));
+        }
+
+        private static byte[] HashFile(HashAlgorithm algorithm, string path)
+        {
             using (algorithm)
             using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.SequentialScan))
                 return algorithm.ComputeHash(fs);

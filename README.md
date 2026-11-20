@@ -1056,6 +1056,7 @@ tests/
       SecurityNetTimeReview8Tests.cs (round 142: misplaced resume ranges, argument checks before download, cron 7/N, scheduler wake on Add, lone surrogates on send, empty hosts)
       SecurityNetTimeReview9Tests.cs (round 149: TcpLineClient's limits under a strict encoding and while skipping, lossy sends, the host's ParamName, HttpDownload's 206 totals and short ranges, its own .part, nothing local before the answer, folder destinations, sub-ms timeouts, MaxBytes)
       SecurityNetTimeReview10Tests.cs (round 166: cron across a fall-back that crosses midnight, CreateIncremental's bad names, TcpLineClient's blank host)
+      SecurityNetTimeReview192Tests.cs (round 192: an HttpDownload resume that looped forever, cron at the end of the calendar, mapped CIDR blocks and plain prefixes, duration grammars, canonical password hashes, port 0)
       TimeOfDayRangeTests.cs
       UnixTimeTests.cs
     Visualization/

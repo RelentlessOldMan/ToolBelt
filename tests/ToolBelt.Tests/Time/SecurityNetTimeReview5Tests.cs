@@ -199,7 +199,9 @@ namespace ToolBelt.Tests.Time
             Check.True(block.Contains(IPAddress.Parse("203.0.113.7").MapToIPv6()));
             Check.False(block.Contains(IPAddress.Parse("203.0.114.7").MapToIPv6()));
             Check.True(CidrRange.Parse("::ffff:0:0/96").Contains(IPAddress.Parse("203.0.113.7").MapToIPv6()));
-            Check.False(CidrRange.Parse("::ffff:0:0/96").Contains(IPAddress.Parse("203.0.113.7")));
+            // Round 192: a block of mapped addresses holds the IPv4 addresses it names; other IPv6 blocks hold none.
+            Check.True(CidrRange.Parse("::ffff:0:0/96").Contains(IPAddress.Parse("203.0.113.7")));
+            Check.False(CidrRange.Parse("::/0").Contains(IPAddress.Parse("203.0.113.7")));
             Check.False(block.Contains(IPAddress.Parse("2001:db8::cb00:7107")));
         }
 

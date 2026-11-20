@@ -11,9 +11,11 @@ namespace ToolBelt.Time
     /// so a value survives a round-trip.
     /// </summary>
     /// <remarks>
-    /// Grammar: a sign ("-") followed by one or more <c>&lt;number&gt;&lt;unit&gt;</c> terms. Units are
+    /// Grammar: an optional sign ("-", directly before the first number) followed by one or more
+    /// <c>&lt;number&gt;&lt;unit&gt;</c> terms, each unit at most once and from largest to smallest. Units are
     /// <c>d</c> (days), <c>h</c> (hours), <c>m</c> (minutes), <c>s</c> (seconds), <c>ms</c>
-    /// (milliseconds). Whitespace between terms is optional on parse and a single space on format.
+    /// (milliseconds). Whitespace between terms, and between a number and its unit, is optional on parse; format
+    /// writes a single space between terms.
     /// </remarks>
     public static class HumanDuration
     {
@@ -62,10 +64,12 @@ namespace ToolBelt.Time
             {
                 negative = true;
                 i++;
+                if (i == text.Length || text[i] < '0' || text[i] > '9') return false;   // "- 5s" was -5 s
             }
 
             long totalTicks = 0;
             bool sawTerm = false;
+            int lastRank = -1;   // "1d1d" was summed to 2 days and "1s 1m" read as 61 s: each unit once, largest first
 
             while (i < text.Length)
             {
@@ -81,7 +85,8 @@ namespace ToolBelt.Time
                         CultureInfo.InvariantCulture, out long number))
                     return false;
 
-                // unit
+                // unit, perhaps after a space ("5 s" was rejected, though a space is allowed elsewhere)
+                while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
                 int unitStart = i;
                 while (i < text.Length && char.IsLetter(text[i]))
                     i++;
@@ -98,6 +103,10 @@ namespace ToolBelt.Time
                 };
                 if (ticksPerUnit < 0)
                     return false;
+                int rank = unit switch { "d" => 0, "h" => 1, "m" => 2, "s" => 3, _ => 4 };
+                if (rank <= lastRank)
+                    return false;
+                lastRank = rank;
 
                 try
                 {

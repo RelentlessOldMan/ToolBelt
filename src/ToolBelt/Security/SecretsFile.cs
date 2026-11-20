@@ -191,7 +191,8 @@ namespace ToolBelt.Security
 
         public static SecretsFile Load(string path, string passphrase) => FromBytes(File.ReadAllBytes(path ?? throw new ArgumentNullException(nameof(path))), passphrase);
 
-        /// <summary>Loads, or returns an empty store when the file doesn't exist yet.</summary>
+        /// <summary>Loads, or returns an empty store when the file doesn't exist yet. A folder at the path throws
+        /// <see cref="ArgumentException"/>.</summary>
         public static SecretsFile LoadOrCreate(string path, string passphrase)
         {
             if (path is null) throw new ArgumentNullException(nameof(path));
@@ -199,6 +200,8 @@ namespace ToolBelt.Security
             if (passphrase is null) throw new ArgumentNullException(nameof(passphrase));
             if (passphrase.Length == 0) throw new ArgumentException("A passphrase is required.", nameof(passphrase));
             if (HasLoneSurrogate(passphrase)) throw new ArgumentException("The passphrase contains an unpaired surrogate.", nameof(passphrase));
+            // A folder is not a missing file: an empty store came back, and only the first save failed.
+            if (Directory.Exists(path)) throw new ArgumentException($"The path '{path}' is a folder, not a file.", nameof(path));
             return File.Exists(path) ? Load(path, passphrase) : new SecretsFile();
         }
 

@@ -159,7 +159,7 @@ namespace ToolBelt.Net
                     }
                     catch (MoreToFetch)
                     {
-                        attempt--;   // progress, not a failure: each such answer appended at least one byte
+                        attempt--;   // progress, not a failure: each such answer grew the partial file (checked in AttemptAsync)
                     }
                     catch (Exception ex) when (attempt < options.MaxAttempts && IsTransient(ex, cancellationToken))
                     {
@@ -222,6 +222,7 @@ namespace ToolBelt.Net
                 fromDestination = File.Exists(destination);
                 return fromDestination ? new FileInfo(destination).Length : 0L;
             });
+            long had = existing;   // what the partial file held before this answer
             // The destination taken as the partial download is copied only when its bytes are kept.
             void TakeDestination() => Local(() =>
             {
@@ -386,6 +387,10 @@ namespace ToolBelt.Net
             }
             if (end.HasValue && downloaded != end.Value)
                 throw new IOException($"The response from {url} ended after {downloaded} of {end.Value} bytes.");
+            // A short range from byte 0 rewrote the file: one that ended no further on than the file already did (bytes
+            // 0-5 of 20, every time) was retried without counting as an attempt, forever.
+            if (shortRange && downloaded <= had)
+                throw new HttpDownloadException($"Server sent the bytes {range!.From}-{range.To} of {total} for {url}, which adds nothing to the {had} bytes already downloaded.");
             if (shortRange) throw new MoreToFetch();
             return Local(() => Finish(destination, partial, options, downloaded, total ?? -1, resumed));
         }
