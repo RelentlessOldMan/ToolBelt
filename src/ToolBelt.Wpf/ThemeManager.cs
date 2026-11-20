@@ -170,8 +170,27 @@ namespace ToolBelt.Wpf
             }
         }
 
-        /// <summary>Interprets the <c>AppsUseLightTheme</c> registry value: 0 means dark; anything else (or missing) light.</summary>
-        public static AppTheme ThemeFromRegistryValue(object? value) => value is int i && i == 0 ? AppTheme.Dark : AppTheme.Light;
+        /// <summary>
+        /// Interprets the <c>AppsUseLightTheme</c> registry value: an integer 0 (a DWORD or a QWORD) means dark; anything
+        /// else (or missing) light.
+        /// </summary>
+        public static AppTheme ThemeFromRegistryValue(object? value)
+        {
+            // Only an int (DWORD) 0 was dark: a QWORD comes back as a long, and its 0 gave Light.
+            bool zero = value switch
+            {
+                int i => i == 0,
+                long l => l == 0,
+                uint u => u == 0,
+                ulong u => u == 0,
+                short s => s == 0,
+                ushort s => s == 0,
+                byte b => b == 0,
+                sbyte b => b == 0,
+                _ => false,
+            };
+            return zero ? AppTheme.Dark : AppTheme.Light;
+        }
 
         /// <summary>
         /// A minimal starter palette with frozen brushes under the keys <c>ThemeBackgroundBrush</c>,

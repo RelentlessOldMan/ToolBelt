@@ -204,13 +204,19 @@ namespace ToolBelt.Wpf
     {
         protected ValidationRuleSet Rules { get; } = new ValidationRuleSet();
 
-        /// <summary>Sets the field, raises PropertyChanged, and re-validates this property and its dependents.</summary>
+        /// <summary>
+        /// Sets the field, raises PropertyChanged, and re-validates this property and its dependents. A PropertyChanged
+        /// handler that throws does not stop the validation: its exception is rethrown after it.
+        /// </summary>
         protected bool SetAndValidate<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
         {
             if (propertyName is null) throw new ArgumentNullException(nameof(propertyName));
-            bool changed = SetProperty(ref field, value, propertyName);
-            // One throwing rule left every property after it in the loop with stale errors.
+            // One throwing rule left every property after it in the loop with stale errors; a throwing PropertyChanged
+            // handler left the value stored but never validated (an out-of-range value with HasErrors false).
             var failures = new List<Exception>();
+            bool changed = false;
+            try { changed = SetProperty(ref field, value, propertyName); }
+            catch (Exception ex) { failures.Add(ex); }
             Validate(failures, propertyName);
             foreach (string dependent in Rules.Dependents(propertyName).ToList()) Validate(failures, dependent);
             ThrowIfAny(failures);
@@ -256,7 +262,9 @@ namespace ToolBelt.Wpf
     /// <summary>
     /// Binding rule: the text parses as a number (in the binding culture) within [Minimum, Maximum]. A NaN bound is
     /// rejected when set (it compared false, so that bound silently stopped applying); a Minimum above the Maximum is an
-    /// empty range, which no value passes.
+    /// empty range, which no value passes. A number too large for a double ("1e400") is outside every range: it parses
+    /// as an infinity, which an infinite bound would otherwise let through; the culture's infinity symbol is not a number
+    /// that overflowed and passes such a bound.
     /// </summary>
     public sealed class NumericRangeValidationRule : ValidationRule
     {
@@ -285,7 +293,8 @@ namespace ToolBelt.Wpf
             // failed to convert it.
             if (!double.TryParse(text, NumberStyles.Float, cultureInfo, out double v) || double.IsNaN(v))
                 return new ValidationResult(false, Message ?? "Not a number.");
-            if (v < Minimum || v > Maximum)
+            // An infinity spelled with digits is an overflowed literal (no culture's infinity symbol holds a digit).
+            if (v < Minimum || v > Maximum || (double.IsInfinity(v) && text.Any(char.IsDigit)))
                 return new ValidationResult(false, Message ?? string.Format(cultureInfo, "Must be between {0} and {1}.", Minimum, Maximum));
             return ValidationResult.ValidResult;
         }

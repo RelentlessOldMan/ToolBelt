@@ -114,7 +114,8 @@ namespace ToolBelt.Wpf
     /// Maps a count to a <see cref="Visibility"/>: a positive number (any numeric type), or a non-empty collection /
     /// sequence, becomes Visible; null, zero, or an empty collection becomes Collapsed (or Hidden via
     /// <see cref="UseHidden"/>). A bool counts as itself; any other object (not a number or a sequence) counts as
-    /// present, so is Visible. A string is a sequence of characters, so "0" is Visible: bind the number itself. <see cref="Invert"/> swaps the sense — handy for "show this when the list is
+    /// present, so is Visible. A number that is not real (a Complex with an imaginary part) has no sign: it is Visible
+    /// unless it is zero or has a NaN part. A string is a sequence of characters, so "0" is Visible: bind the number itself. <see cref="Invert"/> swaps the sense — handy for "show this when the list is
     /// empty" placeholders. One-way: <see cref="ConvertBack"/> returns <see cref="Binding.DoNothing"/>.
     /// </summary>
     public sealed class CountToVisibilityConverter : IValueConverter
@@ -139,6 +140,8 @@ namespace ToolBelt.Wpf
                 double n => n > 0,
                 float n => n > 0,
                 decimal n => n > 0,
+                // Complex.IsNaN is false for (Infinity, NaN), so the generic check below showed it: a NaN part hides it.
+                Complex z => !double.IsNaN(z.Real) && !double.IsNaN(z.Imaginary) && (z.Imaginary != 0 || z.Real > 0),
                 bool b => b,   // false showed the element (a HasItems mis-bound to the count converter)
                 ICollection c => c.Count > 0,
                 IEnumerable e => HasAny(e),
@@ -164,11 +167,15 @@ namespace ToolBelt.Wpf
         private static readonly MethodInfo PositiveMethod =
             typeof(CountToVisibilityConverter).GetMethod(nameof(Positive), BindingFlags.NonPublic | BindingFlags.Static)!;
 
-        private static bool Positive<T>(T v) where T : INumberBase<T> => T.IsPositive(v) && !T.IsZero(v) && !T.IsNaN(v);
+        // A number that is not real (a Complex with an imaginary part) has no sign: it shows when it is not zero. IsPositive
+        // looked at the real part only, so Complex(0, 5) was Collapsed.
+        private static bool Positive<T>(T v) where T : INumberBase<T>
+            => !T.IsZero(v) && !T.IsNaN(v) && (T.IsPositive(v) || !T.IsRealNumber(v));
 
         private static bool HasAny(IEnumerable sequence)
         {
-            IEnumerator e = sequence.GetEnumerator();
+            IEnumerator? e = sequence.GetEnumerator();
+            if (e is null) return false;   // a broken GetEnumerator threw NullReferenceException from the converter
             try { return e.MoveNext(); }
             finally { (e as IDisposable)?.Dispose(); }
         }

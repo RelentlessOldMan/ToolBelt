@@ -36,6 +36,8 @@ namespace ToolBelt.Wpf
         private readonly Func<int, int, CancellationToken, Task<IReadOnlyList<T>>> _loadPage;
         private LoadState? _load;
         private int _generation;
+        private Task<int>? _resetLoad;   // the first-page load of reset _resetGeneration, for a reset a handler superseded
+        private int _resetGeneration;
         private bool _hasMoreItems = true;
         private bool _isLoading;
         private Exception? _lastError;
@@ -192,24 +194,34 @@ namespace ToolBelt.Wpf
         /// Discards everything (including any page in flight) and loads the first page again. If cancelling the old load
         /// throws (a loader's cancellation callback threw), or a CollectionChanged or PropertyChanged handler does, every
         /// step of the reset still happens and the exception propagates (several together as an
-        /// <see cref="AggregateException"/>); no new page is loaded then.
+        /// <see cref="AggregateException"/>); no new page is loaded then. A handler that resets the list again during the
+        /// reset supersedes it: this call then returns the newer reset's first-page load.
         /// </summary>
         public Task<int> ResetAsync(CancellationToken cancellationToken = default)
         {
-            _generation = unchecked(_generation + 1);   // checked builds threw after int.MaxValue resets
+            int generation = _generation = unchecked(_generation + 1);   // checked builds threw after int.MaxValue resets
             LoadState? old = _load;
             _load = null;
             // Each step runs even if an earlier one throws: a CollectionChanged handler that threw from ClearItems left
-            // IsLoading true for good, HasMoreItems stale and the old load running.
+            // IsLoading true for good, HasMoreItems stale and the old load running. Once a handler has reset the list
+            // again, the newer reset owns the state: setting it here made IsLoading false while its page loaded, and
+            // HasMoreItems true after its short page (a second load past the end, and this call returned 0).
             var failures = new List<Exception>();
             Step(failures, ClearItems);
-            Step(failures, () => HasMoreItems = true);
-            Step(failures, () => IsLoading = false);
-            Step(failures, () => LastError = null);
+            if (generation == _generation) Step(failures, () => HasMoreItems = true);
+            if (generation == _generation) Step(failures, () => IsLoading = false);
+            if (generation == _generation) Step(failures, () => LastError = null);
             Step(failures, () => old?.Cancel());   // last: a throwing token callback left the list uncleared and IsLoading true for good
             if (failures.Count == 1) ExceptionDispatchInfo.Capture(failures[0]).Throw();
             if (failures.Count > 1) throw new AggregateException(failures);
-            return LoadMoreAsync(cancellationToken);
+            if (generation == _generation)
+            {
+                Task<int> load = LoadMoreAsync(cancellationToken);
+                if (generation == _generation) { _resetLoad = load; _resetGeneration = generation; return load; }
+            }
+            // Superseded (a handler, or a synchronous loader's, reset again): the newest reset's load, if it got that far.
+            if (cancellationToken.IsCancellationRequested) return Task.FromCanceled<int>(cancellationToken);
+            return _resetLoad != null && _resetGeneration == _generation ? _resetLoad : LoadMoreAsync(cancellationToken);
         }
 
         private static void Step(List<Exception> failures, Action step)
@@ -227,6 +239,9 @@ namespace ToolBelt.Wpf
             {
                 // Inside the try: a PropertyChanged handler that threw here left IsLoading true for good.
                 IsLoading = true;
+                // A PropertyChanged handler that reset the list from IsLoading superseded this load: it still called the
+                // loader, at the new list's offset.
+                if (generation != _generation) return 0;
                 IReadOnlyList<T> page = await _loadPage(Count, PageSize, cts.Token).ConfigureAwait(true)
                     ?? throw new InvalidOperationException("The page loader returned null.");
                 if (generation != _generation) return 0; // reset while we were loading: drop the stale page

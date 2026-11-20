@@ -220,8 +220,10 @@ namespace ToolBelt.Wpf
     /// <summary>
     /// A test double for <see cref="IDialogService"/>: it never shows UI, records every request in <see cref="Calls"/>,
     /// and answers from per-kind queues of scripted responses (<see cref="EnqueueConfirm"/> and friends). In
-    /// <see cref="Strict"/> mode (the default) a dialog with no scripted answer throws, so a test cannot silently pass
-    /// through a question it did not expect; otherwise it answers as if the user cancelled.
+    /// <see cref="Strict"/> mode (the default) a dialog with no scripted answer is recorded and then throws, so a test cannot
+    /// silently pass through a question it did not expect; otherwise it answers as if the user cancelled. The recorded
+    /// options and the file lists handed back are copies, so changing them afterwards changes neither the record nor
+    /// the scripted answer.
     /// </summary>
     public sealed class RecordingDialogService : IDialogService
     {
@@ -245,7 +247,7 @@ namespace ToolBelt.Wpf
 
         /// <summary>Scripts an Open answer; null simulates the user cancelling.</summary>
         public RecordingDialogService EnqueueOpenFile(string? path) => Enqueue(DialogCallKind.OpenFile, path);
-        public RecordingDialogService EnqueueOpenFiles(params string[]? paths) => Enqueue(DialogCallKind.OpenFiles, paths);
+        public RecordingDialogService EnqueueOpenFiles(params string[]? paths) => Enqueue(DialogCallKind.OpenFiles, paths?.ToArray());
         public RecordingDialogService EnqueueSaveFile(string? path) => Enqueue(DialogCallKind.SaveFile, path);
         public RecordingDialogService EnqueuePickFolder(string? path) => Enqueue(DialogCallKind.PickFolder, path);
 
@@ -265,39 +267,56 @@ namespace ToolBelt.Wpf
         public bool Confirm(string message, string? title = null, DialogIcon icon = DialogIcon.Question)
         {
             if (message is null) throw new ArgumentNullException(nameof(message));
-            object? r = Answer(DialogCallKind.Confirm, message, false);
+            object? r = Answer(DialogCallKind.Confirm, message, false, out bool scripted);
             _calls.Add(new DialogCall(DialogCallKind.Confirm, message, title, icon, null, r));
+            ThrowIfUnscripted(scripted, DialogCallKind.Confirm, message);
             return (bool)r!;
         }
 
         public bool? AskYesNoCancel(string message, string? title = null, DialogIcon icon = DialogIcon.Question)
         {
             if (message is null) throw new ArgumentNullException(nameof(message));
-            object? r = Answer(DialogCallKind.YesNoCancel, message, null);
+            object? r = Answer(DialogCallKind.YesNoCancel, message, null, out bool scripted);
             _calls.Add(new DialogCall(DialogCallKind.YesNoCancel, message, title, icon, null, r));
+            ThrowIfUnscripted(scripted, DialogCallKind.YesNoCancel, message);
             return (bool?)r;
         }
 
         public string? OpenFile(FileDialogOptions? options = null) => File(DialogCallKind.OpenFile, options) as string;
 
-        public IReadOnlyList<string>? OpenFiles(FileDialogOptions? options = null) => File(DialogCallKind.OpenFiles, options) as string[];
+        // A copy: the caller got the enqueued array itself, and the record shared it, so changing one changed the others.
+        public IReadOnlyList<string>? OpenFiles(FileDialogOptions? options = null) => (File(DialogCallKind.OpenFiles, options) as string[])?.ToArray();
 
         public string? SaveFile(FileDialogOptions? options = null) => File(DialogCallKind.SaveFile, options) as string;
 
         public string? PickFolder(string? title = null, string? initialDirectory = null)
         {
-            object? r = Answer(DialogCallKind.PickFolder, title, null);
+            object? r = Answer(DialogCallKind.PickFolder, title, null, out bool scripted);
             _calls.Add(new DialogCall(DialogCallKind.PickFolder, title, title, DialogIcon.None,
                 new FileDialogOptions { Title = title, InitialDirectory = initialDirectory }, r));
+            ThrowIfUnscripted(scripted, DialogCallKind.PickFolder, title);
             return r as string;
         }
 
+        // The call records a copy of the options as they were asked: it kept the caller's object, which the caller could
+        // change afterwards.
         private object? File(DialogCallKind kind, FileDialogOptions? options)
         {
-            object? r = Answer(kind, options?.Title, null);
-            _calls.Add(new DialogCall(kind, null, options?.Title, DialogIcon.None, options, r));
+            object? r = Answer(kind, options?.Title, null, out bool scripted);
+            _calls.Add(new DialogCall(kind, null, options?.Title, DialogIcon.None, Copy(options), r is string[] a ? a.ToArray() : r));
+            ThrowIfUnscripted(scripted, kind, options?.Title);
             return r;
         }
+
+        private static FileDialogOptions? Copy(FileDialogOptions? o) => o is null ? null : new FileDialogOptions
+        {
+            Title = o.Title,
+            Filter = o.Filter,
+            InitialDirectory = o.InitialDirectory,
+            FileName = o.FileName,
+            DefaultExtension = o.DefaultExtension,
+            OverwritePrompt = o.OverwritePrompt,
+        };
 
         private RecordingDialogService Enqueue(DialogCallKind kind, object? answer)
         {
@@ -306,13 +325,19 @@ namespace ToolBelt.Wpf
             return this;
         }
 
-        private object? Answer(DialogCallKind kind, string? what, object? cancelled)
+        // An unscripted dialog is recorded before Strict mode throws: it threw first, so a test catching the exception
+        // could not see what was asked.
+        private object? Answer(DialogCallKind kind, string? what, object? cancelled, out bool scripted)
         {
-            if (_responses.TryGetValue(kind, out var q) && q.Count > 0) return q.Dequeue();
-            if (Strict)
+            scripted = _responses.TryGetValue(kind, out var q) && q.Count > 0;
+            return scripted ? q!.Dequeue() : cancelled;
+        }
+
+        private void ThrowIfUnscripted(bool scripted, DialogCallKind kind, string? what)
+        {
+            if (!scripted && Strict)
                 throw new InvalidOperationException(
                     $"No scripted answer for {kind}{(what is null ? "" : " (\"" + what + "\")")}. Enqueue one, or set Strict = false.");
-            return cancelled;
         }
     }
 }

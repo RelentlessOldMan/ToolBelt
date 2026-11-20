@@ -1182,6 +1182,7 @@ tests/
     WpfReview117Tests.cs    (round 117: loading more from a finished load's notifications, linear Messenger unregister, NaN numeric bounds, look-alike hotkey letters, "*." drop filter)
     WpfReview139Tests.cs    (round 139: exponent text in numeric boxes, editing down refused text, finite clamped fits, Matches' ParamName)
     WpfReview158Tests.cs    (round 158: numeric boxes rounding the decimal they read as, in range and idempotent; Completion with a carried context whose dispatcher shut down; repeated hotkey modifiers; a null callback for a held hotkey)
+    WpfReview175Tests.cs    (round 175: a reset from a reset handler, a throwing PropertyChanged handler in SetAndValidate, Complex and null enumerators in CountToVisibility, QWORD theme values, RecordingDialogService records and copies, overflowing literals in NumericRangeValidationRule, ResetView inside the zoom limits)
     CallbackReview54Tests.cs  (round 54: throwing handlers in validation, commands and incremental loading)
     CancelDisposeReview55Tests.cs (round 55: incremental loading's cancelled tokens)
     UiReviewRegressionTests.cs  (2026-10-05 review regressions: WPF satellite)

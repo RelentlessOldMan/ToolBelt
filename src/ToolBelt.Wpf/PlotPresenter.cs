@@ -155,11 +155,16 @@ namespace ToolBelt.Wpf
             return m.HasInverse && IsFinite(m) ? m : _view;
         }
 
-        /// <summary>Shows the figure at 1:1 from the top-left corner.</summary>
+        /// <summary>
+        /// Shows the figure at 1:1 from the top-left corner, or at the nearest zoom in [<see cref="MinZoom"/>,
+        /// <see cref="MaxZoom"/>] when 1 is outside it.
+        /// </summary>
         public void ResetView()
         {
             _fitPending = false;
-            SetView(Matrix.Identity);
+            // Identity ignored the zoom limits: with MinZoom 2 the view sat at 1 and the next zoom by 1 jumped to 2.
+            double s = Clamp(1.0, MinZoom, MaxZoom);
+            SetView(new Matrix(s, 0, 0, s, 0, 0));
         }
 
         // ---------- pure view math ----------
