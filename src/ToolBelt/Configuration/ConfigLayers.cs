@@ -11,7 +11,8 @@ namespace ToolBelt.Configuration
     /// had while debugging a deployment. Keys are compared case-insensitively. The caller supplies each
     /// source explicitly — nothing is read from the environment implicitly. A source holding one key in two casings with
     /// different values is refused (<see cref="ArgumentException"/>). Each source is copied when added, so later
-    /// changes to the dictionary are not seen; a lookup costs O(layers).
+    /// changes to the dictionary are not seen; a lookup costs O(layers). A null value is unset, as the binder reads it: a
+    /// lower source's value for the key shows through (a key that every source holding it sets to null resolves to null).
     /// </summary>
     public sealed class ConfigLayers
     {
@@ -43,9 +44,10 @@ namespace ToolBelt.Configuration
         public IReadOnlyDictionary<string, string?> Resolve()
         {
             var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            // A null above a value hid it, and the binder then took the property's default, from no source at all.
             foreach (var (_, values) in _layers)
                 foreach (var kv in values)
-                    result[kv.Key] = kv.Value;
+                    if (kv.Value != null || !result.ContainsKey(kv.Key)) result[kv.Key] = kv.Value;
             return result;
         }
 
@@ -55,7 +57,7 @@ namespace ToolBelt.Configuration
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (source, values) in _layers)
                 foreach (var kv in values)
-                    result[kv.Key] = source;
+                    if (kv.Value != null || !result.ContainsKey(kv.Key)) result[kv.Key] = source;
             return result;
         }
 
@@ -73,10 +75,17 @@ namespace ToolBelt.Configuration
         private int Find(string key, out string? value)
         {
             if (key is null) throw new ArgumentNullException(nameof(key));
+            // A null is unset: a lower layer's value wins. Held only as null, the key resolves to null from the lowest
+            // layer holding it, as Resolve and Provenance do.
+            int nullAt = -1;
             for (int i = _layers.Count - 1; i >= 0; i--)
-                if (_layers[i].Values.TryGetValue(key, out value)) return i;
+                if (_layers[i].Values.TryGetValue(key, out value))
+                {
+                    if (value != null) return i;
+                    nullAt = i;
+                }
             value = null;
-            return -1;
+            return nullAt;
         }
     }
 }

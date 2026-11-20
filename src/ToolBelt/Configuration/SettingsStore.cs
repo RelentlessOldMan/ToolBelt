@@ -35,7 +35,8 @@ namespace ToolBelt.Configuration
     /// A settings path that is a symbolic link is written through to its target; a save keeps the file's Hidden and System
     /// attributes, fails at once on a read-only file, waits about half a second for another reader of the file to let go,
     /// and removes temp files that a crashed save left behind more than a day ago.
-    /// A file that is not valid UTF-8 counts as corrupt, and one reached through a symbolic link is moved aside at its
+    /// A file that is not valid UTF-8 (or UTF-16 or UTF-32 with a byte-order mark, read as such and saved back as UTF-8)
+    /// counts as corrupt, as does one holding only <c>null</c>; one reached through a symbolic link is moved aside at its
     /// target. A value the type would reject when loaded back (setters that check each other) makes a save throw
     /// <see cref="InvalidOperationException"/>, as do Save, Update and Reset called from inside an Update's change. A path
     /// that is a directory, or ends in a directory separator, makes <see cref="LoadFrom"/> throw
@@ -147,8 +148,11 @@ namespace ToolBelt.Configuration
                 string text;
                 using (var reader = new StreamReader(new MemoryStream(bytes), Strict, detectEncodingFromByteOrderMarks: true))
                     text = reader.ReadToEnd();
-                T? value = JsonSerializer.Deserialize<T>(text, Options);
-                return new SettingsStore<T>(full, value ?? new T(), null);
+                // A file holding only null is not settings: it loaded as defaults with no warning, and the next save
+                // replaced it. It is set aside like a corrupt one.
+                T value = JsonSerializer.Deserialize<T>(text, Options)
+                          ?? throw new JsonException("The file holds null, not settings.");
+                return new SettingsStore<T>(full, value, null);
             }
             catch (Exception ex) when (!(ex is OutOfMemoryException || ex is StackOverflowException))
             {

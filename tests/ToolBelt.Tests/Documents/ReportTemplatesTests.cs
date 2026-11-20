@@ -39,7 +39,7 @@ namespace ToolBelt.Tests.Documents
             };
             ReportBuilder report = ReportTemplates.Comparison("A vs B", "v1.0", "v1.1", rows, flagPercent: 5);
             string md = report.ToMarkdown();
-            Check.True(md.Contains("> [!WARNING]\n> 1 metric(s) changed by 5% or more: throughput (+10%)."), md);
+            Check.True(md.Contains("> [!WARNING]\n> 2 metric(s) changed by 5% or more: throughput (+10%), errors (from 0)."), md);
             Check.True(md.Contains("Largest relative change: throughput, +10%."));
             Check.True(md.Contains("| throughput | 100 u/h | 110 u/h | +10 u/h | +10% |"), md);
             Check.True(md.Contains("| latency | 50 ms | 50.5 ms | +0.5 ms | +1% |"));

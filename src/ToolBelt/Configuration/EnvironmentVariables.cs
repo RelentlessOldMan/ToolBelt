@@ -154,7 +154,16 @@ namespace ToolBelt.Configuration
         {
             string? raw = Get(name);
             if (raw == null) return null;
-            return parse(raw.Trim()) ?? throw new FormatException($"Environment variable '{name}' is '{raw}', which is not {expected}.");
+            return parse(raw.Trim()) ?? throw new FormatException($"Environment variable '{name}' is '{Shown(raw)}', which is not {expected}.");
+        }
+
+        // At most 100 characters of a value in an error message, never splitting a surrogate pair: a 1,000,000-character
+        // value made a 1,000,000-character exception message.
+        private static string Shown(string raw)
+        {
+            if (raw.Length <= 100) return raw;
+            int n = char.IsHighSurrogate(raw[99]) ? 99 : 100;
+            return raw.Substring(0, n) + "... (" + raw.Length.ToString(CultureInfo.InvariantCulture) + " characters)";
         }
 
         // Defined, or (for a [Flags] type) made only of defined bits — so "Read, Write" is accepted. A comma list is refused

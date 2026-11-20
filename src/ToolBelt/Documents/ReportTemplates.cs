@@ -153,8 +153,9 @@ namespace ToolBelt.Documents
             {
                 double p = r.PercentChange;
                 if (!double.IsNaN(p) && (largest is null || Math.Abs(p) > Math.Abs(largest.PercentChange))) largest = r;
-                // From a zero baseline there is no percent change, but a threshold of 0 still means "any change at all".
-                if (flagPercent == 0 && r.A == 0 && r.B != 0 && !double.IsNaN(r.B)) flagged.Add(r.Metric + " (from 0)");
+                // From a zero baseline there is no percent change, but any change is past every threshold: with a threshold
+                // above 0 (the default 5 among them), 0 -> 100 was never flagged and the callout said nothing changed.
+                if (r.A == 0 && r.B != 0 && !double.IsNaN(r.B)) flagged.Add(r.Metric + " (from 0)");
                 else if (!double.IsNaN(p) && (flagPercent > 0 ? Math.Abs(p) >= flagPercent : p != 0))
                     flagged.Add(r.Metric + " (" + SignedPercent(p) + "%)");
             }
@@ -180,8 +181,8 @@ namespace ToolBelt.Documents
                 table.Add(new[]
                 {
                     r.Metric,
-                    r.A.ToString(numberFormat, CultureInfo.InvariantCulture) + u,
-                    r.B.ToString(numberFormat, CultureInfo.InvariantCulture) + u,
+                    Plain(r.A, numberFormat) + u,
+                    Plain(r.B, numberFormat) + u,
                     Signed(r.Delta, numberFormat) + u,
                     double.IsNaN(r.PercentChange) ? "n/a" : SignedPercent(r.PercentChange) + "%",
                 });
@@ -248,6 +249,15 @@ namespace ToolBelt.Documents
         }
 
         private static string SignedPercent(double v) => v == 0 ? "0" : (v > 0 ? "+" : "") + Percent(v);
+
+        // A value that rounds to zero prints as "0", never "-0" (-0.0, or -0.001 under "0.##"), as in the Change column.
+        private static string Plain(double v, string format)
+        {
+            string s = v.ToString(format, CultureInfo.InvariantCulture);
+            if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double shown) && shown == 0)
+                return 0.0.ToString(format, CultureInfo.InvariantCulture);
+            return s;
+        }
 
         private static string Signed(double v, string format)
         {

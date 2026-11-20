@@ -163,11 +163,20 @@ namespace ToolBelt.Documents
             return this;
         }
 
-        /// <summary>Appends already-formatted Markdown verbatim as its own block.</summary>
+        /// <summary>
+        /// Appends already-formatted Markdown verbatim as its own block, less any blank lines before it and white space
+        /// after it.
+        /// </summary>
         public MarkdownReport Raw(string markdown)
         {
             if (markdown is null) throw new ArgumentNullException(nameof(markdown));
-            string block = markdown.Trim();
+            // Not Trim: the first line's indentation is Markdown ("    x = 1" is code), and trimming it made the block a
+            // paragraph with a lazy continuation line.
+            string block = markdown.TrimEnd();
+            int from = 0;
+            for (int k = 0; k < block.Length && char.IsWhiteSpace(block[k]); k++)
+                if (block[k] == '\n' || block[k] == '\r') from = k + 1;
+            block = block.Substring(from);
             // A block that starts with an item of the list just written joined that list ("1. x" after a numbered list):
             // an empty HTML comment between them ends the list.
             if (_lastMarker != '\0' && FirstItemMarker(block) == _lastMarker) Block("<!-- -->");
@@ -195,7 +204,11 @@ namespace ToolBelt.Documents
         private static char FirstItemMarker(string block)
         {
             int end = block.IndexOfAny(new[] { '\r', '\n' });
-            return ListMarker(end < 0 ? block : block.Substring(0, end));
+            string line = end < 0 ? block : block.Substring(0, end);
+            // Up to three spaces of indentation still make a list item; four make code.
+            int k = 0;
+            while (k < line.Length && k < 4 && line[k] == ' ') k++;
+            return k < 4 && (k == line.Length || line[k] != '\t') ? ListMarker(line.Substring(k)) : '\0';
         }
 
         // Where an item's text starts after its marker: past one to four spaces, else (none, or five or more) one column.

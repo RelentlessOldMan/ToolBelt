@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace ToolBelt.Configuration
 {
@@ -85,7 +86,7 @@ namespace ToolBelt.Configuration
 
         // scope holds the keys under prefix: every key a property of this section can see. Scanning all keys for each
         // property of each section made a self-containing type quadratic (8,000 keys took 29 s).
-        private static void BindInto(object obj, Type type, Dictionary<string, string?> values, List<string> scope, string prefix,
+        private static void BindInto(object obj, Type type, Dictionary<string, string?> values, List<string> sectionScope, string prefix,
             string sep, List<string> errors, int depth)
         {
             PropertyInfo[] props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
@@ -97,6 +98,7 @@ namespace ToolBelt.Configuration
                 if (IsHidden(prop, props)) continue;
                 string key = prefix.Length == 0 ? prop.Name : prefix + sep + prop.Name;
                 Type pt = prop.PropertyType;
+                List<string> scope = OwnScope(sectionScope, props, prop, prefix, sep);
 
                 if (IsScalar(pt))
                 {
@@ -106,7 +108,7 @@ namespace ToolBelt.Configuration
                     {
                         if (!CanSet(prop)) errors.Add($"'{key}': the property is read-only, so it cannot be bound.");
                         else if (TryConvertScalar(raw, pt, out object? value)) TrySet(prop, obj, value, key, errors);
-                        else errors.Add($"'{key}': cannot convert '{raw}' to {FriendlyName(pt)}.");
+                        else errors.Add($"'{key}': cannot convert '{Shown(raw)}' to {FriendlyName(pt)}.");
                     }
                     // "Port:0=5" on an int was dropped without a word.
                     if (HasSection(scope, key + sep))
@@ -174,6 +176,17 @@ namespace ToolBelt.Configuration
                         try { target = Activator.CreateInstance(pt)!; }
                         catch (TargetInvocationException ex) { errors.Add($"'{key}': {(ex.InnerException ?? ex).Message}"); continue; }
                     }
+                    else if (!CanSet(prop))
+                    {
+                        // A computed getter (Child => new Inner()) gives a new instance on every read: the section was bound
+                        // into one nobody kept, and its values were lost without a word.
+                        if (!TryGet(prop, obj, key, errors, out object? again)) continue;
+                        if (!ReferenceEquals(again, target))
+                        {
+                            errors.Add($"'{key}': the property is read-only and returns a new {FriendlyName(pt)} on each read, so its section cannot be bound.");
+                            continue;
+                        }
+                    }
                     // Into the instance's own type: a derived instance's extra properties were dropped silently.
                     BindInto(target, target.GetType(), values, section, key, sep, errors, depth + 1);
                     if (CanSet(prop)) TrySet(prop, obj, target, key, errors);
@@ -210,6 +223,37 @@ namespace ToolBelt.Configuration
         private static bool IsConfigured(Dictionary<string, string?> values, List<string> scope, string key, string sep)
             => (values.TryGetValue(key, out string? v) && !string.IsNullOrEmpty(v)) || HasSection(scope, key + sep);
 
+        // The keys of scope that belong to prop: not those of a sibling whose name extends prop's past a separator
+        // ("Port_Name" beside "Port" with "_"). They were read as prop's nested keys: an int Port beside a string
+        // Port_Name was "nested keys cannot be bound", and a "Max__Size" key created an empty Max with "__".
+        private static List<string> OwnScope(List<string> scope, PropertyInfo[] props, PropertyInfo prop, string prefix, string sep)
+        {
+            List<string>? longer = null;
+            foreach (PropertyInfo p in props)
+                if (p.Name.Length > prop.Name.Length + sep.Length && p.Name.StartsWith(prop.Name + sep, StringComparison.OrdinalIgnoreCase)
+                    && p.GetIndexParameters().Length == 0 && !IsHidden(p, props))
+                    (longer ??= new List<string>()).Add(prefix.Length == 0 ? p.Name : prefix + sep + p.Name);
+            if (longer == null) return scope;
+            var own = new List<string>();
+            foreach (string k in scope)
+            {
+                bool sibling = false;
+                foreach (string s in longer)
+                    if (k.Equals(s, StringComparison.OrdinalIgnoreCase) || k.StartsWith(s + sep, StringComparison.OrdinalIgnoreCase)) { sibling = true; break; }
+                if (!sibling) own.Add(k);
+            }
+            return own;
+        }
+
+        // At most 100 characters of a value in an error message, never splitting a surrogate pair: a 1,000,000-character
+        // value made a 1,000,000-character exception message.
+        private static string Shown(string raw)
+        {
+            if (raw.Length <= 100) return raw;
+            int n = char.IsHighSurrogate(raw[99]) ? 99 : 100;
+            return raw.Substring(0, n) + "... (" + raw.Length.ToString(CultureInfo.InvariantCulture) + " characters)";
+        }
+
         private static bool HasSection(List<string> scope, string sectionPrefix)
         {
             foreach (string k in scope)
@@ -238,7 +282,7 @@ namespace ToolBelt.Configuration
                 // Counted even when it fails to convert: "Ports:0=x, Ports:1=2" also reported a gap at the valid ':1'.
                 contiguous++;
                 if (TryConvertScalar(raw, elementType, out object? value)) items.Add(value);
-                else errors.Add($"'{key}{sep}{i}': cannot convert '{raw}' to {FriendlyName(elementType)}.");
+                else errors.Add($"'{key}{sep}{i}': cannot convert '{Shown(raw)}' to {FriendlyName(elementType)}.");
             }
 
             // An index past a gap (":0", ":2") would otherwise be dropped silently, along with everything after it.
@@ -303,6 +347,84 @@ namespace ToolBelt.Configuration
             if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value)) return false;
             if (value == 0 && minus) value = -0.0;
             return true;
+        }
+
+        // The float nearest the decimal s. .NET Framework parses a float as a double and narrows it, rounding twice: a
+        // decimal just off a midpoint between two floats rounded onto it as a double, then to even ("1.0000000596046448"
+        // was 1, not 1.0000001). Here the narrowed double is checked against the exact decimal at the midpoints on each
+        // side and moved one float if the decimal is past one; at a midpoint exactly, to even.
+        private static bool TryParseNearestFloat(string s, out float value)
+        {
+            value = 0;
+            if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double d)) return false;
+            value = (float)d;
+            if (d == 0 || double.IsNaN(d) || double.IsInfinity(d) || !TryExactDecimal(s, out BigInteger digits, out int exp10, out bool sticky))
+                return true;
+            float f = Math.Abs(value);
+            if (float.IsInfinity(f)) f = float.MaxValue;                    // past the last midpoint as a double, maybe not exactly
+            int bits = FloatBits(f);
+            // The midpoint with the next float up (from float.MaxValue, with 2^128, where it overflows).
+            double up = bits == 0x7F7FFFFF ? float.MaxValue + Math.Pow(2, 103) : ((double)f + BitsFloat(bits + 1)) / 2;
+            int c = CompareExact(digits, exp10, sticky, up);
+            if (c > 0 || c == 0 && (bits & 1) == 1) f = BitsFloat(bits + 1);
+            else if (bits > 0)
+            {
+                c = CompareExact(digits, exp10, sticky, ((double)f + BitsFloat(bits - 1)) / 2);
+                if (c < 0 || c == 0 && (bits & 1) == 1) f = BitsFloat(bits - 1);
+            }
+            value = d < 0 ? -f : f;
+            return true;
+        }
+
+        private static int FloatBits(float f) => BitConverter.ToInt32(BitConverter.GetBytes(f), 0);
+
+        private static float BitsFloat(int bits) => BitConverter.ToSingle(BitConverter.GetBytes(bits), 0);
+
+        // The magnitude of an invariant decimal ("-1.5e3") as digits * 10^exp10. Past 800 significant digits the rest only
+        // set sticky (the value is above digits * 10^exp10). False for anything else, or an exponent far out of range.
+        private static bool TryExactDecimal(string s, out BigInteger digits, out int exp10, out bool sticky)
+        {
+            digits = BigInteger.Zero;
+            exp10 = 0;
+            sticky = false;
+            int i = 0;
+            if (i < s.Length && (s[i] == '+' || s[i] == '-')) i++;
+            var sb = new StringBuilder();
+            long scale = 0;
+            bool dot = false;
+            for (; i < s.Length; i++)
+            {
+                char ch = s[i];
+                if (ch == '.' && !dot) { dot = true; continue; }
+                if (ch < '0' || ch > '9') break;
+                if (sb.Length == 0 && ch == '0') { if (dot) scale--; continue; }
+                if (sb.Length < 800) { sb.Append(ch); if (dot) scale--; }
+                else { if (ch != '0') sticky = true; if (!dot) scale++; }
+            }
+            if (i < s.Length)
+            {
+                if (s[i] != 'e' && s[i] != 'E') return false;
+                if (!int.TryParse(s.Substring(i + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int e)) return false;
+                scale += e;
+            }
+            if (sb.Length == 0 || Math.Abs(scale) > 2000) return false;
+            digits = BigInteger.Parse(sb.ToString(), CultureInfo.InvariantCulture);
+            exp10 = (int)scale;
+            return true;
+        }
+
+        // The sign of digits * 10^exp10 (+ sticky) minus m, a positive finite double, exactly.
+        private static int CompareExact(BigInteger digits, int exp10, bool sticky, double m)
+        {
+            long b = BitConverter.DoubleToInt64Bits(m);
+            int e = (int)((b >> 52) & 0x7FF);
+            BigInteger a = digits, man = b & ((1L << 52) - 1);
+            if (e == 0) e = 1; else man += 1L << 52;
+            int k = e - 1075;
+            if (exp10 >= 0) a *= BigInteger.Pow(10, exp10); else man *= BigInteger.Pow(10, -exp10);
+            if (k >= 0) man <<= k; else a <<= -k;
+            int c = a.CompareTo(man);
+            return c == 0 && sticky ? 1 : c;
         }
 
         private static Type Unwrap(Type type) => Nullable.GetUnderlyingType(type) ?? type;
@@ -374,13 +496,13 @@ namespace ToolBelt.Configuration
             }
             if (t == typeof(float))
             {
-                // Parsed as a float (not a double then narrowed, which can round twice); the words and -0 as a double.
+                // The nearest float to the decimal (.NET Framework's float parse rounded twice); the words and -0 as a double.
                 if (TryParseFloat(s, out double fd) && (double.IsNaN(fd) || fd == 0 || (double.IsInfinity(fd) && !Overflowed(s, fd))))
                 {
                     value = (float)fd;
                     return true;
                 }
-                if (float.TryParse(s, NumberStyles.Float, inv, out float fl) && !Overflowed(s, fl)) { value = fl; return true; }
+                if (TryParseNearestFloat(s, out float fl) && !Overflowed(s, fl)) { value = fl; return true; }
                 return false;
             }
             if (t == typeof(decimal))
@@ -470,6 +592,8 @@ namespace ToolBelt.Configuration
             else if (s[0] == '+') i++;
             BigInteger ticks = 0;                                               // the sum so far is ticks / 10^scale
             int scale = 0;
+            // TimeSpan.MinValue's magnitude is one past long.MaxValue: "-922337203685.4775808s" was refused.
+            BigInteger limit = negative ? (BigInteger)long.MaxValue + 1 : long.MaxValue;
             bool sawTerm = false;
             while (i < s.Length)
             {
@@ -509,12 +633,12 @@ namespace ToolBelt.Configuration
                 double t = number * perUnit;
                 if (!(t < 1e19)) return false;
                 AddExact(token, perUnit, ref ticks, ref scale);
-                if (ticks > long.MaxValue * BigInteger.Pow(10, scale)) return false;
+                if (ticks > limit * BigInteger.Pow(10, scale)) return false;
                 sawTerm = true;
             }
             if (!sawTerm) return false;
-            long whole = (long)(ticks / BigInteger.Pow(10, scale));
-            value = TimeSpan.FromTicks(negative ? -whole : whole);
+            BigInteger whole = ticks / BigInteger.Pow(10, scale);
+            value = TimeSpan.FromTicks((long)(negative ? -whole : whole));
             return true;
 
             // Adds the term's number ("12.5", "1e3", "0.5E-2") times perUnit to sum / 10^scale. Digits more than 400 places
