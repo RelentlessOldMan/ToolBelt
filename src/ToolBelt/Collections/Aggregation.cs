@@ -185,6 +185,7 @@ namespace ToolBelt.Collections
             private bool _nonFinite;
             private int _k = int.MinValue;   // no nonzero finite value yet
             private double _scaledSum = -0.0, _scaledMean, _scaledM2, _shift;   // _scaledMean is the mean of x − _shift
+            private double _scaledLo;   // the rounding error of _scaledSum, so _scaledSum + _scaledLo is the sum to about 2^-100
             private long _scaledCount;
 
             public void Add(double v)
@@ -206,6 +207,7 @@ namespace ToolBelt.Collections
                     else if (e > _k)
                     {
                         _scaledSum = Scale(_scaledSum, _k - e);
+                        _scaledLo = Scale(_scaledLo, _k - e);
                         _scaledMean = Scale(_scaledMean, _k - e);
                         _shift = Scale(_shift, _k - e);
                         _scaledM2 = Scale(Scale(_scaledM2, _k - e), _k - e);
@@ -214,7 +216,10 @@ namespace ToolBelt.Collections
                 }
                 double x = _k == int.MinValue ? v : Scale(v, -_k);   // v is a signed zero there
                 _scaledCount++;
-                _scaledSum += x;
+                // TwoSum: the sum's rounding error, exactly.
+                double s = _scaledSum + x, back = s - _scaledSum;
+                _scaledLo += (_scaledSum - (s - back)) + (x - back);
+                _scaledSum = s;
                 if (_shift == 0 && x != 0)
                 {
                     // The first nonzero value (zeros before it gave a shift of 0); moving the shift moves the mean only.
@@ -245,11 +250,13 @@ namespace ToolBelt.Collections
                         // The sum too: it was left at the overflowed ∞ when the true sum ([1e308, 1e308, −1e308]) is finite.
                         sum = Scale(_scaledSum, k);
                     }
-                    // Welford's running mean, not sum / n: the rounding in the sum put the mean outside [min, max] (three
-                    // copies of 0.1 gave 0.10000000000000002, 1e7 copies 0.09999999998389754).
+                    // The compensated sum over n, not the rounded sum / n, which put the mean outside [min, max] (three copies
+                    // of 0.1 gave 0.10000000000000002, 1e7 copies 0.09999999998389754), nor Welford's running mean, which was
+                    // off by up to an ulp of the largest value: [0.1, 0.2, -0.30000000000000004] had a mean of +1.4e-17, not
+                    // -9.3e-18.
                     // Clamped by comparison, not Math.Min and Math.Max, which order signed zeros on .NET Core only: {−0, +0}
                     // had a mean of −0 there and +0 on .NET Framework. A zero mean is −0 only when every value was −0.
-                    mean = Scale(_shift + _scaledMean, k);
+                    mean = Scale(MeanOf(_scaledSum, _scaledLo, n), k);
                     mean = mean < _min ? _min : mean > _max ? _max : mean;
                     if (mean == 0) mean = _max == 0 ? _max : 0.0;
                 }
@@ -257,6 +264,24 @@ namespace ToolBelt.Collections
             }
 
             private static bool IsNegative(double v) => BitConverter.DoubleToInt64Bits(v) < 0;
+
+            // (hi + lo) / n: q = hi / n, plus what q·n missed of hi (exact, from Dekker's product) and lo, over n.
+            private static double MeanOf(double hi, double lo, int n)
+            {
+                double q = hi / n;
+                if (double.IsInfinity(q) || double.IsNaN(q) || q == 0) return (hi + lo) / n;
+                double p = q * n, pErr = ProductError(q, n, p);
+                return q + (((hi - p) - pErr) + lo) / n;
+            }
+
+            // a·b − p exactly (Dekker), for p = a·b rounded; the halves stay in range for scaled values near 1.
+            private static double ProductError(double a, double b, double p)
+            {
+                const double Split = 134217729.0;   // 2^27 + 1
+                double ca = Split * a, aHi = ca - (ca - a), aLo = a - aHi;
+                double cb = Split * b, bHi = cb - (cb - b), bLo = b - bHi;
+                return ((aHi * bHi - p) + aHi * bLo + aLo * bHi) + aLo * bLo;
+            }
 
             // x·2^e, in steps that each stay in range (2^±k alone can pass it).
             private static double Scale(double x, int e)
@@ -304,8 +329,9 @@ namespace ToolBelt.Collections
             foreach (var rowEntry in cells)
             {
                 var aggregated = new Dictionary<TCol, double>(ValueKeys.For<TCol>());
+                // Read-only in fact, not just in type: an aggregator that cast the list back and added to it changed the cell.
                 foreach (var colEntry in rowEntry.Value)
-                    aggregated[colEntry.Key] = aggregator(colEntry.Value);
+                    aggregated[colEntry.Key] = aggregator(colEntry.Value.AsReadOnly());
                 result[rowEntry.Key] = aggregated;
             }
             return result;

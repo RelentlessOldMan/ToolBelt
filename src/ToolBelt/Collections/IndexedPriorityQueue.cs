@@ -139,6 +139,7 @@ namespace ToolBelt.Collections
         private readonly List<Node> _heap = new List<Node>();
         private readonly Dictionary<TKey, Node> _nodes = new Dictionary<TKey, Node>(ValueKeys.For<TKey>());
         private readonly IComparer<TPriority> _comparer;
+        private int _version;
 
         public IndexedPriorityQueue(IComparer<TPriority>? comparer = null)
             => _comparer = comparer ?? Comparer<TPriority>.Default;
@@ -172,9 +173,12 @@ namespace ToolBelt.Collections
 
             // Comparisons first, then the key's hash: a comparer or hash that throws leaves the queue as it was (a throw
             // mid-sift left the order broken).
+            int version = _version;
             int at = FindUp(priority, _heap.Count);
+            EnsureUnchanged(version);
             var node = new Node(key, priority);
             _nodes.Add(key, node);
+            _version++;
             _heap.Add(node);
             Settle(_heap.Count - 1, at, node);
         }
@@ -190,9 +194,12 @@ namespace ToolBelt.Collections
                 throw new KeyNotFoundException($"Key '{key}' is not in the queue.");
 
             // Comparisons first: a throw mid-sift (after the priority was stored) left the order broken.
+            int version = _version;
             int i = node.Index;
             int cmp = _comparer.Compare(priority, node.Priority);
             int at = cmp < 0 ? FindUp(priority, i) : cmp > 0 ? FindDown(priority, i, _heap.Count) : i;
+            EnsureUnchanged(version);
+            _version++;
             node.Priority = priority;
             Settle(i, at, node);
         }
@@ -222,9 +229,12 @@ namespace ToolBelt.Collections
 
             // Move the last element to the root and sink it. Comparisons first, then the hash: a throw mid-sift lost the
             // dequeued key (already out of the index) and left the order broken.
+            int version = _version;
             int last = _heap.Count - 1;
             Node moved = _heap[last];
             int at = last > 0 ? FindDown(moved.Priority, 0, last) : 0;
+            EnsureUnchanged(version);
+            _version++;
             Node min = _heap[0];
             _nodes.Remove(min.Key);
             _heap.RemoveAt(last);
@@ -232,6 +242,15 @@ namespace ToolBelt.Collections
             key = min.Key;
             priority = min.Priority;
             return true;
+        }
+
+        // A comparer that pushed or popped while this call was comparing moved the slots the call had found, so the insert
+        // overwrote a live item (one lost, another duplicated, no exception). Such a change is refused once the comparisons
+        // are done, before this call writes anything; the comparer's own change stands.
+        private void EnsureUnchanged(int version)
+        {
+            if (version != _version)
+                throw new InvalidOperationException("The comparer changed the queue while it was being ordered.");
         }
 
         // Where a priority placed in the empty slot i would rise to. Compares only.

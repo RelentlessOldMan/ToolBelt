@@ -16,6 +16,7 @@ namespace ToolBelt.Collections
         private readonly int _capacity;
         private readonly IComparer<T> _comparer;
         private int _count;
+        private int _version;
 
         public TopN(int capacity, IComparer<T>? comparer = null)
         {
@@ -58,16 +59,34 @@ namespace ToolBelt.Collections
                 // Every comparison happens before the heap changes, so a comparer that throws leaves it as it was. A throw
                 // mid-sift lost an item, or (at capacity) left a larger item at the root, so later Adds were measured
                 // against the wrong threshold for good.
+                int version = _version;
                 int at = FindUp(_heap, item, _count, _comparer);
+                EnsureUnchanged(version);
+                _version++;
                 for (int i = _count; i > at; i = (i - 1) / 2) _heap[i] = _heap[(i - 1) / 2];
                 _heap[at] = item;
                 _count++;
             }
-            else if (_comparer.Compare(item, _heap[0]) > 0)
+            else
             {
-                // Larger than the smallest retained item: replace the root and restore the heap.
-                Settle(_heap, 0, FindDown(_heap, item, 0, _count, _comparer), item);
+                int version = _version;
+                if (_comparer.Compare(item, _heap[0]) <= 0) return;
+                // Larger than the smallest retained item: replace the root and restore the heap. A comparer that added an
+                // item here (into a full heap) moved the slots too, and the write landed out of range or on a live item.
+                int at = FindDown(_heap, item, 0, _count, _comparer);
+                EnsureUnchanged(version);
+                _version++;
+                Settle(_heap, 0, at, item);
             }
+        }
+
+        // A comparer that pushed or popped while this call was comparing moved the slots the call had found, so the insert
+        // overwrote a live item (one lost, another duplicated, no exception). Such a change is refused once the comparisons
+        // are done, before this call writes anything; the comparer's own change stands.
+        private void EnsureUnchanged(int version)
+        {
+            if (version != _version)
+                throw new InvalidOperationException("The comparer changed the TopN while it was being ordered.");
         }
 
         /// <summary>The retained items as a fresh array, largest first.</summary>

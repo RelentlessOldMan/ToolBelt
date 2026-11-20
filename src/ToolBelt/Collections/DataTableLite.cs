@@ -321,9 +321,10 @@ namespace ToolBelt.Collections
                 for (int c = 0; c < _columns.Length; c++)
                 {
                     object? cell = _rows[r][c];
-                    // "R": .NET Framework's default wrote 15 digits, so 0.30000000000000004 showed as 0.3.
-                    string s = cell is double d ? d.ToString("R", CultureInfo.InvariantCulture)
-                        : cell is float f ? f.ToString("R", CultureInfo.InvariantCulture)
+                    // The shortest text that reads back as the value: .NET Framework's default wrote 15 digits, so
+                    // 0.30000000000000004 showed as 0.3.
+                    string s = cell is double d ? Shortest(d, single: false)
+                        : cell is float f ? Shortest(f, single: true)
                         : Convert.ToString(cell, CultureInfo.InvariantCulture) ?? "";
                     cells[r][c] = s;
                     if (s.Length > widths[c]) widths[c] = s.Length;
@@ -334,6 +335,56 @@ namespace ToolBelt.Collections
             AppendRow(sb, _columns, widths);
             for (int r = 0; r < cells.Length; r++) AppendRow(sb, cells[r], widths);
             return sb.ToString();
+        }
+
+        // As .NET's "R" writes it, on every runtime: .NET Framework's "R" wrote a float with more digits than it needs
+        // (1.401298E-45 for 1E-45) and −0 as "0". The fewest digits that read back as the value (the nearest such, as "E"
+        // rounds), laid out in exponent form from 10^17 (10^9 for a float) or below 10^-4.
+        private static string Shortest(double v, bool single)
+        {
+            CultureInfo inv = CultureInfo.InvariantCulture;
+            if (double.IsNaN(v) || double.IsInfinity(v)) return v.ToString(inv);
+            if (v == 0) return BitConverter.DoubleToInt64Bits(v) < 0 ? "-0" : "0";
+            string e = "";
+            for (int p = 1, max = single ? 9 : 17; p <= max; p++)
+            {
+                e = single ? ((float)v).ToString("E" + (p - 1).ToString(inv), inv) : v.ToString("E" + (p - 1).ToString(inv), inv);
+                if (single ? ReadSingle(e) == (float)v : ReadDouble(e) == v) break;
+            }
+            bool negative = e[0] == '-';
+            int at = e.IndexOf('E');
+            int start = negative ? 1 : 0;
+            string digits = e.Substring(start, at - start).Replace(".", "").TrimEnd('0');
+            int exponent = int.Parse(e.Substring(at + 1), NumberStyles.AllowLeadingSign, inv);
+            var sb = new StringBuilder();
+            if (negative) sb.Append('-');
+            if (exponent >= (single ? 9 : 17) || exponent < -4)
+            {
+                sb.Append(digits[0]);
+                if (digits.Length > 1) sb.Append('.').Append(digits, 1, digits.Length - 1);
+                sb.Append('E').Append(exponent < 0 ? '-' : '+').Append(Math.Abs(exponent).ToString("00", inv));
+            }
+            else if (exponent < 0)
+                sb.Append("0.").Append('0', -exponent - 1).Append(digits);
+            else if (digits.Length <= exponent + 1)
+                sb.Append(digits).Append('0', exponent + 1 - digits.Length);
+            else
+                sb.Append(digits, 0, exponent + 1).Append('.').Append(digits, exponent + 1, digits.Length - exponent - 1);
+            return sb.ToString();
+        }
+
+        // .NET Framework's parsers throw OverflowException where .NET's give infinity ("2E+308", tried for double.MaxValue),
+        // and float.Parse does for text just past float.MaxValue that rounds to it.
+        private static double ReadDouble(string s)
+        {
+            try { return double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture); }
+            catch (OverflowException) { return s[0] == '-' ? double.NegativeInfinity : double.PositiveInfinity; }
+        }
+
+        private static float ReadSingle(string s)
+        {
+            try { return float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture); }
+            catch (OverflowException) { return (float)ReadDouble(s); }
         }
 
         private static void AppendRow(StringBuilder sb, IReadOnlyList<string> cells, int[] widths)

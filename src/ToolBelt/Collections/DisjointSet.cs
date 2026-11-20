@@ -40,10 +40,13 @@ namespace ToolBelt.Collections
         public int SetCount { get; private set; }
 
         /// <summary>Returns the canonical representative of the set containing <paramref name="x"/>.</summary>
-        public int Find(int x)
+        public int Find(int x) => Find(x, nameof(x));
+
+        // Union and Connected name their own parameter: Find's "x" was reported for a bad a or b.
+        private int Find(int x, string paramName)
         {
             if (unchecked((uint)x >= (uint)_parent.Length))
-                throw new ArgumentOutOfRangeException(nameof(x), x, $"Element must be in [0, {_parent.Length}).");
+                throw new ArgumentOutOfRangeException(paramName, x, $"Element must be in [0, {_parent.Length}).");
 
             // Iterative find with full path compression (point every node on the path at the root).
             int root = x;
@@ -61,8 +64,8 @@ namespace ToolBelt.Collections
         /// <summary>Merges the sets containing <paramref name="a"/> and <paramref name="b"/>. Returns false if already merged.</summary>
         public bool Union(int a, int b)
         {
-            int ra = Find(a);
-            int rb = Find(b);
+            int ra = Find(a, nameof(a));
+            int rb = Find(b, nameof(b));
             if (ra == rb)
                 return false;
 
@@ -78,6 +81,6 @@ namespace ToolBelt.Collections
         }
 
         /// <summary>Whether <paramref name="a"/> and <paramref name="b"/> are in the same set.</summary>
-        public bool Connected(int a, int b) => Find(a) == Find(b);
+        public bool Connected(int a, int b) => Find(a, nameof(a)) == Find(b, nameof(b));
     }
 }

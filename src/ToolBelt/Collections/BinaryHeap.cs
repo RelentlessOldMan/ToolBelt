@@ -13,6 +13,7 @@ namespace ToolBelt.Collections
     {
         private readonly List<T> _items;
         private readonly IComparer<T> _comparer;
+        private int _version;
 
         public BinaryHeap(IComparer<T>? comparer = null)
         {
@@ -40,7 +41,10 @@ namespace ToolBelt.Collections
         /// and in <see cref="TryPop"/>); a throw mid-sift left the item out of order, or lost the popped one.</remarks>
         public void Push(T item)
         {
+            int version = _version;
             int at = FindUp(item, _items.Count);
+            EnsureUnchanged(version);
+            _version++;
             _items.Add(item);
             int i = _items.Count - 1;
             while (i > at)
@@ -83,16 +87,32 @@ namespace ToolBelt.Collections
                 return false;
             }
 
+            int version = _version;
             int last = _items.Count - 1;
             T moved = _items[last];
             int at = last > 0 ? FindDown(moved, 0, last) : 0;
+            EnsureUnchanged(version);
+            _version++;
             item = _items[0];
             _items.RemoveAt(last);
             if (last > 0) Settle(0, at, moved);
             return true;
         }
 
-        public void Clear() => _items.Clear();
+        public void Clear()
+        {
+            _version++;
+            _items.Clear();
+        }
+
+        // A comparer that pushed or popped while this call was comparing moved the slots the call had found, so the insert
+        // overwrote a live item (one lost, another duplicated, no exception). Such a change is refused once the comparisons
+        // are done, before this call writes anything; the comparer's own change stands.
+        private void EnsureUnchanged(int version)
+        {
+            if (version != _version)
+                throw new InvalidOperationException("The comparer changed the heap while it was being ordered.");
+        }
 
         // Where an item placed in the empty slot i would rise to. Compares only.
         private int FindUp(T item, int i)

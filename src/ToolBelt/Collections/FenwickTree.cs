@@ -74,6 +74,12 @@ namespace ToolBelt.Collections
         }
 
         /// <summary>The current value at a single index.</summary>
-        public long ValueAt(int index) => RangeSum(index, index);
+        public long ValueAt(int index)
+        {
+            // Checked here: RangeSum reported a bad index as "from".
+            if (unchecked((uint)index >= (uint)Size))
+                throw new ArgumentOutOfRangeException(nameof(index), index, $"Index must be in [0, {Size}).");
+            return RangeSum(index, index);
+        }
     }
 }
