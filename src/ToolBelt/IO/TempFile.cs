@@ -45,6 +45,10 @@ namespace ToolBelt.IO
             if (extension!.IndexOf(':') >= 0 || extension.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0
                 || extension.IndexOf('/') >= 0 || extension.IndexOf('\\') >= 0)
                 throw new ArgumentException($"'{extension}' is not a file extension.", nameof(extension));
+            // Windows drops a trailing dot or space from a name, so Path named a file that did not exist ("x." for "x").
+            char last = extension[extension.Length - 1];
+            if (System.IO.Path.DirectorySeparatorChar == '\\' && (last == '.' || last == ' '))
+                throw new ArgumentException($"'{extension}' ends in a dot or space, which Windows drops from a file name.", nameof(extension));
             return extension.StartsWith(".", StringComparison.Ordinal) ? extension : "." + extension;
         }
 

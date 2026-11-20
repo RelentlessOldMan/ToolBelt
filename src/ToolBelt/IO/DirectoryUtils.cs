@@ -113,7 +113,7 @@ namespace ToolBelt.IO
                 throw new ArgumentOutOfRangeException(nameof(options), options.Overwrite, "Not a defined OverwritePolicy.");
             string src = FullDirectory(source, nameof(source));
             string dst = FullDirectory(destination, nameof(destination));
-            if (!Directory.Exists(src)) throw new DirectoryNotFoundException($"Source directory '{source}' does not exist.");
+            if (!Directory.Exists(Exact(src))) throw new DirectoryNotFoundException($"Source directory '{source}' does not exist.");
             // Through a link (a junction j → src makes j\c the same folder as src\c) the string check alone passed.
             if (IsSameOrInside(dst, src) || IsSameOrInside(ResolveLinks(dst), ResolveLinks(src)) || InsideByMark(dst, src))
                 throw new ArgumentException("The destination may not be the source or lie inside it.", nameof(destination));
@@ -262,14 +262,14 @@ namespace ToolBelt.IO
             if (path is null) throw new ArgumentNullException(nameof(path));
             if (retries < 0) throw new ArgumentOutOfRangeException(nameof(retries), retries, "Must be non-negative.");
             TimeSpan delay = RequireDelay(retryDelay);
-            string full = Path.GetFullPath(path);
+            string full = FullExact(path);
             cancellationToken.ThrowIfCancellationRequested();
-            if (File.Exists(full))
+            if (File.Exists(Exact(full)))
             {
-                Retry(() => { ClearReadOnly(full); File.Delete(full); }, retries, delay, cancellationToken);
+                Retry(() => { ClearReadOnly(full); File.Delete(Exact(full)); }, retries, delay, cancellationToken);
                 return true;
             }
-            if (!Directory.Exists(full)) return false;
+            if (!Directory.Exists(Exact(full))) return false;
             DeleteTree(full, retries, delay, deleteRoot: true, cancellationToken);
             return true;
         }
@@ -284,11 +284,11 @@ namespace ToolBelt.IO
             if (path is null) throw new ArgumentNullException(nameof(path));
             if (retries < 0) throw new ArgumentOutOfRangeException(nameof(retries), retries, "Must be non-negative.");
             TimeSpan delay = RequireDelay(retryDelay);
-            string full = Path.GetFullPath(path);
-            if (File.Exists(full)) throw new IOException($"'{path}' is a file, not a directory.");
-            if (Directory.Exists(full) && IsLink(full)) throw new IOException($"'{path}' is a link; refusing to empty its target.");
+            string full = FullExact(path);
+            if (File.Exists(Exact(full))) throw new IOException($"'{path}' is a file, not a directory.");
+            if (Directory.Exists(Exact(full)) && IsLink(full)) throw new IOException($"'{path}' is a link; refusing to empty its target.");
             cancellationToken.ThrowIfCancellationRequested();
-            Directory.CreateDirectory(full);
+            Directory.CreateDirectory(Exact(full));
             DeleteTree(full, retries, delay, deleteRoot: false, cancellationToken);
         }
 
@@ -297,7 +297,7 @@ namespace ToolBelt.IO
             if (IsLink(root))
             {
                 // Remove the link only; recursing would delete the target's contents.
-                if (deleteRoot) Retry(() => { ClearReadOnly(root); Directory.Delete(root, recursive: false); }, retries, delay, token);
+                if (deleteRoot) Retry(() => { ClearReadOnly(root); Directory.Delete(Exact(root), recursive: false); }, retries, delay, token);
                 return;
             }
 
@@ -367,7 +367,7 @@ namespace ToolBelt.IO
         {
             string full = FullDirectory(root, nameof(root));
             CheckSearchPattern(searchPattern, nameof(searchPattern));
-            if (!Directory.Exists(full)) throw new DirectoryNotFoundException($"Directory '{root}' does not exist.");
+            if (!Directory.Exists(Exact(full))) throw new DirectoryNotFoundException($"Directory '{root}' does not exist.");
             return Walk(full, searchPattern, onError, directoryFilter);
         }
 
@@ -406,7 +406,7 @@ namespace ToolBelt.IO
         public static DirectorySummary Summarize(string path, Action<string, Exception>? onError = null)
         {
             string full = FullDirectory(path, nameof(path));
-            if (!Directory.Exists(full)) throw new DirectoryNotFoundException($"Directory '{path}' does not exist.");
+            if (!Directory.Exists(Exact(full))) throw new DirectoryNotFoundException($"Directory '{path}' does not exist.");
             long bytes = 0;
             int files = 0, dirs = 0, inaccessible = 0;
             var pending = new Stack<string>();
@@ -481,7 +481,7 @@ namespace ToolBelt.IO
             for (int i = 0; i < parts.Length; i++)
             {
                 string next = Path.Combine(current, parts[i]);
-                if (!Directory.Exists(next))
+                if (!Directory.Exists(Exact(next)))
                     return Path.Combine(current, string.Join(Path.DirectorySeparatorChar.ToString(), parts, i, parts.Length - i));
                 if (IsLink(next))
                 {
@@ -496,9 +496,45 @@ namespace ToolBelt.IO
             }
             return current;
 #else
-            return full;
+            return LongNames(full);
 #endif
         }
+
+#if !NET6_0_OR_GREATER
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", EntryPoint = "GetLongPathNameW", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern uint GetLongPathName(string shortPath, System.Text.StringBuilder longPath, uint size);
+
+        // .NET Framework's GetFullPath keeps 8.3 short names (.NET Core's expands them), so a destination given through the
+        // source's short name was not seen to lie inside it and was copied into the source. The existing part is expanded;
+        // the rest is kept as written.
+        private static string LongNames(string full)
+        {
+            if (Path.DirectorySeparatorChar != '\\' || full.IndexOf('~') < 0) return full;
+            string existing = full;
+            var rest = new List<string>();
+            while (!Directory.Exists(Exact(existing)) && !File.Exists(Exact(existing)))
+            {
+                string? parent = Path.GetDirectoryName(existing);
+                if (parent is null) return full;
+                rest.Insert(0, Path.GetFileName(existing));
+                existing = parent;
+            }
+            string query = Exact(existing);
+            var buffer = new System.Text.StringBuilder(1024);
+            uint n = GetLongPathName(query, buffer, (uint)buffer.Capacity);
+            if (n > buffer.Capacity)
+            {
+                buffer = new System.Text.StringBuilder((int)n);
+                n = GetLongPathName(query, buffer, n);
+            }
+            if (n == 0 || n > buffer.Capacity) return full;
+            string longer = buffer.ToString();
+            longer = longer.StartsWith(@"\\?\UNC\", StringComparison.Ordinal) ? @"\\" + longer.Substring(8)
+                : longer.StartsWith(@"\\?\", StringComparison.Ordinal) ? longer.Substring(4) : longer;
+            foreach (string part in rest) longer = Path.Combine(longer, part);
+            return longer;
+        }
+#endif
 
         // Where links cannot be read (before net6), a link along either path hid a destination inside the source, which was
         // then copied into itself once with no error. A uniquely named mark in the destination's nearest existing folder,
@@ -550,11 +586,13 @@ namespace ToolBelt.IO
         }
 #endif
 
+        // A root named with a trailing dot or space ("data.", as Walk lists it) is kept: Path.GetFullPath made it "data", a
+        // different folder, which Delete then removed.
         private static string FullDirectory(string path, string name)
         {
             if (path is null) throw new ArgumentNullException(name);
             if (path.Length == 0) throw new ArgumentException("Path must not be empty.", name);
-            string full = Path.GetFullPath(path);
+            string full = FullExact(path);
             string root = Path.GetPathRoot(full) ?? "";
             // Drop a trailing separator, except on a bare root ("C:", "/") where it is the path.
             return full.Length > root.Length ? full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) : full;
@@ -689,9 +727,11 @@ namespace ToolBelt.IO
             return found;
         }
 
-        // Path.GetFullPath, except that a name ending in a dot or space (as listed by Walk) keeps it.
+        // Path.GetFullPath, except that a name ending in a dot or space (as listed by Walk) keeps it, in a relative path too.
         private static string FullExact(string path)
         {
+            if (Path.DirectorySeparatorChar == '\\' && !Path.IsPathRooted(path) && path.Length > 0)
+                path = Path.Combine(Directory.GetCurrentDirectory(), path);
             string exact = Exact(path);
             if (ReferenceEquals(exact, path)) return Path.GetFullPath(path);
             string full = Path.GetFullPath(exact);

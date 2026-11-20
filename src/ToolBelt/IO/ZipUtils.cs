@@ -46,12 +46,13 @@ namespace ToolBelt.IO
                 using (var archive = new ZipArchive(fs, ZipArchiveMode.Create))
                 {
                     // The listed path as it is: Path.GetFullPath would drop a trailing dot or space from a name.
-                    foreach ((string file, bool isEmptyDirectory) in EnumerateNoLinks(root,
-                        f => string.Equals(f, zipFull, PathComparison) || string.Equals(f, temp, PathComparison)))   // the archive being written
+                    foreach ((string file, bool isEmptyDirectory) in EnumerateNoLinks(root, f => IsOwnOutput(f, zipFull, temp)))
                     {
                         string entryName = file.Substring(root.Length)
                             .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                             .Replace(Path.DirectorySeparatorChar, '/');   // only the separator: a backslash is a name character on Unix
+                        if (HasLoneSurrogate(entryName))
+                            throw new IOException($"'{file}' has a name that is not valid Unicode (an unpaired surrogate), which a zip cannot store.");
                         if (isEmptyDirectory) entryName += "/";
                         if (filter != null && !filter(entryName)) continue;
 
@@ -107,6 +108,7 @@ namespace ToolBelt.IO
             {
                 string target = SafeTarget(root, rootWithSeparator, entry.FullName);
                 EnsureNoLinks(rootWithSeparator, target, entry.FullName);
+                EnsureNoShortAliases(rootWithSeparator, entry.FullName);
 
                 // Directory entry (name ends with a separator, no file name). On Windows a trailing \ is one too: in an
                 // archive made on Unix, Name is then the whole "a\", so the folder was made and then refused as a file.
@@ -202,6 +204,8 @@ namespace ToolBelt.IO
             if (zipPath is null) throw new ArgumentNullException(nameof(zipPath));
             if (entryName is null) throw new ArgumentNullException(nameof(entryName));
             if (content is null) throw new ArgumentNullException(nameof(content));
+            if (HasLoneSurrogate(entryName))
+                throw new ArgumentException("The name is not valid Unicode (an unpaired surrogate), which a zip cannot store.", nameof(entryName));
             CheckLevel(level);
 
             // Updating in place truncated the zip on any failure part way (an unknown level, a full disk): every entry lost.
@@ -213,6 +217,7 @@ namespace ToolBelt.IO
                 try { streamed = RewriteStreaming(zipFull, temp, entryName, content, level); }
                 catch (Exception ex) when (ex is NotSupportedException || ex is InvalidDataException) { streamed = false; }
                 if (!streamed) RewriteInMemory(zipFull, temp, entryName, content, level);
+                KeepMadeBy(zipFull, temp, entryName);
                 MoveOver(temp, zipFull);
             }
             finally
@@ -354,6 +359,97 @@ namespace ToolBelt.IO
             }
         }
 #endif
+
+        // Both rewrites stamp every entry with this machine's host in "version made by": a zip made on Unix came back marked
+        // MS-DOS, so unzip there dropped each file's permissions (the exec bit) and read a backslash in a name as a separator.
+        // The copied entries' values are put back. Both central directories list the entries in the same order, the replaced
+        // ones left out of the new one and the added one last.
+        private static void KeepMadeBy(string zipFull, string temp, string entryName)
+        {
+            if (!File.Exists(zipFull)) return;
+            var keep = new List<ushort>();
+            using (var fs = new FileStream(zipFull, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                List<ushort>? madeBy = MadeBy(fs, null);
+                if (madeBy is null) return;
+                fs.Position = 0;
+                using var archive = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true);
+                var entries = EntriesOf(archive);
+                if (entries.Count != madeBy.Count) return;
+                for (int i = 0; i < entries.Count; i++)
+                    if (!string.Equals(entries[i].FullName, entryName, StringComparison.Ordinal)) keep.Add(madeBy[i]);
+            }
+            using (var fs = new FileStream(temp, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                MadeBy(fs, keep);
+        }
+
+        // Reads each central-directory record's "version made by" (patch null), or writes patch's values over the first ones.
+        // Null if the central directory cannot be found.
+        private static List<ushort>? MadeBy(Stream s, List<ushort>? patch)
+        {
+            long length = s.Length;
+            int tail = (int)Math.Min(length, 22 + 65535);
+            var end = new byte[tail];
+            s.Position = length - tail;
+            ReadFully(s, end, tail);
+            int eocd = -1;
+            for (int i = tail - 22; i >= 0; i--)
+                if (end[i] == 0x50 && end[i + 1] == 0x4B && end[i + 2] == 5 && end[i + 3] == 6) { eocd = i; break; }
+            if (eocd < 0) return null;
+            long count = BitConverter.ToUInt16(end, eocd + 10), size = BitConverter.ToUInt32(end, eocd + 12), offset = BitConverter.ToUInt32(end, eocd + 16);
+            if (count == 0xFFFF || size == 0xFFFFFFFF || offset == 0xFFFFFFFF)
+            {
+                // Zip64: the locator sits just before the end record and points at the zip64 end record.
+                long locator = length - tail + eocd - 20;
+                if (locator < 0) return null;
+                var buf = new byte[56];
+                s.Position = locator;
+                ReadFully(s, buf, 20);
+                if (BitConverter.ToUInt32(buf, 0) != 0x07064B50) return null;
+                // Unchecked: a value past long.MaxValue is negative here and refused below (a checked build threw).
+                long record = unchecked((long)BitConverter.ToUInt64(buf, 8));
+                if (record < 0 || record > length - 56) return null;
+                s.Position = record;
+                ReadFully(s, buf, 56);
+                if (BitConverter.ToUInt32(buf, 0) != 0x06064B50) return null;
+                count = unchecked((long)BitConverter.ToUInt64(buf, 32));
+                size = unchecked((long)BitConverter.ToUInt64(buf, 40));
+                offset = unchecked((long)BitConverter.ToUInt64(buf, 48));
+                if (count < 0 || size < 0) return null;
+            }
+            if (size > int.MaxValue || offset < 0 || offset > length - size) return null;
+            var cd = new byte[size];
+            s.Position = offset;
+            ReadFully(s, cd, (int)size);
+            var values = new List<ushort>();
+            for (int at = 0, i = 0; i < count && at + 46 <= cd.Length; i++)
+            {
+                if (BitConverter.ToUInt32(cd, at) != 0x02014B50) return null;
+                values.Add(BitConverter.ToUInt16(cd, at + 4));
+                if (patch != null && i < patch.Count)
+                {
+                    cd[at + 4] = unchecked((byte)patch[i]);   // the low byte (a checked build threw on any value past 255)
+                    cd[at + 5] = (byte)(patch[i] >> 8);
+                }
+                at += 46 + BitConverter.ToUInt16(cd, at + 28) + BitConverter.ToUInt16(cd, at + 30) + BitConverter.ToUInt16(cd, at + 32);
+            }
+            if (patch != null)
+            {
+                s.Position = offset;
+                s.Write(cd, 0, cd.Length);
+            }
+            return values;
+        }
+
+        private static void ReadFully(Stream s, byte[] buffer, int count)
+        {
+            for (int done = 0; done < count;)
+            {
+                int n = s.Read(buffer, done, count - done);
+                if (n <= 0) throw new EndOfStreamException();
+                done += n;
+            }
+        }
 
         // Deleting the target and then moving lost it when the move failed: the finally then deleted the only copy left.
         // Replaces target with source, File.Replace whenever the target exists, on every build. File.Move(overwrite) dropped the
@@ -513,6 +609,56 @@ namespace ToolBelt.IO
                 if (IsLink(path, attributes))
                     throw new IOException($"Zip entry '{entryName}' would be written through the link '{path}'.");
             }
+        }
+
+        // Checked on the name as written: .NET's GetFullPath expands a short name, so the target already read longfilename.txt
+        // and an entry "LONGFI~1.TXT" overwrote the earlier entry's file.
+        private static void EnsureNoShortAliases(string rootWithSeparator, string entryName)
+        {
+            if (Path.DirectorySeparatorChar != '\\' || entryName.IndexOf('~') < 0) return;
+            string path = rootWithSeparator;
+            foreach (string part in entryName.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                path = Path.Combine(path, part);
+                if (!File.Exists(path) && !Directory.Exists(path)) return;
+                if (IsShortAlias(path))
+                    throw new IOException($"Zip entry '{entryName}' names '{path}', an existing file or folder's 8.3 short name.");
+            }
+        }
+
+        // Compared as strings, the archive and the run's own temp file were missed when the archive path reached the source
+        // by another route (a junction, a symbolic link, an 8.3 short name), and reading the open temp file failed the run.
+        // The temp file's name is unique, and a file named like the archive is the archive when the temp file sits beside it.
+        private static bool IsOwnOutput(string file, string archiveFull, string temp)
+        {
+            if (string.Equals(file, archiveFull, PathComparison) || string.Equals(file, temp, PathComparison)) return true;
+            string name = Path.GetFileName(file), tempName = Path.GetFileName(temp);
+            if (string.Equals(name, tempName, PathComparison)) return true;
+            return string.Equals(name, Path.GetFileName(archiveFull), PathComparison)
+                && File.Exists(Exact(Path.Combine(Path.GetDirectoryName(file)!, tempName)));
+        }
+
+        // An unpaired surrogate has no UTF-8 form: the name was stored as U+FFFD, so two such files made two entries of one
+        // name, and extracting them failed.
+        private static bool HasLoneSurrogate(string s)
+        {
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1])) i++;
+                else if (char.IsSurrogate(s[i])) return true;
+            }
+            return false;
+        }
+
+        // A name holding '~' may be another file's or folder's 8.3 short name ("LONGFI~1.TXT" for longfilename.txt), so an
+        // entry so named was written into an earlier entry's file. It is refused unless the folder lists that exact name.
+        private static bool IsShortAlias(string path)
+        {
+            string name = Path.GetFileName(path);
+            if (Path.DirectorySeparatorChar != '\\' || name.IndexOf('~') < 0) return false;
+            foreach (string e in Directory.EnumerateFileSystemEntries(Path.GetDirectoryName(path)!))
+                if (string.Equals(Path.GetFileName(e), name, StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
         }
 
         // Files, plus directories that hold nothing archivable (so they survive the round trip). Links are not followed.

@@ -886,6 +886,7 @@ tests/
       IOReview138Tests.cs    (eighth pass: trailing-dot rescans, '*' in watched names, linear retention matching, code-page and mixed zip names, zip comments and Unix modes, Unix-made zip folders, folders holding only the archive)
       IOReview143Tests.cs    (ninth pass: failed replaces keep read-only, overwrites keep Hidden and replace shared-delete targets, no folders for unreadable archives, whitespace chars and relative Uris in CsvBinder)
       IOReview172Tests.cs    (tenth pass: ByteSize parsing and formatting rounded once from the exact value, CsvDialect numbers past double's range on .NET Framework, a PAX global header before a GNU long name)
+      IOReview188Tests.cs    (eleventh pass: roots ending in a dot, copies through a short name, archives reached through a junction, tar replace keeping Hidden, every tar entry listed after small files, 8.3-alias entries refused, zip host kept by AddOrReplaceEntry, lone-surrogate names refused, too-long backup names, TempFile extensions, non-recursive snapshots ignoring short names)
       CoverageGapTests.cs   (behaviour behind coverage holes found by a coverlet run)
     Numerics/
       AngleTests.cs

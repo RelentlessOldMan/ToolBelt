@@ -270,7 +270,9 @@ namespace ToolBelt.IO
             if (recursive) paths = DirectoryUtils.EnumerateFiles(directory, pattern);
             else
             {
-                try { paths = Directory.GetFiles(directory, pattern); }
+                // Through the same walk, with no subfolder entered: .NET Framework's own listing also matched 8.3 short names,
+                // so "*.txt" took in a.txtx (A~1.TXT) here but not in the recursive snapshot.
+                try { paths = DirectoryUtils.EnumerateFiles(directory, pattern, directoryFilter: _ => false); }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { paths = Array.Empty<string>(); }
             }
             foreach (string p in paths)

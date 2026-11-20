@@ -43,11 +43,12 @@ namespace ToolBelt.IO
                 using (Stream output = UseGzip(archivePath, gzip) ? new GZipStream(fs, CompressionLevel.Optimal) : (Stream)fs)
                 using (var writer = new TarWriter(output, TarEntryFormat.Pax, leaveOpen: false))
                 // The listed path as it is: Path.GetFullPath (and GetRelativePath) would drop a trailing dot or space from a name.
-                foreach ((string path, bool isEmptyDirectory) in EnumerateNoLinks(root,
-                    f => string.Equals(f, archiveFull, PathComparison) || string.Equals(f, temp, PathComparison)))   // the archive being written
+                foreach ((string path, bool isEmptyDirectory) in EnumerateNoLinks(root, f => IsOwnOutput(f, archiveFull, temp)))
                 {
                     string name = path.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                         .Replace(Path.DirectorySeparatorChar, '/');   // a backslash is a name character on Unix
+                    if (HasLoneSurrogate(name))
+                        throw new IOException($"'{path}' has a name that is not valid Unicode (an unpaired surrogate), which a tar cannot store.");
                     if (isEmptyDirectory) name += "/";
                     if (filter != null && !filter(name)) continue;
                     if (isEmptyDirectory) writer.WriteEntry(new PaxTarEntry(TarEntryType.Directory, name) { ModificationTime = Directory.GetLastWriteTimeUtc(Exact(path)) });
@@ -55,7 +56,9 @@ namespace ToolBelt.IO
                     else writer.WriteEntry(Exact(path), name);
                     onEntry?.Invoke(name);
                 }
-                File.Move(temp, archiveFull, overwrite: true);
+                // As extraction does: File.Move(overwrite) dropped the old archive's Hidden and System attributes and refused a
+                // read-only one.
+                MoveOver(temp, archiveFull);
             }
             finally
             {
@@ -97,13 +100,14 @@ namespace ToolBelt.IO
             // After the first header reads: a missing or corrupt archive left the new (possibly nested) folders behind.
             TarEntry? entry = NextEntry(reader);
             Directory.CreateDirectory(root);
-            for (; entry != null; entry = NextEntry(reader))
+            for (; entry != null; entry = NextEntry(reader, entry))
             {
                 // PAX/GNU metadata, devices and FIFOs are skipped before their names are checked: a PAX global header is
                 // named with an absolute path ("$TMPDIR/GlobalHead.%p.%n"), which failed the whole extraction.
                 if (!IsExtractable(entry.EntryType)) continue;
                 string target = SafeTarget(rootWithSep, entry.Name);
                 EnsureNoLinks(rootWithSep, target, entry.Name);
+                EnsureNoShortAliases(rootWithSep, entry.Name);
                 // Pre-POSIX (V7) tars have no directory type: a directory is an empty old-style file whose name ends in '/',
                 // as GNU tar and Python read it. It was refused as "a file named like a directory", so nothing extracted.
                 bool v7Directory = entry.EntryType == TarEntryType.V7RegularFile && entry.Length == 0
@@ -159,8 +163,8 @@ namespace ToolBelt.IO
             using var fs = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             using Stream input = UseGzip(archivePath, gzip) ? new GZipStream(fs, CompressionMode.Decompress) : (Stream)fs;
             using var reader = new TarReader(new MetadataGuardStream(input));
-            TarEntry? entry;
-            while ((entry = NextEntry(reader)) != null)
+            TarEntry? entry = null;
+            while ((entry = NextEntry(reader, entry)) != null)
                 if (IsExtractable(entry.EntryType)) names.Add(entry.Name);   // not PAX/GNU metadata headers
             return names;
         }
@@ -232,9 +236,16 @@ namespace ToolBelt.IO
         }
 
         // An archive that ends inside a header threw EndOfStreamException, unlike every other kind of damage.
-        private static TarEntry? NextEntry(TarReader reader)
+        // The previous entry's unread data is read through first: on a stream that cannot seek (the guard below), TarReader
+        // skipped it without its padding on some .NET 8 runtimes (8.0.3), so ListEntries lost every entry after a small file
+        // and the next header was read from the wrong place.
+        private static TarEntry? NextEntry(TarReader reader, TarEntry? previous = null)
         {
-            try { return reader.GetNextEntry(); }
+            try
+            {
+                previous?.DataStream?.CopyTo(Stream.Null);
+                return reader.GetNextEntry();
+            }
             catch (EndOfStreamException ex) { throw new InvalidDataException("The archive is truncated.", ex); }
         }
 
@@ -308,6 +319,56 @@ namespace ToolBelt.IO
                 if (IsLink(path, attributes))
                     throw new InvalidDataException($"Archive entry '{entryName}' would be written through the link '{path}'.");
             }
+        }
+
+        // Checked on the name as written: .NET's GetFullPath expands a short name, so the target already read longfilename.txt
+        // and an entry "LONGFI~1.TXT" overwrote the earlier entry's file.
+        private static void EnsureNoShortAliases(string rootWithSeparator, string entryName)
+        {
+            if (Path.DirectorySeparatorChar != '\\' || entryName.IndexOf('~') < 0) return;
+            string path = rootWithSeparator;
+            foreach (string part in entryName.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                path = Path.Combine(path, part);
+                if (!File.Exists(path) && !Directory.Exists(path)) return;
+                if (IsShortAlias(path))
+                    throw new InvalidDataException($"Archive entry '{entryName}' names '{path}', an existing file or folder's 8.3 short name.");
+            }
+        }
+
+        // Compared as strings, the archive and the run's own temp file were missed when the archive path reached the source
+        // by another route (a junction, a symbolic link, an 8.3 short name), and reading the open temp file failed the run.
+        // The temp file's name is unique, and a file named like the archive is the archive when the temp file sits beside it.
+        private static bool IsOwnOutput(string file, string archiveFull, string temp)
+        {
+            if (string.Equals(file, archiveFull, PathComparison) || string.Equals(file, temp, PathComparison)) return true;
+            string name = Path.GetFileName(file), tempName = Path.GetFileName(temp);
+            if (string.Equals(name, tempName, PathComparison)) return true;
+            return string.Equals(name, Path.GetFileName(archiveFull), PathComparison)
+                && File.Exists(Exact(Path.Combine(Path.GetDirectoryName(file)!, tempName)));
+        }
+
+        // An unpaired surrogate has no UTF-8 form: the name was stored as U+FFFD, so two such files made two entries of one
+        // name, and extracting them failed.
+        private static bool HasLoneSurrogate(string s)
+        {
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1])) i++;
+                else if (char.IsSurrogate(s[i])) return true;
+            }
+            return false;
+        }
+
+        // A name holding '~' may be another file's or folder's 8.3 short name ("LONGFI~1.TXT" for longfilename.txt), so an
+        // entry so named was written into an earlier entry's file. It is refused unless the folder lists that exact name.
+        private static bool IsShortAlias(string path)
+        {
+            string name = Path.GetFileName(path);
+            if (Path.DirectorySeparatorChar != '\\' || name.IndexOf('~') < 0) return false;
+            foreach (string e in Directory.EnumerateFileSystemEntries(Path.GetDirectoryName(path)!))
+                if (string.Equals(Path.GetFileName(e), name, StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
         }
 
         // Files, plus directories that hold nothing archivable (so they survive the round trip). Links are not followed.
