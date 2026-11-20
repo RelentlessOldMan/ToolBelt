@@ -141,7 +141,9 @@ namespace ToolBelt.Numerics
 
         /// <summary>
         /// Paired test on the differences first − second: under the null each difference is equally likely to have either
-        /// sign. The statistic is the mean difference.
+        /// sign. The statistic is the mean difference. A sign pattern counts as being as extreme as the observed one by
+        /// the exact sums of the differences as doubles (not to a relative tolerance), so the enumerated p-value is exact
+        /// even when the differences cancel; differences that tie only in decimal (0.1 + 0.2 against 0.3) do not tie.
         /// </summary>
         public static PermutationResult Paired(
             IReadOnlyList<double> first, IReadOnlyList<double> second, Random random, int permutations = 10000,
@@ -166,28 +168,68 @@ namespace ToolBelt.Numerics
                 // Finite values of opposite sign near 1e308 have an infinite difference, and every null sum became NaN.
                 if (double.IsInfinity(d[i])) throw new ArgumentException($"The difference at [{i}] overflows.", nameof(second));
             }
-            double observed = Mean(d);
+            // Compensated means, and each sign pattern compared with the observed one by its sum as a double-double (the
+            // error of a Neumaier sum's pair is at most n²ε²·Σ|d|), not by the means at a 1e-12 relative tolerance: summed
+            // plainly, differences that cancel ({1e17, 3, −1e17}, mean 1) read as mean 0, and patterns whose means differ
+            // by less than an ulp of a large one ({2, 5, −1, 2, 2e16, 6, 1}) read as ties, p = 0.5 for 3/128.
+            double observed = AccurateMean(d);
+            // Scaled by a power of two (exact) so the sums cannot overflow; the tolerance is in the scaled units.
+            double big = 0;
+            foreach (double v in d) big = Math.Max(big, Math.Abs(v));
+            double unit = big > 1e300 / n ? Math.Pow(2, -64) : 1, absSum = 0;
+            var ds = new double[n];
+            for (int i = 0; i < n; i++) { ds[i] = d[i] * unit; absSum += Math.Abs(ds[i]); }
+            double tol = 4.0 * n * n * (Eps * Eps) * absSum;
+            PairSum(ds, out double obsHi, out double obsLo);
             var signed = new double[n];
             bool exact = n < 31 && (1L << n) <= permutations;
             var nulls = new double[exact ? 1 << n : permutations];
-            int at = 0;
+            int at = 0, greater = 0, less = 0;
+            void Count()
+            {
+                PairSum(signed, out double hi, out double lo);
+                double s = hi - obsHi, bb = s - hi, e = (hi - (s - bb)) + (-obsHi - bb);   // TwoSum: hi − obsHi = s + e exactly
+                double diff = s + (e + (lo - obsLo));
+                if (diff >= -tol) greater++;
+                if (diff <= tol) less++;
+                for (int i = 0; i < n; i++) signed[i] /= unit;
+                nulls[at++] = AccurateMean(signed);
+            }
             if (exact)
             {
                 for (long mask = 0; mask < (1L << n); mask++)
                 {
-                    for (int i = 0; i < n; i++) signed[i] = ((mask >> i) & 1) == 0 ? d[i] : -d[i];
-                    nulls[at++] = Mean(signed); // the observed statistic's own mean: summed outright, two of 1e308 gave ±∞
+                    for (int i = 0; i < n; i++) signed[i] = ((mask >> i) & 1) == 0 ? ds[i] : -ds[i];
+                    Count();
                 }
             }
             else
             {
                 for (int r = 0; r < permutations; r++)
                 {
-                    for (int i = 0; i < n; i++) signed[i] = random.Next(2) == 0 ? d[i] : -d[i];
-                    nulls[at++] = Mean(signed);
+                    for (int i = 0; i < n; i++) signed[i] = random.Next(2) == 0 ? ds[i] : -ds[i];
+                    Count();
                 }
             }
-            return Result(observed, nulls, exact, alternative);
+            for (int i = 0; i < nulls.Length; i++)
+                if (double.IsNaN(nulls[i])) throw new InvalidOperationException("The statistic returned NaN on a rearrangement.");
+            return Result(observed, nulls, exact, alternative, greater, less);
+        }
+
+        private const double Eps = 1.1102230246251565e-16;   // 2^−53
+
+        // The Neumaier sum as an unevaluated pair hi + lo.
+        private static void PairSum(double[] x, out double hi, out double lo)
+        {
+            double s = 0, comp = 0;
+            foreach (double v in x)
+            {
+                double t = s + v;
+                comp += Math.Abs(s) >= Math.Abs(v) ? (s - t) + v : (v - t) + s;
+                s = t;
+            }
+            hi = s + comp;
+            lo = comp - (hi - s);
         }
 
         /// <summary>mean(a) − mean(b), the default two-sample statistic.</summary>
@@ -201,6 +243,12 @@ namespace ToolBelt.Numerics
         }
 
         private static PermutationResult Result(double observed, double[] nulls, bool exact, Alternative alternative)
+        {
+            Count(observed, nulls, out int greater, out int less);
+            return Result(observed, nulls, exact, alternative, greater, less);
+        }
+
+        private static void Count(double observed, double[] nulls, out int greater, out int less)
         {
             // A tolerance relative to the statistic's own scale, so rearrangements equal to the observed value up to rounding
             // count as "as extreme" — whatever the units (an absolute 1e-12 would call everything a tie for data near 1e-13).
@@ -218,13 +266,17 @@ namespace ToolBelt.Numerics
             finite.Sort();
             double typical = finite.Count == 0 ? 0 : finite[finite.Count / 2];
             double obsScale = double.IsInfinity(observed) ? 0 : Math.Abs(observed);
-            int greater = 0, less = 0;
+            greater = less = 0;
             foreach (double s in nulls)
             {
                 double tol = double.IsInfinity(s) ? 0 : 1e-12 * Math.Max(typical, Math.Max(obsScale, Math.Abs(s)));
                 if (s >= observed - tol) greater++;
                 if (s <= observed + tol) less++;
             }
+        }
+
+        private static PermutationResult Result(double observed, double[] nulls, bool exact, Alternative alternative, int greater, int less)
+        {
             double Tail(int count) => exact ? (double)count / nulls.Length : (count + 1.0) / (nulls.Length + 1.0);
             // Two-sided: twice the smaller tail. Equals the usual |S| ≥ |observed| rule for a null symmetric about zero (mean
             // difference) but stays correct for statistics centred elsewhere (a variance ratio is centred on 1).

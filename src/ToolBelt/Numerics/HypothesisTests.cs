@@ -334,8 +334,10 @@ namespace ToolBelt.Numerics
         /// <summary>
         /// One-sample KS test comparing a sample to a reference CDF. Statistic is the KS distance D. The p-value is exact
         /// for up to 140 points (the Marsaglia–Tsang–Wang matrix form) and wherever it is below 1e-4 or D ≥ ½ (twice the
-        /// exact one-sided Smirnov tail, for up to 100,000 points); otherwise it is Stephens' approximation to the
-        /// asymptotic Kolmogorov distribution, good to about two digits.
+        /// exact one-sided Smirnov tail, for up to 100,000 points). Up to 1,000 points it is exact everywhere; up to 100,000
+        /// it is exact while n·D^(3/2) &lt; 1.4 and otherwise Pelz and Good's expansion (good to about five digits there);
+        /// past 100,000 points it is Stephens' approximation to the asymptotic Kolmogorov distribution, good
+        /// to about three digits there.
         /// </summary>
         public static TestResult KolmogorovSmirnovOneSample(IReadOnlyList<double> sample, Func<double, double> cdf)
         {
@@ -374,9 +376,53 @@ namespace ToolBelt.Numerics
                 double s2 = 2 * SmirnovUpper(n, d);
                 if (d >= 0.5 || s2 < 1e-4) return Math.Min(1, s2);
             }
-            if (n <= 140) return Math.Max(0, Math.Min(1, 1 - KolmogorovCdfExact(n, d)));
+            // The matrix form up to 1,000 points (here the tail is at least 1e-4, so nd² ≲ 5 and the matrix at most about
+            // 150 wide) and, as in Simard and L'Ecuyer (2011), up to 100,000 while n·d^(3/2) < 1.4 (at most 117 wide);
+            // Pelz–Good's expansion elsewhere, where its error (3e-4 relative at n = 149) has fallen below 1e-5. Stephens'
+            // form was off by 2.7% at n = 200 (p = 2e-4) and 1.5% at n = 141 (p = ½), against an exact n = 140.
+            if (n <= 1000 || n <= 100000 && n * d * Math.Sqrt(d) < 1.4) return Math.Max(0, Math.Min(1, 1 - KolmogorovCdfExact(n, d)));
+            if (n <= 100000) return Math.Max(0, Math.Min(1, PelzGoodUpper(n, d)));
             double en = Math.Sqrt(n);
             return KolmogorovQ((en + 0.12 + 0.11 / en) * d);
+        }
+
+        // Pelz and Good's (1976) expansion of P(D_n ≥ d) to order n^(−3/2), with z = √n·d, in Simard and L'Ecuyer's form:
+        // K₀ to K₃ are theta-function sums over odd m (in powers of q = e^(−π²/(8z²))) plus two sums over all k. Used here
+        // only past 1,000 points where the tail is at least 1e-4, so 1 − ΣKᵢ loses nothing that matters.
+        private static double PelzGoodUpper(int n, double d)
+        {
+            double z = Math.Sqrt(n) * d, z2 = z * z, z4 = z2 * z2, z6 = z4 * z2;
+            double pi2 = Math.PI * Math.PI, pi4 = pi2 * pi2, pi6 = pi4 * pi2, root2Pi = Math.Sqrt(2 * Math.PI);
+            double k1a = -z2, k1b = pi2 / 4;
+            double k2a = 6 * z6 + 2 * z4, k2b = (2 * z4 - 5 * z2) * pi2 / 4, k2c = pi4 * (1 - 2 * z2) / 16;
+            double k3a = -30 * z6 - 90 * z4 * z4, k3b = pi2 * (135 * z4 - 96 * z6) / 4, k3c = pi4 * (212 * z4 - 60 * z2) / 16, k3d = pi6 * (5 - 30 * z2) / 64;
+            double q = Math.Exp(-pi2 / (8 * z2)), s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+            int kMax = (int)Math.Ceiling(16 * z / Math.PI);
+            // Σ c(m)·q^(m²) over m = 2k − 1 by Horner's scheme: m² steps by 8(k − 1) between neighbours.
+            for (int k = kMax; k >= 1; k--)
+            {
+                double m = 2 * k - 1, m2 = m * m, m4 = m2 * m2, step = Math.Pow(q, 8 * k);
+                s0 = s0 * step + 1;
+                s1 = s1 * step + (k1a + k1b * m2);
+                s2 = s2 * step + (k2a + k2b * m2 + k2c * m4);
+                s3 = s3 * step + (k3a + k3b * m2 + k3c * m4 + k3d * m4 * m2);
+            }
+            double c = q * root2Pi;
+            s0 *= c / z;
+            s1 *= c / (6 * z4);
+            s2 *= c / (72 * z6 * z);
+            s3 *= c / (6480 * z6 * z4);
+            double r = Math.Exp(-pi2 / (2 * z2)), e2 = 0, e3 = 0;
+            for (int k = kMax; k >= 1; k--)
+            {
+                double kk = (double)k * k, w = kk * Math.Pow(r, kk);
+                e2 += w;
+                e3 += (3 * z2 - pi2 * kk) * w;
+            }
+            s2 -= e2 * pi2 * root2Pi / (36 * z2 * z);
+            s3 += e3 * pi2 * root2Pi / (216 * z6);
+            double rootN = Math.Sqrt(n);
+            return 1 - (s0 + s1 / rootN + s2 / n + s3 / (n * rootN));
         }
 
         // Exact one-sided tail P(D⁺_n ≥ d) = d Σ_{j ≤ n(1−d)} C(n, j)(1 − d − j/n)^(n−j)(d + j/n)^(j−1) (Birnbaum–Tingey),
@@ -518,8 +564,10 @@ namespace ToolBelt.Numerics
                 while (q + 1 < total && values[order[q + 1]] == values[order[p]]) q++;
                 double avgRank = (p + q) / 2.0 + 1; // 1-based average of positions p..q
                 for (int k = p; k <= q; k++) ranks[order[k]] = avgRank;
-                long t = q - p + 1;
-                tieTerm += (double)t * t * t - t;
+                // (t³ − t) / (N³ − N), formed as a product of ratios: summed as t³ − t and divided after, every value tied
+                // at N = 2,000,013 left the variance factor at a rounding-sized negative and the p-value NaN.
+                double t = q - p + 1;
+                tieTerm += t / total * ((t - 1) / (total - 1.0)) * (t + 1);
                 p = q + 1;
             }
 
@@ -531,7 +579,7 @@ namespace ToolBelt.Numerics
             double u = Math.Min(u1, u2);
 
             double meanU = (double)na * nb / 2.0;
-            double sd = Math.Sqrt((double)na * nb / 12.0 * ((total + 1) - tieTerm / ((double)total * (total - 1))));
+            double sd = Math.Sqrt((double)na * nb / 12.0 * Math.Max(0, (total + 1) - tieTerm));
             if (sd == 0) return new TestResult(u, 1, double.NaN);
 
             double z = (Math.Abs(u1 - meanU) - 0.5) / sd; // continuity-corrected

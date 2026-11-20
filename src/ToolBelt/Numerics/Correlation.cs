@@ -54,7 +54,9 @@ namespace ToolBelt.Numerics
             }
             double sx = Pow2Scale(maxX), sy = Pow2Scale(maxY);
 
-            double sxx = 0, syy = 0, sxy = 0;
+            // Corrected two-pass sums (Σd)²/n, as the section's other moments: the means are rounded, and about them alone
+            // 16 points near 1e8 with a spread of 1e-5 gave r = 0.0807327123 for 0.0807328296.
+            double sxx = 0, syy = 0, sxy = 0, sumX = 0, sumY = 0;
             for (int i = 0; i < n; i++)
             {
                 double dx = (xs[i] / px - meanX) / sx;
@@ -62,9 +64,14 @@ namespace ToolBelt.Numerics
                 sxx += dx * dx;
                 syy += dy * dy;
                 sxy += dx * dy;
+                sumX += dx;
+                sumY += dy;
             }
+            sxx -= sumX * sumX / n;
+            syy -= sumY * sumY / n;
+            sxy -= sumX * sumY / n;
 
-            if (sxx == 0 || syy == 0)
+            if (!(sxx > 0) || !(syy > 0))
                 return double.NaN; // a constant variable has no linear correlation
 
             double r = sxy / Math.Sqrt(sxx * syy);   // scaled, so the product neither over- nor underflows

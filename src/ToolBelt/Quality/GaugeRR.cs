@@ -675,6 +675,22 @@ namespace ToolBelt.Quality
                 double limit = 0.03 * Math.Min(a, b);
                 if (lambda >= 0 && lambda <= limit) { ix = Basym(a, b, lambda); ixc = 1 - ix; return; }
                 if (lambda < 0 && -lambda <= limit) { ixc = Basym(b, a, -lambda); ix = 1 - ixc; return; }
+                // Elsewhere TOMS 708's BFRAC, on the side of the mean where the tail is the smaller, as TOMS 708 does for
+                // both parameters past 100. The Lentz fraction's rounding grows with the parameters: I at x = 0.0017,
+                // a = 883, b = 558,023 was off by 2e-14 (1.4e-12 on its complement), and F's upper tail at d1 = 3989,
+                // d2 = 2.4e6 by 5e-12; BFRAC holds 4e-15 there. BGRAT is not taken here either: at a = 644, b = 463,799 its
+                // complement was off by 8e-14, and against 40-digit references it was the worse of the two nearly everywhere.
+                if (lambda >= 0)
+                {
+                    ix = Math.Exp(BetaLnFront(x, oneMinusX, a, b)) * Bfrac(a, b, x, oneMinusX, lambda);
+                    ixc = 1 - ix;
+                }
+                else
+                {
+                    ixc = Math.Exp(BetaLnFront(x, oneMinusX, a, b)) * Bfrac(b, a, oneMinusX, x, -lambda);
+                    ix = 1 - ixc;
+                }
+                return;
             }
             // Which side of (a + 1)/(a + b + 2) x lies on, decided by whichever of x and 1 − x is the smaller: at
             // a = 1e20 both x and the split round to 1, and the upper branch returned a negative upper tail.
@@ -887,6 +903,35 @@ namespace ToolBelt.Quality
             }
             double u = Math.Exp(-(StirlingCorr(a) + StirlingCorr(b) - StirlingCorr(a + b)));
             return e0 * t * u * sum;
+        }
+
+        // TOMS 708's BFRAC: I_x(a, b) / (x^a (1 − x)^b / B(a, b)) by Didonato & Morris' continued fraction in λ = a − (a+b)x
+        // >= 0, for a and b above 100. Its partial numerators and denominators stay positive, so it loses no digits to
+        // cancellation as the parameters grow.
+        private static double Bfrac(double a, double b, double x, double y, double lambda)
+        {
+            double c = lambda + 1, c0 = b / a, c1 = 1 / a + 1, yp1 = y + 1;
+            double n = 0, p = 1, s = a + 1, an = 0, bn = 1, anp1 = 1, bnp1 = c / c1, r = c1 / c;
+            while (n < 10000)
+            {
+                n += 1;
+                double t = n / a, w = n * (b - n) * x, e = a / s;
+                double alpha = p * (p + c0) * e * e * (w * x);
+                e = (t + 1) / (c1 + t + t);
+                double beta = n + w / s + e * (c + n * yp1);
+                p = t + 1;
+                s += 2;
+                t = alpha * an + beta * anp1; an = anp1; anp1 = t;
+                t = alpha * bn + beta * bnp1; bn = bnp1; bnp1 = t;
+                double r0 = r;
+                r = anp1 / bnp1;
+                if (Math.Abs(r - r0) <= 1e-16 * r) break;
+                an /= bnp1;
+                bn /= bnp1;
+                anp1 = r;
+                bnp1 = 1;
+            }
+            return r;
         }
 
         // Continued fraction for I_x(a, b) (modified Lentz).
