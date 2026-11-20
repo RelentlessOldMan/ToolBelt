@@ -277,7 +277,8 @@ namespace ToolBelt.Windows
             BitConverter.GetBytes(w * h * 4).CopyTo(dib, 20);
             for (int y = 0; y < h; y++)
                 Buffer.BlockCopy(image.Pixels, y * w * 4, dib, 40 + (h - 1 - y) * w * 4, w * 4);
-            // Screen captures carry alpha 0 (GDI has none); apps that honour alpha would paste them fully transparent.
+            // An image with alpha 0 throughout (GDI bitmaps, which have none) would paste fully transparent in apps that
+            // honour alpha.
             bool allTransparent = true;
             for (int i = 43; i < dib.Length && allTransparent; i += 4) allTransparent = dib[i] == 0;
             if (allTransparent) for (int i = 43; i < dib.Length; i += 4) dib[i] = 255;

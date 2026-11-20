@@ -215,7 +215,7 @@ namespace ToolBelt.Windows
             if ((kind == RegistryValueKind.Binary || kind == RegistryValueKind.None) && !(value is byte[]))
                 throw new ArgumentException($"A {value.GetType().Name} cannot be stored as {kind}; pass a byte[].", nameof(value));
             using RegistryKey baseKey = OpenBase(hive);
-            using RegistryKey key = ForSubKey(subKey, () => baseKey.CreateSubKey(subKey, writable: true))
+            using RegistryKey key = ForSubKey(subKey, () => CreateOrUndo(baseKey, subKey))
                 ?? throw new InvalidOperationException($"Could not open or create subkey '{subKey}'.");
             try
             {
@@ -229,6 +229,42 @@ namespace ToolBelt.Windows
                 // A value that does not fit its kind threw with no parameter name.
                 throw new ArgumentException($"A {value.GetType().Name} cannot be stored as {kind}: {ex.Message}", nameof(value), ex);
             }
+        }
+
+        // CreateSubKey, undoing what it made when Windows refuses the path part way: 600 levels threw IOException ("The
+        // parameter is incorrect") after creating 30 of them. The first missing level is found one level at a time from
+        // its parent's handle (a full-path open can miss a deep key that exists), and its tree is deleted on failure.
+        private static RegistryKey? CreateOrUndo(RegistryKey baseKey, string subKey)
+        {
+            RegistryKey current = baseKey;
+            string? firstNew = null;
+            try
+            {
+                foreach (string part in subKey.Split('\\'))
+                {
+                    if (part.Length == 0) continue;
+                    RegistryKey? next;
+                    try { next = current.OpenSubKey(part, writable: true); }
+                    catch (Exception ex) when (ex is System.Security.SecurityException || ex is UnauthorizedAccessException
+                                               || ex is ArgumentException || ex is System.IO.IOException) { break; }
+                    if (next == null) { firstNew = part; break; }
+                    if (current != baseKey) current.Dispose();
+                    current = next;
+                }
+                try { return baseKey.CreateSubKey(subKey, writable: true); }
+                catch (System.IO.IOException ex)
+                {
+                    if (firstNew != null)
+                    {
+                        try { current.DeleteSubKeyTree(firstNew, throwOnMissingSubKey: false); }
+                        catch (Exception undo) when (undo is System.IO.IOException || undo is System.Security.SecurityException
+                                                     || undo is UnauthorizedAccessException || undo is ArgumentException) { }
+                    }
+                    throw new ArgumentException($"Windows refused to create '{subKey}' (too deep or too long?): {ex.Message}",
+                        nameof(subKey), ex);
+                }
+            }
+            finally { if (current != baseKey) current.Dispose(); }
         }
 
         // Win32's limit on a value name (RegistryKey refuses a longer one).

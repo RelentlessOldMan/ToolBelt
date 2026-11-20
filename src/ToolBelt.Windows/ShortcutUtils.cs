@@ -65,6 +65,24 @@ namespace ToolBelt.Windows
             if (full.Length >= MaxPath) throw new ArgumentException($"The shell reads and writes a shortcut file path of at most {MaxPath - 1} characters.", "shortcutPath");
         }
 
+        // The shell rooted a relative target at the drive root (sub\x.exe, ..\x.exe and \sub\x.exe all became C:\...) and
+        // a bare name it could not find on the PATH at the Desktop.
+        private static string ResolveTarget(string target)
+        {
+            if (target.IndexOf('%') >= 0 || System.IO.Path.IsPathFullyQualified(target)) return target;
+            // A scheme or a shell namespace ("shell:", "https://") is not a file path.
+            int colon = target.IndexOf(':');
+            if (colon > 1) return target;
+            string full;
+            try { full = System.IO.Path.GetFullPath(target); }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is System.IO.PathTooLongException)
+            {
+                throw new ArgumentException("The target path is not valid: " + ex.Message, "targetPath", ex);
+            }
+            bool bare = target.IndexOfAny(new[] { '\\', '/' }) < 0 && colon < 0;
+            return !bare || System.IO.File.Exists(full) || System.IO.Directory.Exists(full) ? full : target;
+        }
+
         private static void CheckNoNul(string? value, string paramName)
         {
             if (value != null && value.IndexOf('\0') >= 0) throw new ArgumentException("The value must not contain a NUL character.", paramName);
@@ -72,7 +90,10 @@ namespace ToolBelt.Windows
 
         /// <summary>
         /// Creates (or overwrites) a shortcut at <paramref name="shortcutPath"/> pointing at <paramref name="targetPath"/>.
-        /// An <paramref name="iconIndex"/> without an <paramref name="iconPath"/> picks that icon from the target.
+        /// An <paramref name="iconIndex"/> without an <paramref name="iconPath"/> picks that icon from the target. A
+        /// relative target is resolved against the current directory, as <c>Process.Start</c> does (the shell put
+        /// <c>sub\x.exe</c> at the drive root); a bare file name is too when that file exists, and is otherwise left for
+        /// the shell to find on the PATH. A target holding <c>%</c> is kept as written for the shell to expand.
         /// </summary>
         public static void Create(
             string shortcutPath, string targetPath,
@@ -89,6 +110,7 @@ namespace ToolBelt.Windows
             CheckNoNul(workingDirectory, nameof(workingDirectory));
             CheckNoNul(description, nameof(description));
             CheckNoNul(iconPath, nameof(iconPath));
+            targetPath = ResolveTarget(targetPath);
             if (targetPath.Length >= MaxPath) throw TooLong(nameof(targetPath), MaxPath - 1);
             if (arguments?.Length > MaxPath) throw TooLong(nameof(arguments), MaxPath);
             if (workingDirectory?.Length > MaxPath) throw TooLong(nameof(workingDirectory), MaxPath);

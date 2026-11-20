@@ -30,8 +30,9 @@ namespace ToolBelt.Windows
         /// <summary>The wall-clock span the CPU figure was averaged over.</summary>
         public TimeSpan Interval { get; }
 
-        public override string ToString() =>
-            $"CPU {CpuPercent:0.0}% over {Interval.TotalMilliseconds:0} ms, WS {WorkingSetBytes:N0} B";
+        // Invariant: "CPU 0,0%" in German.
+        public override string ToString() => string.Format(System.Globalization.CultureInfo.InvariantCulture,
+            "CPU {0:0.0}% over {1:0} ms, WS {2:N0} B", CpuPercent, Interval.TotalMilliseconds, WorkingSetBytes);
     }
 
     /// <summary>

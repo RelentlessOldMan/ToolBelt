@@ -7,8 +7,8 @@ namespace ToolBelt.Windows
 {
     /// <summary>
     /// A raw 32-bit image: a screen capture, or an image to or from the clipboard. Pixels are stored top-down, one row
-    /// after another, four bytes each in <b>BGRA</b> order. Screen captures leave alpha unused/zero (GDI has no real
-    /// alpha channel). Row <c>r</c>, column <c>c</c> starts at byte index <c>(r * Width + c) * 4</c>.
+    /// after another, four bytes each in <b>BGRA</b> order. Screen captures are opaque: alpha is 255 on every pixel (GDI
+    /// has no real alpha channel and leaves the byte 0 or 255 depending on the display path). Row <c>r</c>, column <c>c</c> starts at byte index <c>(r * Width + c) * 4</c>.
     /// </summary>
     public readonly struct ScreenImage
     {
@@ -128,29 +128,45 @@ namespace ToolBelt.Windows
             IntPtr memDc = IntPtr.Zero, bmp = IntPtr.Zero, oldBmp = IntPtr.Zero;
             try
             {
+                // GDI refuses a bitmap past about 1 GB (400,000,000 x 1 failed as "GetDIBits failed" though the image fits
+                // an array), so the region is copied in tiles of at most TileWidth x TileArea / TileWidth pixels.
+                int tileW = Math.Min(width, TileWidth), tileH = Math.Min(height, Math.Max(1, TileArea / tileW));
                 memDc = CreateCompatibleDC(screenDc);
-                bmp = CreateCompatibleBitmap(screenDc, width, height);
+                bmp = CreateCompatibleBitmap(screenDc, tileW, tileH);
                 if (memDc == IntPtr.Zero || bmp == IntPtr.Zero)
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not create a compatible DC/bitmap.");
-
-                oldBmp = SelectObject(memDc, bmp);
-                if (!BitBlt(memDc, 0, 0, width, height, screenDc, x, y, SRCCOPY | CAPTUREBLT))
-                    throw new Win32Exception(Marshal.GetLastWin32Error(), "BitBlt failed.");
-                SelectObject(memDc, oldBmp);                                       // GetDIBits needs the bitmap deselected
-                oldBmp = IntPtr.Zero;
 
                 var header = new BITMAPINFOHEADER
                 {
                     biSize = Marshal.SizeOf<BITMAPINFOHEADER>(),
-                    biWidth = width,
-                    biHeight = -height, // negative => top-down rows
+                    biWidth = tileW,
+                    biHeight = -tileH, // negative => top-down rows
                     biPlanes = 1,
                     biBitCount = 32,
                     biCompression = BI_RGB,
                 };
-                var pixels = new byte[width * height * 4];
-                if (GetDIBits(memDc, bmp, 0, (uint)height, pixels, ref header, DIB_RGB_COLORS) == 0)
-                    throw new Win32Exception(Marshal.GetLastWin32Error(), "GetDIBits failed.");
+                var pixels = new byte[(long)width * height * 4];
+                var tile = new byte[tileW * tileH * 4];
+                for (int ty = 0; ty < height; ty += tileH)
+                {
+                    int h = Math.Min(tileH, height - ty);
+                    for (int tx = 0; tx < width; tx += tileW)
+                    {
+                        int w = Math.Min(tileW, width - tx);
+                        oldBmp = SelectObject(memDc, bmp);
+                        if (!BitBlt(memDc, 0, 0, w, h, screenDc, x + tx, y + ty, SRCCOPY | CAPTUREBLT))
+                            throw new Win32Exception(Marshal.GetLastWin32Error(), "BitBlt failed.");
+                        SelectObject(memDc, oldBmp);                               // GetDIBits needs the bitmap deselected
+                        oldBmp = IntPtr.Zero;
+                        // A partial copy (fewer rows than asked) left the rest of the image zero.
+                        if (GetDIBits(memDc, bmp, 0, (uint)tileH, tile, ref header, DIB_RGB_COLORS) != tileH)
+                            throw new Win32Exception(Marshal.GetLastWin32Error(), "GetDIBits failed.");
+                        for (int r = 0; r < h; r++)
+                            Buffer.BlockCopy(tile, r * tileW * 4, pixels, (int)((((long)(ty + r) * width) + tx) * 4), w * 4);
+                    }
+                }
+                // The documented alpha: GDI leaves the byte 0 on some display paths and 255 on others.
+                for (int i = 3; i < pixels.Length; i += 4) pixels[i] = 255;
 
                 return new ScreenImage(width, height, pixels);
             }
@@ -162,6 +178,9 @@ namespace ToolBelt.Windows
                 ReleaseDC(IntPtr.Zero, screenDc);
             }
         }
+
+        // A tile is at most 16,777,216 pixels wide and 16,777,216 pixels in all (64 MB), well inside what GDI holds.
+        private const int TileWidth = 1 << 24, TileArea = 1 << 24;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct BITMAPINFOHEADER

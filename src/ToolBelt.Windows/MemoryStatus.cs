@@ -28,8 +28,9 @@ namespace ToolBelt.Windows
         /// <summary>Physical memory currently in use, in bytes.</summary>
         public long UsedPhysicalBytes => TotalPhysicalBytes - AvailablePhysicalBytes;
 
-        public override string ToString() =>
-            $"{MemoryLoadPercent}% used, {AvailablePhysicalBytes:N0} of {TotalPhysicalBytes:N0} bytes free";
+        // Invariant, as OsVersion and MonitorDpi are: "N0" grouped with '.' in German and Arabic-Indic separators in Persian.
+        public override string ToString() => string.Format(System.Globalization.CultureInfo.InvariantCulture,
+            "{0}% used, {1:N0} of {2:N0} bytes free", MemoryLoadPercent, AvailablePhysicalBytes, TotalPhysicalBytes);
     }
 
     /// <summary>Reads system-wide memory figures via the Win32 <c>GlobalMemoryStatusEx</c> API.</summary>

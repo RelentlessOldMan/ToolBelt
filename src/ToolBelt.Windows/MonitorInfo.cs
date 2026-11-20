@@ -23,7 +23,9 @@ namespace ToolBelt.Windows
         public int Width => Right - Left;
         public int Height => Bottom - Top;
 
-        public override string ToString() => $"({Left},{Top})-({Right},{Bottom}) {Width}x{Height}";
+        // Invariant: a monitor left of the primary has negative coordinates, and Swedish prints U+2212 for the minus.
+        public override string ToString() => string.Format(System.Globalization.CultureInfo.InvariantCulture,
+            "({0},{1})-({2},{3}) {4}x{5}", Left, Top, Right, Bottom, Width, Height);
     }
 
     /// <summary>A display monitor: its full bounds, its work area (excluding the taskbar), and whether it is primary.</summary>

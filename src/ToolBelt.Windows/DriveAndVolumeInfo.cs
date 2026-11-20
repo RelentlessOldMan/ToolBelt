@@ -29,7 +29,8 @@ namespace ToolBelt.Windows
         /// <summary>Fraction of capacity used, 0–1.</summary>
         public double UsedFraction => TotalBytes <= 0 ? 0 : 1.0 - (double)FreeBytes / TotalBytes;
 
-        public override string ToString() => $"{FreeBytes:N0} free of {TotalBytes:N0} bytes";
+        // Invariant: "N0" grouped with '.' in German.
+        public override string ToString() => string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:N0} free of {1:N0} bytes", FreeBytes, TotalBytes);
     }
 
     /// <summary>A ready fixed drive and its volume metadata.</summary>
