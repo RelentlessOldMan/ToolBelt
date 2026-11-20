@@ -1020,6 +1020,7 @@ tests/
       ConcurrencyReview128Tests.cs (round 128: token-bucket refill under polling, WhichExe trailing dots, the exact retry cap, the pipeline consumer seen from inline continuations, concurrent parallel handlers and race attempts)
       ConcurrencyReview147Tests.cs (round 147: token-bucket capacity below one, StartupTiming's negative step, the pipeline's SuppressFlow way out for work the callback starts)
       ConcurrencyReview165Tests.cs (round 165: AtomicDouble text that reads back on .NET Framework, StartupTiming's exact report, a cancelled token wins in WithCancellation and PauseToken, one pending pipeline wake-up, null tasks reported as InvalidOperationException, a stuck output callback, a late cancel after every item finished)
+      ConcurrencyReview183Tests.cs (round 183: a failed last item disposed from onError, an empty pipeline disposed then completed, a count within the grant tolerance of capacity, the synchronous Run with the pool busy)
       FlakeRootCauseTests.cs  (round 46: pipeline, async log sink and process readers run off the thread pool)
       CallbackReview54Tests.cs (round 54, cross-cutting: throwing comparers, hashes, clocks, handlers, error sinks and token callbacks)
       CancelDisposeReview55Tests.cs (round 55, cross-cutting: the caller's token, cancelled tokens honoured, Dispose racing the work)

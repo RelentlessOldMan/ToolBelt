@@ -53,12 +53,13 @@ namespace ToolBelt.Resilience
 
         /// <summary>
         /// Attempts to consume <paramref name="count"/> tokens. Returns false (consuming nothing) if too few are available.
-        /// A count above the capacity throws <see cref="ArgumentOutOfRangeException"/>: the bucket can never hold that many.
+        /// A count above the capacity (by more than the rounding tolerance a grant allows) throws <see cref="ArgumentOutOfRangeException"/>: the bucket can never hold that many.
         /// </summary>
         public bool TryAcquire(int count = 1)
         {
             Guard.Positive(count);
-            if (count > _capacity)
+            // With the grant's tolerance: a capacity of 2.9999999995 refused 3, which a full bucket would grant.
+            if (Needed(count) > _capacity)
                 throw new ArgumentOutOfRangeException(nameof(count), count, "Count exceeds the bucket's capacity; it could never be acquired.");
             DateTimeOffset now = _clock();
             double tokens = Refill(now);
@@ -66,7 +67,7 @@ namespace ToolBelt.Resilience
             // A tolerance: refills summed in small steps fall short by rounding (ten 100 ms steps at 1/s left 0.9999999999999999),
             // which refused a token that was due and under-granted by 10% when polled every 10 ms. Capped at a millionth of a
             // token: in proportion to the count, int.MaxValue was granted with two tokens short.
-            if (tokens >= count - Math.Min(count, 1000) * 1e-9)
+            if (tokens >= Needed(count))
             {
                 _tokens = Math.Max(0, tokens - count);
                 _lastRefill = now;
@@ -74,6 +75,8 @@ namespace ToolBelt.Resilience
             }
             return false;
         }
+
+        private static double Needed(int count) => count - Math.Min(count, 1000) * 1e-9;
 
         // The tokens held now. The base moves only when the bucket fills (time past that adds nothing) or the clock steps
         // back from the latest time seen: the refill up to that time is kept, and it restarts from the new time.

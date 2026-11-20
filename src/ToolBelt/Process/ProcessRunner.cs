@@ -150,9 +150,9 @@ namespace ToolBelt.Process
             // wait for the rest of the output is bounded too.
             if (timeoutMs < 0)
             {
-                while (!run.OutputClosed.Wait(OutputGraceMilliseconds) && !Quiet(run)) { }
+                while (!run.ReadersLeft.Wait(OutputGraceMilliseconds) && !Quiet(run)) { }
             }
-            else if (!run.OutputClosed.Wait(OutputBudget(run, timeoutMs, killed)))
+            else if (!run.ReadersLeft.Wait(OutputBudget(run, timeoutMs, killed)))
                 timedOut = true;
             return Finish(run, timedOut, killed, options);
         }
@@ -219,6 +219,9 @@ namespace ToolBelt.Process
 
             public Task Exited => ExitedSource.Task;
             public Task OutputClosed => Task.WhenAll(OutputEnd.Task, ErrorEnd.Task);
+            // For the synchronous Run: the WhenAll above completes on a pool thread (the sources run continuations
+            // asynchronously), so with the pool busy Run waited out its timeout and reported TimedOut for a child that met it.
+            public readonly CountdownEvent ReadersLeft = new CountdownEvent(2);
         }
 
         private static RunState Start(string fileName, string? arguments, ProcessRunOptions options)
@@ -342,7 +345,11 @@ namespace ToolBelt.Process
                 Interlocked.CompareExchange(ref run.CallbackError, ex, null);
                 Drain(reader.BaseStream);
             }
-            finally { end.TrySetResult(true); }
+            finally
+            {
+                run.ReadersLeft.Signal();
+                end.TrySetResult(true);
+            }
         }
 
         private static void Drain(Stream stream)

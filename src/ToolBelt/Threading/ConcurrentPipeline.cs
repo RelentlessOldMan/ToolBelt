@@ -51,7 +51,9 @@ namespace ToolBelt.Threading
         private readonly Task _loop;
         private long _dropped;
         private int _completed;
-        private volatile bool _drained; // the consumer stopped because the buffer emptied after completion
+        // The consumer stopped with nothing buffered: after completion, or at a Dispose that found the buffer empty (an
+        // enqueue after it throws). A pipeline that never held an item, disposed and then completed, said it had not drained.
+        private volatile bool _drained;
         private int _disposed;
         [ThreadStatic] private static object? t_reporting; // the pipeline whose onError this thread is running
         // The pipeline whose consumer loop owns this thread. The loop blocks on each callback, so anything running on its
@@ -195,7 +197,9 @@ namespace ToolBelt.Threading
 
         /// <summary>
         /// Signals that no more items will be added, then waits for the buffer to drain. Throws
-        /// <see cref="ObjectDisposedException"/> if the pipeline was disposed before every buffered item was processed.
+        /// <see cref="ObjectDisposedException"/> if the pipeline was disposed before every buffered item was processed, or
+        /// while an item was in flight and its consumer stopped on the cancellation (one that failed or finished counts as
+        /// processed).
         /// Called from the consumer callback (a consumer that stops on a sentinel item), it marks the pipeline completed and
         /// returns without waiting: the rest of the buffer drains after the callback returns.
         /// </summary>
@@ -228,7 +232,7 @@ namespace ToolBelt.Threading
                 try { _signal.Wait(ct); }
                 catch (OperationCanceledException)
                 {
-                    lock (_gate) _drained = _completed == 1 && _queue.Count == 0; // nothing was left to lose
+                    lock (_gate) _drained = _queue.Count == 0; // nothing was left to lose
                     break;
                 }
                 // Cleared before the drain, so an item queued after this point releases again.
@@ -240,7 +244,7 @@ namespace ToolBelt.Threading
                     lock (_gate)
                     {
                         // Dispose cancels: the drain handed every buffered item on to a consumer that ignored the token.
-                        if (ct.IsCancellationRequested) { _drained = _completed == 1 && _queue.Count == 0; return; }
+                        if (ct.IsCancellationRequested) { _drained = _queue.Count == 0; return; }
                         if (_queue.Count == 0) break;
                         item = _queue.Dequeue();
                     }
@@ -255,7 +259,9 @@ namespace ToolBelt.Threading
                         catch (Exception ex)
                         {
                             Report(ex);
-                            if (ct.IsCancellationRequested) return; // onError disposed the pipeline
+                            // onError (or another thread) disposed the pipeline. Returning without a verdict made CompleteAsync
+                            // report an undrained buffer after the last item had been processed.
+                            if (ct.IsCancellationRequested) { lock (_gate) _drained = _queue.Count == 0; return; }
                         }
                     }
                     finally { flow.Active = false; }
