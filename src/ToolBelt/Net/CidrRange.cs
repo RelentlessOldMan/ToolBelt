@@ -52,7 +52,8 @@ namespace ToolBelt.Net
             if (string.IsNullOrWhiteSpace(text)) return false;
             int slash = text.IndexOf('/');
             if (slash < 0) return false;
-            string host = text.Substring(0, slash).Trim();
+            // Whitespace may surround the whole text, not the slash: "1.2.3.4 /32" was accepted though "1.2.3.4/ 32" was not.
+            string host = text.Substring(0, slash).TrimStart();
             if (!IPAddress.TryParse(host, out IPAddress? addr) || addr is null) return false;
             // IPAddress also accepts IPv4 shorthand ("10" = 0.0.0.10, "10.1" = 10.0.0.1, hex, octal "010" = 8); CIDR
             // text means a decimal dotted quad.

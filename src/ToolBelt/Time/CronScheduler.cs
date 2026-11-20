@@ -36,6 +36,10 @@ namespace ToolBelt.Time
         // Added after Start while the clock threw: its next time is worked out on the next pass. Under the scheduler's gate.
         internal bool Pending { get; set; }
 
+        // The occurrence this job last ran for (read and written under the scheduler's lock), so a clock step back never
+        // runs it again.
+        internal DateTimeOffset? LastOccurrence { get; set; }
+
         /// <summary>Number of completed runs (successful or not).</summary>
         public int RunCount { get { lock (_sync) return _runCount; } internal set { lock (_sync) _runCount = value; } }
 
@@ -200,7 +204,7 @@ namespace ToolBelt.Time
                 // job lost to a reading past its last occurrence (a glitch near 9999) gets another try. As cron does, a
                 // step back of under three hours doesn't repeat a fixed-time job's run already made: it counts from that run
                 // instead. A wildcard job (minute or hour '*') counts from now, as in cron: "* * * * *" stopped for the
-                // whole of a two-hour step back.
+                // whole of a two-hour step back. Neither runs the occurrence it last ran again.
                 bool back = _lastNow is DateTimeOffset last && now < last;
                 _lastNow = now;
                 foreach (var job in _jobs)
@@ -213,7 +217,14 @@ namespace ToolBelt.Time
                         job.Pending = false;
                         DateTimeOffset from = !job.Schedule.IsFrequent && job.LastRun is DateTimeOffset ran && ran > now
                                               && ran - now < TimeSpan.FromHours(3) ? ran : now;
-                        try { job.NextRun = job.Schedule.GetNextOccurrence(from, _zone); }
+                        try
+                        {
+                            DateTimeOffset next = job.Schedule.GetNextOccurrence(from, _zone);
+                            // Counted from now, a wildcard job ran the occurrence it had just run again after a step back
+                            // of a few milliseconds over a minute's start ("* * * * *" ran 10:00 twice).
+                            if (job.LastOccurrence is DateTimeOffset done && next == done) next = job.Schedule.GetNextOccurrence(next, _zone);
+                            job.NextRun = next;
+                        }
                         catch (Exception ex)
                         {
                             job.NextRun = null;
@@ -231,6 +242,7 @@ namespace ToolBelt.Time
                     if (job.IsRunning) { Interlocked.Increment(ref _skipped); continue; }
                     job.IsRunning = true;
                     job.LastRun = now;
+                    job.LastOccurrence = due;
                     started++;
                     // On the thread pool: a job continued on the caller's synchronization context (a UI thread calling
                     // RunDue) could never run while that thread blocked in Dispose waiting for it.

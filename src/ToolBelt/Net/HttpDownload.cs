@@ -242,8 +242,15 @@ namespace ToolBelt.Net
             long? total;
             if (status == 416 && existing > 0 && range != null && range.Length == existing)
             {
-                // "bytes */N" with N == what we have: the partial file is already the whole file.
+                // "bytes */N" with N == what we have: the partial file is already the whole file. It is held to MaxBytes
+                // as the 206 path is (a partial file past the limit finished here), and progress is reported as there.
+                if (options.MaxBytes is long cap && existing > cap)
+                {
+                    Discard(partial, destination);
+                    throw new HttpDownloadException($"The file at {url} is {existing} bytes, more than MaxBytes ({cap}); the partial file was deleted.");
+                }
                 TakeDestination();
+                Progress(options, existing, existing);
                 return Local(() => Finish(destination, partial, options, existing, existing, resumed: true));
             }
             if (status == 206 && existing > 0 && range == null)

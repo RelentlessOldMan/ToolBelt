@@ -116,7 +116,8 @@ namespace ToolBelt.Net
         /// <summary>
         /// The longest line (in characters, excluding the terminator) <see cref="ReadLine"/> accepts before throwing
         /// <see cref="InvalidDataException"/>, so a peer that never sends a newline cannot exhaust memory. Default 1 Mi.
-        /// With an encoding that throws on invalid bytes, each run of them counts as one character. While the rest of an
+        /// With an encoding that throws on invalid bytes, each invalid sequence the decoder reports (for UTF-8 often a single
+        /// byte) counts as one character, so a line of nothing but bad bytes is held to the limit too. While the rest of an
         /// overlong line is skipped, each call throws again after another MaxLineLength characters with no terminator,
         /// so a peer that keeps sending cannot hold a call for good.
         /// </summary>
@@ -272,8 +273,9 @@ namespace ToolBelt.Net
             throw new InvalidDataException($"The line longer than {_maxLineLength} characters is still being received; another {_maxLineLength} were skipped.");
         }
 
-        // Marks the line as bad when bad bytes came before the next character (or the end of what was decoded). Each run
-        // counts as a character: bad bytes made no characters, so a line of them was never held to MaxLineLength.
+        // Marks the line as bad when bad bytes came before the next character (or the end of what was decoded). Each
+        // invalid sequence counts as a character: bad bytes made no characters, so a line of them was never held to
+        // MaxLineLength. (A whole run counted once would let a peer stream bad bytes forever without a terminator.)
         private void TakeBad()
         {
             if (_bad is null) return;

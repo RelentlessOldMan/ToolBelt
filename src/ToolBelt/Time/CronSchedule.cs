@@ -179,7 +179,9 @@ namespace ToolBelt.Time
                 t = next;
                 offset = nextOffset;
             }
-            throw t < first + SearchTicks ? new CalendarEnded() : new InvalidOperationException(NotFound);
+            // As the fixed-offset search decides: the calendar ended only if it cut the search window short. The walk also
+            // stops early when no later day can match (31 September), which is unsatisfiable, not the calendar's end.
+            throw NoneBefore(first, limit);
         }
 
         // True if a wall time strictly between lastWall and gapEnd (the wall times a spring-forward skipped) matches;
