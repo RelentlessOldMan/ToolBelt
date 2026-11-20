@@ -8,7 +8,9 @@ namespace ToolBelt.Numerics
     /// Estimates one quantile of a stream in a single pass with constant memory — the P² algorithm of Jain &amp; Chlamtac
     /// (1985), which keeps five markers whose heights are adjusted by piecewise-parabolic interpolation as values arrive.
     /// For "the 99th percentile of a hundred million latencies" without storing them. Through the first five values
-    /// the exact (linearly interpolated) quantile of what has arrived is returned.
+    /// the exact (linearly interpolated) quantile of what has arrived is returned; after that, the markers' heights
+    /// interpolated linearly at the desired rank 1 + (n − 1)·p, which is exact while the markers sit on sorted values
+    /// and tends to the middle marker as they converge.
     /// <para>
     /// Accuracy is empirical, not a guaranteed bound: on smooth distributions with thousands of samples the estimate is
     /// typically within a small fraction of the inter-quantile spread (the tests check uniform, normal and exponential
@@ -52,7 +54,7 @@ namespace ToolBelt.Numerics
                 if (Count == 0) return double.NaN;
                 // At exactly five the markers are just the sorted values, so the exact quantile is still known
                 // (q[2] is their median whatever p is: p = 0.99 jumped from 3.97 on 1..4 to 3 on 1..5).
-                if (Count > 5) return _q[2];
+                if (Count > 5) return AtRank(1 + (Count - 1) * _p);
                 var sorted = new List<double>(_initial);
                 sorted.Sort();
                 double h = (sorted.Count - 1) * _p;
@@ -114,6 +116,23 @@ namespace ToolBelt.Numerics
             _initial.Sort();
             for (int i = 0; i < 5; i++) { _q[i] = _initial[i]; _n[i] = i + 1; }
             _np[0] = 1; _np[1] = 1 + 2 * _p; _np[2] = 1 + 4 * _p; _np[3] = 3 + 2 * _p; _np[4] = 5;
+        }
+
+        // The middle marker alone starts at the median whatever p is and moves one place a sample, so the estimate jumped
+        // at the sixth value (p = 0.99 on 1..6 went from 4.96 to 3; p = 0.01 stayed at 3 through 12 values). The markers
+        // are (rank, height) points of the quantile function, so the desired rank is read off the line between them.
+        private double AtRank(double h)
+        {
+            int i = 0;
+            while (i < 3 && _n[i + 1] <= h) i++;
+            if (h <= _n[i]) return _q[i];
+            if (h >= _n[i + 1]) return _q[i + 1];
+            double f = (h - _n[i]) / (_n[i + 1] - _n[i]), a = _q[i], b = _q[i + 1];
+            if (a == b) return a;
+            double d = b - a;
+            // Markers of opposite sign near double.MaxValue overflow b − a: interpolate the halves.
+            double r = double.IsInfinity(d) ? 2 * (0.5 * a + f * (0.5 * b - 0.5 * a)) : a + f * d;
+            return Math.Min(Math.Max(r, a), b);
         }
 
         private double Parabolic(int i, int s)

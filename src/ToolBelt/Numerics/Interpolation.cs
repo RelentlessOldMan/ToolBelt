@@ -22,6 +22,10 @@ namespace ToolBelt.Numerics
             // Finite ends of opposite sign can overflow b − a (−1e308 to 1e308): interpolate the halves instead.
             if (double.IsInfinity(d) && !double.IsInfinity(a) && !double.IsInfinity(b))
                 r = 2 * (0.5 * a + (0.5 * b - 0.5 * a) * t);
+            // An infinite end with a finite t: a + (b − a)·t was ∞ + (−∞)·t, so Lerp(∞, 1, 0.5) was NaN though
+            // Lerp(1, ∞, 0.5) was ∞. The weighted form gives both ends' signs their due.
+            else if ((double.IsInfinity(a) || double.IsInfinity(b)) && !double.IsInfinity(t))
+                r = (1 - t) * a + t * b;
             else
                 r = a + d * t;
             if (t > 0 && t < 1) r = Math.Min(Math.Max(r, Math.Min(a, b)), Math.Max(a, b));

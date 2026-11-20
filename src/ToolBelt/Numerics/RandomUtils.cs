@@ -172,9 +172,13 @@ namespace ToolBelt.Numerics
             if (!(scale > 0) || double.IsInfinity(scale)) throw new ArgumentOutOfRangeException(nameof(scale), scale, "Scale must be positive.");
             if (shape < 1)
             {
-                // Gamma(k) = Gamma(k + 1) · U^(1/k)
+                // Gamma(k) = Gamma(k + 1) · U^(1/k), scaled last: Gamma(k + 1)·θ overflowed for a large θ before U^(1/k)
+                // shrank it (+∞ for draws far below double.MaxValue, and ∞·0 = NaN when U^(1/k) underflowed).
                 double u = 1.0 - random.NextDouble();
-                return random.NextGamma(shape + 1, scale) * Math.Pow(u, 1 / shape);
+                double g = random.NextGamma(shape + 1), w = g * Math.Pow(u, 1 / shape);
+                if (w >= 2.2250738585072014E-308) return w * scale;
+                // Below the normal range: in logs, so a large θ still lifts the draw (0 only where the result underflows).
+                return g == 0 || u == 0 ? 0 : Math.Exp(Math.Log(g) + Math.Log(u) / shape + Math.Log(scale));
             }
             double d = shape - 1.0 / 3, c = 1 / Math.Sqrt(9 * d);
             while (true)

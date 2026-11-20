@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 
 namespace ToolBelt.Numerics
 {
@@ -118,17 +119,159 @@ namespace ToolBelt.Numerics
             }
 
             if (x == _x[lo]) return _yIn[lo];
-            double h = _h[lo];
             double t = Fraction(x, _x[lo], _x[lo + 1]);
-            double t2 = t * t, t3 = t2 * t;
-            // Cubic Hermite basis functions, in difference form: h00·y0 + h01·y1 rounded off a flat segment (0.1 came back
-            // 0.10000000000000002), and the result is held between the segment's ends, as the monotone curve is.
-            double h10 = t3 - 2 * t2 + t;
-            double h01 = -2 * t3 + 3 * t2;
-            double h11 = t3 - t2;
-            double v = (_y[lo] + h01 * (_y[lo + 1] - _y[lo]) + h * (h10 * _m[lo] + h11 * _m[lo + 1])) / _sy;
+            // The cubic Hermite curve in difference form (h00·y0 + h01·y1 rounded off a flat segment: 0.1 came back
+            // 0.10000000000000002), rounded once, and held between the segment's ends, as the monotone curve is.
+            double v = Evaluate(lo, t) / _sy;
             double a = _yIn[lo], b = _yIn[lo + 1];
             return Math.Min(Math.Max(v, Math.Min(a, b)), Math.Max(a, b));
+        }
+
+        // The scaled curve at t on segment lo, correctly rounded. Rounding to nearest is monotone and t only grows with x,
+        // so the result never steps back inside a segment: the plain double evaluation, a few ulps off, went down by an ulp
+        // on increasing data (in 46 of 3,000 random tables). A double-double evaluation settles almost every t; the rest,
+        // too near a rounding boundary to tell, are evaluated exactly.
+        private double Evaluate(int lo, double t)
+        {
+            double y0 = _y[lo], h = _h[lo];
+            TwoSum(_y[lo + 1], -y0, out double dh, out double dl);   // D = y1 − y0
+            TwoProd(h, _m[lo], out double ah, out double al);        // A = h·m0
+            TwoProd(h, _m[lo + 1], out double bh, out double bl);    // B = h·m1
+            // v = y0 + t·(A + t·(c2 + t·c3)), with c2 = 3D − 2A − B and c3 = A + B − 2D
+            Add(ah, al, bh, bl, out double sh, out double sl);
+            Add(sh, sl, -2 * dh, -2 * dl, out double c3h, out double c3l);
+            Mul(dh, dl, 3, out double d3h, out double d3l);
+            Add(d3h, d3l, -sh, -sl, out double c2h, out double c2l);
+            Add(c2h, c2l, -ah, -al, out c2h, out c2l);
+            Mul(c3h, c3l, t, out double rh, out double rl);
+            Add(rh, rl, c2h, c2l, out rh, out rl);
+            Mul(rh, rl, t, out rh, out rl);
+            Add(rh, rl, ah, al, out rh, out rl);
+            Mul(rh, rl, t, out rh, out rl);
+            Add(rh, rl, y0, 0, out rh, out rl);
+            // Each double-double step is off by a few 2⁻¹⁰⁶ of its operands; 2⁻⁹⁶ of their sizes covers them all, and
+            // 2⁻¹⁰⁴⁰ the error terms that underflow.
+            double ad = Math.Abs(dh), aa = Math.Abs(ah), ab = Math.Abs(bh);
+            double size = Math.Abs(y0) + t * (aa + t * (3 * ad + 2 * aa + ab + t * (2 * ad + aa + ab)));
+            double err = 2 * (size * 1.262177448353619e-29 + 8.0e-314); // 2⁻⁹⁶, and about 2⁻¹⁰⁴⁰
+            double v = rh + rl, e = rl - (v - rh);
+            if (v + (e - err) == v && v + (e + err) == v) return v;
+            return Exact(lo, t);
+        }
+
+        private double Exact(int lo, double t)
+        {
+            Dyadic y0 = Dyadic.Of(_y[lo]), h = Dyadic.Of(_h[lo]), tt = Dyadic.Of(t);
+            Dyadic d = Dyadic.Of(_y[lo + 1]) + y0.Times(-1);
+            Dyadic a = h * Dyadic.Of(_m[lo]), b = h * Dyadic.Of(_m[lo + 1]);
+            Dyadic c3 = a + b + d.Times(-2), c2 = d.Times(3) + a.Times(-2) + b.Times(-1);
+            Dyadic v = y0 + tt * (a + tt * (c2 + tt * c3));
+            return v.ToDouble();
+        }
+
+        private static void TwoSum(double a, double b, out double s, out double e)
+        {
+            s = a + b;
+            double bp = s - a;
+            e = (a - (s - bp)) + (b - bp);
+        }
+
+        // p + e = a·b exactly (Dekker's product), short of underflow. A tangent held at 2¹⁰¹⁶ would overflow the split,
+        // so it is traded against the other factor by 2¹²⁸ first (the widths are under 2⁵⁰², so that stays in range).
+        private static void TwoProd(double a, double b, out double p, out double e)
+        {
+            if (Math.Abs(b) > 8.452712498170644e270) { a *= 3.402823669209385e38; b *= 2.938735877055719e-39; } // 2⁹⁰⁰; 2¹²⁸
+            p = a * b;
+            Split(a, out double ah, out double al);
+            Split(b, out double bh, out double bl);
+            e = ((ah * bh - p) + ah * bl + al * bh) + al * bl;
+        }
+
+        private static void Split(double a, out double hi, out double lo)
+        {
+            double t = 134217729.0 * a;   // 2^27 + 1
+            hi = t - (t - a);
+            lo = a - hi;
+        }
+
+        private static void Add(double ah, double al, double bh, double bl, out double h, out double l)
+        {
+            TwoSum(ah, bh, out double s, out double e);
+            e += al + bl;
+            h = s + e;
+            l = e - (h - s);
+        }
+
+        private static void Mul(double ah, double al, double b, out double h, out double l)
+        {
+            TwoProd(ah, b, out double p, out double e);
+            e += al * b;
+            h = p + e;
+            l = e - (h - p);
+        }
+
+        // An exact binary value M·2^E, for the rare evaluation the double-double one cannot settle.
+        private readonly struct Dyadic
+        {
+            private readonly BigInteger _m;
+            private readonly long _e;
+
+            private Dyadic(BigInteger m, long e) { _m = m; _e = e; }
+
+            public static Dyadic Of(double x)
+            {
+                long bits = BitConverter.DoubleToInt64Bits(x);
+                int be = (int)((bits >> 52) & 0x7FF);
+                long m = bits & 0xFFFFFFFFFFFFFL;
+                if (be == 0) be = 1; else m |= 1L << 52;
+                return new Dyadic(bits < 0 ? -m : m, be - 1075);
+            }
+
+            public Dyadic Times(int k) => new Dyadic(_m * k, _e);
+
+            public static Dyadic operator *(Dyadic a, Dyadic b) => new Dyadic(a._m * b._m, a._e + b._e);
+
+            public static Dyadic operator +(Dyadic a, Dyadic b)
+            {
+                if (a._m.IsZero) return b;
+                if (b._m.IsZero) return a;
+                long e = Math.Min(a._e, b._e);
+                return new Dyadic((a._m << (int)(a._e - e)) + (b._m << (int)(b._e - e)), e);
+            }
+
+            // Rounded once to the nearest double (ties to even), subnormals and overflow included.
+            public double ToDouble()
+            {
+                BigInteger m = _m;
+                if (m.IsZero) return 0;
+                bool neg = m.Sign < 0;
+                if (neg) m = -m;
+                long top = BitLength(m) - 1 + _e;              // floor(log2 |M·2^E|)
+                if (top > 1023) return neg ? double.NegativeInfinity : double.PositiveInfinity;
+                long q = Math.Max(top - 52, -1074);            // the result's ulp
+                long shift = q - _e;
+                BigInteger kept;
+                if (shift <= 0) kept = m << (int)-shift;
+                else
+                {
+                    kept = m >> (int)shift;
+                    BigInteger rest = m - (kept << (int)shift), half = BigInteger.One << (int)(shift - 1);
+                    if (rest > half || (rest == half && !kept.IsEven)) kept += 1;
+                }
+                double r = (long)kept;                         // at most 2^53, so exact; 2^53·2^971 overflows to ∞
+                r = q >= -1022 ? r * Pow2((int)q) : r * Pow2(-1022) * Pow2((int)(q + 1022));
+                return neg ? -r : r;
+            }
+
+            private static long BitLength(BigInteger m)
+            {
+                byte[] b = m.ToByteArray();
+                int i = b.Length - 1;
+                while (i > 0 && b[i] == 0) i--;
+                long n = 8L * i;
+                for (int t = b[i]; t != 0; t >>= 1) n++;
+                return n;
+            }
         }
 
         // Coordinates beyond 2⁵⁰⁰ are stored scaled down by a power of two (so exactly) to just under 2⁵⁰⁰, and all-tiny ones

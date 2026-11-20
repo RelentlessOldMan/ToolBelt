@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 
 namespace ToolBelt.Numerics
 {
@@ -22,12 +23,13 @@ namespace ToolBelt.Numerics
         private int _m2Exp;
         private double _min = double.PositiveInfinity;
         private double _max = double.NegativeInfinity;
-        private double _sum;
-        // A second copy of the sum, read once _sum has overflowed: values of at least 2⁻⁹⁰⁰ scaled by 2⁻⁶⁴ (which cannot
-        // overflow for any count) and summed as a double-double (hi + lo, renormalised after each value: a single
-        // compensation term still lost the 61 behind the rounding error it carried), so huge values that cancel leave the
-        // rest exact; smaller values unscaled on their own, where 2⁻⁶⁴ would have rounded them away.
-        private double _scaledSum, _scaledCompensation, _smallSum;
+        // The exact sum, as non-overlapping partials (Shewchuk) in two tiers: values of at least 2⁻⁹⁵⁸ scaled by 2⁻⁶⁴
+        // (exact, and no count can overflow them) and smaller values unscaled, where 2⁻⁶⁴ would round them. A double-double
+        // copy read only after the plain sum overflowed still lost small values: 1.7e308, 3e307, 61, −1.7e308, −3e307
+        // summed to 0, and so did 1e308, 61, −1e308, which never overflowed.
+        private double[] _big = new double[4], _small = new double[4];
+        private int _nBig, _nSmall;
+        private const double BigFrom = 4.1045368012983762e-289; // 2⁻⁹⁵⁸: scaled by 2⁻⁶⁴ it is still normal
 
         /// <summary>Adds one sample.</summary>
         public void Push(double value)
@@ -52,16 +54,8 @@ namespace ToolBelt.Numerics
 
             if (value < _min) _min = value;
             if (value > _max) _max = value;
-            _sum += value;
-            if (Math.Abs(value) >= 1.1830521861667747e-271) // 2^-900
-            {
-                double x = value * (1.0 / 18446744073709551616.0), t = _scaledSum + x;
-                double bp = t - _scaledSum, error = (_scaledSum - (t - bp)) + (x - bp); // TwoSum: t + error = sum + x exactly
-                double lo = _scaledCompensation + error;
-                _scaledSum = t + lo;
-                _scaledCompensation = lo - (_scaledSum - t);
-            }
-            else _smallSum += value;
+            if (Math.Abs(value) >= BigFrom) Accumulate(ref _big, ref _nBig, value * (1.0 / 18446744073709551616.0));
+            else Accumulate(ref _small, ref _nSmall, value);
         }
 
         /// <summary>Adds a batch of samples.</summary>
@@ -75,12 +69,15 @@ namespace ToolBelt.Numerics
         public long Count => _count;
 
         /// <summary>
-        /// The sum of the samples. When the running total overflowed but the true sum is within range (1e308 + 1e308 −
-        /// 1e308) it is recovered from a copy kept scaled by 2⁻⁶⁴; a sum truly beyond the double range is ±∞.
+        /// The sum of the samples, exact and rounded once: 1e308, 61, −1e308 sums to 61, and 1e308 + 1e308 − 1e308 to
+        /// 1e308. A sum truly beyond the double range is ±∞.
         /// </summary>
         // The mean was the old fallback, but its rounding error (ε·max|x|) swamped a small sum left after huge values
         // cancelled: 1.7e308, 3e307, −1.7e308, −3e307, 61 summed to −6.5e292.
-        public double Sum => double.IsInfinity(_sum) ? ScaleB(_scaledSum + _scaledCompensation, 64) + _smallSum : _sum;
+        public double Sum
+            => _nSmall == 0 ? Total(_big, _nBig) * 18446744073709551616.0 // exact: the scaled total is a multiple of 2⁻¹⁰⁷⁴
+             : _nBig == 0 ? Total(_small, _nSmall)
+             : ExactSum(_big, _nBig, 64, _small, _nSmall);
 
         public double Mean => _count > 0 ? _mean : double.NaN;
 
@@ -157,6 +154,108 @@ namespace ToolBelt.Numerics
 
         private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
 
+        // Adds v to the exact sum held as non-overlapping partials, smallest first (Shewchuk; Python's math.fsum).
+        private static void Accumulate(ref double[] partials, ref int count, double v)
+        {
+            int k = 0;
+            for (int i = 0; i < count; i++)
+            {
+                double y = partials[i];
+                if (Math.Abs(v) < Math.Abs(y)) { double s = v; v = y; y = s; }
+                double hi = v + y;
+                double lo = y - (hi - v);
+                if (lo != 0) partials[k++] = lo;
+                v = hi;
+            }
+            if (k == partials.Length) Array.Resize(ref partials, 2 * k);
+            partials[k++] = v;
+            count = k;
+        }
+
+        // The partials' sum rounded once (math.fsum's last step, with its half-way correction).
+        private static double Total(double[] partials, int count)
+        {
+            int n = count;
+            if (n == 0) return 0;
+            double hi = partials[--n], lo = 0;
+            while (n > 0)
+            {
+                double x = hi, y = partials[--n];
+                hi = x + y;
+                lo = y - (hi - x);
+                if (lo != 0) break;
+            }
+            if (n > 0 && ((lo < 0 && partials[n - 1] < 0) || (lo > 0 && partials[n - 1] > 0)))
+            {
+                double y = lo * 2, x = hi + y;
+                if (y == x - hi) hi = x;
+            }
+            return hi;
+        }
+
+        // mÂ·2^e rounded once to the nearest double (ties to even), subnormals and overflow included.
+        private static double RoundToDouble(BigInteger m, long e)
+        {
+            if (m.IsZero) return 0;
+            bool neg = m.Sign < 0;
+            if (neg) m = -m;
+            long top = BitLength(m) - 1 + e;               // floor(log2 |mÂ·2^e|)
+            if (top > 1023) return neg ? double.NegativeInfinity : double.PositiveInfinity;
+            long q = Math.Max(top - 52, -1074);            // the result's ulp
+            long shift = q - e;
+            BigInteger kept;
+            if (shift <= 0) kept = m << (int)-shift;
+            else
+            {
+                kept = m >> (int)shift;
+                BigInteger rest = m - (kept << (int)shift), half = BigInteger.One << (int)(shift - 1);
+                if (rest > half || (rest == half && !kept.IsEven)) kept += 1;
+            }
+            double r = (long)kept;                         // at most 2^53, so exact; 2^53Â·2^971 overflows to âˆž
+            r = q >= -1022 ? r * Pow2((int)q) : r * Pow2(-1022) * Pow2((int)(q + 1022));
+            return neg ? -r : r;
+        }
+
+        private static long BitLength(BigInteger m)
+        {
+            byte[] b = m.ToByteArray();
+            int i = b.Length - 1;
+            while (i > 0 && b[i] == 0) i--;
+            long n = 8L * i;
+            for (int t = b[i]; t != 0; t >>= 1) n++;
+            return n;
+        }
+
+        // x = mantissaÂ·2^exponent exactly.
+        private static void Split(double x, out long mantissa, out int exponent)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int be = (int)((bits >> 52) & 0x7FF);
+            long m = bits & 0xFFFFFFFFFFFFFL;
+            if (be == 0) be = 1; else m |= 1L << 52;
+            exponent = be - 1075;
+            mantissa = bits < 0 ? -m : m;
+        }
+
+        // The exact sum of aÂ·2^shiftA (each partial) and b, rounded once.
+        private static double ExactSum(double[] a, int na, int shiftA, double[] b, int nb)
+        {
+            var mant = new long[na + nb];
+            var exp = new int[na + nb];
+            int min = int.MaxValue;
+            for (int i = 0; i < na + nb; i++)
+            {
+                Split(i < na ? a[i] : b[i - na], out mant[i], out exp[i]);
+                if (i < na) exp[i] += shiftA;
+                if (mant[i] != 0) min = Math.Min(min, exp[i]);
+            }
+            if (min == int.MaxValue) return 0;
+            BigInteger sum = BigInteger.Zero;
+            for (int i = 0; i < mant.Length; i++)
+                if (mant[i] != 0) sum += (BigInteger)mant[i] << (exp[i] - min);
+            return RoundToDouble(sum, min);
+        }
+
         public void Clear()
         {
             _count = 0;
@@ -165,8 +264,7 @@ namespace ToolBelt.Numerics
             _m2Exp = 0;
             _min = double.PositiveInfinity;
             _max = double.NegativeInfinity;
-            _sum = 0;
-            _scaledSum = _scaledCompensation = _smallSum = 0;
+            _nBig = _nSmall = 0;
         }
     }
 }

@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Globalization;
+using BigInteger = System.Numerics.BigInteger;
 
 namespace ToolBelt.Numerics
 {
@@ -99,6 +100,10 @@ namespace ToolBelt.Numerics
             // Finite ends of opposite sign can overflow b − a (−1e308 to 1e308): interpolate the halves instead.
             if (double.IsInfinity(d) && !double.IsInfinity(a) && !double.IsInfinity(b))
                 r = 2 * (0.5 * a + (0.5 * b - 0.5 * a) * t);
+            // An infinite end with a finite t: a + (b − a)·t was ∞ + (−∞)·t, so Lerp(∞, 1, 0.5) was NaN though
+            // Lerp(1, ∞, 0.5) was ∞. The weighted form gives both ends' signs their due.
+            else if ((double.IsInfinity(a) || double.IsInfinity(b)) && !double.IsInfinity(t))
+                r = (1 - t) * a + t * b;
             else
                 r = a + d * t;
             if (t > 0 && t < 1) r = Math.Min(Math.Max(r, Math.Min(a, b)), Math.Max(a, b));
@@ -124,7 +129,57 @@ namespace ToolBelt.Numerics
         // Equals treats every NaN as equal, and 0.0 as -0.0, but .NET Framework hashes their bits: canonicalise.
         private static int Hash(double d) => double.IsNaN(d) ? 1 : (d == 0 ? 0 : d.GetHashCode());
 
-        public override string ToString()
-            => "(" + X.ToString(CultureInfo.InvariantCulture) + ", " + Y.ToString(CultureInfo.InvariantCulture) + ")";
+        public override string ToString() => "(" + Format(X) + ", " + Format(Y) + ")";
+
+        // The shortest round-trip form, written as .NET Core's double.ToString() writes it, on every framework: .NET
+        // Framework wrote 15 digits, so 0.1 + 0.2 came out "0.3", which reads back as another number.
+        private static string Format(double x)
+        {
+            if (double.IsNaN(x) || double.IsInfinity(x)) return x.ToString(CultureInfo.InvariantCulture);
+            if (x == 0) return BitConverter.DoubleToInt64Bits(x) < 0 ? "-0" : "0";
+            var (d, q) = Shortest(Math.Abs(x));
+            string s = d.ToString(CultureInfo.InvariantCulture);
+            int e = q + s.Length - 1;                                  // the decimal exponent of the first digit
+            s = s.TrimEnd('0');
+            string r;
+            if (e >= 17 || e <= -5)                            // where .NET Core switches to exponent form
+                r = s.Substring(0, 1) + (s.Length > 1 ? "." + s.Substring(1) : "") + (e < 0 ? "E-" : "E+")
+                    + Math.Abs(e).ToString("00", CultureInfo.InvariantCulture);
+            else if (e < 0) r = "0." + new string('0', -e - 1) + s;
+            else if (s.Length <= e + 1) r = s + new string('0', e + 1 - s.Length);
+            else r = s.Substring(0, e + 1) + "." + s.Substring(e + 1);
+            return x < 0 ? "-" + r : r;
+        }
+
+        // The shortest decimal digits·10^exponent that reads back as x (positive and finite), found exactly with
+        // BigInteger so every framework agrees (as EngineeringNotation does).
+        private static (BigInteger Digits, int Exponent) Shortest(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int be = (int)((bits >> 52) & 0x7FF);
+            long m = bits & 0xFFFFFFFFFFFFFL;
+            if (be == 0) be = 1; else m |= 1L << 52;
+            int k = be - 1075;                                         // x = m·2^k
+            bool tight = m == 1L << 52 && be > 1;                      // the gap below a power of two is half the one above
+            int top = (int)Math.Floor(Math.Log10(x));
+            for (int n = 1; n <= 18; n++)
+            {
+                int q = top - n + 1;                                   // the place of the last digit
+                // Everything times A = 10^max(−q, 0)·2^max(2 − k, 0), so all terms are integers.
+                BigInteger ten = BigInteger.Pow(10, Math.Max(-q, 0)), tenUp = BigInteger.Pow(10, Math.Max(q, 0));
+                BigInteger xs = (BigInteger)m * BigInteger.Pow(2, Math.Max(k, 2)) * ten;
+                BigInteger num = (BigInteger)m * BigInteger.Pow(2, Math.Max(k, 0)) * ten;
+                BigInteger den = BigInteger.Pow(2, Math.Max(-k, 0)) * tenUp;
+                BigInteger digits = BigInteger.DivRem(num, den, out BigInteger rem);
+                int half = (2 * rem).CompareTo(den);
+                if (half > 0 || (half == 0 && !digits.IsEven)) digits++;  // ties to even, as .NET Core rounds
+                BigInteger lhs = digits * tenUp * BigInteger.Pow(2, Math.Max(2 - k, 0));
+                BigInteger gap = lhs >= xs ? BigInteger.Pow(2, Math.Max(k - 1, 1)) * ten
+                    : BigInteger.Pow(2, tight ? Math.Max(k - 2, 0) : Math.Max(k - 1, 1)) * ten;
+                BigInteger diff = BigInteger.Abs(lhs - xs);
+                if (diff < gap || (diff == gap && (m & 1) == 0)) return (digits, q);
+            }
+            throw new InvalidOperationException("Unreachable: 18 digits always read back.");
+        }
     }
 }

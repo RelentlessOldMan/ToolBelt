@@ -38,7 +38,16 @@ namespace ToolBelt.Numerics
         {
             Finite(from, nameof(from));
             Finite(to, nameof(to));
-            return NormalizeSignedDegrees(to % 360.0 - from % 360.0);
+            // The subtraction's rounding error is kept and added back after the (exact) reduction, so the result is
+            // rounded once at its own size: rounded at the size of the difference (up to 720), (359, 1e-14) gave 1.
+            double a = to % 360.0, b = -(from % 360.0);
+            double s = a + b, bp = s - a, e = (a - (s - bp)) + (b - bp); // TwoSum: s + e = a + b exactly
+            double d = NormalizeSignedDegrees(s);
+            if (e > 0 && d == 180) d = -180;               // s + e is just past 180
+            else if (e < 0 && d + 180 <= -e) d += 360;     // s + e is at or below −180
+            double r = d + e;
+            if (r == -180) r = 180;                        // just above −180, rounded onto it
+            return r + 0.0;
         }
 
         /// <summary>Interpolates from <paramref name="from"/> toward <paramref name="to"/> along the shortest arc, result in [0, 360).</summary>

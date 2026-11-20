@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Numerics;
 
 namespace ToolBelt.Numerics
 {
@@ -7,7 +8,8 @@ namespace ToolBelt.Numerics
     /// A simple moving average over the most recent <c>windowSize</c> samples. Backed by a ring buffer
     /// and an exact running sum (Shewchuk's non-overlapping partials, as Python's math.fsum), so each <see cref="Add"/>
     /// is amortised O(1) and a sample that leaves the window leaves no round-off behind. Huge finite samples whose sum would overflow
-    /// (1e308 + 1e308) are summed scaled down by 2⁻³², so the average stays finite. Infinities and NaN are counted rather than summed,
+    /// (1e308 + 1e308) are summed scaled down by 2⁻³², so the average stays finite (values below 2⁻⁹⁹⁰, which the
+    /// scaling would round, are kept apart unscaled, so the sum stays exact). Infinities and NaN are counted rather than summed,
     /// so they affect the average only while they are inside the window. Before the window fills, the average is over
     /// however many samples have been seen. Not thread-safe.
     /// </summary>
@@ -24,6 +26,11 @@ namespace ToolBelt.Numerics
         private int _huge;        // finite samples of magnitude 2⁹⁶⁰ or more in the window: only these can overflow the sum
         private const double Huge = 9.7453140114e288; // 2⁹⁶⁰, roughly: below it 2³¹ samples sum to under 2⁹⁹¹
         private bool _scaled;     // the sum holds v·2⁻³² because the plain sum overflowed (huge finite samples)
+        // Scaled mode only: samples below 2⁻⁹⁹⁰, summed unscaled. Scaled by 2⁻³² they went subnormal and lost bits (with
+        // 1e308, 1e308, −1e308, −1e308 in the window, 3e-300 averaged 38 ulps off and two 1e-320s averaged 0).
+        private double[] _small = new double[4];
+        private int _nSmall;
+        private const double SmallBelow = 9.556619453472961e-299; // 2⁻⁹⁹⁰: from here up, v·2⁻³² is normal, so exact
         private bool _overflowed; // set by Accumulate; the next consistent point rebuilds in scaled mode
         private const double Down = 1.0 / 4294967296.0, Up = 4294967296.0; // 2⁻³², 2³²: exact, and room for 2³¹ samples
 
@@ -50,8 +57,16 @@ namespace ToolBelt.Numerics
                 if (_nan > 0 || (_posInf > 0 && _negInf > 0)) return double.NaN;
                 if (_posInf > 0) return double.PositiveInfinity;
                 if (_negInf > 0) return double.NegativeInfinity;
-                double mean = Total() / _count;
-                return _scaled ? mean * Up : mean;
+                if (_scaled && _nSmall > 0)
+                {
+                    double exact = ExactSum(_partials, _np, 32, _small, _nSmall);
+                    if (!double.IsInfinity(exact)) return exact / _count;
+                    // Truly beyond the range: the small samples cannot move a sum of 2¹⁰²⁴ or more.
+                }
+                if (!_scaled) return Total() / _count;
+                // Unscaled first where the sum fits: a cancelled sum divided while scaled went subnormal and lost bits.
+                double total = Total(), up = total * Up;
+                return double.IsInfinity(up) ? total / _count * Up : up / _count;
             }
         }
 
@@ -86,7 +101,7 @@ namespace ToolBelt.Numerics
             Array.Clear(_buffer, 0, _buffer.Length);
             _next = 0;
             _count = 0;
-            _np = 0;
+            _np = _nSmall = 0;
             _nan = _posInf = _negInf = _huge = 0;
             _scaled = _overflowed = false;
         }
@@ -99,7 +114,8 @@ namespace ToolBelt.Numerics
             else
             {
                 if (Math.Abs(v) >= Huge) _huge += sign;
-                Accumulate(sign * v);
+                if (_scaled && Math.Abs(v) < SmallBelow) AccumulateSmall(sign * v);
+                else Accumulate(sign * v);
             }
         }
 
@@ -120,6 +136,24 @@ namespace ToolBelt.Numerics
             if (k == _partials.Length) Array.Resize(ref _partials, 2 * k);
             _partials[k++] = v;
             _np = k;
+        }
+
+        // As Accumulate, for the unscaled small samples of scaled mode (their sum cannot overflow).
+        private void AccumulateSmall(double v)
+        {
+            int k = 0;
+            for (int i = 0; i < _nSmall; i++)
+            {
+                double y = _small[i];
+                if (Math.Abs(v) < Math.Abs(y)) { double s = v; v = y; y = s; }
+                double hi = v + y;
+                double lo = y - (hi - v);
+                if (lo != 0) _small[k++] = lo;
+                v = hi;
+            }
+            if (k == _small.Length) Array.Resize(ref _small, 2 * k);
+            _small[k++] = v;
+            _nSmall = k;
         }
 
         // The partials' sum rounded once (math.fsum's last step, with its half-way correction).
@@ -147,10 +181,75 @@ namespace ToolBelt.Numerics
         {
             _scaled = scaled;
             _overflowed = false;
-            _np = 0;
+            _np = _nSmall = 0;
             _nan = _posInf = _negInf = _huge = 0;
             for (int i = 0; i < _count; i++) Include(_buffer[i], +1);
             if (_overflowed && !scaled) Rebuild(scaled: true);
+        }
+
+        private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
+
+        // mÂ·2^e rounded once to the nearest double (ties to even), subnormals and overflow included.
+        private static double RoundToDouble(BigInteger m, long e)
+        {
+            if (m.IsZero) return 0;
+            bool neg = m.Sign < 0;
+            if (neg) m = -m;
+            long top = BitLength(m) - 1 + e;               // floor(log2 |mÂ·2^e|)
+            if (top > 1023) return neg ? double.NegativeInfinity : double.PositiveInfinity;
+            long q = Math.Max(top - 52, -1074);            // the result's ulp
+            long shift = q - e;
+            BigInteger kept;
+            if (shift <= 0) kept = m << (int)-shift;
+            else
+            {
+                kept = m >> (int)shift;
+                BigInteger rest = m - (kept << (int)shift), half = BigInteger.One << (int)(shift - 1);
+                if (rest > half || (rest == half && !kept.IsEven)) kept += 1;
+            }
+            double r = (long)kept;                         // at most 2^53, so exact; 2^53Â·2^971 overflows to âˆž
+            r = q >= -1022 ? r * Pow2((int)q) : r * Pow2(-1022) * Pow2((int)(q + 1022));
+            return neg ? -r : r;
+        }
+
+        private static long BitLength(BigInteger m)
+        {
+            byte[] b = m.ToByteArray();
+            int i = b.Length - 1;
+            while (i > 0 && b[i] == 0) i--;
+            long n = 8L * i;
+            for (int t = b[i]; t != 0; t >>= 1) n++;
+            return n;
+        }
+
+        // x = mantissaÂ·2^exponent exactly.
+        private static void Split(double x, out long mantissa, out int exponent)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int be = (int)((bits >> 52) & 0x7FF);
+            long m = bits & 0xFFFFFFFFFFFFFL;
+            if (be == 0) be = 1; else m |= 1L << 52;
+            exponent = be - 1075;
+            mantissa = bits < 0 ? -m : m;
+        }
+
+        // The exact sum of aÂ·2^shiftA (each partial) and b, rounded once.
+        private static double ExactSum(double[] a, int na, int shiftA, double[] b, int nb)
+        {
+            var mant = new long[na + nb];
+            var exp = new int[na + nb];
+            int min = int.MaxValue;
+            for (int i = 0; i < na + nb; i++)
+            {
+                Split(i < na ? a[i] : b[i - na], out mant[i], out exp[i]);
+                if (i < na) exp[i] += shiftA;
+                if (mant[i] != 0) min = Math.Min(min, exp[i]);
+            }
+            if (min == int.MaxValue) return 0;
+            BigInteger sum = BigInteger.Zero;
+            for (int i = 0; i < mant.Length; i++)
+                if (mant[i] != 0) sum += (BigInteger)mant[i] << (exp[i] - min);
+            return RoundToDouble(sum, min);
         }
     }
 }

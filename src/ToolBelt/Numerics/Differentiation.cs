@@ -78,6 +78,7 @@ namespace ToolBelt.Numerics
         public static double Derivative(Func<double, double> f, double x, double? h = null)
         {
             if (f is null) throw new ArgumentNullException(nameof(f));
+            FiniteX(x);
             double step = StepFor(x, h, 1e-5);
             double xp = x + step, xm = x - step;
             // Near ±double.MaxValue x ± h overflowed and the result was NaN: take the one-sided difference toward zero.
@@ -93,6 +94,7 @@ namespace ToolBelt.Numerics
         public static double RichardsonDerivative(Func<double, double> f, double x, double? h = null)
         {
             if (f is null) throw new ArgumentNullException(nameof(f));
+            FiniteX(x);
             double hs = StepFor(x, h, 1e-2);
             return Richardson(f, x, hs);
         }
@@ -138,6 +140,13 @@ namespace ToolBelt.Numerics
 
         private static double Half(double difference, double dx, double w, bool wide)
             => wide ? difference / dx * 0.5 : difference / w;
+
+        // A NaN or infinite x came back NaN, or (with a step given) threw blaming h for being below the spacing at ∞.
+        private static void FiniteX(double x)
+        {
+            if (double.IsNaN(x) || double.IsInfinity(x))
+                throw new ArgumentOutOfRangeException(nameof(x), x, "x must be finite.");
+        }
 
         private static ArgumentOutOfRangeException StepOverflows(double x, double h)
             => new ArgumentOutOfRangeException(nameof(h), h, $"Step is too large at x = {x:R}: x ± h overflows a double.");
