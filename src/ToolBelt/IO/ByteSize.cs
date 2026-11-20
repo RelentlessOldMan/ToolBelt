@@ -1,6 +1,7 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
 using System.Globalization;
+using System.Numerics;
 
 namespace ToolBelt.IO
 {
@@ -14,7 +15,10 @@ namespace ToolBelt.IO
         private static readonly string[] BinaryUnits = { "B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB" };
         private static readonly string[] DecimalUnits = { "B", "KB", "MB", "GB", "TB", "PB", "EB" };
 
-        /// <summary>Formats a byte count, e.g. 1536 → "1.50 KiB" (binary) or "1.54 KB" (decimal), with 0 to 99 decimals.</summary>
+        /// <summary>
+        /// Formats a byte count, e.g. 1536 → "1.50 KiB" (binary) or "1.54 KB" (decimal), with 0 to 99 decimals. The value is
+        /// rounded from the exact quotient, half away from zero, the same on every runtime.
+        /// </summary>
         public static string Format(long bytes, bool binary = true, int decimals = 2)
         {
             // .NET Framework reads "F100" as a custom format: 1536 with 100 decimals gave "F102 KiB".
@@ -22,32 +26,42 @@ namespace ToolBelt.IO
                 throw new ArgumentOutOfRangeException(nameof(decimals), decimals, "Decimals must be from 0 to 99.");
 
             string sign = bytes < 0 ? "-" : "";
-            // Use double magnitude; long.MinValue negates safely through double.
-            double magnitude = Math.Abs((double)bytes);
-            double @base = binary ? 1024d : 1000d;
+            ulong magnitude = bytes < 0 ? (ulong)(-(bytes + 1)) + 1 : (ulong)bytes;   // long.MinValue too
+            ulong @base = binary ? 1024UL : 1000UL;
             string[] units = binary ? BinaryUnits : DecimalUnits;
 
             int unit = 0;
-            double value = magnitude;
-            while (value >= @base && unit < units.Length - 1)
+            ulong divisor = 1;
+            while (unit < units.Length - 1 && magnitude / divisor >= @base)
             {
-                value /= @base;
+                divisor *= @base;
                 unit++;
             }
             if (unit == 0)
-                return $"{sign}{(long)magnitude} {units[0]}"; // whole bytes, no decimals
+                return sign + magnitude.ToString(CultureInfo.InvariantCulture) + " " + units[0]; // whole bytes, no decimals
 
-            string format = "F" + decimals.ToString(CultureInfo.InvariantCulture);
-            string text = value.ToString(format, CultureInfo.InvariantCulture);
-            // 1048575 B is 1023.999 KiB, which rounds to "1024.00 KiB": carry into the next unit instead. Decided on the
-            // formatted text: .NET Framework's "F" rounds through 15 digits, so Math.Round's answer was not what it printed.
-            if (unit < units.Length - 1 && double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture) >= @base)
+            // In integers, not double: dividing a double by 1000 per unit put exact midpoints on either side (1.125 EB came
+            // out "1.12" on .NET 8 and "1.13" on .NET Framework, whose "F" also rounds through 15 digits), and long.MaxValue
+            // with 15 decimals printed 9.223372036854773 EiB for …776.
+            BigInteger scale = BigInteger.Pow(10, decimals);
+            BigInteger rounded = Scaled(magnitude, divisor, scale);
+            // 1048575 B is 1023.999 KiB, which rounds to "1024.00 KiB": carry into the next unit instead.
+            if (unit < units.Length - 1 && rounded >= scale * @base)
             {
-                value /= @base;
+                divisor *= @base;
                 unit++;
-                text = value.ToString(format, CultureInfo.InvariantCulture);
+                rounded = Scaled(magnitude, divisor, scale);
             }
+            string digits = rounded.ToString(CultureInfo.InvariantCulture).PadLeft(decimals + 1, '0');
+            string text = decimals == 0 ? digits : digits.Substring(0, digits.Length - decimals) + "." + digits.Substring(digits.Length - decimals);
             return sign + text + " " + units[unit];
+        }
+
+        // magnitude / divisor in units of 1/scale, rounded half up.
+        private static BigInteger Scaled(ulong magnitude, ulong divisor, BigInteger scale)
+        {
+            BigInteger q = BigInteger.DivRem(magnitude * scale, divisor, out BigInteger r);
+            return 2 * r >= divisor ? q + 1 : q;
         }
 
         /// <summary>Parses a human-readable size. Throws <see cref="FormatException"/> on invalid input.</summary>
@@ -83,22 +97,30 @@ namespace ToolBelt.IO
             if (numberPart.IndexOf(',') >= 0 && !ThousandsGrouped(numberPart))
                 return false;
 
-            // In decimal, not double: through a double, byte counts past 2^53 lost their low digits and long.MaxValue
-            // (which rounds up to 2^63) was rejected. Decimal holds every long and an EiB multiplier exactly.
-            if (!decimal.TryParse(numberPart, NumberStyles.Float | NumberStyles.AllowThousands,
-                    CultureInfo.InvariantCulture, out decimal number))
+            // "[sign]digits[.digits]", at least one digit, the commas already checked.
+            int at = numberPart.Length > 0 && (numberPart[0] == '+' || numberPart[0] == '-') ? 1 : 0;
+            bool negative = at == 1 && numberPart[0] == '-';
+            string body = numberPart.Substring(at).Replace(",", "");
+            int point = body.IndexOf('.');
+            string whole = point < 0 ? body : body.Substring(0, point);
+            string fraction = point < 0 ? "" : body.Substring(point + 1);
+            if (whole.Length + fraction.Length == 0 || fraction.IndexOf('.') >= 0)
                 return false;
 
             decimal multiplier = UnitMultiplier(unitPart);
             if (multiplier < 0)
                 return false;
 
-            decimal scaled;
-            try { scaled = Math.Round(number * multiplier, MidpointRounding.AwayFromZero); }
-            catch (OverflowException) { return false; }
-            if (scaled > long.MaxValue || scaled < long.MinValue)
+            // Exactly, in integers: through a double, byte counts past 2^53 lost their low digits; through decimal, which
+            // rounds to 28 or 29 digits, "0.49999999999999999999999999999999" became 0.5 and then 1 byte.
+            BigInteger numerator = BigInteger.Parse("0" + whole + fraction, NumberStyles.None, CultureInfo.InvariantCulture) * new BigInteger(multiplier);
+            BigInteger denominator = BigInteger.Pow(10, fraction.Length);
+            BigInteger scaled = BigInteger.DivRem(numerator, denominator, out BigInteger remainder);
+            if (2 * remainder >= denominator)
+                scaled += 1;                                    // half away from zero
+            if (scaled > (negative ? BigInteger.One << 63 : long.MaxValue))
                 return false;
-            bytes = (long)scaled;
+            bytes = negative ? (long)-scaled : (long)scaled;
             return true;
         }
 

@@ -69,7 +69,7 @@ namespace ToolBelt.IO
                 if (s.IndexOf('.') >= 0) { value = 0; return false; }   // a '.' in a decimal-comma file is not ours to guess about
                 s = s.Replace(DecimalSeparator, '.');
             }
-            if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value)) return false;
+            if (!TryParseDouble(s, out value)) return false;
             if (value == 0 && s.Length > 0 && s[0] == '-') value = -0.0;
             return true;
         }
@@ -171,7 +171,53 @@ namespace ToolBelt.IO
             if (field.Length == 0) return false;
             if (dec != '.' && field.IndexOf('.') >= 0) return false;
             string s = dec == '.' ? field : field.Replace(dec, '.');
-            return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out _);
+            return TryParseDouble(s, out _);
+        }
+
+        // double.TryParse, but a number past double's range is infinity (or zero) on every runtime: .NET Framework
+        // rejected "1e400", so ParseNumber threw there and Detect did not count it as numeric, where .NET Core gave
+        // infinity. TryParse fails on well-formed text only out of range, so the magnitude of the digits decides it.
+        private static bool TryParseDouble(string text, out double value)
+        {
+            if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value)) return true;
+            string s = text.Trim(' ', '\t', '\n', '\v', '\f', '\r');   // NumberStyles' white space, not Trim()'s
+            int i = 0;
+            bool negative = i < s.Length && s[i] == '-';
+            if (i < s.Length && (s[i] == '-' || s[i] == '+')) i++;
+            long magnitude = 0;          // the decimal exponent of the first nonzero digit, plus one
+            bool digits = false, nonzero = false, point = false;
+            for (; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c >= '0' && c <= '9')
+                {
+                    digits = true;
+                    if (c != '0' && !nonzero) nonzero = true;
+                    if (!point && nonzero) magnitude++;
+                    else if (point && !nonzero) magnitude--;
+                }
+                else if (c == '.' && !point) point = true;
+                else break;
+            }
+            if (!digits) return false;
+            if (i < s.Length)
+            {
+                if (s[i] != 'e' && s[i] != 'E') return false;
+                i++;
+                bool negativeExponent = i < s.Length && s[i] == '-';
+                if (i < s.Length && (s[i] == '-' || s[i] == '+')) i++;
+                if (i == s.Length) return false;
+                long exponent = 0;
+                for (; i < s.Length; i++)
+                {
+                    if (s[i] < '0' || s[i] > '9') return false;
+                    if (exponent < 1000000000) exponent = exponent * 10 + (s[i] - '0');
+                }
+                magnitude += negativeExponent ? -exponent : exponent;
+            }
+            value = nonzero && magnitude > 0 ? double.PositiveInfinity : 0;
+            if (negative) value = -value;
+            return true;
         }
     }
 }

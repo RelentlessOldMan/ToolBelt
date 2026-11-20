@@ -401,7 +401,7 @@ namespace ToolBelt.IO
             private long _paxLeft;
             private long? _nextSize;
             private bool _ended;
-            private char _family;   // the metadata headers since the last entry: 'G' (GNU L, K), 'P' (PAX x, g) or none
+            private char _family;   // the metadata headers since the last entry: 'G' (GNU L, K), 'P' (PAX x) or none; a PAX g is an entry
 
             public MetadataGuardStream(Stream inner) => _inner = inner;
 
@@ -444,7 +444,13 @@ namespace ToolBelt.IO
                 bool metadata = type == 'x' || type == 'g' || type == 'L' || type == 'K';
                 if (metadata && size > MaxMetadataBytes)
                     throw new InvalidDataException($"Archive has a {size}-byte metadata entry; the limit is {MaxMetadataBytes} bytes.");
-                if (metadata)
+                if (type == 'g')
+                {
+                    // TarReader returns a PAX global header as an entry of its own, so it ends a run rather than joining
+                    // one: a "g" then a GNU long name was refused as a mix.
+                    _family = '\0';
+                }
+                else if (metadata)
                 {
                     // TarReader reads a PAX header after a GNU long name as an ordinary entry and ignores its size, so this
                     // guard applied that size to the next header instead: a GNU L, then a PAX x, let a later gigabyte "x"
