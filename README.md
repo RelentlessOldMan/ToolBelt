@@ -830,6 +830,7 @@ tests/
       SignalReview153Tests.cs (ninth pass: infinite samples and a largest-double bin in Bluestein FFTs, group delay on uneven grids, Welch overlap rounding, correlation ties at extreme scales, a constant largest double in Savitzky-Golay, Hampel NaN counts)
       SignalReview168Tests.cs (round 168: infinite samples in power-of-two FFTs against the definition, magnitudes with an infinite part on both frameworks, the phase range of a negative constant, Hampel on subnormal data)
       SignalReview187Tests.cs (round 187: near-flat parabolic peaks against the exact vertex, Gaussian offsets at any scale and exact flat heights, bit-symmetric windows, dBFS of a subnormal ratio, exact cross-correlation ties, half lengths and half bins rounded up)
+      SignalReview198Tests.cs (round 198: ScaleB rounding once, exact convolution rescue, exact cycle periods, a level near an extreme, coincident Resample points, ToRate's length, Decimate near overflow, -0 in SavitzkyGolay, large dB values, Hampel's infinite median, CrossCorrelationPeak's value, NearestBin's midpoints, Parabolic's denominator, a changing MedianFilter input)
       FiltersReview170Tests.cs (round 170: group delay at and near a notch's zeros against the poles' delay, NaN exactly on a zero for every order, elliptic and Chebyshev I designs holding −rp at the edge or refused)
       WindowTests.cs
       ZeroCrossingTests.cs

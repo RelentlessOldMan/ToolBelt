@@ -8,7 +8,8 @@ namespace ToolBelt.Signal
     /// Savitzky-Golay smoothing: fits a low-order polynomial over a sliding window and takes its value at
     /// the point. Unlike a moving average it preserves peak height and width instead of flattening them, so
     /// it is what you want for a noisy measurement trace. Polynomials up to the chosen order pass through
-    /// unchanged. Windows near the ends shift to stay in range (SciPy's <c>savgol_filter(mode='interp')</c>).
+    /// unchanged up to rounding (an ulp or so: the weights are not exact, so a constant 0.1 can come back as
+    /// 0.09999999999999999). A window of −0 alone gives −0, as the identity order does. Windows near the ends shift to stay in range (SciPy's <c>savgol_filter(mode='interp')</c>).
     /// Building the fit takes O(w·m²) time and w·m doubles for a window of w points and m = order + 1 (order w − 1 is the
     /// identity and costs nothing), then smoothing takes O(n·w).
     /// </summary>
@@ -53,6 +54,19 @@ namespace ToolBelt.Signal
             }
             Edges(fit, data, 0, 0, half, result, edge);
             Edges(fit, data, n - windowSize, half + 1, windowSize, result, edge);
+            // A window of −0 alone gave +0 (w·−0 sums to +0 for a negative weight), though order w − 1 returns the −0.
+            for (int i = 0; i < n; i++)
+            {
+                if (result[i] != 0) continue;
+                int start = Math.Min(Math.Max(i - half, 0), n - windowSize);
+                bool negativeZeros = true;
+                for (int k = 0; k < windowSize && negativeZeros; k++)
+                {
+                    double x = data[start + k];
+                    negativeZeros = x == 0 && 1 / x < 0;
+                }
+                if (negativeZeros) result[i] = -0.0;
+            }
             return result;
         }
 

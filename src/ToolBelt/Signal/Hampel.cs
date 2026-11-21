@@ -99,13 +99,14 @@ namespace ToolBelt.Signal
         // MAD = median of |x − median| over the sorted window. The deviations of the values below the median grow leftward
         // from the middle and those above it rightward, so the middle rank of the two runs is found by binary search: merging
         // them outward was O(w) a sample, 292 s for 400000 samples with a half-window of 100000.
-        // An infinite median makes the deviations NaN, which don't order; they are sorted as before.
+        // An infinite median made the deviations of the values equal to it ∞ − ∞ = NaN, so the MAD of [∞, ∞, 5, ∞, ∞] was NaN
+        // and the 5, infinitely far from the median, was never flagged. A value equal to the median deviates by 0.
         private static double Mad(double[] sorted, int count, double median, ref double[]? scratch)
         {
             if (double.IsInfinity(median))
             {
                 scratch ??= new double[sorted.Length];
-                for (int j = 0; j < count; j++) scratch[j] = Math.Abs(sorted[j] - median);
+                for (int j = 0; j < count; j++) scratch[j] = sorted[j] == median ? 0 : Math.Abs(sorted[j] - median);
                 Array.Sort(scratch, 0, count);
                 return count % 2 != 0 ? scratch[count / 2] : Midpoint(scratch[count / 2 - 1], scratch[count / 2]);
             }

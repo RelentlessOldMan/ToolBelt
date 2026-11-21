@@ -165,7 +165,18 @@ namespace ToolBelt.Signal
             bool raw = sa > Low && sa < High && sb > Low && sb < High;
             if (raw) sa = sb = 1;
             if (!any) return (lag, value, false);
-            if (work > budget) return (nearest, Direct(reference, delayed, sa, sb, nearest).Sum, raw);
+            // The scaled sums lost the products far below the scales' product: [1e200, 1e-200] against [-1e200, 1e-200] peaks
+            // at lag 1 with 1e200·1e-200 = 1, which scaled by 1/(sa·sb) was 1e-400, and 0 came back. A sum whose rounding bound
+            // is not small beside it is redone exactly.
+            (int, double, bool) Finish(int k, (double Sum, double Bound) s)
+            {
+                if (s.Bound <= Math.Abs(s.Sum) * 1e-12) return (k, s.Sum, raw);
+                var r = Decompose(reference);
+                var d = Decompose(delayed);
+                int e = MinExponent(r) + MinExponent(d);
+                return (k, ToDouble(ExactDot(r, d, k, e), e), true);
+            }
+            if (work > budget) return Finish(nearest, Direct(reference, delayed, sa, sb, nearest));
             int bestLag = 0;
             double best = double.NegativeInfinity, bestBound = 0;
             var sums = new (double Sum, double Bound)[candidates.Count];
@@ -186,7 +197,7 @@ namespace ToolBelt.Signal
                     close.Add(i);
                     exactWork += Math.Min(reference.Length, delayed.Length - candidates[i]) - Math.Max(0, -candidates[i]);
                 }
-            if (close.Count < 2 || exactWork > budget) return (bestLag, best, raw);
+            if (close.Count < 2 || exactWork > budget) return Finish(bestLag, (best, bestBound));
             var ra = Decompose(reference);
             var da = Decompose(delayed);
             int e0 = MinExponent(ra) + MinExponent(da);
@@ -197,7 +208,7 @@ namespace ToolBelt.Signal
                 BigInteger s = ExactDot(ra, da, candidates[i], e0);
                 if (pick < 0 || s > pickSum || (s == pickSum && Math.Abs(candidates[i]) < Math.Abs(candidates[pick]))) { pick = i; pickSum = s; }
             }
-            return (candidates[pick], sums[pick].Sum, raw);
+            return (candidates[pick], ToDouble(pickSum, e0), true);
         }
 
         // sum_l delayed[l + k]·reference[l] on the scaled samples, and a bound on its rounding error (each scaled sample
@@ -229,6 +240,30 @@ namespace ToolBelt.Signal
                 r[i] = (bits < 0 ? -man : man, exp - 1075);
             }
             return r;
+        }
+
+        // m·2^e rounded once to the nearest double (ties to even), subnormals included.
+        private static double ToDouble(BigInteger m, int e)
+        {
+            if (m.IsZero) return 0;
+            bool negative = m.Sign < 0;
+            if (negative) m = -m;
+            byte[] bytes = m.ToByteArray();
+            int bits = (bytes.Length - 1) * 8;
+            for (int t = bytes[bytes.Length - 1]; t != 0; t >>= 1) bits++;
+            int top = bits + e - 1;                                         // the exponent of the leading bit
+            if (top > 1023) return negative ? double.NegativeInfinity : double.PositiveInfinity;
+            int ulp = Math.Max(top - 52, -1074), shift = ulp - e;
+            BigInteger q;
+            if (shift <= 0) q = m << -shift;
+            else
+            {
+                q = m >> shift;
+                BigInteger rem = m - (q << shift), half = BigInteger.One << (shift - 1);
+                if (rem > half || (rem == half && !q.IsEven)) q++;
+            }
+            double r = (double)q * Math.Pow(2, ulp);                        // q ≤ 2^53: exact, or ∞ past the range
+            return negative ? -r : r;
         }
 
         private static int MinExponent((long Mantissa, int Exponent)[] x)

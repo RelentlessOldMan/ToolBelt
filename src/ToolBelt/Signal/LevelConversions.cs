@@ -18,7 +18,7 @@ namespace ToolBelt.Signal
         }
 
         /// <summary>Decibels to an amplitude ratio: <c>10^(dB/20)</c>.</summary>
-        public static double DbToAmplitude(double db) => Math.Pow(10.0, db / 20.0);
+        public static double DbToAmplitude(double db) => FromDb(db, 20);
 
         /// <summary>Power ratio to decibels: <c>10·log10(ratio)</c>.</summary>
         public static double PowerToDb(double ratio)
@@ -28,7 +28,18 @@ namespace ToolBelt.Signal
         }
 
         /// <summary>Decibels to a power ratio: <c>10^(dB/10)</c>.</summary>
-        public static double DbToPower(double db) => Math.Pow(10.0, db / 10.0);
+        public static double DbToPower(double db) => FromDb(db, 10);
+
+        // 10^(db/per) as 10^q·10^(r/per), db = per·q + r: the rounding of db/per (300.05 for 6001 dB) was amplified by
+        // ln 10·|db/per|, about 120 ulps there. r is exact (Sterbenz, |db| ≥ 2·per). 10^q is taken in two halves so a
+        // subnormal result rounds once, at the end.
+        private static double FromDb(double db, double per)
+        {
+            if (!(Math.Abs(db) >= 2 * per && Math.Abs(db) <= 400 * per)) return Math.Pow(10.0, db / per); // small, huge or NaN
+            double q = Math.Floor(db / per), r = db - per * q;
+            double half = Math.Floor(q / 2);
+            return Math.Pow(10.0, r / per) * Math.Pow(10.0, half) * Math.Pow(10.0, q - half);
+        }
 
         /// <summary>Root-mean-square level of a signal.</summary>
         public static double Rms(IReadOnlyList<double> samples)

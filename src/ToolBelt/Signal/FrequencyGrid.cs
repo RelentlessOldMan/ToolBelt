@@ -1,5 +1,6 @@
 // ToolBelt drop-in — fully self-contained (BCL only).
 using System;
+using System.Numerics;
 
 namespace ToolBelt.Signal
 {
@@ -62,14 +63,38 @@ namespace ToolBelt.Signal
             // Clamped as a double: the int cast overflows. Ties went to the even bin (2.5 to 2, 3.5 to 4).
             double bin = Math.Round(ratio, MidpointRounding.AwayFromZero);
             int max = fftLength / 2;
-            if (!(bin > 0)) return 0;
-            return bin >= max ? max : (int)bin;
+            int b = !(bin > 0) ? 0 : bin >= max ? max : (int)bin;
+            if (double.IsInfinity(frequency)) return b;
+            // f·N/fs rounded twice (the product, then the quotient), so a frequency just off a midpoint went to the far bin
+            // (3099.659649122807 Hz, N 2850, 8020 Hz gave 1102 for 1101): the bin is corrected against the exact midpoints
+            // f·2N = (2b ± 1)·fs.
+            while (b < max && CompareProducts(frequency, 2L * fftLength, sampleRate, 2L * b + 1) >= 0) b++;
+            while (b > 0 && CompareProducts(frequency, 2L * fftLength, sampleRate, 2L * b - 1) < 0) b--;
+            return b;
         }
 
         private static void ValidateArgs(int fftLength, double sampleRate)
         {
             if (fftLength <= 0) throw new ArgumentOutOfRangeException(nameof(fftLength), fftLength, "FFT length must be positive.");
             if (!(sampleRate > 0) || double.IsInfinity(sampleRate)) throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive and finite.");
+        }
+        // The sign of x·a − y·b, exactly (x, y finite; a, b ≥ 0).
+        private static int CompareProducts(double x, long a, double y, long b)
+        {
+            var (mx, ex) = Decompose(x);
+            var (my, ey) = Decompose(y);
+            int e = Math.Min(ex, ey);
+            return (new BigInteger(mx) * a << (ex - e)).CompareTo(new BigInteger(my) * b << (ey - e));
+        }
+
+        // x as an integer mantissa times a power of two (zero has mantissa 0).
+        private static (long Mantissa, int Exponent) Decompose(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int exp = (int)((bits >> 52) & 0x7FF);
+            long man = bits & 0xFFFFFFFFFFFFFL;
+            if (exp == 0) exp = 1; else man |= 1L << 52;
+            return (bits < 0 ? -man : man, exp - 1075);
         }
     }
 }

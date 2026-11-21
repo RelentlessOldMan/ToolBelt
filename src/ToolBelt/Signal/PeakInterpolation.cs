@@ -35,7 +35,8 @@ namespace ToolBelt.Signal
             // quarters, which is exact there.
             if (IsFinite(left) && IsFinite(center) && IsFinite(right)
                 && (double.IsInfinity(2 * center) || double.IsInfinity(left - right)
-                    || double.IsInfinity(left - center) || double.IsInfinity(right - center)))
+                    || double.IsInfinity(left - center) || double.IsInfinity(right - center)
+                    || double.IsInfinity((left - center) + (right - center))))   // (−0.9e308, 0.8e308, −0.85e308): offset 0
             {
                 var (o, p) = Vertex(left / 4, center / 4, right / 4);
                 return (o, p * 4);

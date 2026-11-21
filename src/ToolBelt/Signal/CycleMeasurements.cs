@@ -110,7 +110,7 @@ namespace ToolBelt.Signal
         /// <param name="samples">The capture.</param>
         /// <param name="sampleRate">Samples per second.</param>
         /// <param name="level">Crossing level (default: midpoint of the minimum and maximum).</param>
-        /// <param name="hysteresis">Half-width of the band around <paramref name="level"/>, as a fraction of the capture's range (default 10%).</param>
+        /// <param name="hysteresis">Half-width of the band around <paramref name="level"/>, as a fraction of the capture's range (default 10%). The band is clipped to the capture's minimum and maximum.</param>
         public static CycleStatistics Measure(IReadOnlyList<double> samples, double sampleRate, double? level = null, double hysteresis = 0.1)
         {
             if (samples is null) throw new ArgumentNullException(nameof(samples));
@@ -147,51 +147,58 @@ namespace ToolBelt.Signal
             // Crossing events at fractional sample positions. An edge is armed by the signal going beyond the band on the
             // far side, takes its time from the first level crossing after that, and is committed only when the signal
             // clears the band on the near side; dropping back beyond the far side first discards it (a runt).
-            var rising = new List<double>();
-            var falling = new List<double>();
+            // Kept as a sample index and a fraction, so a period is (j − i) + (fj − fi): positions i + f were rounded to a
+            // large index's precision first, and a perfect clock read 8.7e-11 samples of jitter at a million samples.
+            var rising = new List<(int I, double F)>();
+            var falling = new List<(int I, double F)>();
             // Reaching the band edge counts as clearing it (with a band): strictly, a level whose band edge is the capture's
             // minimum or maximum (level 0.9 on a 0/1 square wave) could never arm or commit, and gave no cycles. With no band,
             // touching the level is still not a crossing.
-            double below = lvl - band, above = lvl + band;
+            // Clipped to the capture: a level within the band of an extreme (0.05 on a 0/1 square wave) could never arm, and
+            // a clean square wave gave no cycles.
+            double below = Math.Max(lvl - band, min), above = Math.Min(lvl + band, max);
             bool Below(double x) => band > 0 ? x <= below : x < below;
             bool Above(double x) => band > 0 ? x >= above : x > above;
             bool armedRise = Below(samples[0]), armedFall = Above(samples[0]);
-            double pendingRise = double.NaN, pendingFall = double.NaN;
+            (int I, double F) pendingRise = (0, double.NaN), pendingFall = (0, double.NaN);
             for (int i = 1; i < samples.Count; i++)
             {
                 double x = samples[i], prev = samples[i - 1];
-                if (armedRise && double.IsNaN(pendingRise) && prev < lvl && x >= lvl) pendingRise = Cross(samples, i, lvl);
-                if (armedFall && double.IsNaN(pendingFall) && prev > lvl && x <= lvl) pendingFall = Cross(samples, i, lvl);
-                if (!double.IsNaN(pendingRise) && Above(x))
+                if (armedRise && double.IsNaN(pendingRise.F) && prev < lvl && x >= lvl) pendingRise = Cross(samples, i, lvl);
+                if (armedFall && double.IsNaN(pendingFall.F) && prev > lvl && x <= lvl) pendingFall = Cross(samples, i, lvl);
+                if (!double.IsNaN(pendingRise.F) && Above(x))
                 {
                     rising.Add(pendingRise);
-                    pendingRise = double.NaN;
+                    pendingRise = (0, double.NaN);
                     armedRise = false;
                 }
-                if (!double.IsNaN(pendingFall) && Below(x))
+                if (!double.IsNaN(pendingFall.F) && Below(x))
                 {
                     falling.Add(pendingFall);
-                    pendingFall = double.NaN;
+                    pendingFall = (0, double.NaN);
                     armedFall = false;
                 }
-                if (Below(x)) { armedRise = true; pendingRise = double.NaN; }
-                if (Above(x)) { armedFall = true; pendingFall = double.NaN; }
+                if (Below(x)) { armedRise = true; pendingRise = (0, double.NaN); }
+                if (Above(x)) { armedFall = true; pendingFall = (0, double.NaN); }
             }
 
             var cycles = new List<Cycle>();
             int f = 0;
             for (int r = 0; r + 1 < rising.Count; r++)
             {
-                double start = rising[r], end = rising[r + 1];
-                while (f < falling.Count && falling[f] <= start) f++;
-                double high = f < falling.Count && falling[f] < end ? falling[f] - start : double.NaN;
+                var start = rising[r];
+                var end = rising[r + 1];
+                while (f < falling.Count && Diff(falling[f], start) <= 0) f++;
+                double high = f < falling.Count && Diff(falling[f], end) < 0 ? Diff(falling[f], start) : double.NaN;
+                double period = Diff(end, start);
                 double cmax = double.NegativeInfinity, cmin = double.PositiveInfinity;
-                for (int i = (int)Math.Ceiling(start); i <= (int)Math.Floor(end) && i < samples.Count; i++)
+                int first = start.F > 0 ? start.I + 1 : start.I, last = end.F >= 1 ? end.I + 1 : end.I;
+                for (int i = first; i <= last && i < samples.Count; i++)
                 {
                     cmax = Math.Max(cmax, samples[i]);
                     cmin = Math.Min(cmin, samples[i]);
                 }
-                cycles.Add(new Cycle(start / sampleRate, (end - start) / sampleRate, high / sampleRate, cmax * unscale, cmin * unscale, end - start, high, sampleRate));
+                cycles.Add(new Cycle((start.I + start.F) / sampleRate, period / sampleRate, high / sampleRate, cmax * unscale, cmin * unscale, period, high, sampleRate));
             }
             return new CycleStatistics(cycles, lvl * unscale, sampleRate);
         }
@@ -201,10 +208,13 @@ namespace ToolBelt.Signal
 
         // Fractional index where the segment (i−1, i) crosses `level`, halved so b − a can't overflow. Halves that round to
         // equal (only possible below the subnormal scaling above) count as a crossing at i, not 0/0 = NaN, which dropped it.
-        private static double Cross(IReadOnlyList<double> s, int i, double level)
+        private static (int I, double F) Cross(IReadOnlyList<double> s, int i, double level)
         {
             double a = s[i - 1], b = s[i], denom = b / 2 - a / 2;
-            return denom == 0 ? i : i - 1 + Math.Min(1, Math.Max(0, (level / 2 - a / 2) / denom));
+            return denom == 0 ? (i - 1, 1.0) : (i - 1, Math.Min(1, Math.Max(0, (level / 2 - a / 2) / denom)));
         }
+
+        // Position x − y in samples: the whole samples and the fractions apart, so neither is rounded to an index first.
+        private static double Diff((int I, double F) x, (int I, double F) y) => (x.I - y.I) + (x.F - y.F);
     }
 }

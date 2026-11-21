@@ -59,7 +59,17 @@ namespace ToolBelt.Signal
         private static double ScaleB(double x, int e)
         {
             for (; e > 1000; e -= 1000) x *= Math.Pow(2, 1000);
-            for (; e < -1000; e += 1000) x *= Math.Pow(2, -1000);
+            if (e < -1000)
+            {
+                // Down to the bottom of the normal range first, exactly, then the rest in one step: a first 2^-1000 that
+                // landed subnormal rounded, and the last step rounded again (c·2^-1050 came out 2ε for 1ε).
+                int biased = (int)((BitConverter.DoubleToInt64Bits(x) >> 52) & 0x7FF);
+                int down = Math.Min(-e, Math.Max(0, biased - 1));          // x·2^-down stays at or above 2^-1022
+                e += down;
+                for (; down > 1000; down -= 1000) x *= Math.Pow(2, -1000);
+                x *= Math.Pow(2, -down);
+                return x * Math.Pow(2, Math.Max(e, -1075));                 // past 2^-1075 the result rounds to ±0 anyway
+            }
             return x * Math.Pow(2, e);
         }
 

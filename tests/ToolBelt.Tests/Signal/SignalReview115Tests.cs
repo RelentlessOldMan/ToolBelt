@@ -165,7 +165,7 @@ namespace ToolBelt.Tests.Signal
                 if (w.Count == 0) continue;
                 w.Sort((a, b) => a < b ? -1 : a > b ? 1 : Negative(b) - Negative(a));   // −0 before +0, as the filter keeps them
                 double median = Median(w);
-                var dev = w.Select(v => Math.Abs(v - median)).ToList();
+                var dev = w.Select(v => v == median ? 0 : Math.Abs(v - median)).ToList();  // a value equal to an infinite median deviates by 0 (round 198)
                 dev.Sort((a, b) => a.CompareTo(b));
                 double mad = Median(dev);
                 double d = Math.Abs(x[i] - median);

@@ -22,21 +22,25 @@ namespace ToolBelt.Signal
             // Past Array.MaxLength the result threw OutOfMemoryException ("array dimensions exceeded").
             if (n > 0x7FFFFFC7) throw new ArgumentException($"The signal has {n} samples, more than an array holds.", nameof(signal));
             var result = new double[n];
+            // Read once: a list whose values changed between reads left a leaving sample that was never in the window, and
+            // Array.Copy threw with ParamName "length".
+            var samples = new double[n];
+            for (int i = 0; i < n; i++) samples[i] = signal[i];
             int half = windowSize / 2;
             // The window is kept sorted as it slides, one binary-searched removal and insertion per sample: re-sorting it for
             // every sample was O(n·w·log w), 16 s for 20000 samples with a 20001-sample window. NaN is never stored (a sort
             // put it first, so it acted as −∞).
             var window = new double[Math.Min(windowSize, n)];               // a window never holds more than the record
             int count = 0;
-            for (int j = 0; j < n && j <= half; j++) Insert(window, ref count, signal[j]);
+            for (int j = 0; j < n && j <= half; j++) Insert(window, ref count, samples[j]);
 
             for (int i = 0; i < n; i++)
             {
                 if (i > 0)
                 {
                     long leaving = (long)i - half - 1, entering = (long)i + half;
-                    if (leaving >= 0) Remove(window, ref count, signal[(int)leaving]);
-                    if (entering < n) Insert(window, ref count, signal[(int)entering]);
+                    if (leaving >= 0) Remove(window, ref count, samples[(int)leaving]);
+                    if (entering < n) Insert(window, ref count, samples[(int)entering]);
                 }
                 if (count == 0) { result[i] = double.NaN; continue; }
                 int mid = count / 2;
