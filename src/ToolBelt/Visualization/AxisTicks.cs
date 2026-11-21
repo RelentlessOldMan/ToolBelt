@@ -80,10 +80,10 @@ namespace ToolBelt.Visualization
                 step = candidate; digit = d; exponent = e;
                 // A tight axis keeps only the ticks inside the range, so only those count: counting the bracketing ones
                 // chose step 10 for Linear(3.4, 6.68, 2, false), which has no tick inside, over step 2 (4 and 6).
-                long count = CountTicks(min, max, candidate, loose);
-                // The quotient count and the exact decimal ticks can disagree at the ends (six ticks for
-                // Linear(−1e100, −1.00000000000001e100, 5, false)), so a tight count that fits is recounted as emitted.
-                if (!loose && count <= maxTicks) count = TightTicks(min, max, d, e, candidate).Count;
+                // Counted as emitted, at each tick's exact decimal: the quotient min / step is off by more than a 1e-9 slack
+                // once it passes about 1e7, so a data end on a tick fell outside it (a whole extra loose step below
+                // 2262700.476, and a coarser step than fitted: Linear(−85.88, −85.87999994163204, 11, false) took 1e-8).
+                long count = CountTicks(min, max, candidate, loose, k => Decimal(k * d, e));
                 if (count <= maxTicks || (loose && candidate >= reach && count != long.MaxValue))
                     break;
             }
@@ -91,10 +91,8 @@ namespace ToolBelt.Visualization
             int decimals = DecimalsFor(step);
             var values = new List<double>();
             var multiples = new List<long>();
-            if (loose)
-            {
-                long first = (long)Math.Floor(min / step + 1e-9);
-                long last = (long)Math.Ceiling(max / step - 1e-9);
+            int dg = digit, ex = exponent;
+            if (TickRange(min, max, step, loose, k => Decimal(k * dg, ex), out long first, out long last))
                 for (long k = first; k <= last; k++)
                 {
                     double v = Decimal(k * digit, exponent);
@@ -102,9 +100,6 @@ namespace ToolBelt.Visualization
                     values.Add(v);
                     multiples.Add(k * digit);
                 }
-            }
-            else
-                foreach (long m in TightTicks(min, max, digit, exponent, step)) { values.Add(Decimal(m, exponent)); multiples.Add(m); }
             var labels = new List<string>(values.Count);
             // One format for the whole axis, from its largest magnitude: per tick, 0..1.2e7 read 0|5000000|1E+7|1.5E+7.
             double axisMag = values.Count == 0 ? 0 : Math.Max(Math.Abs(values[0]), Math.Abs(values[values.Count - 1]));
@@ -143,7 +138,8 @@ namespace ToolBelt.Visualization
             for (int e = lo; e <= hi; e++)
             {
                 double v = Decimal(1, e); // correctly rounded: Math.Pow(10, −320) is off on .NET Framework
-                if (!loose && (v < min * (1 - 1e-9) || v > max * (1 + 1e-9))) continue;
+                // Exactly inside: a slack of 1e-9 kept 1e-163 for a range starting at 1.0000000000000001e-163.
+                if (!loose && (v < min || v > max)) continue;
                 values.Add(v);
                 labels.Add(e >= -3 && e <= 5
                     ? v.ToString("0.###", CultureInfo.InvariantCulture)
@@ -174,7 +170,9 @@ namespace ToolBelt.Visualization
             double fine = linear.Step;
             // Past 15 decimals the seconds labels and the rounding to them can't follow ([1.6e-19, 1.7e-19] came out as six
             // ticks at 0, all "0.000000000000000s"), so the linear ticks are used with their own labels.
-            if (fine < 1e-15)
+            // Under a minute the labels are s.fff with one format, which keeps 15 significant digits: from 16 the ticks of
+            // [10, 10 + 5e-14] all read "10.00000000000000s".
+            if (fine < 1e-15 || (fine < TimeSteps[0] && reach < 60 && Math.Floor(Math.Log10(reach)) + 1 + DecimalsFor(fine) > 15))
             {
                 var suffixed = new List<string>(linear.Labels.Count);
                 foreach (string l in linear.Labels) suffixed.Add(l + "s");
@@ -182,7 +180,10 @@ namespace ToolBelt.Visualization
             }
             if (fine < TimeSteps[0]) step = fine;
             else foreach (double candidate in TimeSteps)
-                if (CountTicks(minSeconds, maxSeconds, candidate, loose) <= maxTicks || (loose && candidate >= reach)) { step = candidate; break; }
+            {
+                int places = candidate >= 1 ? 0 : DecimalsFor(candidate);
+                if (CountTicks(minSeconds, maxSeconds, candidate, loose, k => Clean(k * candidate, places)) <= maxTicks || (loose && candidate >= reach)) { step = candidate; break; }
+            }
             if (double.IsNaN(step))
             {
                 // Beyond the table (multi-day spans): fall back to whole multiples of a day on a nice 1-2-5 scale.
@@ -193,25 +194,20 @@ namespace ToolBelt.Visualization
             int decimals = step >= 1 ? 0 : DecimalsFor(step);
             // Near double.MaxValue k·step overflowed to ∞ (Time(0, MaxValue) threw from FormatTime, naming "seconds"),
             // and a multiple past 2^62 would not fit the long: the linear ticks, in seconds, are used there.
-            double firstMultiple = Math.Floor(minSeconds / step + 1e-9), lastMultiple = Math.Ceiling(maxSeconds / step - 1e-9);
+            // The ticks as emitted, as Linear's: Time(9866.4, 9866.400905337758, 10) started a whole step below 9866.4, and
+            // a tight axis kept a tick at 0 for [9.46e-13, 4.5].
+            bool stepped = TickRange(minSeconds, maxSeconds, step, loose, k => Clean(k * step, decimals), out long first, out long last);
+            double firstMultiple = first, lastMultiple = last;
             // A day step past double.MaxValue (Time(0, 1.73e308, 2)) made 0 · ∞ = NaN, which got past an ∞-only test and
             // threw from FormatTime naming "seconds".
-            if (!(Math.Abs(firstMultiple) < 4.6e18 && Math.Abs(lastMultiple) < 4.6e18)
-                || !(Math.Abs(firstMultiple * step) <= double.MaxValue) || !(Math.Abs(lastMultiple * step) <= double.MaxValue))
+            if (!stepped || !(Math.Abs(firstMultiple * step) <= double.MaxValue) || !(Math.Abs(lastMultiple * step) <= double.MaxValue))
             {
                 var suffixed = new List<string>(linear.Labels.Count);
                 foreach (string l in linear.Labels) suffixed.Add(l + "s");
                 return new TickSet(linear.Values, suffixed, linear.Step, linear.Min, linear.Max);
             }
-            long first = (long)firstMultiple;
-            long last = (long)lastMultiple;
             var values = new List<double>();
-            for (long k = first; k <= last; k++)
-            {
-                double v = Clean(k * step, decimals);
-                if (!loose && (v < minSeconds - step * 1e-9 || v > maxSeconds + step * 1e-9)) continue;
-                values.Add(v);
-            }
+            for (long k = first; k <= last; k++) values.Add(Clean(k * step, decimals));
             // No tick inside a range a few ulps wide: the linear ticks, which are then its ends (it was unlabelled). And
             // the day steps were counted in days, not as the seconds ticks round, so Time(−5.82926823563374e24,
             // −5.829268235633367e24, 4, false) had five: the linear ticks keep to maxTicks.
@@ -298,6 +294,9 @@ namespace ToolBelt.Visualization
             {
                 // A flat range still needs an axis: open it symmetrically around the value.
                 double pad = min == 0 ? 1 : Math.Abs(min) * 0.1;
+                // Two ticks: [−1, 1] needs three loose ticks (−1|0|1), past the bound the doc keeps for ranges straddling
+                // zero, which [0, 0] does not. [0, 1] keeps the axis on the data.
+                if (min == 0 && maxTicks == 2) { max = 1; return false; }
                 // Near ±double.MaxValue one side overflowed to ∞, and the tick loop then never ended: pad the other side.
                 if (double.IsInfinity(max + pad)) min -= 2 * pad;
                 else if (double.IsInfinity(min - pad)) max += 2 * pad;
@@ -309,8 +308,11 @@ namespace ToolBelt.Visualization
             if (max - min < 1e-300)
             {
                 double mid = min / 2 + max / 2;
-                min = mid - 1e-300;
-                max = mid + 1e-300;
+                // Kept on the data's side of zero: [1.9e-322, 2.47e-322] opened across it, and needed three loose ticks
+                // (−s, 0, s) at maxTicks 2, past the bound the doc keeps for ranges that straddle zero.
+                if (min >= 0 && mid < 1e-300) { min = 0; max = 2e-300; }
+                else if (max <= 0 && mid > -1e-300) { min = -2e-300; max = 0; }
+                else { min = mid - 1e-300; max = mid + 1e-300; }
                 return true;
             }
             return false;
@@ -319,29 +321,39 @@ namespace ToolBelt.Visualization
         // In doubles: the long casts wrapped once |value / step| passed 9.2e18 (epoch nanoseconds read as seconds),
         // so a hopeless step "fitted". Past 2^52 steps the multiples are not even distinct, so count it as too many.
         // Loose: the ticks that bracket the range; tight: those inside it.
-        private static long CountTicks(double min, double max, double step, bool loose)
-        {
-            double a = min / step, b = max / step;
-            if (!(Math.Abs(a) < 4.5e15) || !(Math.Abs(b) < 4.5e15)) return long.MaxValue;
-            return loose
-                ? (long)Math.Ceiling(b - 1e-9) - (long)Math.Floor(a + 1e-9) + 1
-                : (long)Math.Floor(b + 1e-9) - (long)Math.Ceiling(a - 1e-9) + 1;
-        }
+        private static long CountTicks(double min, double max, double step, bool loose, Func<long, double> value)
+            => TickRange(min, max, step, loose, value, out long first, out long last) ? Math.Max(0, last - first + 1) : long.MaxValue;
 
-        // The multiples (in units of 10^exponent) of the tight ticks inside [min, max], each tested at its exact decimal
-        // value, as they are emitted. Called only once the quotient count fits, so the walk is short.
-        private static List<long> TightTicks(double min, double max, int digit, int exponent, double step)
+        // The multiples k of the ticks value(k), found from the quotient and settled on the values themselves (value is
+        // increasing in k). Loose: the ticks bracketing the range, a tick within a billionth of a step inside an end
+        // standing for it (an end computed as 0.1 + 0.2 still ends on 0.3); tight: the ticks exactly inside it, as the doc
+        // says (a slack kept 0 for [−9.53, −1.6e-11]). False when the multiples are too large to step.
+        private static bool TickRange(double min, double max, double step, bool loose, Func<long, double> value, out long first, out long last)
         {
-            var multiples = new List<long>();
-            long first = (long)Math.Floor(min / step + 1e-9), last = (long)Math.Ceiling(max / step - 1e-9);
-            for (long k = first; k <= last; k++)
+            first = 0; last = -1;
+            double a = Math.Floor(min / step), b = Math.Ceiling(max / step);
+            if (!(Math.Abs(a) < 4.5e15) || !(Math.Abs(b) < 4.5e15)) return false;
+            first = (long)a; last = (long)b;
+            int walk = 0;
+            if (loose)
             {
-                double v = Decimal(k * digit, exponent);
-                // A tick past double.MaxValue (max + step · 1e-9 is ∞ there, so the range test keeps it).
-                if (double.IsInfinity(v) || v < min - step * 1e-9 || v > max + step * 1e-9) continue;
-                multiples.Add(k * digit);
+                double lo = min + step * 1e-9, hi = max - step * 1e-9;
+                // The last k with value(k) <= lo, and the first with value(k) >= hi.
+                while (value(first) > lo) { first--; if (++walk > 64) return false; }
+                while (value(first + 1) <= lo) { first++; if (++walk > 64) return false; }
+                while (value(last) < hi) { last++; if (++walk > 64) return false; }
+                while (value(last - 1) >= hi) { last--; if (++walk > 64) return false; }
+                if (last < first) last = first;
             }
-            return multiples;
+            else
+            {
+                // The first k with value(k) >= min, and the last with value(k) <= max.
+                while (value(first) < min) { first++; if (++walk > 64) return false; }
+                while (value(first - 1) >= min) { first--; if (++walk > 64) return false; }
+                while (value(last) > max) { last--; if (++walk > 64) return false; }
+                while (value(last + 1) <= max) { last++; if (++walk > 64) return false; }
+            }
+            return true;
         }
 
         private static int DecimalsFor(double step)

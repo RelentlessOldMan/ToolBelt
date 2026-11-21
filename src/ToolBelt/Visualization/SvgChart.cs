@@ -425,7 +425,10 @@ namespace ToolBelt.Visualization
                     for (int i = 0; i < s.Y.Count; i++)
                     {
                         double cx = f.MapX(s.X?[i] ?? i), py = f.MapY(s.Y[i]);
-                        if (double.IsNaN(cx) || double.IsNaN(py) || double.IsInfinity(py)) continue;
+                        if (double.IsNaN(cx) || double.IsNaN(py) || double.IsInfinity(s.Y[i])) continue;
+                        // A finite value whose pixel overflows (1e300 on a 1e-10 range) is a bar past the edge: clipped there, as
+                        // a line to it is, not dropped.
+                        if (double.IsInfinity(py)) py = py < 0 ? f.Top : f.Bottom;
                         double x0 = Clamp(cx - barWidth / 2, f.Left, f.Right), x1 = Clamp(cx + barWidth / 2, f.Left, f.Right);
                         double y0 = Clamp(Math.Min(py, baseY), f.Top, f.Bottom), y1 = Clamp(Math.Max(py, baseY), f.Top, f.Bottom);
                         if (x1 - x0 <= 0) continue;
@@ -507,6 +510,8 @@ namespace ToolBelt.Visualization
             for (int i = 0; i < shown; i++) textWidth = Math.Max(textWidth, SvgUtils.EstimateTextWidth(named[i].Name!, fs));
             if (more != null) textWidth = Math.Max(textWidth, SvgUtils.EstimateTextWidth(more, fs));
             double maxText = Math.Max(0, f.Width - 12 - (8 + swatch + 6 + 8));
+            // No room for any text: FitWidth reads a limit of 0 as none, so a 50 px chart ran the names 150 px off the canvas.
+            if (maxText < 1) return;
             textWidth = Math.Min(textWidth, maxText);
             double w = 8 + swatch + 6 + textWidth + 8, h = 6 + rows * row;
             double x0 = f.Right - w - 6, y0 = f.Top + 6;

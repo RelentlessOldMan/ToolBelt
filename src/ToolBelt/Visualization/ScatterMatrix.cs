@@ -94,8 +94,13 @@ namespace ToolBelt.Visualization
               .Append("\" viewBox=\"0 0 ").Append(SvgUtils.Number(width)).Append(' ').Append(SvgUtils.Number(height))
               .Append("\" font-family=\"Helvetica, Arial, sans-serif\" font-size=\"10\">\n<rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>\n");
             if (o.Title != null)
-                sb.Append("<text x=\"").Append(SvgUtils.Number(left + (k * size + (k - 1) * gap) / 2)).Append("\" y=\"20\" text-anchor=\"middle\" font-size=\"14\" font-weight=\"bold\">")
+            {
+                // Fitted to the canvas around its centre: a long title ran off both sides.
+                double cx = left + (k * size + (k - 1) * gap) / 2;
+                sb.Append("<text x=\"").Append(SvgUtils.Number(cx)).Append("\" y=\"20\" text-anchor=\"middle\" font-size=\"14\" font-weight=\"bold\"")
+                  .Append(SvgUtils.FitWidth(o.Title, 14, 2 * Math.Min(cx, width - cx) - 8, bold: true)).Append('>')
                   .Append(SvgUtils.EscapeText(o.Title)).Append("</text>\n");
+            }
 
             for (int row = 0; row < k; row++)
             {

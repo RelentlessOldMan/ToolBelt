@@ -231,8 +231,23 @@ namespace ToolBelt.Visualization
                 bool clash = false;
                 for (int i = 1; i < tickLabels.Count; i++) clash |= tickLabels[i] == tickLabels[i - 1];
                 if (clash)
+                {
                     for (int i = 1; i < tickLabels.Count; i++)
                         tickLabels[i] = "+" + FormatSeconds(ticks.Values[i] - ticks.Values[0]);
+                    // The offsets round to three decimals too: a window two ulps wide read "+0.002 ps" twice beside
+                    // "+4.441e-16 s". Then they are the exact differences of the ticks' decimals (their labels), in seconds:
+                    // ticks an ulp or two apart are not whole steps apart as doubles.
+                    bool still = false;
+                    for (int i = 2; i < tickLabels.Count; i++) still |= tickLabels[i] == tickLabels[i - 1];
+                    var exact = new decimal[ticks.Count];
+                    bool parsed = true;
+                    for (int i = 0; i < ticks.Count && parsed; i++)
+                        parsed = decimal.TryParse(ticks.Labels[i], NumberStyles.Float, CultureInfo.InvariantCulture, out exact[i]);
+                    if (still)
+                        for (int i = 1; i < tickLabels.Count; i++)
+                            tickLabels[i] = "+" + (parsed ? (double)(exact[i] - exact[0]) : Math.Round((ticks.Values[i] - ticks.Values[0]) / ticks.Step) * ticks.Step)
+                                .ToString("G15", CultureInfo.InvariantCulture) + " s";
+                }
             }
             sb.Append("<g stroke=\"#eeeeee\">\n");
             foreach (double v in ticks.Values)

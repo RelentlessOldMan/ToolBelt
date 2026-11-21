@@ -121,6 +121,9 @@ namespace ToolBelt.Visualization
                 || double.IsInfinity(ax) || double.IsInfinity(ay) || double.IsInfinity(bx) || double.IsInfinity(by)) return false;
             double xlo = Axis(Math.Min(XMin, XMax), LogX, kx), xhi = Axis(Math.Max(XMin, XMax), LogX, kx);
             double ylo = Axis(Math.Min(YMin, YMax), LogY, ky), yhi = Axis(Math.Max(YMin, YMax), LogY, ky);
+            // Both ends past the same edge miss the ranges, decided exactly: the edge quotients rounded to t0 = t1 = 1 for
+            // y 1.6e308 to 1 over [0, 2e-323], and the raw outer end was kept (its pixel is −∞ there).
+            if ((ax < xlo && bx < xlo) || (ax > xhi && bx > xhi) || (ay < ylo && by < ylo) || (ay > yhi && by > yhi)) return false;
             double Out(double x, double y) => Math.Max(Math.Max(xlo - x, x - xhi) / (xhi - xlo), Math.Max(ylo - y, y - yhi) / (yhi - ylo));
             bool flip = Out(ax, ay) > Out(bx, by);
             if (flip) { (ax, bx) = (bx, ax); (ay, by) = (by, ay); }
