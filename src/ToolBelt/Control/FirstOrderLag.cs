@@ -48,7 +48,15 @@ namespace ToolBelt.Control
             // not e^-40 = 4.2e-18 (and 30τ was off by 1.7e-4).
             double keep = TimeConstant == 0 ? 0 : Math.Exp(-dt / TimeConstant);
             // input − Value overflowed for far-apart finite values (∞, or NaN with dt = 0); interpolating can't.
-            double next = keep * Value + alpha * input;
+            // Where e^(−dt/τ) underflows the kept part need not (1e300 after 800τ is 3.7e-48, not 0): it is applied in
+            // thirds, each e^(−x/3) normal while the result can be.
+            double kept = keep * Value;
+            if (Math.Abs(keep) < 2.2250738585072014e-308 && Value != 0)
+            {
+                double third = Math.Exp(-dt / TimeConstant / 3);
+                kept = Value * third * third * third;
+            }
+            double next = kept + alpha * input;
             Value = Math.Max(Math.Min(Value, input), Math.Min(Math.Max(Value, input), next));
             return Value;
         }

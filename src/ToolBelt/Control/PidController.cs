@@ -67,8 +67,8 @@ namespace ToolBelt.Control
             double derivative = 0;
             if (_hasLast && _kd != 0)
                 derivative = _derivativeOnMeasurement
-                    ? -_kd * (measurement - _lastMeasurement) / dt
-                    : _kd * (error - _lastError) / dt;
+                    ? -MulDiv(_kd, measurement - _lastMeasurement, dt)
+                    : MulDiv(_kd, ErrorChange(measurement), dt);
 
             // Conditional integration: the integral step stops at the saturation limit. The direction is that of the
             // integral's contribution, ki·error, so reverse-acting (negative) gains unwind too. Skipping the whole step
@@ -98,6 +98,7 @@ namespace ToolBelt.Control
             int push = Math.Sign(_ki) * Math.Sign(error);
             bool windupHigh = tentative > _max && push > 0;
             bool windupLow = tentative < _min && push < 0;
+            bool heldAtLimit = false;
             // Finite inputs can still overflow error·dt or the sum; an infinite integral (or one with ki = 0, where it is
             // unused, and 0·∞ made every later output NaN) was kept for good.
             if (windupHigh || windupLow)
@@ -124,6 +125,7 @@ namespace ToolBelt.Control
                 {
                     _integral = atLimit;
                     _big = atBig;
+                    heldAtLimit = true;
                 }
             }
             else if (_ki != 0 && !double.IsInfinity(integral) && !double.IsNaN(integral))
@@ -140,6 +142,10 @@ namespace ToolBelt.Control
                 double scaled = ScaledOutput(measurement, dt, _integral, _big);
                 output = double.IsNaN(scaled) ? DominantOutput(measurement, dt, _integral, _big) : scaled;
             }
+
+            // The integral was chosen to put the output at the limit, but that integral can round: P + D at 1e234 against
+            // a limit of -1 needs -1 - 1e234, which is -1e234, and the sum then came out 0 where it is -1 by construction.
+            if (heldAtLimit) output = windupHigh ? _max : _min;
 
             _lastError = error;
             _lastMeasurement = measurement;
@@ -218,8 +224,31 @@ namespace ToolBelt.Control
             const double S = Scale;
             if (!_hasLast || _kd == 0) return 0;
             return _derivativeOnMeasurement
-                ? -_kd * (measurement * S - _lastMeasurement * S) / dt
-                : _kd * ((Setpoint * S - measurement * S) - (_lastSetpoint * S - _lastMeasurement * S)) / dt;
+                ? -MulDiv(_kd, measurement * S - _lastMeasurement * S, dt)
+                : MulDiv(_kd, (Setpoint * S - _lastSetpoint * S) - (measurement * S - _lastMeasurement * S), dt);
+        }
+
+        // error − last error as the setpoint's change less the measurement's: the difference of the two rounded errors
+        // lost a small change next to a large error (setpoint 1e17, measurement 0 then 1 gave a derivative of 0, not −1).
+        // Where the changes overflow, the halves are taken; the 2^-600 path takes over if the doubled result is ∞.
+        private double ErrorChange(double measurement)
+        {
+            double d = (Setpoint - _lastSetpoint) - (measurement - _lastMeasurement);
+            if (double.IsInfinity(d) || double.IsNaN(d))
+                d = ((Setpoint * 0.5 - _lastSetpoint * 0.5) - (measurement * 0.5 - _lastMeasurement * 0.5)) * 2;
+            return d;
+        }
+
+        // a·b / c with the order chosen so no intermediate overflows or goes subnormal where the result is normal:
+        // kd·Δ overflowed (kd 1e245, Δ 1e278, dt 1e272 gave −∞, not −1e251).
+        private static double MulDiv(double a, double b, double c)
+        {
+            const double MinNormal = 2.2250738585072014e-308;
+            double p = a * b;
+            if (!double.IsInfinity(p) && (Math.Abs(p) >= MinNormal || a == 0 || b == 0)) return p / c;
+            double q = b / c;
+            if (!double.IsInfinity(q) && Math.Abs(q) >= MinNormal) return a * q;
+            return a / c * b;
         }
 
         private static void CheckFinite(double v, string name)

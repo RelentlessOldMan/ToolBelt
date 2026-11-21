@@ -55,7 +55,11 @@ namespace ToolBelt.Control
             double keep = predictedCovariance >= _measurementNoise
                 ? _measurementNoise / predictedCovariance / (1 + _measurementNoise / predictedCovariance)
                 : 1 / (1 + predictedCovariance / _measurementNoise);
-            double estimate = keep * Estimate + gain * measurement;
+            // The weighted terms are formed as x·R/P (or x·P/R) in a safe order: the weight alone underflowed to 0 where
+            // the term did not (estimate 1e150 kept with weight 1e-400 is 1e-250, not 0).
+            double estimate = predictedCovariance >= _measurementNoise
+                ? MulDiv(Estimate, _measurementNoise, predictedCovariance) / (1 + _measurementNoise / predictedCovariance) + gain * measurement
+                : keep * Estimate + MulDiv(measurement, predictedCovariance, _measurementNoise) / (1 + predictedCovariance / _measurementNoise);
             Estimate = Math.Max(Math.Min(Estimate, measurement), Math.Min(Math.Max(Estimate, measurement), estimate));
             // = (1 − K)·P = PR/(P + R), without 0·∞. For P < R it is formed from P: K·R lost P when P/R underflowed (P
             // 1e-30, R 1e300 came out 0, so a filter with no process noise ignored every later measurement).
@@ -64,6 +68,17 @@ namespace ToolBelt.Control
                 : predictedCovariance / (1 + predictedCovariance / _measurementNoise);
             LastGain = gain;
             return Estimate;
+        }
+
+        // a·b / c with the order chosen so no intermediate overflows or goes subnormal where the result is normal.
+        private static double MulDiv(double a, double b, double c)
+        {
+            const double MinNormal = 2.2250738585072014e-308;
+            double p = a * b;
+            if (!double.IsInfinity(p) && (Math.Abs(p) >= MinNormal || a == 0 || b == 0)) return p / c;
+            double q = b / c;
+            if (!double.IsInfinity(q) && Math.Abs(q) >= MinNormal) return a * q;
+            return a / c * b;
         }
 
         /// <summary>Restarts from <paramref name="estimate"/> with error covariance <paramref name="errorCovariance"/>.</summary>
