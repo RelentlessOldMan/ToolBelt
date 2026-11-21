@@ -61,8 +61,9 @@ namespace ToolBelt.Collections
             lock (_gate)
             {
                 // A Return of the same instance still resetting counts as pooled: otherwise both pushed it, one
-                // after a Rent took the first, and two renters shared it.
-                if (_items.Count >= _maxRetained || _pooled.Contains(item) || !_returning.Add(item))
+                // after a Rent took the first, and two renters shared it. A Return still resetting holds its slot:
+                // otherwise two Returns for the last one both reset, and the later was dropped after its reset.
+                if (_items.Count + _returning.Count >= _maxRetained || _pooled.Contains(item) || !_returning.Add(item))
                     return; // dropped (or already pooled): don't reset it
             }
 

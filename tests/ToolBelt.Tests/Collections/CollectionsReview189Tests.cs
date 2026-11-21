@@ -183,8 +183,9 @@ namespace ToolBelt.Tests.Collections
                 float f = (float)RandomDouble(rng);
                 if (float.IsInfinity(f)) f = 1f;
                 string ds = Cell(d), fs = Cell(f);
-                Check.True(double.Parse(ds, NumberStyles.Float, CultureInfo.InvariantCulture) == d || (d == 0 && ds.TrimStart('-') == "0"), "double " + ds);
-                Check.True((float)double.Parse(fs, NumberStyles.Float, CultureInfo.InvariantCulture) == f || (f == 0 && fs.TrimStart('-') == "0"), "float " + fs);
+                // Read back exactly: .NET Framework's Parse is not correctly rounded (round 199).
+                Check.True(CollectionsReview199Tests.ReadExact(ds, single: false) == d || (d == 0 && ds.TrimStart('-') == "0"), "double " + ds);
+                Check.True((float)CollectionsReview199Tests.ReadExact(fs, single: true) == f || (f == 0 && fs.TrimStart('-') == "0"), "float " + fs);
                 if (!OnFramework)
                 {
                     Check.Equal(d.ToString("R", CultureInfo.InvariantCulture), ds);

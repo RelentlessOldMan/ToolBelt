@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Numerics;
 using System.Text;
 
 namespace ToolBelt.Collections
@@ -156,12 +157,14 @@ namespace ToolBelt.Collections
         }
 
         /// <summary>Returns the rows sorted ascending by one column. Stable. Null cells sort first, also with a
-        /// <paramref name="comparer"/>, which sees only non-null cells. Strings compare ordinally by default.</summary>
+        /// <paramref name="comparer"/>, which sees only non-null cells. By default strings compare ordinally and numbers
+        /// of different types (int, long, double, decimal, …) by value.</summary>
         public DataTableLite OrderBy(string column, IComparer<object?>? comparer = null)
             => Sort(column, comparer, descending: false);
 
         /// <summary>Returns the rows sorted descending by one column. Stable. Null cells sort last, also with a
-        /// <paramref name="comparer"/>, which sees only non-null cells. Strings compare ordinally by default.</summary>
+        /// <paramref name="comparer"/>, which sees only non-null cells. By default strings compare ordinally and numbers
+        /// of different types (int, long, double, decimal, …) by value.</summary>
         public DataTableLite OrderByDescending(string column, IComparer<object?>? comparer = null)
             => Sort(column, comparer, descending: true);
 
@@ -337,25 +340,76 @@ namespace ToolBelt.Collections
             return sb.ToString();
         }
 
-        // As .NET's "R" writes it, on every runtime: .NET Framework's "R" wrote a float with more digits than it needs
-        // (1.401298E-45 for 1E-45) and −0 as "0". The fewest digits that read back as the value (the nearest such, as "E"
-        // rounds), laid out in exponent form from 10^17 (10^9 for a float) or below 10^-4.
+        // As .NET's "R" writes it, on every runtime: the fewest significant digits that read back as the value, the nearest
+        // such (an exact tie to the even digit), laid out in exponent form from 10^17 (10^9 for a float) or below 10^-4.
+        // .NET Framework's "R" wrote a float with more digits than it needs (1.401298E-45 for 1E-45) and −0 as "0", and its
+        // "E" formatting and Parse are not correctly rounded, so a search over them gave too many digits
+        // (3.3515445649494128E-254), not the nearest (853041653452.9262 for …9261), or text that reads back as another
+        // double (7.359979136196296E+248 for 7.3599791361962955E+248). The digits are worked out exactly instead.
         private static string Shortest(double v, bool single)
         {
             CultureInfo inv = CultureInfo.InvariantCulture;
             if (double.IsNaN(v) || double.IsInfinity(v)) return v.ToString(inv);
             if (v == 0) return BitConverter.DoubleToInt64Bits(v) < 0 ? "-0" : "0";
-            string e = "";
-            for (int p = 1, max = single ? 9 : 17; p <= max; p++)
+            // |v| = m·2^e on its own grid (float or double).
+            long m; int e, biased;
+            if (single)
             {
-                e = single ? ((float)v).ToString("E" + (p - 1).ToString(inv), inv) : v.ToString("E" + (p - 1).ToString(inv), inv);
-                if (single ? ReadSingle(e) == (float)v : ReadDouble(e) == v) break;
+                int bits = BitConverter.ToInt32(BitConverter.GetBytes((float)v), 0);
+                biased = (bits >> 23) & 0xFF;
+                m = bits & 0x7FFFFF;
+                if (biased == 0) biased = 1; else m |= 1L << 23;
+                e = biased - 150;
             }
-            bool negative = e[0] == '-';
-            int at = e.IndexOf('E');
-            int start = negative ? 1 : 0;
-            string digits = e.Substring(start, at - start).Replace(".", "").TrimEnd('0');
-            int exponent = int.Parse(e.Substring(at + 1), NumberStyles.AllowLeadingSign, inv);
+            else
+            {
+                long bits = BitConverter.DoubleToInt64Bits(v);
+                biased = (int)((bits >> 52) & 0x7FF);
+                m = bits & 0xFFFFFFFFFFFFFL;
+                if (biased == 0) biased = 1; else m |= 1L << 52;
+                e = biased - 1075;
+            }
+            // In quarters of the grid: the value is 4m and the midpoints to its neighbours 4m ± 2 (4m − 1 below a power of
+            // two, where the grid below is twice as fine). Text on a midpoint reads back as v when m is even (ties to even).
+            bool lowerFiner = m == (single ? 1L << 23 : 1L << 52) && biased > 1;
+            BigInteger value = new BigInteger(m) << 2, low = value - (lowerFiner ? 1 : 2), high = value + 2;
+            int e2 = e - 2;
+            bool inclusive = (m & 1) == 0;
+            int k = (int)Math.Floor(Math.Log10(Math.Abs(v)));        // the decimal exponent, then made exact
+            while (k > -400 && Compare(BigInteger.One, k, value, e2) > 0) k--;
+            while (k < 400 && Compare(BigInteger.One, k + 1, value, e2) <= 0) k++;
+            for (int p = 1; ; p++)
+            {
+                // d = ⌊|v| / 10^q⌋ has p digits; d and d + 1 are the p-digit candidates either side of |v|.
+                int q = k - p + 1;
+                BigInteger num = value << Math.Max(e2, 0), den = BigInteger.One << Math.Max(-e2, 0);
+                if (q >= 0) den *= BigInteger.Pow(10, q); else num *= BigInteger.Pow(10, -q);
+                BigInteger d = BigInteger.DivRem(num, den, out BigInteger rem);
+                if (rem.IsZero) return Layout(v < 0, d, p, k, single);
+                int lo = Compare(d, q, low, e2), hi = Compare(d + 1, q, high, e2);
+                bool downReads = lo > 0 || (lo == 0 && inclusive), upReads = hi < 0 || (hi == 0 && inclusive);
+                if (!downReads && !upReads) continue;
+                int half = (2 * rem).CompareTo(den);
+                bool up = upReads && (!downReads || half > 0 || (half == 0 && !d.IsEven));
+                return Layout(v < 0, up ? d + 1 : d, p, k, single);
+            }
+        }
+
+        // The sign of a·10^q − b·2^e2, exactly.
+        private static int Compare(BigInteger a, int q, BigInteger b, int e2)
+        {
+            if (q >= 0) a *= BigInteger.Pow(10, q); else b *= BigInteger.Pow(10, -q);
+            if (e2 >= 0) b <<= e2; else a <<= -e2;
+            return a.CompareTo(b);
+        }
+
+        // p significant digits d (or 10^p, carried) times 10^(k − p + 1), laid out as "R" does.
+        private static string Layout(bool negative, BigInteger d, int p, int k, bool single)
+        {
+            CultureInfo inv = CultureInfo.InvariantCulture;
+            string digits = d.ToString(inv);
+            int exponent = k + digits.Length - p;
+            digits = digits.TrimEnd('0');
             var sb = new StringBuilder();
             if (negative) sb.Append('-');
             if (exponent >= (single ? 9 : 17) || exponent < -4)
@@ -371,20 +425,6 @@ namespace ToolBelt.Collections
             else
                 sb.Append(digits, 0, exponent + 1).Append('.').Append(digits, exponent + 1, digits.Length - exponent - 1);
             return sb.ToString();
-        }
-
-        // .NET Framework's parsers throw OverflowException where .NET's give infinity ("2E+308", tried for double.MaxValue),
-        // and float.Parse does for text just past float.MaxValue that rounds to it.
-        private static double ReadDouble(string s)
-        {
-            try { return double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture); }
-            catch (OverflowException) { return s[0] == '-' ? double.NegativeInfinity : double.PositiveInfinity; }
-        }
-
-        private static float ReadSingle(string s)
-        {
-            try { return float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture); }
-            catch (OverflowException) { return (float)ReadDouble(s); }
         }
 
         private static void AppendRow(StringBuilder sb, IReadOnlyList<string> cells, int[] widths)
@@ -464,8 +504,9 @@ namespace ToolBelt.Collections
         }
 
         // Orders cells with null first, strings ordinally (Comparer<object>.Default compared them in the culture current
-        // when it was first used, and cached it), then via Comparer<object>.Default (IComparable). Mixed incomparable
-        // types throw from the default comparer — pass an explicit comparer for those columns.
+        // when it was first used, and cached it), numbers of different types by value, then via Comparer<object>.Default
+        // (IComparable). Other mixed incomparable types throw from the default comparer — pass an explicit comparer for
+        // those columns.
         private sealed class CellComparer : IComparer<object?>
         {
             public static readonly CellComparer Instance = new CellComparer();
@@ -474,7 +515,58 @@ namespace ToolBelt.Collections
                 if (x is null) return y is null ? 0 : -1;
                 if (y is null) return 1;
                 if (x is string sx && y is string sy) return string.CompareOrdinal(sx, sy);
+                // int 2 against double 1.5 threw "Object must be of type Double." from the default comparer. Compared
+                // exactly (long 2^53 + 1 is above double 2^53), NaN first as double orders it.
+                if (x.GetType() != y.GetType() && TryRead(x, out int rx, out BigInteger nx, out int ex, out int sx10)
+                    && TryRead(y, out int ry, out BigInteger ny, out int ey, out int sy10))
+                {
+                    if (rx != ry || rx != 0) return rx.CompareTo(ry);
+                    BigInteger l = nx * BigInteger.Pow(10, sy10), r = ny * BigInteger.Pow(10, sx10);
+                    int emin = Math.Min(ex, ey);
+                    return (l << (ex - emin)).CompareTo(r << (ey - emin));
+                }
                 return Comparer<object>.Default.Compare(x, y);
+            }
+
+            // A number as n·2^e2 / 10^s; rank −2 for NaN, ∓1 for ∓∞, 0 for a finite one.
+            private static bool TryRead(object o, out int rank, out BigInteger n, out int e2, out int s)
+            {
+                rank = 0; e2 = 0; s = 0;
+                switch (o)
+                {
+                    case sbyte v: n = v; return true;
+                    case byte v: n = v; return true;
+                    case short v: n = v; return true;
+                    case ushort v: n = v; return true;
+                    case int v: n = v; return true;
+                    case uint v: n = v; return true;
+                    case long v: n = v; return true;
+                    case ulong v: n = v; return true;
+                    case decimal v:
+                        int[] parts = decimal.GetBits(v);
+                        n = (new BigInteger((uint)parts[2]) << 64) | (new BigInteger((uint)parts[1]) << 32) | new BigInteger((uint)parts[0]);
+                        if (parts[3] < 0) n = -n;
+                        s = (parts[3] >> 16) & 0xFF;
+                        return true;
+                    case float v: return ReadBinary(v, out rank, out n, out e2);
+                    case double v: return ReadBinary(v, out rank, out n, out e2);
+                }
+                n = BigInteger.Zero;
+                return false;
+            }
+
+            private static bool ReadBinary(double v, out int rank, out BigInteger n, out int e2)
+            {
+                n = BigInteger.Zero; e2 = 0;
+                rank = double.IsNaN(v) ? -2 : double.IsPositiveInfinity(v) ? 1 : double.IsNegativeInfinity(v) ? -1 : 0;
+                if (rank != 0) return true;
+                long bits = BitConverter.DoubleToInt64Bits(v);
+                int biased = (int)((bits >> 52) & 0x7FF);
+                long m = bits & 0xFFFFFFFFFFFFFL;
+                if (biased == 0) biased = 1; else m |= 1L << 52;
+                n = bits < 0 ? -m : m;
+                e2 = biased - 1075;
+                return true;
             }
         }
 

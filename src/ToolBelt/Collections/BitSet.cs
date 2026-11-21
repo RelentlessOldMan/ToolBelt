@@ -38,8 +38,9 @@ namespace ToolBelt.Collections
             if (index < 0)
                 throw new ArgumentOutOfRangeException(nameof(index), index, "Index must not be negative.");
             EnsureWord(index >> 6);
+            ulong before = _words[index >> 6];
             _words[index >> 6] |= 1UL << (index & 63);
-            unchecked { _version++; }
+            if (_words[index >> 6] != before) unchecked { _version++; }   // a no-op doesn't stop enumerators, as in HashSet
         }
 
         /// <summary>Clears bit <paramref name="index"/>.</summary>
@@ -48,9 +49,11 @@ namespace ToolBelt.Collections
             if (index < 0)
                 throw new ArgumentOutOfRangeException(nameof(index), index, "Index must not be negative.");
             int word = index >> 6;
-            if (word < _words.Length)
+            if (word < _words.Length && (_words[word] & (1UL << (index & 63))) != 0)
+            {
                 _words[word] &= ~(1UL << (index & 63));
-            unchecked { _version++; }
+                unchecked { _version++; }
+            }
         }
 
         /// <summary>Sets or clears bit <paramref name="index"/> per <paramref name="value"/>.</summary>
@@ -78,18 +81,28 @@ namespace ToolBelt.Collections
         {
             if (other is null) throw new ArgumentNullException(nameof(other));
             EnsureWord(other._words.Length - 1);
+            bool changed = false;
             for (int i = 0; i < other._words.Length; i++)
-                _words[i] |= other._words[i];
-            unchecked { _version++; }
+            {
+                ulong w = _words[i] | other._words[i];
+                changed |= w != _words[i];
+                _words[i] = w;
+            }
+            if (changed) unchecked { _version++; }
         }
 
         /// <summary>In-place intersection: this ∩= other.</summary>
         public void IntersectWith(BitSet other)
         {
             if (other is null) throw new ArgumentNullException(nameof(other));
+            bool changed = false;
             for (int i = 0; i < _words.Length; i++)
-                _words[i] &= i < other._words.Length ? other._words[i] : 0UL;
-            unchecked { _version++; }
+            {
+                ulong w = _words[i] & (i < other._words.Length ? other._words[i] : 0UL);
+                changed |= w != _words[i];
+                _words[i] = w;
+            }
+            if (changed) unchecked { _version++; }
         }
 
         /// <summary>In-place difference: this ∖= other.</summary>
@@ -97,9 +110,14 @@ namespace ToolBelt.Collections
         {
             if (other is null) throw new ArgumentNullException(nameof(other));
             int n = Math.Min(_words.Length, other._words.Length);
+            bool changed = false;
             for (int i = 0; i < n; i++)
-                _words[i] &= ~other._words[i];
-            unchecked { _version++; }
+            {
+                ulong w = _words[i] & ~other._words[i];
+                changed |= w != _words[i];
+                _words[i] = w;
+            }
+            if (changed) unchecked { _version++; }
         }
 
         /// <summary>In-place symmetric difference: this ⊕= other.</summary>
@@ -107,14 +125,18 @@ namespace ToolBelt.Collections
         {
             if (other is null) throw new ArgumentNullException(nameof(other));
             EnsureWord(other._words.Length - 1);
+            bool changed = false;
             for (int i = 0; i < other._words.Length; i++)
+            {
+                changed |= other._words[i] != 0;
                 _words[i] ^= other._words[i];
-            unchecked { _version++; }
+            }
+            if (changed) unchecked { _version++; }
         }
 
         /// <summary>Enumerates the indices of set bits in ascending order. Modifying the set while enumerating throws
-        /// InvalidOperationException, as the BCL collections do (it silently mixed old and new bits). The check starts
-        /// when the enumerator is made, not at its first MoveNext.</summary>
+        /// InvalidOperationException, as the BCL collections do (it silently mixed old and new bits); a call that changes
+        /// no bit is not a modification. The check starts when the enumerator is made, not at its first MoveNext.</summary>
         public IEnumerable<int> EnumerateSetBits() => new SetBits(this);
 
         private sealed class SetBits : IEnumerable<int>

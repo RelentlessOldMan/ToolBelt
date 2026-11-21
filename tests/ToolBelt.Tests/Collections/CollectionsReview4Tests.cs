@@ -283,10 +283,12 @@ namespace ToolBelt.Tests.Collections
 
         public void BitSet_ModifiedDuringEnumerationThrows()
         {
+            // Each changes a bit: a call that changes none is not a modification (round 199).
+            Func<int, BitSet> one = i => { var b = new BitSet(); b.Set(i); return b; };
             foreach (Action<BitSet> mutate in new Action<BitSet>[]
             {
-                s => s.Set(500), s => s.Clear(3), s => s.UnionWith(new BitSet()), s => s.IntersectWith(new BitSet()),
-                s => s.ExceptWith(new BitSet()), s => s.SymmetricExceptWith(new BitSet()),
+                s => s.Set(500), s => s.Clear(3), s => s.UnionWith(one(500)), s => s.IntersectWith(new BitSet()),
+                s => s.ExceptWith(one(3)), s => s.SymmetricExceptWith(one(500)),
             })
             {
                 var set = new BitSet();
