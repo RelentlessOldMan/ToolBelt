@@ -891,6 +891,7 @@ tests/
       IOReview143Tests.cs    (ninth pass: failed replaces keep read-only, overwrites keep Hidden and replace shared-delete targets, no folders for unreadable archives, whitespace chars and relative Uris in CsvBinder)
       IOReview172Tests.cs    (tenth pass: ByteSize parsing and formatting rounded once from the exact value, CsvDialect numbers past double's range on .NET Framework, a PAX global header before a GNU long name)
       IOReview188Tests.cs    (eleventh pass: roots ending in a dot, copies through a short name, archives reached through a junction, tar replace keeping Hidden, every tar entry listed after small files, 8.3-alias entries refused, zip host kept by AddOrReplaceEntry, lone-surrogate names refused, too-long backup names, TempFile extensions, non-recursive snapshots ignoring short names)
+      IOReview195Tests.cs    (twelfth pass: ByteSize with non-ASCII digits, NaN and Infinity words on every runtime, correctly rounded CSV and config numbers on .NET Framework, FileChangeCoalescer against a model file system)
       CoverageGapTests.cs   (behaviour behind coverage holes found by a coverlet run)
     Numerics/
       AngleTests.cs

@@ -146,11 +146,9 @@ namespace ToolBelt.Tests.IO
                 else if (exponent <= -325) Check.True(got == 0 && IsNegative(got) == negative, text);
                 else
                 {
-                    // Past 1.7976931348623157e308 at exponent 308, .NET Framework's Parse throws where .NET Core rounds to infinity.
-                    double want;
-                    try { want = double.Parse(text, CultureInfo.InvariantCulture); }
-                    catch (OverflowException) { want = negative ? double.NegativeInfinity : double.PositiveInfinity; }
-                    Check.Equal(want, got, text);
+                    // Graded against the exact value: .NET Framework's Parse is not correctly rounded (round 195).
+                    var digits = System.Numerics.BigInteger.Parse(mantissa.Replace(".", ""), CultureInfo.InvariantCulture);
+                    Check.True(IOReview195Tests.IsNearest(negative ? -got : got, digits, exponent - 6, 52, -1074), text);
                 }
             }
         }

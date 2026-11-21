@@ -120,7 +120,7 @@ namespace ToolBelt.IO
         {
             if (_pending.TryGetValue(path, out Entry? e))
             {
-                if (e.Kind == FileChangeKind.Deleted) e.Kind = FileChangeKind.Changed; // deleted and recreated: replaced
+                if (e.Kind == FileChangeKind.Deleted) { e.Kind = FileChangeKind.Changed; e.Fresh = true; } // deleted and recreated: replaced
                 e.LastActivity = now;
             }
             else Put(path, new Entry(FileChangeKind.Created, null, now, ++_sequence));
@@ -130,7 +130,7 @@ namespace ToolBelt.IO
         {
             if (_pending.TryGetValue(path, out Entry? e))
             {
-                if (e.Kind == FileChangeKind.Deleted) e.Kind = FileChangeKind.Changed;
+                if (e.Kind == FileChangeKind.Deleted) { e.Kind = FileChangeKind.Changed; e.Fresh = true; }
                 e.LastActivity = now;
             }
             else Put(path, new Entry(FileChangeKind.Changed, null, now, ++_sequence));
@@ -151,11 +151,14 @@ namespace ToolBelt.IO
                 case FileChangeKind.Renamed:
                     // The original file (known by its old name) is gone; report that name as deleted.
                     _pending.Remove(path);
+                    // The file the rename replaced here is gone too: "D a; R c->a; D a" reported only c.
+                    if (e.Replaced) Put(path, new Entry(FileChangeKind.Deleted, null, now, e.Order) { FirstSeen = e.FirstSeen });
                     string old = e.OldPath!;
                     if (_pending.TryGetValue(old, out Entry? atOld))
                     {
                         // Another file holds the old name now (created there, or renamed onto it), and stays reported as such.
-                        if (atOld.Kind == FileChangeKind.Created) { atOld.Kind = FileChangeKind.Changed; atOld.LastActivity = now; }
+                        if (atOld.Kind == FileChangeKind.Created) { atOld.Kind = FileChangeKind.Changed; atOld.Fresh = true; atOld.LastActivity = now; }
+                        else if (atOld.Kind == FileChangeKind.Renamed) atOld.Replaced = true; // the original there is gone
                     }
                     else Put(old, new Entry(FileChangeKind.Deleted, null, now, e.Order) { FirstSeen = e.FirstSeen });
                     break;
@@ -175,6 +178,8 @@ namespace ToolBelt.IO
                 switch (prior.Kind)
                 {
                     case FileChangeKind.Created:
+                    case FileChangeKind.Changed when prior.Fresh:
+                        // A file new in this batch moves as a creation; one that replaced the original leaves that gone.
                         result = new Entry(FileChangeKind.Created, null, now, prior.Order) { FirstSeen = prior.FirstSeen };
                         break;
                     case FileChangeKind.Renamed when _comparer.Equals(prior.OldPath, newPath):
@@ -189,11 +194,20 @@ namespace ToolBelt.IO
                 }
             }
             else result = new Entry(FileChangeKind.Renamed, oldPath, now, ++_sequence);
+            // A file renamed away from where it replaced one leaves that one reported gone ("D a; R c->a; R a->b").
+            // So does a file new in this batch renamed away from the name it replaced ("D b; C b; R b->a" reported "Renamed b -> a").
+            bool vacated = prior != null && ((prior.Kind == FileChangeKind.Renamed && prior.Replaced) || (prior.Kind == FileChangeKind.Changed && prior.Fresh));
 
             if (_pending.TryGetValue(newPath, out Entry? atNew))
             {
+                // A rename onto a file there before the batch (pending as deleted or changed, or replaced by an earlier
+                // rename) replaces it: that is left to the rename to say while the file stays, and reported when it goes.
+                if (atNew.Kind == FileChangeKind.Deleted || atNew.Kind == FileChangeKind.Changed
+                    || (atNew.Kind == FileChangeKind.Renamed && atNew.Replaced))
+                    result.Replaced = true;
                 // Something already pending at the destination is superseded by the file renamed onto it.
-                if (atNew.Kind == FileChangeKind.Deleted && result.Kind == FileChangeKind.Created) result.Kind = FileChangeKind.Changed;
+                // A new file onto one there before the batch replaces it: changed, though not the original file.
+                if (result.Replaced && result.Kind == FileChangeKind.Created) { result.Kind = FileChangeKind.Changed; result.Fresh = true; }
                 if (atNew.FirstSeen < result.FirstSeen) result.FirstSeen = atNew.FirstSeen;
                 _pending.Remove(newPath);
                 if (atNew.Kind == FileChangeKind.Renamed)
@@ -203,12 +217,15 @@ namespace ToolBelt.IO
                     if (_pending.TryGetValue(old, out Entry? atOld))
                     {
                         // Another file holds the old name now (created there, or renamed onto it), and stays reported as such.
-                        if (atOld.Kind == FileChangeKind.Created) { atOld.Kind = FileChangeKind.Changed; atOld.LastActivity = now; }
+                        if (atOld.Kind == FileChangeKind.Created) { atOld.Kind = FileChangeKind.Changed; atOld.Fresh = true; atOld.LastActivity = now; }
+                        else if (atOld.Kind == FileChangeKind.Renamed) atOld.Replaced = true; // the original there is gone
                     }
                     else Put(old, new Entry(FileChangeKind.Deleted, null, now, atNew.Order) { FirstSeen = atNew.FirstSeen });
                 }
             }
             Put(newPath, result);
+            if (vacated && !_pending.ContainsKey(oldPath))
+                Put(oldPath, new Entry(FileChangeKind.Deleted, null, now, prior!.Order) { FirstSeen = prior.FirstSeen });
         }
 
         private void Put(string path, Entry e) => _pending[path] = e;
@@ -229,6 +246,12 @@ namespace ToolBelt.IO
             public DateTime FirstSeen;
             public DateTime LastActivity;
             public readonly long Order;
+            // A rename whose destination held a file before the batch: that file is gone, though only implied while this
+            // one stays at the path.
+            public bool Replaced;
+            // Changed, but the file at the path is not the one there before the batch (deleted and recreated, or replaced
+            // by a new file): renamed away, it is a creation there and a deletion here, not a rename of the original.
+            public bool Fresh;
 
             public FileChange ToChange(string path) => new FileChange(Kind, path, OldPath);
         }

@@ -89,7 +89,8 @@ namespace ToolBelt.IO
             int i = 0;
             if (i < text.Length && (text[i] == '+' || text[i] == '-'))
                 i++;
-            while (i < text.Length && (char.IsDigit(text[i]) || text[i] == '.' || text[i] == ','))
+            // ASCII digits only: char.IsDigit took '\u0663' and '\uFF11', which BigInteger.Parse then threw on (out of TryParse).
+            while (i < text.Length && ((text[i] >= '0' && text[i] <= '9') || text[i] == '.' || text[i] == ','))
                 i++;
 
             string numberPart = text.Substring(0, i).Trim();
