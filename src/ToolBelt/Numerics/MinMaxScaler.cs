@@ -56,11 +56,59 @@ namespace ToolBelt.Numerics
             // does not round back to newMax ([0.6, 1.61] mapped the maximum to 1.6100000000000003).
             if (value == dataMax) return newMax;
             if (value == dataMin) return newMin;
+            // t out of the normal range where the result is not: a data span of 1e-310 overflowed it to ∞ (1 of [0, 1e-310]
+            // onto [0, 1e-300] for 1e10), and one of 1e300 underflowed it. Then the product is formed with its exponents apart.
+            if ((double.IsInfinity(t) || Math.Abs(t) < 2.2250738585072014E-308)
+                && IsFinite(value) && IsFinite(dataMin) && IsFinite(dataMax))
+            {
+                double s = newMin + Scaled(value, dataMin, dataMax, newMin, newMax);
+                if (t > 0 && t < 1) s = Math.Min(Math.Max(s, Math.Min(newMin, newMax)), Math.Max(newMin, newMax));
+                return s;
+            }
             double span = newMax - newMin;
             double r = double.IsInfinity(span) ? (1 - t) * newMin + t * newMax : newMin + t * span;
             if (t >= 0 && t <= 1) r = Math.Min(Math.Max(r, Math.Min(newMin, newMax)), Math.Max(newMin, newMax));
             return r;
         }
+
+        // (value − lo)·(outMax − outMin)/(hi − lo), all finite, with a difference that overflows halved and the
+        // halving undone in the exponent.
+        private static double Scaled(double value, double lo, double hi, double outMin, double outMax)
+        {
+            double num = value - lo, den = hi - lo, span = outMax - outMin;
+            int k = 0;
+            if (double.IsInfinity(num)) { num = 0.5 * value - 0.5 * lo; k++; }
+            if (double.IsInfinity(den)) { den = 0.5 * hi - 0.5 * lo; k--; }
+            if (double.IsInfinity(span)) { span = 0.5 * outMax - 0.5 * outMin; k++; }
+            return MulDiv(num, span, den, k);
+        }
+
+        // x·y/z·2^k with the binary exponents kept apart: no step over- or underflows unless the result does.
+        private static double MulDiv(double x, double y, double z, int k)
+        {
+            if (x == 0 || y == 0) return x * y / z;
+            int ex = Exponent(x), ey = Exponent(y), ez = Exponent(z);
+            return ScaleB(ScaleB(x, -ex) * ScaleB(y, -ey) / ScaleB(z, -ez), ex + ey - ez + k);
+        }
+
+        // floor(log2 |x|) for a finite x other than 0, subnormals included.
+        private static int Exponent(double x)
+        {
+            int e = (int)((BitConverter.DoubleToInt64Bits(x) >> 52) & 0x7FF);
+            return e == 0 ? Exponent(x * 18446744073709551616.0) - 64 : e - 1023;
+        }
+
+        // x·2^k, rounded at most once: every step but the last stays in the normal range.
+        private static double ScaleB(double x, int k)
+        {
+            for (; k > 1023; k -= 1023) x *= Pow2(1023);
+            for (; k < -1022; k += 960) x *= Pow2(-960);
+            return x * Pow2(k);
+        }
+
+        private static double Pow2(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
+
+        private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
 
         // An infinite or NaN bound gave NaN for the end it should hit exactly (0 to ∞ mapped the minimum to NaN).
         private static void CheckBounds(double newMin, double newMax)

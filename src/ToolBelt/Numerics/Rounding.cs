@@ -12,16 +12,26 @@ namespace ToolBelt.Numerics
     public static class Rounding
     {
         /// <summary>Rounds <paramref name="value"/> to the nearest multiple of <paramref name="multiple"/> (which must be
-        /// positive). Rounding up past <see cref="double.MaxValue"/> (1.7e308 to a multiple of 1e308) returns infinity.</summary>
+        /// positive), halves away from zero, returning the double nearest that multiple. As in
+        /// <see cref="RoundToSignificantDigits"/>, both are read as the shortest decimals that round-trip them, the way they
+        /// print: 0.15 rounds to 0.2 at a multiple of 0.1, and 0.3 stays 0.3. Rounding up past <see cref="double.MaxValue"/>
+        /// (1.7e308 to a multiple of 1e308) returns infinity.</summary>
         public static double RoundToMultiple(double value, double multiple)
         {
             if (!(multiple > 0) || double.IsInfinity(multiple))
                 throw new ArgumentOutOfRangeException(nameof(multiple), multiple, "Multiple must be positive and finite.");
-            double q = value / multiple;
-            // The quotient overflows when the value dwarfs the multiple (1e300 to 1e-10 gave ∞); every double that
-            // large is already as close to a multiple as a double can be, so return it.
-            if (double.IsInfinity(q) && !double.IsInfinity(value)) return value;
-            return Math.Round(q, MidpointRounding.AwayFromZero) * multiple;
+            if (value == 0 || double.IsNaN(value) || double.IsInfinity(value)) return value;
+            // Exactly, on the decimals: value / multiple rounded first (0.15 / 0.1 is 1.4999999999999998, so 0.15 went to 0.1;
+            // past 2^53 the quotient lost the remainder, and 3.7638018064963644E+22 moved an ulp off a multiple of 6), and
+            // k·multiple rounded again (3 · 0.1 is 0.30000000000000004).
+            var (vd, ve) = Shortest(Math.Abs(value));
+            var (md, me) = Shortest(multiple);
+            int e = Math.Min(ve, me);
+            BigInteger v = vd * BigInteger.Pow(10, ve - e), m = md * BigInteger.Pow(10, me - e);
+            BigInteger k = BigInteger.DivRem(v, m, out BigInteger rem);
+            if (2 * rem >= m) k += 1;
+            double r = k.IsZero ? 0.0 : Nearest(k * md, me);
+            return value < 0 ? -r : r;
         }
 
         /// <summary>

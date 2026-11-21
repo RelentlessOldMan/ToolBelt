@@ -83,7 +83,7 @@ namespace ToolBelt.Numerics
             // then became ∞/∞ or 0/0. A distance beyond the double range (1e308 to −1e308) is taken in quarters and marked
             // far; the others stay as they are. (Redoing every distance in quarters rounded distinct subnormal distances
             // to 0, and samples ε and 2ε away were then averaged as equally near: 6.5 for 4.4.) A far one is beyond any
-            // radius, which is finite.
+            // finite radius.
             scratch.Clear();
             foreach (var s in samples)
             {
@@ -91,7 +91,8 @@ namespace ToolBelt.Numerics
                 double d = Hypot(s.X - x, s.Y - y);
                 bool far = double.IsInfinity(d);
                 if (far) d = Hypot(0.25 * s.X - 0.25 * x, 0.25 * s.Y - 0.25 * y);
-                if (radius is double r && (far || d > r)) continue;
+                // An infinite radius keeps every sample, far ones too (it dropped those past double.MaxValue, and gave NaN).
+                if (radius is double r && !double.IsPositiveInfinity(r) && (far || d > r)) continue;
                 scratch.Add((d, far, s.Value));
             }
             return Weighted(scratch, power, nearest);

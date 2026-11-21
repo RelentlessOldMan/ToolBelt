@@ -18,7 +18,8 @@ namespace ToolBelt.Numerics
     public sealed class RunningStatistics
     {
         private long _count;
-        private double _mean;
+        private double _mean;  // scaled by 2^64 while _meanScaled
+        private bool _meanScaled = true;
         private double _m2;   // sum of squared deviations from the running mean, as _m2 · 2^_m2Exp
         private int _m2Exp;
         private double _min = double.PositiveInfinity;
@@ -37,8 +38,18 @@ namespace ToolBelt.Numerics
             if (double.IsNaN(value) || double.IsInfinity(value))
                 throw new ArgumentException("Only finite values can be added to running statistics.", nameof(value));
             _count++;
-            double delta = value - _mean;
-            if (double.IsInfinity(delta))
+            // Small samples are stepped scaled by 2^64: a mean rounded to the subnormal grid (0 and 15·2^-1074 have the mean
+            // 7.5·2^-1074, which rounded to 8) put a whole quantum's error into the deviations, and the standard deviation
+            // 5e-323 came out for 5.4e-323. The scale is dropped, rounding the mean once, at the first larger sample.
+            if (_meanScaled && Math.Abs(value) >= BigFrom) { _mean = ScaleB(_mean, -64); _meanScaled = false; }
+            double delta = _meanScaled ? value * 18446744073709551616.0 - _mean : value - _mean;
+            if (_meanScaled)
+            {
+                double scaled = value * 18446744073709551616.0;   // exact, and far from overflow
+                _mean += delta / _count;
+                AddSquare(delta, scaled - _mean, -128);
+            }
+            else if (double.IsInfinity(delta))
             {
                 // The samples span more than the double range (e.g. 1e308 then -1e308): step with halved operands,
                 // which cannot overflow, and count the halving in the exponent.
@@ -79,7 +90,7 @@ namespace ToolBelt.Numerics
              : _nBig == 0 ? Total(_small, _nSmall)
              : ExactSum(_big, _nBig, 64, _small, _nSmall);
 
-        public double Mean => _count > 0 ? _mean : double.NaN;
+        public double Mean => _count > 0 ? (_meanScaled ? ScaleB(_mean, -64) : _mean) : double.NaN;
 
         public double Min => _count > 0 ? _min : double.NaN;
 
@@ -101,7 +112,27 @@ namespace ToolBelt.Numerics
             double v = _m2 / divisor;
             int e = _m2Exp;
             if ((e & 1) != 0) { v *= 2; e--; }
-            return ScaleB(Math.Sqrt(v), e / 2);
+            double r = ScaleB(Math.Sqrt(v), e / 2);
+            if (_m2 == 0 || r >= 2.2250738585072014E-308) return r;
+            // In the subnormal range the root and then the scale rounded twice. Exactly, in quanta of 2^-1074: the nearest
+            // integer to √(M·2^(m2Exp + 2096) / divisor).
+            Ratio(2096, divisor, out BigInteger num, out BigInteger den);
+            BigInteger y = num / den, n = new BigInteger(Math.Sqrt((double)y));
+            while (n * n > y) n--;
+            while ((n + 1) * (n + 1) <= y) n++;
+            // Rounds up when √(num/den) ≥ n + ½, that is 4·num ≥ (2n + 1)²·den (equal: ties to even).
+            BigInteger lhs = 4 * num, rhs = (2 * n + 1) * (2 * n + 1) * den;
+            if (lhs > rhs || (lhs == rhs && !n.IsEven)) n++;
+            return BitConverter.Int64BitsToDouble((long)n);
+        }
+
+        // M·2^(m2Exp + shift) / divisor as integers num / den, where m2 = M·2^-52 (m2 is kept in [1, 2)).
+        private void Ratio(int shift, long divisor, out BigInteger num, out BigInteger den)
+        {
+            long m = (BitConverter.DoubleToInt64Bits(_m2) & 0xFFFFFFFFFFFFFL) | (1L << 52);
+            int p = _m2Exp + shift;
+            num = p >= 0 ? (BigInteger)m << p : m;
+            den = p >= 0 ? (BigInteger)divisor : (BigInteger)divisor << -p;
         }
 
         // Adds d1·d2·2^extra to the sum of squares, keeping both as a mantissa in [1, 2) and an exponent.
@@ -260,6 +291,7 @@ namespace ToolBelt.Numerics
         {
             _count = 0;
             _mean = 0;
+            _meanScaled = true;
             _m2 = 0;
             _m2Exp = 0;
             _min = double.PositiveInfinity;

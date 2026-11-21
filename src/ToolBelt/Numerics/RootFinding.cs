@@ -31,7 +31,8 @@ namespace ToolBelt.Numerics
     /// </summary>
     public static class RootFinding
     {
-        /// <summary>Bisection on a sign-changing bracket [a, b]. Converges if bracketed and f is continuous.</summary>
+        /// <summary>Bisection on a sign-changing bracket [a, b]. Converges if bracketed and f is continuous. A sign change
+        /// where |f| ends larger than at both ends (a pole, as of 1/x at 0) is reported as not converged.</summary>
         public static RootResult Bisection(Func<double, double> f, double a, double b, double tolerance = 1e-12, int maxIterations = 200)
         {
             if (maxIterations < 1) throw new ArgumentOutOfRangeException(nameof(maxIterations), maxIterations, "Need at least one iteration.");
@@ -47,6 +48,7 @@ namespace ToolBelt.Numerics
             if (fb == 0) return Success(b, 0, 0);
             if ((fa < 0) == (fb < 0))
                 return Failure(double.NaN, 0, "f(a) and f(b) must have opposite signs to bracket a root.");
+            double scale = Math.Max(Math.Abs(fa), Math.Abs(fb));
 
             for (int i = 1; i <= maxIterations; i++)
             {
@@ -55,14 +57,15 @@ namespace ToolBelt.Numerics
                 if (double.IsNaN(fm)) return Failure(m, i, NaNMessage);
                 // m == a or b: the bracket is two adjacent doubles, as tight as it can get.
                 if (fm == 0 || 0.5 * (b - a) < Tol(tolerance, m) || m == a || m == b)
-                    return Success(m, i, fm);
+                    return Closed(m, i, fm, scale);
                 if ((fm < 0) == (fa < 0)) { a = m; fa = fm; }
                 else { b = m; fb = fm; }
             }
             return Failure(0.5 * a + 0.5 * b, maxIterations, "Maximum iterations reached without meeting the tolerance.");
         }
 
-        /// <summary>Brent's method on a sign-changing bracket [a, b] — combines bisection, secant and inverse quadratic.</summary>
+        /// <summary>Brent's method on a sign-changing bracket [a, b] — combines bisection, secant and inverse quadratic. A
+        /// sign change where |f| ends larger than at both ends (a pole, as of 1/x at 0) is reported as not converged.</summary>
         public static RootResult Brent(Func<double, double> f, double a, double b, double tolerance = 1e-12, int maxIterations = 200)
         {
             if (maxIterations < 1) throw new ArgumentOutOfRangeException(nameof(maxIterations), maxIterations, "Need at least one iteration.");
@@ -78,6 +81,7 @@ namespace ToolBelt.Numerics
             if ((fa < 0) == (fb < 0))
                 return Failure(double.NaN, 0, "f(a) and f(b) must have opposite signs to bracket a root.");
 
+            double scale = Math.Max(Math.Abs(fa), Math.Abs(fb));
             if (Math.Abs(fa) < Math.Abs(fb)) { (a, b) = (b, a); (fa, fb) = (fb, fa); }
 
             double c = a, fc = fa, d = c;
@@ -89,7 +93,7 @@ namespace ToolBelt.Numerics
                 // As Bisection: a bracket of two adjacent doubles is as tight as it gets (a tolerance of 0 never ended).
                 double mid = 0.5 * a + 0.5 * b;
                 if (fb == 0 || Math.Abs(b - a) < tol || mid == a || mid == b)
-                    return Success(b, i, fb);
+                    return Closed(b, i, fb, scale);
 
                 double s;
                 if (fa != fc && fb != fc)
@@ -233,6 +237,12 @@ namespace ToolBelt.Numerics
 
         private static bool Between(double s, double a, double b)
             => (s >= Math.Min(a, b)) && (s <= Math.Max(a, b));
+
+        // A bracket that closed where |f| grew past both of its ends' is a pole, not a root: Bisection(x => 1/x, −1, 2)
+        // "converged" at −2.3e-13 with a residual of −4.4e12.
+        private static RootResult Closed(double root, int iterations, double residual, double scale)
+            => Math.Abs(residual) <= scale ? Success(root, iterations, residual)
+             : new RootResult(false, root, iterations, residual, "The bracket closed on a sign change where |f| grew past its ends: a pole, not a root.");
 
         private static RootResult Success(double root, int iterations, double residual)
             => new RootResult(true, root, iterations, residual, "Converged.");

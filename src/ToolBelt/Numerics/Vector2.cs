@@ -105,7 +105,13 @@ namespace ToolBelt.Numerics
             else if ((double.IsInfinity(a) || double.IsInfinity(b)) && !double.IsInfinity(t))
                 r = (1 - t) * a + t * b;
             else
+            {
                 r = a + d * t;
+                // (b − a)·t can overflow where the result does not (Lerp(1.5e308, 0, 1.5) gave −∞ for −7.5e307): in
+                // halves then, which overflow only where the result does.
+                if (double.IsInfinity(r) && !double.IsInfinity(t) && !double.IsInfinity(a) && !double.IsInfinity(b))
+                    r = 2 * (0.5 * a + (0.5 * b - 0.5 * a) * t);
+            }
             if (t > 0 && t < 1) r = Math.Min(Math.Max(r, Math.Min(a, b)), Math.Max(a, b));
             return r;
         }

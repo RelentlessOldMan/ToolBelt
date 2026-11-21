@@ -18,7 +18,8 @@ namespace ToolBelt.Numerics
             if (random is null) throw new ArgumentNullException(nameof(random));
             if (double.IsNaN(min) || double.IsInfinity(min)) throw new ArgumentOutOfRangeException(nameof(min), min, "Bound must be finite.");
             if (double.IsNaN(max) || double.IsInfinity(max)) throw new ArgumentOutOfRangeException(nameof(max), max, "Bound must be finite.");
-            if (min > max) throw new ArgumentException("min must not exceed max.", nameof(min));
+            // The BCL's type for this (Random.Next(2, 1)); a catch of it missed the plain ArgumentException.
+            if (min > max) throw new ArgumentOutOfRangeException(nameof(min), min, "min must not exceed max.");
             if (min == max) return min;
             double u = random.NextDouble(), span = max - min;
             double r = double.IsInfinity(span) ? (1 - u) * min + u * max : min + u * span; // span overflows for ±1e308
@@ -105,7 +106,8 @@ namespace ToolBelt.Numerics
                 if (weights[i] > 0) return items[i];
         }
 
-        /// <summary>A normally distributed draw via the Box-Muller transform.</summary>
+        /// <summary>A normally distributed draw via the Box-Muller transform. A draw beyond the double range (a deviation
+        /// near <see cref="double.MaxValue"/>) is ±∞.</summary>
         public static double NextGaussian(this Random random, double mean = 0, double standardDeviation = 1)
         {
             if (random is null) throw new ArgumentNullException(nameof(random));
@@ -115,10 +117,22 @@ namespace ToolBelt.Numerics
             double u1 = 1.0 - random.NextDouble(); // in (0, 1] to keep the log finite
             double u2 = random.NextDouble();
             double z = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
-            return mean + standardDeviation * z;
+            double r = mean + standardDeviation * z;
+            // σ·z can overflow where the draw does not (a mean of −1.5e308 and σ of 1.5e308 gave ∞ for 8.8e307): in
+            // sixteenths then, which overflow only where the draw does (|z| < 9).
+            if (double.IsInfinity(r)) r = 16 * (mean / 16 + standardDeviation / 16 * z);
+            return r;
         }
 
-        /// <summary>An exponentially distributed draw with the given rate (lambda).</summary>
+        // A fair source rejects this many draws in a row with a probability far below 10^-1000; a constant one (always 0,
+        // or always 1 − 2^-53) was rejected forever and the call never returned.
+        private const int MaxTries = 10000;
+
+        private static InvalidOperationException Degenerate()
+            => new InvalidOperationException("The random source looks degenerate: it kept returning draws this method rejects.");
+
+        /// <summary>An exponentially distributed draw with the given rate (lambda). A draw beyond the double range (a
+        /// subnormal rate) is +∞.</summary>
         public static double NextExponential(this Random random, double rate = 1.0)
         {
             if (random is null) throw new ArgumentNullException(nameof(random));
@@ -129,6 +143,8 @@ namespace ToolBelt.Numerics
         /// <summary>
         /// A Poisson-distributed count with mean <paramref name="lambda"/>: Knuth's multiplication method below 30, and
         /// Hörmann's transformed rejection with squeeze (PTRS) above — exact in distribution and O(1) for any mean.
+        /// A source that keeps returning draws the method rejects (a constant one) throws
+        /// <see cref="InvalidOperationException"/>, not loops forever.
         /// </summary>
         public static int NextPoisson(this Random random, double lambda)
         {
@@ -140,15 +156,20 @@ namespace ToolBelt.Numerics
             {
                 double limit = Math.Exp(-lambda), product = random.NextDouble();
                 int k = 0;
-                while (product > limit) { k++; product *= random.NextDouble(); }
+                while (product > limit)
+                {
+                    if (++k > MaxTries) throw Degenerate();
+                    product *= random.NextDouble();
+                }
                 return k;
             }
             // PTRS (Hörmann 1993).
             double slam = Math.Sqrt(lambda), logLam = Math.Log(lambda);
             double b = 0.931 + 2.53 * slam, a = -0.059 + 0.02483 * b;
             double invAlpha = 1.1239 + 1.1328 / (b - 3.4), vr = 0.9277 - 3.6224 / (b - 2);
-            while (true)
+            for (int tries = 0; ; tries++)
             {
+                if (tries == MaxTries) throw Degenerate();
                 double u = random.NextDouble() - 0.5, v = random.NextDouble();
                 double us = 0.5 - Math.Abs(u);
                 double kd = Math.Floor((2 * a / us + b) * u + lambda + 0.43);
@@ -163,7 +184,8 @@ namespace ToolBelt.Numerics
 
         /// <summary>
         /// A gamma-distributed draw with the given <paramref name="shape"/> (k) and <paramref name="scale"/> (θ), mean kθ —
-        /// Marsaglia &amp; Tsang's method (with the standard boost for shape &lt; 1).
+        /// Marsaglia &amp; Tsang's method (with the standard boost for shape &lt; 1). A source that keeps returning draws
+        /// the method rejects (a constant one) throws <see cref="InvalidOperationException"/>, not loops forever.
         /// </summary>
         public static double NextGamma(this Random random, double shape, double scale = 1.0)
         {
@@ -181,10 +203,14 @@ namespace ToolBelt.Numerics
                 return g == 0 || u == 0 ? 0 : Math.Exp(Math.Log(g) + Math.Log(u) / shape + Math.Log(scale));
             }
             double d = shape - 1.0 / 3, c = 1 / Math.Sqrt(9 * d);
-            while (true)
+            for (int tries = 0; ; )
             {
                 double x, v;
-                do { x = random.NextGaussian(); v = 1 + c * x; } while (v <= 0);
+                do
+                {
+                    if (tries++ >= MaxTries) throw Degenerate();
+                    x = random.NextGaussian(); v = 1 + c * x;
+                } while (v <= 0);
                 v = v * v * v;
                 double u = 1.0 - random.NextDouble();
                 if (u < 1 - 0.0331 * x * x * x * x) return d * v * scale;

@@ -47,7 +47,8 @@ namespace ToolBelt.Numerics
             return sb.ToString();
         }
 
-        /// <summary>Parses a string in the given <paramref name="radix"/> (2..36), case-insensitively.</summary>
+        /// <summary>Parses a string in the given <paramref name="radix"/> (2..36), case-insensitively. A value past
+        /// <see cref="long.MaxValue"/> throws <see cref="OverflowException"/>.</summary>
         public static long FromBase(string text, int radix)
         {
             if (radix < 2 || radix > 36)
@@ -64,7 +65,8 @@ namespace ToolBelt.Numerics
             return new string(chars);
         }
 
-        /// <summary>Parses a string against an explicit digit alphabet (case-sensitive).</summary>
+        /// <summary>Parses a string against an explicit digit alphabet (case-sensitive). A value past
+        /// <see cref="long.MaxValue"/> throws <see cref="OverflowException"/>.</summary>
         public static long FromBase(string text, string alphabet)
         {
             ValidateAlphabet(alphabet);
@@ -78,7 +80,10 @@ namespace ToolBelt.Numerics
                 int digit = alphabet.IndexOf(c);
                 if (digit < 0)
                     throw new FormatException($"'{c}' is not a valid digit for base {radix}.");
-                checked { result = result * radix + digit; }
+                // Named, not the bare "Arithmetic operation resulted in an overflow." of a checked step.
+                if (result > (long.MaxValue - digit) / radix)
+                    throw new OverflowException($"'{text}' is past the range of a long in base {radix}.");
+                result = result * radix + digit;
             }
             return result;
         }

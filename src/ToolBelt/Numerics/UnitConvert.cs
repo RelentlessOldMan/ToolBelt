@@ -8,7 +8,8 @@ namespace ToolBelt.Numerics
     /// <summary>
     /// Table-driven unit conversion for length, mass, time, angle and data size, plus temperature (which is
     /// affine, not a simple factor, and is handled specially). Conversions go through each category's base
-    /// unit, so every pair is consistent by construction. Unit names are case-sensitive (SI convention).
+    /// unit, so every pair is consistent by construction. Unit names are case-sensitive (SI convention). A temperature
+    /// below absolute zero (under 0 K, −273.15 °C or −459.67 °F) is not one, and throws.
     /// </summary>
     public static class UnitConvert
     {
@@ -52,6 +53,9 @@ namespace ToolBelt.Numerics
 
             if (from.Category == "temperature")
             {
+                // −500 °C came back as −226.85 K.
+                if (value < (fromUnit == "K" ? 0 : fromUnit == "C" ? -273.15 : -459.67))
+                    throw new ArgumentOutOfRangeException(nameof(value), value, $"Below absolute zero in {fromUnit}.");
                 // Celsius ↔ Fahrenheit directly: via kelvin, 0.1 °C came back as 0.10000000000002274.
                 if (fromUnit == "C" && toUnit == "F") return Ratio(value, 9.0, 5.0) + 32;
                 if (fromUnit == "F" && toUnit == "C") return Ratio(value - 32, 5.0, 9.0);

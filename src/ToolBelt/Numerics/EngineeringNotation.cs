@@ -26,7 +26,7 @@ namespace ToolBelt.Numerics
             if (significantDigits < 1) throw new ArgumentOutOfRangeException(nameof(significantDigits), significantDigits, "Must be at least 1.");
             if (double.IsNaN(value) || double.IsInfinity(value))
                 return value.ToString(CultureInfo.InvariantCulture);
-            if (value == 0) return "0";
+            if (value == 0) return 1 / value < 0 ? "-0" : "0"; // −0 printed "0" and parsed back as +0
             if (significantDigits > 17) significantDigits = 17; // all a double holds
 
             // Rounded on the decimal digits, not by scaling with powers of ten: scaling rounded twice, so 999.9999999999999
@@ -89,19 +89,13 @@ namespace ToolBelt.Numerics
 
             // The prefix joins the mantissa's own exponent and the decimal is parsed once, correctly rounded: multiplying
             // by 10^k rounded twice, and 1e306 k overflowed to infinity instead of failing.
-            long total = exponent;
+            // The mantissa's own exponent is read by Exact, which saturates it: long.TryParse failed on
+            // "1e-99999999999999999999 k" though "1e-99999999999999999999" parsed as 0.
             int ePos = s.IndexOfAny(new[] { 'E', 'e' });
-            if (ePos >= 0)
-            {
-                if (!long.TryParse(s.Substring(ePos + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out long own))
-                    return false;
-                total += Math.Max(-100000, Math.Min(100000, own));
-                s = s.Substring(0, ePos);
-            }
-            if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double mantissa)
+            if (!double.TryParse(ePos >= 0 ? s.Substring(0, ePos) : s, NumberStyles.Float, CultureInfo.InvariantCulture, out double mantissa)
                 || double.IsNaN(mantissa) || double.IsInfinity(mantissa))
                 return false;
-            if (!Exact(s.Trim(), total, out double parsed) || double.IsInfinity(parsed)) return false;
+            if (!Exact(s.Trim(), exponent, out double parsed) || double.IsInfinity(parsed)) return false;
             value = parsed;
             return true;
         }
