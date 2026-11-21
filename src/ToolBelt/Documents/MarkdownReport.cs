@@ -258,6 +258,30 @@ namespace ToolBelt.Documents
             return true;
         }
 
+        // When every space-separated token of the first line is a block marker (a bullet, an ordered-list number, a
+        // heading's hashes or '>'), escapes the first, so the line is text.
+        private static string EscapeMarkerLine(string text)
+        {
+            int end = text.IndexOf('\n');
+            if (end < 0) end = text.Length;
+            string[] tokens = text.Substring(0, end).Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length == 0) return text;
+            foreach (string t in tokens) if (MarkerEnd(t) < 0) return text;
+            int at = MarkerEnd(tokens[0]);
+            return text.Substring(0, at) + "\\" + text.Substring(at);
+        }
+
+        // Where to put the escaping backslash if t is a block marker (before an ordered number's '.' or ')', else at 0),
+        // or -1 when it is not one.
+        private static int MarkerEnd(string t)
+        {
+            if (t == "+" || t == "-" || t == "*" || t == ">") return 0;
+            if (t.Length <= 6 && t.Trim('#').Length == 0) return 0;
+            int d = 0;
+            while (d < t.Length && t[d] >= '0' && t[d] <= '9') d++;
+            return d >= 1 && d <= 9 && d == t.Length - 1 && (t[d] == '.' || t[d] == ')') ? d : -1;
+        }
+
         // A multi-line item: continuation lines are indented to the item's content column, so a blank line inside it
         // continues the item rather than ending the list.
         private static string ItemText(string? item, int indent)
@@ -266,6 +290,9 @@ namespace ToolBelt.Documents
             // A first line made only of '-', '*' or '_' joins the marker into a thematic break ("- --", "* **") or is one
             // itself ("- ***"), or is a nested empty item ("- -"): the item became <hr> and its text was lost.
             if (RuleChars(text)) text = "\\" + text;
+            // A first line of block markers alone ("+", "1.", "1)", "#", ">", "+ 2.") opened an empty list, heading or
+            // quote, and the text was lost the same way.
+            else text = EscapeMarkerLine(text);
             if (text.IndexOf('\n') < 0) return text;
             string pad = new string(' ', indent);
             var lines = text.Split('\n');

@@ -768,6 +768,7 @@ tests/
       DocumentsConfigReview151Tests.cs (round 151: settings loads and saves during another instance's replace, stale and ~RF temps, atomic DOCX and PDF saves, truncated PNGs, 63-column tables, PDF footer and tabs, copied figures, infinite and tiny thresholds, Markdown trailing '#', lists and empty code, HTML controls, the U+0130 slug)
       DocumentsConfigReview160Tests.cs (round 160: long names and held files in PDF and DOCX saves, settings paths ending in a separator, loads during a save or of a file that vanishes mid-read and beside other stores' temps, report escaping and slugs on every runtime, infinity, NaN and -0 in the binder and environment, derived nested sections)
       DocumentsConfigReview181Tests.cs (round 181: computed section getters, property names holding the separator, huge values in errors, TimeSpan.MinValue in seconds, the nearest float on every runtime, nulls in config layers, a settings file holding null, line separators and newer Unicode letters in slugs, Raw's first-line indentation, changes from 0 and -0 in Comparison)
+      DocumentsConfigReview194Tests.cs (round 194: Word tables over 63 columns, signless zeros and short huge percentages in Comparison, DateTime offsets as UTC, properties differing only in case, list items that are only a marker)
       DocumentsConfigReview155Tests.cs (round 155: a load during a slow save waits two seconds, then warns)
     Enums/
       EnumExtensionsTests.cs

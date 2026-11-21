@@ -43,7 +43,10 @@ namespace ToolBelt.Configuration
     /// <item>A key whose value is null is unset: the property keeps its default.</item>
     /// <item>A class may contain its own type (a fallback <c>Opts</c> inside <c>Opts</c>): each configured level is bound,
     /// down to <see cref="MaxDepth"/> sections; a key nested deeper is reported as an error.</item>
-    /// <item>A <see cref="DateTimeOffset"/> without an offset is read as UTC (not the machine's zone). Only a
+    /// <item>A <see cref="DateTimeOffset"/> without an offset is read as UTC (not the machine's zone). A
+    /// <see cref="DateTime"/> with an offset (or "Z") is converted to UTC (<see cref="DateTimeKind.Utc"/>), not to the
+    /// machine's zone; without one it is kept as written (<see cref="DateTimeKind.Unspecified"/>). Two properties whose
+    /// names differ only in case cannot be told apart by keys: configuring one is an error. Only a
     /// <see cref="char"/> setting keeps its whitespace; other scalars are trimmed.</item>
     /// </list>
     /// </summary>
@@ -84,6 +87,16 @@ namespace ToolBelt.Configuration
             return (T)boxed;
         }
 
+        // Another bound property whose name differs from prop's only in case, if any.
+        private static PropertyInfo? CaseTwin(PropertyInfo prop, PropertyInfo[] props)
+        {
+            foreach (PropertyInfo p in props)
+                if (p.Name != prop.Name && p.Name.Equals(prop.Name, StringComparison.OrdinalIgnoreCase)
+                    && p.GetIndexParameters().Length == 0 && !IsHidden(p, props))
+                    return p;
+            return null;
+        }
+
         // scope holds the keys under prefix: every key a property of this section can see. Scanning all keys for each
         // property of each section made a self-containing type quadratic (8,000 keys took 29 s).
         private static void BindInto(object obj, Type type, Dictionary<string, string?> values, List<string> sectionScope, string prefix,
@@ -97,6 +110,13 @@ namespace ToolBelt.Configuration
                 // base one was bound too, so a derived string X over a base int X failed as "cannot convert 'hello'".
                 if (IsHidden(prop, props)) continue;
                 string key = prefix.Length == 0 ? prop.Name : prefix + sep + prop.Name;
+                // "Port" and "port" on one type: keys ignore case, so both were filled from one key without a word.
+                if (CaseTwin(prop, props) is PropertyInfo twin)
+                {
+                    if (string.CompareOrdinal(prop.Name, twin.Name) < 0 && ((values.TryGetValue(key, out string? twinValue) && twinValue != null) || HasSection(sectionScope, key + sep)))
+                        errors.Add($"'{key}': the type has properties '{prop.Name}' and '{twin.Name}', which keys cannot tell apart.");
+                    continue;
+                }
                 Type pt = prop.PropertyType;
                 List<string> scope = OwnScope(sectionScope, props, prop, prefix, sep);
 
@@ -485,8 +505,16 @@ namespace ToolBelt.Configuration
             }
             if (t == typeof(DateTime))
             {
-                if (DateTime.TryParse(s, inv, DateTimeStyles.RoundtripKind, out DateTime dt)) { value = dt; return true; }
-                return false;
+                if (!DateTime.TryParse(s, inv, DateTimeStyles.RoundtripKind, out DateTime dt)) return false;
+                // With an offset the text was converted to the machine's zone (Kind Local), so one file bound to a different
+                // wall-clock time on each machine: it is UTC instead, as "Z" is.
+                if (dt.Kind == DateTimeKind.Local)
+                {
+                    if (!DateTimeOffset.TryParse(s, inv, DateTimeStyles.None, out DateTimeOffset withOffset)) return false;
+                    dt = withOffset.UtcDateTime;
+                }
+                value = dt;
+                return true;
             }
             // Floating point without AllowThousands: "0,5" (a decimal comma) is an error, not 5.
             if (t == typeof(double))

@@ -243,28 +243,25 @@ namespace ToolBelt.Documents
 
         // "+1.5" / "-1.5"; a value that rounds to zero prints as "0", never "-0" or "+0".
         // Two decimals, but never 0 for a percentage that isn't: a threshold of 0.001 read "changed by 0% or more".
+        // A million percent and more in three significant digits: "0.##" wrote every digit (303 of them for 1e-300 to 1).
         private static string Percent(double v)
         {
-            return v.ToString(v != 0 && Math.Abs(v) < 0.005 ? "G3" : "0.##", CultureInfo.InvariantCulture);
+            double a = Math.Abs(v);
+            return v.ToString(v != 0 && (a < 0.005 || a >= 1e6) ? "G3" : "0.##", CultureInfo.InvariantCulture);
         }
 
         private static string SignedPercent(double v) => v == 0 ? "0" : (v > 0 ? "+" : "") + Percent(v);
 
         // A value that rounds to zero prints as "0", never "-0" (-0.0, or -0.001 under "0.##"), as in the Change column.
         private static string Plain(double v, string format)
-        {
-            string s = v.ToString(format, CultureInfo.InvariantCulture);
-            if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double shown) && shown == 0)
-                return 0.0.ToString(format, CultureInfo.InvariantCulture);
-            return s;
-        }
+            => ShowsAsZero(v, format) ? 0.0.ToString(format, CultureInfo.InvariantCulture) : v.ToString(format, CultureInfo.InvariantCulture);
 
         private static string Signed(double v, string format)
-        {
-            string s = v.ToString(format, CultureInfo.InvariantCulture);
-            if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double shown) && shown == 0)
-                return 0.0.ToString(format, CultureInfo.InvariantCulture);
-            return (v > 0 ? "+" : "") + s;
-        }
+            => ShowsAsZero(v, format) ? 0.0.ToString(format, CultureInfo.InvariantCulture) : (v > 0 ? "+" : "") + v.ToString(format, CultureInfo.InvariantCulture);
+
+        // True when v prints as zero does: its size formatted like 0. Parsing the text back missed every format the parser
+        // cannot read ("P0" gave "-0 %" and "+0 %", "C" gave "(0.00)", "0.0 ms" gave "-0.0 ms").
+        private static bool ShowsAsZero(double v, string format)
+            => !double.IsNaN(v) && Math.Abs(v).ToString(format, CultureInfo.InvariantCulture) == 0.0.ToString(format, CultureInfo.InvariantCulture);
     }
 }

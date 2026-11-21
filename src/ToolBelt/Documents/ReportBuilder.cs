@@ -31,7 +31,9 @@ namespace ToolBelt.Documents
     /// list has no page numbers, and characters outside Windows-1252 print as '?' (base-14 fonts).</item>
     /// <item><b>Word</b> (<see cref="ToDocx"/>): headings, paragraphs, real lists and tables, monospace code, PNG figures
     /// embedded with captions, title in the document properties and "Page X of Y" footers. SVG-only figures become
-    /// captioned placeholders (Word needs a raster), and the contents list is a static nested list.</item>
+    /// captioned placeholders (Word needs a raster), the contents list is a static nested list, and a table wider than
+    /// Word's <see cref="DocxWriter.MaxColumns"/> columns is split into tables of that many, each labelled with its
+    /// columns.</item>
     /// </list>
     /// Figures are supplied already rendered (SVG markup and/or PNG bytes — e.g. from the visualization renderers),
     /// so this file has no dependency on any plotting code. Tables and figures are numbered automatically.
@@ -426,7 +428,25 @@ namespace ToolBelt.Documents
                     case Kind.Table:
                         table++;
                         if (!string.IsNullOrEmpty(b.Caption)) doc.Paragraph("Table " + table.ToString(CultureInfo.InvariantCulture) + ": " + b.Caption, bold: true);
-                        doc.Table(b.Headers!, b.Rows!);
+                        if (b.Headers!.Count <= DocxWriter.MaxColumns) { doc.Table(b.Headers, b.Rows!); break; }
+                        // Word holds at most 63 columns, so a wider table (which HTML and PDF render) failed the whole
+                        // document with an ArgumentException naming "headers". It goes in as consecutive column groups.
+                        for (int from = 0; from < b.Headers.Count; from += DocxWriter.MaxColumns)
+                        {
+                            int n = Math.Min(DocxWriter.MaxColumns, b.Headers.Count - from);
+                            doc.Paragraph("Columns " + (from + 1).ToString(CultureInfo.InvariantCulture) + "-" + (from + n).ToString(CultureInfo.InvariantCulture)
+                                + " of " + b.Headers.Count.ToString(CultureInfo.InvariantCulture), italic: true);
+                            var headers = new string[n];
+                            for (int c = 0; c < n; c++) headers[c] = b.Headers[from + c];
+                            var rows = new List<IReadOnlyList<string>>();
+                            foreach (var row in b.Rows!)
+                            {
+                                var cells = new string[n];
+                                for (int c = 0; c < n; c++) cells[c] = row[from + c];
+                                rows.Add(cells);
+                            }
+                            doc.Table(headers, rows);
+                        }
                         break;
                     case Kind.Figure:
                         figure++;
