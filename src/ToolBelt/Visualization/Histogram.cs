@@ -74,8 +74,18 @@ namespace ToolBelt.Visualization
             {
                 // One explicit bound at or past all the data stays, and the other side opens beyond it: centring moved
                 // min = 5 to 4.5 and counted 4.7 and 4.8, both below it.
-                if (min.HasValue && !max.HasValue) hi = Math.Min(double.MaxValue, lo + Math.Max(1, Math.Abs(lo) * 0.1));
-                else if (max.HasValue && !min.HasValue) lo = Math.Max(-double.MaxValue, hi - Math.Max(1, Math.Abs(hi) * 0.1));
+                // At ±double.MaxValue the range cannot open past the bound, so it opens on the other side and counts only
+                // from the bound: min = double.MaxValue gave five edges all equal to it.
+                if (min.HasValue && !max.HasValue)
+                {
+                    hi = Math.Min(double.MaxValue, lo + Math.Max(1, Math.Abs(lo) * 0.1));
+                    if (!(hi > lo)) { keepLo = lo; lo = hi - Math.Abs(hi) * 0.1; }
+                }
+                else if (max.HasValue && !min.HasValue)
+                {
+                    lo = Math.Max(-double.MaxValue, hi - Math.Max(1, Math.Abs(hi) * 0.1));
+                    if (!(hi > lo)) { keepHi = hi; hi = lo + Math.Abs(lo) * 0.1; }
+                }
                 else
                 {
                     // Degenerate range. ±0.5 did nothing past 4.5e15 ({1e20, 1e20} gave five equal edges), and an explicit

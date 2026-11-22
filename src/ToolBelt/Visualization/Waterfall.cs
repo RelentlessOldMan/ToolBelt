@@ -309,9 +309,10 @@ namespace ToolBelt.Visualization
                 // Flat data: every tick would land at the same height and the labels would overprint. Show the one value.
                 double py = f.Bottom - 0.5 * f.Height;
                 Tick(sb, x + BarWidth, py, x + BarWidth + 4, py, axis);
-                // Round-trip, without a sign on zero: "G4" printed 12345.678 as 1.235E+04, and -0 as "-0" on .NET 8 only.
+                // Round-trip, without a sign on zero: "G4" printed 12345.678 as 1.235E+04, and -0 as "-0" on .NET 8 only. "R"
+                // is checked: on .NET Framework it printed 0.84551240822557006 as 0.84551240822557, another double.
                 double flat = l.VMin == 0 ? 0 : l.VMin;
-                Text(sb, x + BarWidth + 6, py + fs * 0.35, flat.ToString("R", System.Globalization.CultureInfo.InvariantCulture), "start", ink);
+                Text(sb, x + BarWidth + 6, py + fs * 0.35, RoundTrip(flat), "start", ink);
             }
             else
             {
@@ -368,6 +369,14 @@ namespace ToolBelt.Visualization
             if (!(fEnd > o.FrequencyStart - o.FrequencyStep / 2) || !(tEnd > o.TimeStart))
                 throw new ArgumentOutOfRangeException("options", "The step is too small to resolve at this start; reduce the start or enlarge the step.");
             if (o.FontFamily is null) throw new ArgumentException("FontFamily must not be null.", "options");
+        }
+
+        // "R" where it reads back, else "G17", which always does.
+        private static string RoundTrip(double v)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            string s = v.ToString("R", inv);
+            return double.Parse(s, System.Globalization.NumberStyles.Float, inv) == v ? s : v.ToString("G17", inv);
         }
     }
 }

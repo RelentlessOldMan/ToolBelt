@@ -391,8 +391,11 @@ namespace ToolBelt.Visualization
                 y0 = f.Top; y1 = f.Bottom; x0 = ClampX(BandX(it.A, f), f); x1 = ClampX(BandX(it.B, f), f);
             }
             if (double.IsNaN(x0) || double.IsNaN(x1) || double.IsNaN(y0) || double.IsNaN(y1)) return;
-            int left = Math.Max(0, Px(Math.Min(x0, x1))), right = Math.Min(image.Width - 1, Px(Math.Max(x0, x1)));
-            int top = Math.Max(0, Px(Math.Min(y0, y1))), bottom = Math.Min(image.Height - 1, Px(Math.Max(y0, y1)));
+            // The pixels whose centres are in [low, high), and the plot's far edge: inclusive at both ends, bands that tile
+            // a range (0..1 and 1..2) both blended their shared row, a darker seam the SVG does not have. Each pixel
+            // belongs to one band of a tiling, so a band that covers no pixel centre has no pixels.
+            int left = Math.Max(0, First(Math.Min(x0, x1))), right = Math.Min(image.Width - 1, Last(Math.Max(x0, x1), f.Right));
+            int top = Math.Max(0, First(Math.Min(y0, y1))), bottom = Math.Min(image.Height - 1, Last(Math.Max(y0, y1), f.Bottom));
             for (int y = top; y <= bottom; y++)
                 for (int x = left; x <= right; x++)
                     image.SetPixel(x, y, Blend(image.GetPixel(x, y), it.Color));
@@ -452,6 +455,8 @@ namespace ToolBelt.Visualization
             double cut = flip ? 1 - t1 : t0;
             int step = dash == LineDash.Solid ? 0 : (int)(Math.Round(cut * Math.Max(Math.Abs(ddx), Math.Abs(ddy))) % (on + off));
             int err = dx + dy, half = (thickness - 1) / 2;
+            // The last square drawn is skipped across a gap too: it is already this colour, and re-stamping the whole
+            // square at every dash start cost thickness² each (a dotted line 1e6 wide took 14 s on a 2000-px image).
             bool stamped = false;
             int lastX = 0, lastY = 0;
             while (true)
@@ -461,7 +466,6 @@ namespace ToolBelt.Visualization
                     Stamp(image, x0, y0, half, thickness, color, stamped, lastX, lastY);
                     stamped = true; lastX = x0; lastY = y0;
                 }
-                else stamped = false;
                 if (x0 == x1 && y0 == y1) break;
                 int e2 = 2 * err;
                 if (e2 >= dy) { err += dy; x0 += sx; }
@@ -535,6 +539,15 @@ namespace ToolBelt.Visualization
             int x0 = Math.Max(x, Px(f.Left)), y0 = Math.Max(y, Px(f.Top));
             int x1 = Math.Min(x + w - 1, Px(f.Right)), y1 = Math.Min(y + h - 1, Px(f.Bottom));
             if (x1 >= x0 && y1 >= y0) image.DrawRectangle(x0, y0, x1 - x0 + 1, y1 - y0 + 1, color, filled: true);
+        }
+
+        // The first pixel centre at or after v, and the last before v (at v when v is the plot's far edge), held to ±1e9.
+        private static int First(double v) => (int)Math.Ceiling(Math.Max(-1e9, Math.Min(1e9, v)));
+
+        private static int Last(double v, double farEdge)
+        {
+            double c = Math.Max(-1e9, Math.Min(1e9, v)), fl = Math.Floor(c);
+            return (int)(fl == c && v < farEdge ? fl - 1 : fl);
         }
 
         private static int Px(double v) => (int)Math.Round(Math.Max(-1e9, Math.Min(1e9, v)), MidpointRounding.AwayFromZero);

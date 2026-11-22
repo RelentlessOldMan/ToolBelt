@@ -231,10 +231,14 @@ namespace ToolBelt.Visualization
                 colR[c] = Math.Max(colR[c], o.PanelWidth - f.Right);       // size − edge: carries rounding noise
                 rowB[r] = Math.Max(rowB[r], o.PanelHeight - f.Bottom);
             }
+            // Margins and plot sizes on a power-of-two grid 2^40 times finer than the panel, so every sum and difference
+            // below is exact and each chart's Width − left − right gives back the same plot size: rounded, the plot
+            // areas differed by an ulp between columns (253.36164683144244, ...239 and ...25).
+            double gW = Grid(o.PanelWidth), gH = Grid(o.PanelHeight);
             double maxH = 0, maxV = 0;
-            for (int c = 0; c < cols; c++) { colR[c] = CeilMicro(colR[c]); maxH = Math.Max(maxH, colL[c] + colR[c]); }
-            for (int r = 0; r < rows; r++) { rowB[r] = CeilMicro(rowB[r]); maxV = Math.Max(maxV, rowT[r] + rowB[r]); }
-            double plotW = o.PanelWidth - maxH, plotH = o.PanelHeight - maxV;
+            for (int c = 0; c < cols; c++) { colL[c] = Up(colL[c], gW); colR[c] = Up(CeilMicro(colR[c]), gW); maxH = Math.Max(maxH, colL[c] + colR[c]); }
+            for (int r = 0; r < rows; r++) { rowT[r] = Up(rowT[r], gH); rowB[r] = Up(CeilMicro(rowB[r]), gH); maxV = Math.Max(maxV, rowT[r] + rowB[r]); }
+            double plotW = Down(o.PanelWidth - maxH, gW), plotH = Down(o.PanelHeight - maxV, gH);
             if (plotW < 20 || plotH < 20)
                 throw new ArgumentException("Panels are too small for their labels; increase PanelWidth/PanelHeight.", "options");
 
@@ -267,5 +271,15 @@ namespace ToolBelt.Visualization
         }
 
         private static double CeilMicro(double v) => Math.Ceiling(v * 1e6) / 1e6;
+
+        // 2^(floor(log2 size) − 40), for a positive finite size.
+        private static double Grid(double size)
+        {
+            long be = (BitConverter.DoubleToInt64Bits(size) >> 52) & 0x7FF;
+            return BitConverter.Int64BitsToDouble(Math.Max(be - 40, 1) << 52);
+        }
+
+        private static double Up(double v, double grid) => Math.Ceiling(v / grid) * grid;
+        private static double Down(double v, double grid) => Math.Floor(v / grid) * grid;
     }
 }

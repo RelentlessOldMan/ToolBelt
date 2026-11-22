@@ -1105,6 +1105,7 @@ tests/
       ChartsReview167Tests.cs (round 167: AxisTicks against a brute-force step search, one-ulp spans, tight tick bounds and labels, Time near MaxValue and past 2^53 s, subnormal decades, NaN samples, drawn-bar padding, edge markers, half-away r labels)
       ChartsReview178Tests.cs (round 178: scatter points and reference lines on the same column, markers, callouts and arrowheads kept out of the margin, short arrows, SVG arrows on huge frames, labels held inside the plot, huge and infinite box-plot values, decimal histogram edges rounded once, colormap halves)
       ChartsReview196Tests.cs (round 196: axis ticks settled on their exact decimals, no extra loose step, the smallest tight step, tight ticks inside the range, flat and subnormal ranges at two ticks, distinct sub-minute time labels, bars past the range clipped, legends on narrow charts, segments missing the range, distinct timing offsets, ScatterMatrix title fitted)
+      ChartsReview210Tests.cs (round 210: box-plot outliers against exact fences, an all-infinite box plot drawn, equal multi-panel plot areas, thick dotted lines stamped once, tiled bands without a seam, a histogram from double.MaxValue, Waterfall's flat label read back on .NET Framework, in-frame lines as one subpath)
       DocsVizReviewRegressionTests.cs  (2026-10-05 review regressions: Documents and Visualization)
     Resilience/
       RetryTests.cs

@@ -577,7 +577,10 @@ namespace ToolBelt.Visualization
             if (!Edge(-dy, (y0 - f.Top) * k, ref t0, ref t1)) return false;
             if (!Edge(dy, (f.Bottom - y0) * k, ref t0, ref t1)) return false;
             double Along(double origin, double t, double d) => k == 1 ? origin + t * d : origin + t * d + t * d;
-            double nx0 = Along(x0, t0, dx), ny0 = Along(y0, t0, dy), nx1 = Along(x0, t1, dx), ny1 = Along(y0, t1, dy);
+            // An end left uncut stays exactly where it was: x0 + (x1 − x0) can come back an ulp off, and the next segment,
+            // starting from the unclipped point, then began a fresh subpath (2,090 of 3,000 in-frame lines were split).
+            double nx0 = t0 == 0 ? x0 : Along(x0, t0, dx), ny0 = t0 == 0 ? y0 : Along(y0, t0, dy);
+            double nx1 = t1 == 1 ? x1 : Along(x0, t1, dx), ny1 = t1 == 1 ? y1 : Along(y0, t1, dy);
             x0 = nx0; y0 = ny0; x1 = nx1; y1 = ny1;
             return true;
         }

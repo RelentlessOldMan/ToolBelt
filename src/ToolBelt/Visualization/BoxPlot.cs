@@ -1,6 +1,7 @@
 // ToolBelt drop-in — also copy Visualization/ImageBuffer.cs (for Rgba).
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 
 namespace ToolBelt.Visualization
 {
@@ -85,11 +86,32 @@ namespace ToolBelt.Visualization
             double reach = Reach(whiskerReach, q1, q3);
             double lowerFence = q1 - reach, upperFence = q3 + reach;
 
+            // Near a fence (or past an overflowed one) a value is compared with the exact fence, from the exact quartiles:
+            // rounded, a value on its fence could fall outside it ({0.1, 0.7} at k = 0.5 made 0.1 an outlier and kept
+            // 0.7), and a fence that overflowed kept +∞ inside it ({0, 0, 1e308 ×3, ∞}, whose fence is about 2.1e308).
+            bool exact = !double.IsInfinity(whiskerReach) & ExactQuartile(sorted, 25, out BigInteger q1x) & ExactQuartile(sorted, 75, out BigInteger q3x);
+            BigInteger lowX = 0, highX = 0;
+            if (exact)
+            {
+                BigInteger k = Exact(whiskerReach), iqr = q3x - q1x;
+                lowX = q1x * Unit - k * iqr;
+                highX = q3x * Unit + k * iqr;
+            }
+            double margin = 1e-9 * (Math.Abs(q1) + Math.Abs(q3)) * (1 + whiskerReach) + 1e-300;
+
             double lowerWhisker = double.PositiveInfinity, upperWhisker = double.NegativeInfinity;
             var outliers = new List<double>();
             foreach (double v in sorted)
             {
-                if (v < lowerFence || v > upperFence) outliers.Add(v);
+                bool outlier;
+                if (exact && double.IsInfinity(v)) outlier = true;          // the exact fences are finite
+                else if (exact && !(Math.Abs(v - lowerFence) > margin && Math.Abs(v - upperFence) > margin))
+                {
+                    BigInteger vx = Exact(v) * Unit * 4;
+                    outlier = vx < lowX || vx > highX;
+                }
+                else outlier = v < lowerFence || v > upperFence;
+                if (outlier) outliers.Add(v);
                 else
                 {
                     if (v < lowerWhisker) lowerWhisker = v;
@@ -103,6 +125,34 @@ namespace ToolBelt.Visualization
 
             return new BoxStats(sorted[0], q1, median, q3, sorted[sorted.Length - 1],
                 lowerWhisker, upperWhisker, outliers.ToArray());
+        }
+
+        private static readonly BigInteger Unit = BigInteger.Pow(2, 1074);
+
+        // x·2^1074, an integer for every finite double.
+        private static BigInteger Exact(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int be = (int)((bits >> 52) & 0x7FF);
+            long m = bits & 0xFFFFFFFFFFFFFL;
+            if (be == 0) be = 1; else m |= 1L << 52;
+            BigInteger r = (BigInteger)m << (be - 1);
+            return bits < 0 ? -r : r;
+        }
+
+        // The R-7 percentile times 4·2^1074, exactly (its fraction is a whole number of quarters at p = 25 and 75); false
+        // when an endpoint is infinite.
+        private static bool ExactQuartile(double[] sorted, double p, out BigInteger q)
+        {
+            q = 0;
+            double rank = p / 100.0 * (sorted.Length - 1);
+            int lo = (int)Math.Floor(rank), hi = (int)Math.Ceiling(rank);
+            double a = sorted[lo], b = sorted[hi];
+            if (double.IsInfinity(a) || double.IsInfinity(b)) return false;
+            int quarters = (int)((rank - lo) * 4);
+            BigInteger ax = Exact(a);
+            q = 4 * ax + quarters * (Exact(b) - ax);
+            return true;
         }
 
         // k·IQR. An IQR past double.MaxValue made the fences NaN at k = 0 (0·∞) and infinite at a tiny k, so nothing was
@@ -157,6 +207,9 @@ namespace ToolBelt.Visualization
                         if (options.Max is null && v > maxV) maxV = v;
                     }
             }
+            // With no finite value to set the axis (every value infinite) it is [0, 1], as LinePlot's is: from +∞ to −∞ every
+            // position was NaN and nothing was drawn.
+            if (options.Min is null && options.Max is null && !(minV <= maxV)) { minV = 0; maxV = 1; }
             OpenPastLimit(ref minV, ref maxV, options.Min.HasValue, options.Max.HasValue);
             double range = maxV - minV;
             int plotHeight = bottom - top;
