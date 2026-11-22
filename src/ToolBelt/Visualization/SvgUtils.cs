@@ -188,6 +188,7 @@ namespace ToolBelt.Visualization
                 throw new ArgumentOutOfRangeException(nameof(fontSize), fontSize, "Font size must be non-negative and finite.");
             double units = 0;
             bool joined = false, flagHalf = false;
+            int last = 0;                                                         // the last BMP character's advance
             for (int i = 0; i < text.Length; i++)
             {
                 char ch = text[i];
@@ -208,12 +209,18 @@ namespace ToolBelt.Visualization
                     bool zero = joined || second || (cp >= 0x1F3FB && cp <= 0x1F3FF) || IsZeroWidth(cp);
                     units += zero ? 0 : IsWideAstral(cp) ? 1000 : 556;
                     joined = false;
+                    last = 0;
                     i++;
                     continue;
                 }
                 flagHalf = false;
                 // A symbol joined by U+200D (the heart in a couple emoji) is part of the glyph before it.
-                units += joined && IsOtherSymbol(ch) ? 0 : AdvanceWidth(ch);
+                int advance = joined && IsOtherSymbol(ch) ? 0 : AdvanceWidth(ch);
+                // U+FE0F asks for the emoji form of the symbol before it (a red heart, a keycap digit), which is an em
+                // wide: the text form's average width was kept. A letter has no emoji form, so it keeps its width.
+                if (ch == '\uFE0F' && last > 0 && last < 1000) { advance = 1000 - last; last = 1000; }
+                else if (ch != '\uFE0F') last = HasEmojiForm(ch) ? advance : 0;
+                units += advance;
                 if (ch != '\uFE0F') joined = ch == '\u200D';             // a variation selector keeps the join
             }
             double width = units / 1000.0 * fontSize * (bold ? BoldFactor : 1.0);
@@ -242,6 +249,12 @@ namespace ToolBelt.Visualization
         private static bool IsZeroWidth(int cp) => InRanges(ZeroWidthRanges, cp);
 
         private static bool IsOtherSymbol(char ch) => InRanges(OtherSymbolRanges, ch);
+
+        // A BMP character with an emoji form: the symbols, the keycap bases and the few punctuation and letterlike emoji.
+        private static bool HasEmojiForm(char ch)
+            => IsOtherSymbol(ch) || (ch >= '0' && ch <= '9') || ch == '#' || ch == '*'
+            || ch == '\u203C' || ch == '\u2049' || ch == '\u2139' || (ch >= '\u2194' && ch <= '\u2199')
+            || ch == '\u3030' || ch == '\u303D';
 
         // Ranges as inclusive start, end pairs in ascending order.
         private static bool InRanges(int[] ranges, int cp)
@@ -346,13 +359,29 @@ namespace ToolBelt.Visualization
             0xFDCF, 0xFDCF, 0xFDFD, 0xFDFF, 0xFFE4, 0xFFE4, 0xFFE8, 0xFFE8, 0xFFED, 0xFFEE, 0xFFFC, 0xFFFD,
         };
 
+        private static readonly int[] WideSymbolRanges =
+        {
+            0x231A, 0x231B, 0x2329, 0x232A, 0x23E9, 0x23EC, 0x23F0, 0x23F0, 0x23F3, 0x23F3, 0x25FD, 0x25FE,
+            0x2614, 0x2615, 0x2648, 0x2653, 0x267F, 0x267F, 0x2693, 0x2693, 0x26A1, 0x26A1, 0x26AA, 0x26AB,
+            0x26BD, 0x26BE, 0x26C4, 0x26C5, 0x26CE, 0x26CE, 0x26D4, 0x26D4, 0x26EA, 0x26EA, 0x26F2, 0x26F3,
+            0x26F5, 0x26F5, 0x26FA, 0x26FA, 0x26FD, 0x26FD, 0x2705, 0x2705, 0x270A, 0x270B, 0x2728, 0x2728,
+            0x274C, 0x274C, 0x274E, 0x274E, 0x2753, 0x2755, 0x2757, 0x2757, 0x2795, 0x2797, 0x27B0, 0x27B0,
+            0x27BF, 0x27BF, 0x2B1B, 0x2B1C, 0x2B50, 0x2B50, 0x2B55, 0x2B55,
+        };
+
         // East Asian wide outside the Basic Multilingual Plane, by block: Tangut, Khitan, kana supplements and Nushu; the
         // emoji and pictograph planes from Mahjong tiles to Symbols and Pictographs Extended-A; CJK extensions B onward.
         private static bool IsWideAstral(int cp)
             => (cp >= 0x16FE0 && cp <= 0x1B2FF) || (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x20000 && cp <= 0x3FFFD);
 
+        // East Asian wide in the Basic Multilingual Plane, by block, and the wide emoji among the symbols (Unicode 15.0
+        // East_Asian_Width W): the watch, the hourglasses, the zodiac, the high-voltage sign, the check mark, the star and
+        // the rest measured 556, though the docs give emoji an em.
         private static bool IsWide(char ch)
             => (ch >= 'ᄀ' && ch <= 'ᅟ')    // Hangul Jamo
+            || (ch >= '\u2300' && ch <= '\u2BFF' && InRanges(WideSymbolRanges, ch))
+            || (ch >= '\uA960' && ch <= '\uA97C')    // Hangul Jamo Extended-A
+            || (ch >= '\uFE10' && ch <= '\uFE19')    // vertical forms
             || (ch >= '⺀' && ch <= '꓏')    // CJK radicals .. Yi
             || (ch >= '가' && ch <= '힣')    // Hangul syllables
             || (ch >= '豈' && ch <= '﫿')    // CJK compatibility ideographs
