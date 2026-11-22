@@ -123,7 +123,7 @@ namespace ToolBelt.Tests.Numerics
 
         public void Uncertainty_Format_JustBelowAPowerOfTen_KeepsTheMantissaInRange()
         {
-            Check.Equal("(9.9999999999999970 ± 0.0000000000000010)e22", Uncertainty.Format(9.999999999999997e22, 1e7));
+            Check.Equal("(9.9999999999999970 \u00b1 0.0000000000000010)e22", Uncertainty.Format(9.999999999999997e22, 1e7));
             var rng = new Random(2094);
             int wrong = 0, checkedCount = 0;
             string? first = null;
