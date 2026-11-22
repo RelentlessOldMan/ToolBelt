@@ -1,6 +1,7 @@
 // ToolBelt drop-in — also copy Numerics/Distributions.cs (Student-t for p-values and intervals).
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 
 namespace ToolBelt.Numerics
 {
@@ -181,6 +182,8 @@ namespace ToolBelt.Numerics
             }
             var b = new double[n];
             for (int i = 0; i < n; i++) b[i] = yv[i] / ys;
+            var design = (double[,])a.Clone();
+            var response = (double[])b.Clone();
 
             // Each column's own length: reflections are orthogonal, so |R_cc| compared with it measures how much of the column
             // is independent of the earlier ones, whatever its units (a global threshold flags 1e-7-scale predictors next to 1e6).
@@ -276,6 +279,16 @@ namespace ToolBelt.Numerics
             for (int i = 0; i < p; i++) se[i] = df > 0 ? MulRatio(Math.Sqrt(sigma2 * xtxInv[i, i]), ys, colScale[i]) : double.NaN;
             var coefficients = new double[p];
             for (int i = 0; i < p; i++) coefficients[i] = MulRatio(beta[i], ys, colScale[i]);
+            // A coefficient past double.MaxValue may be a rounding crumb of the scaled solve times a huge unit ratio (y near
+            // 1e300 over x near 1e-300 with an exact slope of 0 gave −∞). Those are solved again exactly.
+            bool overflowed = false;
+            for (int i = 0; i < p; i++) overflowed |= double.IsInfinity(coefficients[i]);
+            if (overflowed)
+            {
+                var exact = ExactCoefficients(design, response, ys, colScale);
+                for (int i = 0; i < p; i++)
+                    if (double.IsInfinity(coefficients[i])) coefficients[i] = exact[i];
+            }
             if (intercept)
             {
                 // Back from the centred fit: b0 = a0 − Σ βⱼcⱼ, with Var(b0) = σ² wᵀ(XᵀX)⁻¹w for w = (1, −c₁/s₁, …). Summed in
@@ -345,6 +358,114 @@ namespace ToolBelt.Numerics
 
         // The power of two at or below m (1 for 0): dividing by it is exact, so data in the normal range give the same
         // bits, while data near 1e±308 neither over- nor underflow when summed or squared.
+        // The least-squares solution of design·β = response in exact rational arithmetic (every double is an integer times a
+        // power of two), by fraction-free Gauss–Jordan elimination on the normal equations (positive definite once the
+        // columns are independent, so no pivoting; every division is exact and the diagonal ends as the determinant),
+        // each βᵢ·ys/colScaleᵢ then rounded once to a double.
+        private static double[] ExactCoefficients(double[,] design, double[] response, double ys, double[] colScale)
+        {
+            int n = response.Length, p = colScale.Length;
+            int lowest = int.MaxValue;
+            foreach (double v in design) if (v != 0) lowest = Math.Min(lowest, Split(v, out _));
+            foreach (double v in response) if (v != 0) lowest = Math.Min(lowest, Split(v, out _));
+            if (lowest == int.MaxValue) lowest = 0;
+            var ai = new BigInteger[n, p];
+            var bi = new BigInteger[n];
+            for (int i = 0; i < n; i++)
+            {
+                for (int j = 0; j < p; j++) ai[i, j] = AsInteger(design[i, j], lowest);
+                bi[i] = AsInteger(response[i], lowest);
+            }
+            var m = new BigInteger[p, p + 1];
+            for (int r = 0; r < p; r++)
+                for (int c = 0; c <= p; c++)
+                {
+                    BigInteger s = BigInteger.Zero;
+                    for (int i = 0; i < n; i++) s += ai[i, r] * (c < p ? ai[i, c] : bi[i]);
+                    m[r, c] = s;
+                }
+            BigInteger previous = BigInteger.One;
+            for (int k = 0; k < p; k++)
+            {
+                for (int i = 0; i < p; i++)
+                {
+                    if (i == k) continue;
+                    for (int j = 0; j <= p; j++)
+                        if (j != k) m[i, j] = (m[k, k] * m[i, j] - m[i, k] * m[k, j]) / previous;
+                    m[i, k] = BigInteger.Zero;
+                }
+                previous = m[k, k];
+            }
+            var result = new double[p];
+            int ye = Split(ys, out BigInteger ym);
+            for (int i = 0; i < p; i++)
+            {
+                int ce = Split(colScale[i], out BigInteger cm);
+                result[i] = Quotient(m[i, p] * ym, m[i, i] * cm, ye - ce);
+            }
+            return result;
+        }
+
+        // v = mantissa·2^exponent with an integer mantissa (v ≠ 0); returns the exponent.
+        private static int Split(double v, out BigInteger mantissa)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(v);
+            int biased = (int)((bits >> 52) & 0x7FF);
+            long frac = bits & 0xFFFFFFFFFFFFFL;
+            long mant = biased == 0 ? frac : frac | (1L << 52);
+            mantissa = bits < 0 ? -(BigInteger)mant : mant;
+            return (biased == 0 ? 1 : biased) - 1075;
+        }
+
+        private static BigInteger AsInteger(double v, int lowest)
+        {
+            if (v == 0) return BigInteger.Zero;
+            int e = Split(v, out BigInteger mantissa);
+            return mantissa << (e - lowest);
+        }
+
+        private static int BitLength(BigInteger v)
+        {
+            byte[] bytes = BigInteger.Abs(v).ToByteArray();
+            int top = bytes.Length - 1;
+            while (top > 0 && bytes[top] == 0) top--;
+            int bits = top * 8, b = bytes[top];
+            while (b != 0) { bits++; b >>= 1; }
+            return bits;
+        }
+
+        // num/den·2^shift as a double: a 64-bit quotient (sticky bit for the remainder), then the power of two applied.
+        private static double Quotient(BigInteger num, BigInteger den, int shift)
+        {
+            if (num.IsZero) return 0;
+            if (den.Sign < 0) { num = -num; den = -den; }
+            bool negative = num.Sign < 0;
+            num = BigInteger.Abs(num);
+            int t = 64 - (BitLength(num) - BitLength(den));
+            BigInteger q = BigInteger.DivRem(t >= 0 ? num << t : num, t >= 0 ? den : den << -t, out BigInteger rem);
+            if (!rem.IsZero) q |= 1;
+            int e = shift - t;
+            // Down to 53 bits by hand, rounding to nearest even, so the double conversion below is exact; the subnormal
+            // range takes off more bits.
+            int len = BitLength(q);
+            int drop = len - 53;
+            int resultExponent = e + len - 1;                   // of the leading bit
+            if (resultExponent < -1022) drop += -1022 - resultExponent;
+            if (drop > 0)
+            {
+                if (drop > len + 1) return negative ? -0.0 : 0.0;
+                BigInteger half = BigInteger.One << (drop - 1), mask = (BigInteger.One << drop) - 1;
+                BigInteger low = q & mask;
+                q >>= drop;
+                if (low > half || (low == half && !q.IsEven)) q += 1;
+                e += drop;
+            }
+            double r = (double)q;                                 // at most 54 bits after rounding up; exact
+            while (e > 0) { int s = Math.Min(e, 1000); r *= Math.Pow(2, s); e -= s; if (double.IsInfinity(r)) break; }
+            while (e < 0) { int s = Math.Min(-e, 1000); r *= Math.Pow(2, -s); e += s; }
+            return negative ? -r : r;
+        }
+
         private static double Pow2Scale(double m)
         {
             if (m == 0 || double.IsInfinity(m)) return 1;

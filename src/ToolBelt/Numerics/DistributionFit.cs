@@ -114,7 +114,7 @@ namespace ToolBelt.Numerics
             double[] lx = x.Select(v =>
             {
                 double d = (v - x0) / x0;
-                return Math.Abs(d) <= 0.5 ? d + Log1pmx(d) : Math.Log(v) - l0;
+                return Math.Abs(d) <= 0.5 ? d + Log1pmx(d) : LogRatio(v, x0, l0);
             }).ToArray();
             double offset = lx.Average(), mu = l0 + offset;
             double ss = 0;
@@ -124,6 +124,15 @@ namespace ToolBelt.Numerics
             double ll = -n / 2.0 * (Math.Log(2 * Math.PI) + 2 * Math.Log(sigma) + 1) - (n * l0 + lx.Sum());
             Func<double, double> cdf = v => Distributions.LogNormalCdf(v, mu, sigma);
             return Make(DistributionFamily.LogNormal, P("mu", mu, "sigma", sigma), ll, x, cdf);
+        }
+
+        // ln(v / b) given lb = ln b: from the quotient, which is correctly rounded, where it is a normal double. The
+        // difference of the two logs rounded each to an ulp of its own size, about 1e-13 near 1e±300 (sigma, the gamma
+        // shape and the Weibull shape came out 1e-14 to 1e-13 off where the same data at scale 1 is within 1e-16).
+        private static double LogRatio(double v, double b, double lb)
+        {
+            double r = v / b;
+            return r >= 2.2250738585072014E-308 && !double.IsInfinity(r) ? Math.Log(r) : Math.Log(v) - lb;
         }
 
         public static DistributionFitResult FitExponential(IReadOnlyList<double> sample)
@@ -153,7 +162,7 @@ namespace ToolBelt.Numerics
                 double d = (v - mean) / mean;
                 // Far from the mean the logs no longer cancel, and 1 + d lost a value far below it (1e-20 against a mean
                 // near 1 rounded to ln 1 = 0: s came out 0 and the fit refused the sample as constant).
-                s -= Math.Abs(d) > 0.5 ? Math.Log(v) - Math.Log(mean) - d : Log1pmx(d);
+                s -= Math.Abs(d) > 0.5 ? LogRatio(v, mean, Math.Log(mean)) - d : Log1pmx(d);
                 meanD += d;
             }
             double sumL = -s, sumD = meanD;
@@ -171,8 +180,9 @@ namespace ToolBelt.Numerics
             }
             double theta = mean / k;
             // A scale past the double range (a subnormal mean over a large shape, or a huge mean over a tiny one) cannot be
-            // reported: it underflowed to 0, giving log-likelihood +∞ and an AIC that ranked the fit first.
-            if (!(theta >= 2.2250738585072014E-308) || double.IsInfinity(theta))
+            // reported: it underflowed to 0, giving log-likelihood +∞ and an AIC that ranked the fit first. A subnormal
+            // scale is still a value (normal data near 1e-307 has scale 5.4e-309); refusing it dropped Gamma from FitAll.
+            if (!(theta > 0) || double.IsInfinity(theta))
                 throw new ArgumentException("The fitted gamma scale is outside the double range.", nameof(sample));
             // ll = Σ[(k − 1) ln(xᵢ/θ) − xᵢ/θ] − n ln θ − n ln Γ(k) with xᵢ/θ = k(1 + dᵢ), arranged so the k-sized terms cancel
             // analytically: n·G(k) + (k − 1)ΣLᵢ − Σdᵢ − n ln θ, G(k) = (k − 1) ln k − k − ln Γ(k) = −½ ln(2πk) − (Stirling
@@ -200,7 +210,7 @@ namespace ToolBelt.Numerics
             double[] ly = x.Select(v =>
             {
                 double d = (v - max) / max;
-                return d >= -0.5 ? d + Log1pmx(d) : Math.Log(v) - lmax;
+                return d >= -0.5 ? d + Log1pmx(d) : LogRatio(v, max, lmax);
             }).ToArray();
             // Only equal values are "all equal": distinct values within a few ulps ({1, 1 + 4ε, 1 + 8ε}) were reported so.
             if (x.Min() == max) throw new ArgumentException("All values are equal; the shape cannot be estimated.", nameof(sample));

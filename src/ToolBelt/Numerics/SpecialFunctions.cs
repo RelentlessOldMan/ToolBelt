@@ -597,7 +597,9 @@ namespace ToolBelt.Numerics
             while (n < 10000)
             {
                 n += 1;
-                double t = n / a, w = n * (b - n) * x, e = a / s;
+                // (b − n)·x first: n·(b − n) overflowed for b near MaxValue (F tails at a denominator df of 8.5e307 came out
+                // NaN), where w itself is about n·a.
+                double t = n / a, w = n * ((b - n) * x), e = a / s;
                 double alpha = p * (p + c0) * e * e * (w * x);
                 e = (t + 1) / (c1 + t + t);
                 double beta = n + w / s + e * (c + n * yp1);
