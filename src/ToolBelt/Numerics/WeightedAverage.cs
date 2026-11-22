@@ -44,17 +44,32 @@ namespace ToolBelt.Numerics
                 // About the value nearest 0: r + Σ w(v − r) / Σ w is exact for equal values ({0.1, 0.1, 0.1} averaged to
                 // 0.10000000000000002) and stays within the values' range; deviations that overflow fall through. About the
                 // first value, a mean far below it cancelled ({1e308, 0} weighted {1e-300, 1e300} gave 0, not 1e-292).
-                double lo = double.PositiveInfinity, hi = double.NegativeInfinity, dev = 0, total = 0;
+                // The deviations, their products and both sums are carried with their rounding errors, and so is the
+                // quotient: rounded, a mean small beside the values lost hundreds of ulps when r was added back
+                // ([-97.75, 79.625, 122, 30.875, -97.375, 47.625, -24.5] weighted [2, 1, 3, 3, 3, 1, 4] gave
+                // 0.014705882352942012 for 1/68).
+                double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
+                double dev = 0, devErr = 0, total = 0, totalErr = 0;
                 for (int i = 0; i < values.Count; i++)
                 {
                     if (weights[i] == 0) continue;
                     double v = values[i];
                     if (v < lo) lo = v;
                     if (v > hi) hi = v;
-                    dev += Product(v - r, weights[i], weightShift);
-                    total += ScaleB(weights[i], weightShift);
+                    var (d, dErr) = TwoSum(v, -r);
+                    var (p, pErr) = ProductWithError(d, weights[i], weightShift);
+                    Accumulate(ref dev, ref devErr, p);
+                    devErr += pErr + Product(dErr, weights[i], weightShift);
+                    Accumulate(ref total, ref totalErr, ScaleB(weights[i], weightShift));
                 }
-                double mean = r + dev / total;
+                double qHi = dev / total, qLo = 0;
+                if (Math.Abs(qHi) < 1e290 && qHi != 0 && !double.IsNaN(qHi))
+                {
+                    var (qt, qtErr) = TwoProduct(qHi, total);
+                    qLo = (((dev - qt) - qtErr) + devErr - qHi * totalErr) / total;
+                }
+                var (m, mErr) = TwoSum(r, qHi);
+                double mean = m + (mErr + qLo);
                 if (!double.IsNaN(mean) && !double.IsInfinity(mean)) return Math.Max(lo, Math.Min(hi, mean));
             }
             double average = Sum(values, weights, weightShift, 0);
@@ -83,6 +98,45 @@ namespace ToolBelt.Numerics
             if (a == 0 || double.IsNaN(a) || double.IsInfinity(a)) return a * w;
             int ea = Exponent(Math.Abs(a)), ew = Exponent(w);
             return ScaleB(ScaleB(a, -ea) * ScaleB(w, -ew), ea + ew + k);
+        }
+
+        // a·w·2^k and its rounding error: the mantissas' product is split exactly, and both are scaled by the same power.
+        private static (double Product, double Error) ProductWithError(double a, double w, int k)
+        {
+            if (a == 0 || double.IsNaN(a) || double.IsInfinity(a)) return (a * w, 0);
+            int ea = Exponent(Math.Abs(a)), ew = Exponent(w);
+            var (p, err) = TwoProduct(ScaleB(a, -ea), ScaleB(w, -ew));
+            return (ScaleB(p, ea + ew + k), ScaleB(err, ea + ew + k));
+        }
+
+        private static (double Sum, double Error) TwoSum(double a, double b)
+        {
+            double s = a + b, bv = s - a;
+            return (s, (a - (s - bv)) + (b - bv));
+        }
+
+        // s += x, with the rounding error added to err (Neumaier).
+        private static void Accumulate(ref double s, ref double err, double x)
+        {
+            double t = s + x;
+            err += Math.Abs(s) >= Math.Abs(x) ? (s - t) + x : (x - t) + s;
+            s = t;
+        }
+
+        // x·y and its exact error (Dekker, Veltkamp's split), for |x|, |y| below about 2^995.
+        private static (double Product, double Error) TwoProduct(double x, double y)
+        {
+            double p = x * y;
+            var (xh, xl) = Split(x);
+            var (yh, yl) = Split(y);
+            return (p, ((xh * yh - p) + xh * yl + xl * yh) + xl * yl);
+        }
+
+        private static (double Hi, double Lo) Split(double x)
+        {
+            double c = 134217729.0 * x;                                   // 2^27 + 1
+            double hi = c - (c - x);
+            return (hi, x - hi);
         }
 
         // floor(log2 x) for a positive finite x, subnormals included.

@@ -170,15 +170,24 @@ namespace ToolBelt.Numerics
             // budget, and scale back: a signed ∞ past double range, the value if it cancels into range. When what is
             // left is within rounding of the pieces it cancelled, though, its scaled-back value is noise far past the
             // double range (x over ±1e200 left about 1e384 of it), and neither a value nor an infinity would be right.
-            Func<double, double> g = x => f(x) * Tiny * Tiny; // 2⁻¹¹⁰⁰ itself is below the double range
-            double ga = fa * Tiny * Tiny, gb = fb * Tiny * Tiny, gm = fm * Tiny * Tiny;
-            mass = 0;
-            double scaled = Recurse(g, a, b, ga, gb, gm, SimpsonPiece(a, b, ga, gb, gm), tolerance * Tiny * Tiny, 50, ref budget, ref mass);
-            double back = scaled * Big * Big;
+            // 2⁻⁵⁵⁰ first, and 2⁻¹¹⁰⁰ only if that still overflows: 2⁻¹¹⁰⁰ alone took every sample below 2²⁶ to 0, so 1
+            // over ±1e308 integrated to 0, not ∞. A sample lost at either scale is 2⁻⁵²³ of the piece that overflowed.
+            double scaled = 0, back = 0;
+            for (int pass = 1; pass <= 2; pass++)
+            {
+                Func<double, double> g = pass == 1 ? x => f(x) * Tiny : (Func<double, double>)(x => f(x) * Tiny * Tiny);
+                double ga = Down(fa, pass), gb = Down(fb, pass), gm = Down(fm, pass);
+                mass = 0;
+                scaled = Recurse(g, a, b, ga, gb, gm, SimpsonPiece(a, b, ga, gb, gm), Down(tolerance, pass), 50, ref budget, ref mass);
+                back = pass == 1 ? scaled * Big : scaled * Big * Big;
+                if (IsFinite(scaled)) break;
+            }
             if (IsFinite(back) || Math.Abs(scaled) > 1e-12 * mass) return back;
             throw new InvalidOperationException(
                 "The integral cancels between pieces beyond the double range, below the rounding of those pieces; it cannot be resolved in double precision.");
         }
+
+        private static double Down(double v, int pass) => pass == 1 ? v * Tiny : v * Tiny * Tiny;
 
         // Splits forced before the first acceptance: five samples alone could agree by aliasing (sin²(πx) is 0 at all of
         // them on [0, 4], so the integral came out 3e-31, not 2), and were accepted as converged.

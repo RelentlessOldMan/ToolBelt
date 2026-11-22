@@ -37,8 +37,11 @@ namespace ToolBelt.Numerics
         /// <summary>Evaluates the polynomial at <paramref name="x"/> using Horner's method.</summary>
         public double Evaluate(double x)
         {
-            double result = 0;
-            for (int i = _coefficients.Length - 1; i >= 0; i--)
+            // From the leading coefficient, not 0: 0·∞ made every polynomial NaN at ±∞ (5 gave NaN, x² at −∞ NaN for +∞).
+            if (double.IsNaN(x)) return double.NaN;
+            int last = _coefficients.Length - 1;
+            double result = _coefficients[last];
+            for (int i = last - 1; i >= 0; i--)
                 result = result * x + _coefficients[i];
             return result;
         }
@@ -234,7 +237,12 @@ namespace ToolBelt.Numerics
             if (b != 0) e = Math.Max(e, Exponent(Math.Abs(b)) + k);
             if (c != 0) e = Math.Max(e, ec);
             double sa = ScaleB(a, 2 * k - e), sb = ScaleB(b, k - e), sc = ScaleB(c, -e);
-            double disc = sb * sb - 4 * sa * sc;
+            // b² − 4ac from exact products: rounded, it cancelled for close roots (1 + 3·2^-27 and 1 + 2^-25, coefficients
+            // exact, came back as one root). The products' difference is exact where they are close (Sterbenz), and their
+            // rounding errors are added back.
+            var (bb, bbErr) = TwoProduct(sb, sb);
+            var (ac, acErr) = TwoProduct(4 * sa, sc);
+            double disc = (bb - ac) + (bbErr - acErr);
             if (disc < 0) return Array.Empty<double>();
             // Back to x = 2^k·y through the mantissas of a and c, so no quotient overflows or underflows on the way.
             double ma = ScaleB(a, -ea);
@@ -247,6 +255,23 @@ namespace ToolBelt.Numerics
         }
 
         private const double Epsilon = 2.220446049250313e-16;
+
+        // x·y as a rounded product and its exact error (Dekker, Veltkamp's split), for |x|, |y| at most about 2^995 and a
+        // product whose error does not underflow; the quadratic's scaled coefficients are at most 4.
+        private static (double Product, double Error) TwoProduct(double x, double y)
+        {
+            double p = x * y;
+            var (xh, xl) = Split(x);
+            var (yh, yl) = Split(y);
+            return (p, ((xh * yh - p) + xh * yl + xl * yh) + xl * yl);
+        }
+
+        private static (double Hi, double Lo) Split(double x)
+        {
+            double c = 134217729.0 * x;                                   // 2^27 + 1
+            double hi = c - (c - x);
+            return (hi, x - hi);
+        }
 
         private double[] CubicRoots()
         {

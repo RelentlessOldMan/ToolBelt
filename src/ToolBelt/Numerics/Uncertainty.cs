@@ -105,7 +105,10 @@ namespace ToolBelt.Numerics
             if (decimals <= 6 && decimals >= -6 && Math.Abs(v) < 1e7)
                 return Compose(v, u, Math.Max(decimals, 0), style, null);
 
-            int e = (int)Math.Floor(Math.Log10(Math.Max(Math.Abs(v), u)));
+            // From the shortest digits, not Math.Log10, which rounds up just below a power of ten: 9.999999999999997e22 gave
+            // the mantissa 0.99999999999999970 with the exponent 23.
+            var (topDigits, topPlace) = Shortest(Math.Max(Math.Abs(v), u));
+            int e = topPlace + topDigits.ToString(CultureInfo.InvariantCulture).Length - 1;
             int d = Math.Max(decimals + e, 0);
             // The mantissas can need 17 or more digits, past what "F" gives the same on every framework (.NET Framework
             // pads zeros after 15, so 1/3 ± 3e-17 came out 10 uncertainties off; .NET 8 showed binary noise). So they are
