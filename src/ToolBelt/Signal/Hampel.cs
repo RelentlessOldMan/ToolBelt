@@ -169,11 +169,14 @@ namespace ToolBelt.Signal
 
         // The midpoint of two sorted values: halves first, so the sum can't overflow, except where both are tiny, where the
         // halves rounded on their own ([ε, ε] had the median 0, [3ε ×4] the median 4ε) and the sum is scaled by 2^54 instead.
+        // Scaled wherever the scaled values fit, not only where both are tiny: a subnormal beside 2^-1000 lost its half's
+        // rounding bit ((2^21 + 1)ε and 2^-1000 gave a midpoint one ulp low). Scaled, the sum rounds once, and when the
+        // midpoint is subnormal the sum is exact, so only the scale-back rounds.
         private static double Midpoint(double a, double b)
         {
             if (double.IsInfinity(a) || double.IsInfinity(b)) return 0.5 * (a + b);
-            const double Up = 18014398509481984.0, Tiny = 9.332636185032189e-302;    // 2^54, 2^-1000
-            if (Math.Abs(a) < Tiny && Math.Abs(b) < Tiny) return (a * Up + b * Up) * 0.5 / Up;
+            const double Up = 18014398509481984.0, Big = 9.9792015476736e291;      // 2^54, 2^970
+            if (Math.Abs(a) < Big && Math.Abs(b) < Big) return (a * Up + b * Up) * 0.5 / Up;
             return 0.5 * a + 0.5 * b;
         }
     }

@@ -55,22 +55,30 @@ namespace ToolBelt.Signal
             // |X|² overflowed or underflowed for representable densities (amplitude 1e155 at 1e10 Hz gave ∞, 1e-170 at
             // 1e-100 Hz gave 0): the samples are scaled to a peak near 1 by a power of two (exact), and the square of that
             // scale is applied last, together with the sample rate's exponent.
-            double peak = 0;
-            foreach (double v in samples) peak = Math.Max(peak, Math.Abs(v));
-            int exponent = Exponent(peak);
-            double downHalf = Math.Pow(2, -(exponent / 2)), downRest = Math.Pow(2, -(exponent - exponent / 2));
-
+            // Each segment is scaled by its own peak, and each bin keeps the exponent of its sum: one scale from the whole
+            // signal's peak underflowed a quiet segment beside a loud one ([1, 1, 1e-200, -1e-200] in segments of 2 at
+            // 1e-100 Hz gave 0 for 1e-300 at Nyquist, and 1e140 beside 1e300 came back 2e-4 off).
+            var psdExponent = new int[bins];
             var seg = new double[segmentLength];
             // start + segmentLength wrapped past int.MaxValue for a signal near the longest array, and read past the end.
             for (int start = 0; start <= samples.Length - segmentLength; start = step > samples.Length - segmentLength - start ? samples.Length : start + step)
             {
+                double peak = 0;
+                for (int i = 0; i < segmentLength; i++) peak = Math.Max(peak, Math.Abs(samples[start + i]));
+                int exponent = Exponent(peak);
+                double downHalf = Math.Pow(2, -(exponent / 2)), downRest = Math.Pow(2, -(exponent - exponent / 2));
                 for (int i = 0; i < segmentLength; i++) seg[i] = samples[start + i] * downHalf * downRest * w[i];
                 var fft = Fft.Forward(seg);
                 for (int k = 0; k < bins; k++)
                 {
                     double mag = Magnitude(fft[k]);
                     double scale = (k == 0 || (even && k == segmentLength / 2)) ? 1.0 : 2.0;
-                    psd[k] += scale * mag * mag;
+                    double term = scale * mag * mag;
+                    int e = 2 * exponent;
+                    if (psd[k] == 0) { psd[k] = term; psdExponent[k] = e; }
+                    else if (term == 0) { }
+                    else if (e > psdExponent[k]) { psd[k] = ScaleB(psd[k], psdExponent[k] - e) + term; psdExponent[k] = e; }
+                    else psd[k] += ScaleB(term, e - psdExponent[k]);
                 }
                 segments++;
             }
@@ -79,7 +87,7 @@ namespace ToolBelt.Signal
             // Divided in turn: 1 / (fs·Σw²·segments) underflowed to 0 for a huge rate although the PSD is representable.
             int rateExponent = (int)Math.Floor(Math.Log(sampleRate, 2));
             double rateMantissa = ScaleB(sampleRate, -rateExponent);
-            for (int k = 0; k < bins; k++) psd[k] = ScaleB(psd[k] / (windowPower * segments) / rateMantissa, 2 * exponent - rateExponent);
+            for (int k = 0; k < bins; k++) psd[k] = ScaleB(psd[k] / (windowPower * segments) / rateMantissa, psdExponent[k] - rateExponent);
 
             return (FrequencyGrid.BinFrequencies(segmentLength, sampleRate), psd);
         }

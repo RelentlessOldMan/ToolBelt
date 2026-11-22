@@ -197,7 +197,10 @@ namespace ToolBelt.Signal
                     close.Add(i);
                     exactWork += Math.Min(reference.Length, delayed.Length - candidates[i]) - Math.Max(0, -candidates[i]);
                 }
-            if (close.Count < 2 || exactWork > budget) return Finish(bestLag, (best, bestBound));
+            // Exact terms cost far more than a flop, so their budget is about one FFT's worth of terms: within the main
+            // budget, ones(640) against ones(524288) compared 3.3e8 exact terms and took 30 s.
+            long exactBudget = Math.Max(64L * Math.Min(reference.Length, delayed.Length), m);
+            if (close.Count < 2 || exactWork > exactBudget) return Finish(bestLag, (best, bestBound));
             var ra = Decompose(reference);
             var da = Decompose(delayed);
             int e0 = MinExponent(ra) + MinExponent(da);

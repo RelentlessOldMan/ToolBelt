@@ -26,12 +26,14 @@ namespace ToolBelt.Signal
             for (int k = 0; k < bins; k++)
             {
                 bool edge = k == 0 || (n % 2 == 0 && k == n / 2);
-                double scale = edge ? 1.0 / n : 2.0 / n;
+                // Divided by N or N/2 (both exact), so the magnitude rounds once: multiplying by a rounded 1/N gave
+                // 0.30000000000000004 for |X| = 3 at N = 10, and an exact tie among subnormals rounded the wrong way.
+                double divisor = edge ? n : n * 0.5;
                 double magnitude = Magnitude(fft[k]);
                 // A bin of (Max, Max) has a magnitude past double.MaxValue but an amplitude that fits: halve the parts first.
                 if (double.IsInfinity(magnitude) && !double.IsInfinity(fft[k].Real) && !double.IsInfinity(fft[k].Imaginary))
-                    result[k] = new Complex(fft[k].Real / 2, fft[k].Imaginary / 2).Magnitude * (2 * scale);
-                else result[k] = magnitude * scale;
+                    result[k] = new Complex(fft[k].Real / 2, fft[k].Imaginary / 2).Magnitude / (divisor * 0.5);
+                else result[k] = magnitude / divisor;
             }
             return result;
         }
