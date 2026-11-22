@@ -1166,6 +1166,7 @@ tests/
     WindowsReview144Tests.cs (ninth pass: negative registry numbers read back, integer text as words, refused writes create no keys, no resend after a lost answer)
     WindowsReview164Tests.cs (tenth pass: invariant info and rectangle text, opaque captures, regions wider than a GDI bitmap, refused deep registry paths leave nothing, relative shortcut targets)
     WindowsReview184Tests.cs (eleventh pass: NULs in JoinArguments and RunElevated.Start, zero-timeout launches to a running primary)
+    WindowsReview207Tests.cs (twelfth pass: one forward deadline, registry keys over 32 levels deep, privilege scopes closed out of order, a process that has exited, JobObject.Start's arguments, a DIB header too short for its masks)
     FlakeRootCauseTests.cs  (round 46: JobObject.Start keeps grandchildren in the job, refuses over the limit before running)
     DriveAndVolumeInfoTests.cs
     MonitorInfoTests.cs

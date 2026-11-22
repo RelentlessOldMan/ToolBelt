@@ -101,11 +101,15 @@ namespace ToolBelt.Windows
             // The processor-time counters tick coarsely (about 15.6 ms), so a short sample of a busy process overshot.
             if (percent > 100) percent = 100;
 
+            long workingSet = _process.WorkingSet64, privateBytes = _process.PrivateMemorySize64;
+            // After the reads, so an exit before any of them throws: a process that had exited still read 0% and a
+            // working set of tens of kilobytes.
+            if (_process.HasExited) throw new InvalidOperationException("The process has exited.");
+
             _lastCpu = nowCpu;
             _lastTicks = nowTicks;
 
-            return new ResourceSample(percent, _process.WorkingSet64, _process.PrivateMemorySize64,
-                TimeSpan.FromSeconds(elapsedSeconds));
+            return new ResourceSample(percent, workingSet, privateBytes, TimeSpan.FromSeconds(elapsedSeconds));
         }
 
         /// <summary>

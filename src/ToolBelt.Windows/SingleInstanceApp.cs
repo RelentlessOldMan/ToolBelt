@@ -101,8 +101,8 @@ namespace ToolBelt.Windows
         /// Claims the instance named <paramref name="appId"/> for this user session, or forwards <paramref name="args"/>
         /// to the instance that already holds it (waiting up to <paramref name="forwardTimeout"/>, default 5 s, for a
         /// primary that is still starting up; <see cref="Timeout.InfiniteTimeSpan"/> or <see cref="TimeSpan.MaxValue"/>
-        /// waits without limit). Each attempt still gets at least 1 s, so a zero timeout reaches a primary that is running
-        /// (it serves one launch at a time, and a 1 ms attempt between two of them lost the launch). If the forward fails because the primary exited meanwhile, this launch becomes the
+        /// waits without limit). The wait is at least 1 s, so a zero timeout reaches a primary that is running (it serves
+        /// one launch at a time, and a 1 ms attempt between two of them lost the launch), and never longer than that. If the forward fails because the primary exited meanwhile, this launch becomes the
         /// primary instead (<see cref="IsPrimary"/> true), so it handles its own arguments. App ids compare without
         /// regard to case ("Contoso.Viewer" and "contoso.viewer" are one instance).
         /// </summary>
@@ -138,8 +138,11 @@ namespace ToolBelt.Windows
             string gateName = @"Local\ToolBelt.SingleInstance." + folded + "." + user;
             var gate = SingleInstance.TryAcquire(gateName);
             if (gate.IsOwned) return new SingleInstanceApp(gate, pipe, primary: true, forwarded: false);
-            var clock = System.Diagnostics.Stopwatch.StartNew();
-            bool forwarded = Forward(pipe, args, timeout, out bool sent);
+            // One deadline for every attempt: each had its own 1 s floor, so a primary that took the connection and stalled
+            // held a 1 s launch for 2 s (3 s under load), and a last connect started near the deadline ran a second past it.
+            bool unlimited = timeout == Timeout.InfiniteTimeSpan || timeout == TimeSpan.MaxValue;
+            var deadline = new Deadline(unlimited, timeout < TimeSpan.FromMilliseconds(MinWaitMs) ? TimeSpan.FromMilliseconds(MinWaitMs) : timeout);
+            bool forwarded = Forward(pipe, args, deadline, out bool sent);
             if (!forwarded)
             {
                 // A primary that exited (or crashed) while this launch waited for it leaves nobody to forward to: take over
@@ -150,11 +153,9 @@ namespace ToolBelt.Windows
                 // A primary that got the message (and may have delivered it) but whose answer was lost, or that refused it,
                 // is alive: resending to it handled the launch twice.
                 if (sent) return new SingleInstanceApp(gate, pipe, primary: false, forwarded: false);
-                // Another launch took over first: it is the primary now, so forward to it rather than lose this launch. With
-                // what is left of the timeout: a second full wait took a launch to twice the forward timeout.
-                TimeSpan left = timeout == Timeout.InfiniteTimeSpan || timeout == TimeSpan.MaxValue ? timeout
-                    : clock.Elapsed >= timeout ? TimeSpan.Zero : timeout - clock.Elapsed;
-                forwarded = Forward(pipe, args, left, out _);
+                // Another launch took over first: it is the primary now, so forward to it rather than lose this launch, in
+                // what is left of the wait.
+                forwarded = deadline.RemainingMs() > 0 && Forward(pipe, args, deadline, out _);
             }
             return new SingleInstanceApp(gate, pipe, primary: false, forwarded);
         }
@@ -169,10 +170,20 @@ namespace ToolBelt.Windows
 
         // A primary that is up gets this long to answer even under a zero timeout: a busy machine delays its listener by
         // hundreds of milliseconds (a 100 ms floor still lost launches under load).
-        private const int MinAttemptMs = 1000;
+        private const int MinWaitMs = 1000;
+
+        // Infinite (or MaxValue, which overflowed a DateTime deadline) means no deadline; a Stopwatch ignores clock steps.
+        private sealed class Deadline
+        {
+            private readonly bool _unlimited;
+            private readonly TimeSpan _wait;
+            private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
+            public Deadline(bool unlimited, TimeSpan wait) { _unlimited = unlimited; _wait = wait; }
+            public long RemainingMs() => _unlimited ? int.MaxValue : Math.Max(0, (long)Math.Ceiling((_wait - _clock.Elapsed).TotalMilliseconds));
+        }
 
         // sent: the message reached a primary (which may have delivered it), so it must not go out again.
-        private static bool Forward(string pipeName, IReadOnlyList<string> args, TimeSpan timeout, out bool sent)
+        private static bool Forward(string pipeName, IReadOnlyList<string> args, Deadline deadline, out bool sent)
         {
             sent = false;
             // Build (and size-check) the message once: one the primary would reject fails now, not after the timeout. The
@@ -186,23 +197,21 @@ namespace ToolBelt.Windows
             foreach (string a in args)
                 if (!TryWriteString(message, a ?? "", budget)) return false;
 
-            // Infinite (or MaxValue, which overflowed a DateTime deadline) means no deadline; a Stopwatch ignores clock steps.
-            bool unlimited = timeout == Timeout.InfiniteTimeSpan || timeout == TimeSpan.MaxValue;
-            var clock = System.Diagnostics.Stopwatch.StartNew();
-            long RemainingMs() => unlimited ? int.MaxValue : Math.Max(0, (long)(timeout - clock.Elapsed).TotalMilliseconds);
+            long RemainingMs() => deadline.RemainingMs();
             while (true)
             {
                 try
                 {
                     using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.CurrentUserOnly | PipeOptions.Asynchronous);
-                    // At least MinAttemptMs: the listener builds its next pipe after each client, and a 1 ms connect (a zero
-                    // timeout) that fell in that gap lost the launch to a primary that was up and ready.
-                    client.Connect((int)Math.Max(MinAttemptMs, Math.Min(RemainingMs(), 1000)));
+                    // Up to a second at a time, within the wait (at least MinWaitMs): the listener builds its next pipe after
+                    // each client, and a 1 ms connect (a zero timeout) that fell in that gap lost the launch to a primary
+                    // that was up and ready.
+                    client.Connect((int)Math.Min(RemainingMs(), 1000));
                     // Pipes don't support ReadTimeout. Past the deadline (5 s, or what is left of the forward timeout, which a
                     // stalled primary otherwise stretched) a timer cancels the pipe's I/O, so a primary that took the
                     // connection and then stopped reading or writing can't hang this launch. It repeats every 50 ms: a cancel
                     // that lands between two calls has nothing to cancel. (Blocking on the async calls was sync-over-async.)
-                    using var cancelIo = new Timer(CancelPipeIo, client, Math.Max(MinAttemptMs, Math.Min(RemainingMs(), 5000)), 50);
+                    using var cancelIo = new Timer(CancelPipeIo, client, Math.Min(RemainingMs(), 5000), 50);
                     var pid = new byte[4];
                     client.ReadExactly(pid);
                     AllowSetForegroundWindow(BitConverter.ToInt32(pid, 0));           // let the primary come to the front

@@ -12,14 +12,22 @@ namespace ToolBelt.Windows
     /// <c>using (PrivilegeScope.Enable("SeBackupPrivilege")) { … }</c>. A privilege can only be enabled if the account
     /// holds it (an elevated administrator holds most); otherwise <see cref="Enable"/> throws
     /// <see cref="UnauthorizedAccessException"/> and nothing changes. Privileges live on the <em>process</em> token, so
-    /// the change is process-wide while the scope is open — keep scopes short and don't overlap them from different
-    /// threads for the same privilege.
+    /// the change is process-wide while the scope is open, so keep scopes short. Scopes for one privilege may overlap and
+    /// close in any order, on any thread: it stays enabled until the last of them closes, which restores the state from
+    /// before the first (code that changes the token without a scope is not counted).
     /// </summary>
     public sealed class PrivilegeScope : IDisposable
     {
         private readonly LUID _luid;
         private readonly bool _wasEnabled;
         private bool _disposed;
+
+        // The open scopes per privilege, with its state before the first: closing the outer of two scopes disabled the
+        // privilege while the inner one was still open.
+        private static readonly object s_gate = new object();
+        private static readonly Dictionary<long, OpenCount> s_open = new Dictionary<long, OpenCount>();
+        private sealed class OpenCount { public int Count; public bool WasEnabled; }
+        private static long Key(LUID luid) => ((long)luid.HighPart << 32) | luid.LowPart;
 
         private PrivilegeScope(string name, LUID luid, bool wasEnabled)
         {
@@ -28,7 +36,7 @@ namespace ToolBelt.Windows
             _wasEnabled = wasEnabled;
         }
 
-        /// <summary>The privilege name, e.g. "SeShutdownPrivilege".</summary>
+        /// <summary>The privilege name as Windows spells it, e.g. "SeShutdownPrivilege" (also for "seshutdownprivilege").</summary>
         public string Name { get; }
 
         /// <summary>True if the privilege was already enabled (so disposing leaves it enabled).</summary>
@@ -40,11 +48,24 @@ namespace ToolBelt.Windows
             if (privilegeName is null) throw new ArgumentNullException(nameof(privilegeName));
             if (string.IsNullOrWhiteSpace(privilegeName)) throw new ArgumentException("Privilege name is required.", nameof(privilegeName));
             LUID luid = Lookup(privilegeName);
-            using var token = OpenToken(TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY);
-            var state = State(token.Handle, luid);
-            if (state == null) throw new UnauthorizedAccessException($"The account does not hold {privilegeName}.");
-            if (!state.Value) Adjust(token.Handle, luid, enable: true, privilegeName);
-            return new PrivilegeScope(privilegeName, luid, state.Value);
+            privilegeName = CanonicalName(luid) ?? privilegeName;
+            lock (s_gate)
+            {
+                using var token = OpenToken(TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY);
+                var state = State(token.Handle, luid);
+                if (state == null) throw new UnauthorizedAccessException($"The account does not hold {privilegeName}.");
+                if (!state.Value) Adjust(token.Handle, luid, enable: true, privilegeName);
+                if (s_open.TryGetValue(Key(luid), out OpenCount? open)) open.Count++;
+                else s_open.Add(Key(luid), new OpenCount { Count = 1, WasEnabled = state.Value });
+                return new PrivilegeScope(privilegeName, luid, state.Value);
+            }
+        }
+
+        private static string? CanonicalName(LUID luid)
+        {
+            var name = new System.Text.StringBuilder(64);
+            int len = name.Capacity;
+            return LookupPrivilegeName(null, ref luid, name, ref len) ? name.ToString() : null;
         }
 
         /// <summary>True if the process token holds <paramref name="privilegeName"/> (enabled or not).</summary>
@@ -70,13 +91,18 @@ namespace ToolBelt.Windows
 
         public void Dispose()
         {
-            if (_disposed) return;
-            if (!_wasEnabled)
+            lock (s_gate)
             {
-                using var token = OpenToken(TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY);
-                Adjust(token.Handle, _luid, enable: false, Name);
+                if (_disposed) return;
+                OpenCount open = s_open[Key(_luid)];
+                if (open.Count == 1 && !open.WasEnabled)
+                {
+                    using var token = OpenToken(TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY);
+                    Adjust(token.Handle, _luid, enable: false, Name);
+                }
+                if (--open.Count == 0) s_open.Remove(Key(_luid));
+                _disposed = true;   // only once restored: a restore that threw can be retried
             }
-            _disposed = true;   // only once restored: a restore that threw can be retried
         }
 
         private static bool? Query(string privilegeName)

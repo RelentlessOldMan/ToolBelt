@@ -89,6 +89,18 @@ namespace ToolBelt.Windows
             if (target == typeof(DateTime)) { value = DateTime.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind); return true; }
             if (target == typeof(DateTimeOffset)) { value = DateTimeOffset.Parse(s, CultureInfo.InvariantCulture); return true; }
             if (typeof(IConvertible).IsAssignableFrom(target)) return false;
+            // SetValue writes a Complex as "<1; 2>", which Complex.Parse refuses (OverflowException), so it read back as the
+            // default.
+            if (target == typeof(System.Numerics.Complex) && s.TrimStart().StartsWith("<", StringComparison.Ordinal))
+            {
+                string t = s.Trim();
+                int semi = t.IndexOf(';');
+                if (semi < 0 || !t.EndsWith(">", StringComparison.Ordinal)) throw new FormatException("Not a complex number.");
+                value = new System.Numerics.Complex(
+                    double.Parse(t.Substring(1, semi - 1), NumberStyles.Float, CultureInfo.InvariantCulture),
+                    double.Parse(t.Substring(semi + 1, t.Length - semi - 2), NumberStyles.Float, CultureInfo.InvariantCulture));
+                return true;
+            }
             // A Uri has no Parse at all, and read back as the default.
             if (target == typeof(Uri)) { value = Uri.TryCreate(s, UriKind.RelativeOrAbsolute, out Uri? uri) ? uri : throw new FormatException("Not a URI."); return true; }
             System.Reflection.MethodInfo? parse = target.GetMethod("Parse", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
@@ -127,13 +139,46 @@ namespace ToolBelt.Windows
         {
             denied = false;
             if (subKey.IndexOf('\0') >= 0) return null;
-            try { return baseKey.OpenSubKey(subKey, writable: false); }
+            try { return OpenPath(baseKey, subKey, writable: false); }
             catch (Exception ex) when (ex is System.Security.SecurityException || ex is UnauthorizedAccessException)
             {
                 denied = true;
                 return null;
             }
             catch (ArgumentException) { return null; }
+        }
+
+        // Win32 opens at most 32 levels in one call (the tree goes to 512), so a key deeper than that read as absent and
+        // could not be deleted: a longer path is opened a few levels at a time.
+        private const int LevelsPerOpen = 16;
+
+        private static string[] Parts(string subKey) => subKey.Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
+
+        private static RegistryKey? OpenPath(RegistryKey baseKey, string subKey, bool writable)
+        {
+            string[] parts = Parts(subKey);
+            if (parts.Length <= LevelsPerOpen) return baseKey.OpenSubKey(subKey, writable);
+            RegistryKey? key = null;
+            for (int i = 0; i < parts.Length; i += LevelsPerOpen)
+            {
+                int n = Math.Min(LevelsPerOpen, parts.Length - i);
+                RegistryKey? next;
+                try { next = (key ?? baseKey).OpenSubKey(string.Join("\\", parts, i, n), writable && i + n == parts.Length); }
+                finally { key?.Dispose(); }
+                if (next is null) return null;
+                key = next;
+            }
+            return key;
+        }
+
+        // A path no key can have (a segment over 255 characters) for a delete: there is nothing to delete. It threw
+        // ArgumentException although DeleteKey and DeleteValue return false for a key that does not exist.
+        private static RegistryKey? OpenToDelete(RegistryKey baseKey, string subKey, bool writable)
+        {
+            // A NUL is refused, as for writes: Win32 ends the path there, so a delete reached the key named up to it.
+            if (subKey.IndexOf('\0') >= 0) throw new ArgumentException("A registry key path may not contain a NUL character.", nameof(subKey));
+            try { return OpenPath(baseKey, subKey, writable); }
+            catch (ArgumentException ex) when (!(ex is ArgumentNullException)) { return null; }
         }
 
         // An undefined hive threw IndexOutOfRangeException from inside RegistryKey.
@@ -233,27 +278,55 @@ namespace ToolBelt.Windows
 
         // CreateSubKey, undoing what it made when Windows refuses the path part way: 600 levels threw IOException ("The
         // parameter is incorrect") after creating 30 of them. The first missing level is found one level at a time from
-        // its parent's handle (a full-path open can miss a deep key that exists), and its tree is deleted on failure.
+        // its parent's handle (a full-path open can miss a deep key that exists), the missing levels are created from
+        // there LevelsPerOpen at a time (one call refused more than 32, so a key 40 deep could not be written), and the
+        // first one's tree is deleted on failure.
         private static RegistryKey? CreateOrUndo(RegistryKey baseKey, string subKey)
         {
             RegistryKey current = baseKey;
             string? firstNew = null;
+            string[] parts = Parts(subKey);
+            int found = 0;
+            bool walked = true;
             try
             {
-                foreach (string part in subKey.Split('\\'))
+                for (; found < parts.Length; found++)
                 {
-                    if (part.Length == 0) continue;
                     RegistryKey? next;
-                    try { next = current.OpenSubKey(part, writable: true); }
+                    try { next = current.OpenSubKey(parts[found], writable: true); }
                     catch (Exception ex) when (ex is System.Security.SecurityException || ex is UnauthorizedAccessException
-                                               || ex is ArgumentException || ex is System.IO.IOException) { break; }
-                    if (next == null) { firstNew = part; break; }
+                                               || ex is ArgumentException || ex is System.IO.IOException) { walked = false; break; }
+                    if (next == null) { firstNew = parts[found]; break; }
                     if (current != baseKey) current.Dispose();
                     current = next;
                 }
-                try { return baseKey.CreateSubKey(subKey, writable: true); }
+                RegistryKey? made = null;
+                try
+                {
+                    if (!walked || parts.Length == 0) return baseKey.CreateSubKey(subKey, writable: true);
+                    if (found == parts.Length)
+                    {
+                        // It all exists: hand over the key itself.
+                        RegistryKey whole = current;
+                        current = baseKey;
+                        return whole;
+                    }
+                    for (int i = found; i < parts.Length; i += LevelsPerOpen)
+                    {
+                        int n = Math.Min(LevelsPerOpen, parts.Length - i);
+                        RegistryKey? next = (made ?? current).CreateSubKey(string.Join("\\", parts, i, n), writable: true);
+                        made?.Dispose();
+                        made = next;
+                        if (made is null) return null;
+                    }
+                    RegistryKey result = made!;
+                    made = null;
+                    return result;
+                }
                 catch (System.IO.IOException ex)
                 {
+                    made?.Dispose();
+                    made = null;
                     if (firstNew != null)
                     {
                         try { current.DeleteSubKeyTree(firstNew, throwOnMissingSubKey: false); }
@@ -315,7 +388,7 @@ namespace ToolBelt.Windows
             // Win32 ends a value name at a NUL, so this deleted the value named up to it.
             if (name.IndexOf('\0') >= 0) throw new ArgumentException("A value name may not contain a NUL character.", nameof(name));
             using RegistryKey baseKey = OpenBase(hive);
-            using RegistryKey? key = ForSubKey(subKey, () => baseKey.OpenSubKey(subKey, writable: true));
+            using RegistryKey? key = OpenToDelete(baseKey, subKey, writable: true);
             if (key is null) return false;
             // Not GetValue(name) is null: that is also null for a kind .NET does not read (REG_RESOURCE_LIST, REG_LINK),
             // which was then reported missing and left in place.
@@ -338,9 +411,12 @@ namespace ToolBelt.Windows
             // Before the delete as well as the open: "\0" got past the guard above and named the hive itself.
             if (subKey.IndexOf('\0') >= 0) throw new ArgumentException("A registry key path may not contain a NUL character.", nameof(subKey));
             using RegistryKey baseKey = OpenBase(hive);
-            using (RegistryKey? existing = ForSubKey(subKey, () => baseKey.OpenSubKey(subKey)))
+            using (RegistryKey? existing = OpenToDelete(baseKey, subKey, writable: false))
                 if (existing is null) return false;
-            baseKey.DeleteSubKeyTree(subKey, throwOnMissingSubKey: false);
+            string[] parts = Parts(subKey);
+            if (parts.Length <= LevelsPerOpen) { baseKey.DeleteSubKeyTree(subKey, throwOnMissingSubKey: false); return true; }
+            using (RegistryKey? parent = OpenPath(baseKey, string.Join("\\", parts, 0, parts.Length - 1), writable: true))
+                parent?.DeleteSubKeyTree(parts[parts.Length - 1], throwOnMissingSubKey: false);
             return true;
         }
 

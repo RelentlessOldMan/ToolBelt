@@ -303,7 +303,10 @@ namespace ToolBelt.Windows
             bool hasAlpha = false;
             if (compression == 3)
             {
-                // The three colour masks follow a 40-byte header, or sit inside a V4/V5 header at the same offset.
+                // The three colour masks follow a 40-byte header, or sit inside a V2-V5 header (52 bytes or more) at the
+                // same offset. A size between (44, say) put the masks across the header's end, and the mask bytes were
+                // read as pixels.
+                if (headerSize != 40 && headerSize < 52) throw new InvalidOperationException("Clipboard DIB has an invalid header size.");
                 if (dib.Length < 52) throw new InvalidOperationException("Clipboard DIB is truncated.");
                 uint r = BitConverter.ToUInt32(dib, 40), g = BitConverter.ToUInt32(dib, 44), b = BitConverter.ToUInt32(dib, 48);
                 if (r != 0x00FF0000 || g != 0x0000FF00 || b != 0x000000FF)

@@ -46,30 +46,48 @@ namespace ToolBelt.Windows
             }
         }
 
+        // CreateProcess's limit on the command line, less its terminating NUL.
+        private const int MaxCommandLine = 32766;
+
         /// <summary>
         /// Starts <paramref name="fileName"/> already inside the job: created suspended, assigned, then resumed, so nothing it
         /// starts can escape the job. The file is found as <c>CreateProcess</c> finds it (the application directory, the
         /// current directory, the system directories, then PATH); <paramref name="arguments"/> are passed as written. The
         /// standard streams are not redirected; for that, use <c>Process.Start</c> and <see cref="AssignProcess(System.Diagnostics.Process)"/>.
         /// If the job refuses the process (an active-process limit, say) it is terminated before it runs and this throws.
+        /// A blank file name or working directory, or a command line over 32,766 characters (the quoted file name, a space
+        /// and the arguments), throws <see cref="ArgumentException"/>; a working directory that does not exist,
+        /// <see cref="System.IO.DirectoryNotFoundException"/>.
         /// </summary>
         public SystemProcess Start(string fileName, string? arguments = null, string? workingDirectory = null, bool createNoWindow = true)
         {
             if (fileName is null) throw new ArgumentNullException(nameof(fileName));
-            if (fileName.Length == 0 || fileName.IndexOf('"') >= 0 || fileName.IndexOf('\0') >= 0)
-                throw new ArgumentException("The file name must be non-empty and contain no quotes or NUL characters.", nameof(fileName));
+            // Blank, as well as empty: "   " reached CreateProcess and came back as a Win32Exception.
+            if (string.IsNullOrWhiteSpace(fileName) || fileName.IndexOf('"') >= 0 || fileName.IndexOf('\0') >= 0)
+                throw new ArgumentException("The file name must be non-blank and contain no quotes or NUL characters.", nameof(fileName));
             if (arguments != null && arguments.IndexOf('\0') >= 0)
                 throw new ArgumentException("The arguments must not contain NUL characters.", nameof(arguments));
             if (workingDirectory != null && workingDirectory.IndexOf('\0') >= 0)
                 throw new ArgumentException("The working directory must not contain NUL characters.", nameof(workingDirectory));
             if (workingDirectory?.Length == 0) workingDirectory = null;   // as Process.Start: the current directory
+            // A blank or missing directory, and a command line past CreateProcess's 32,767 characters (with its NUL), came
+            // back as a Win32Exception that named only the file.
+            if (workingDirectory != null && workingDirectory.Trim().Length == 0)
+                throw new ArgumentException("The working directory must not be blank.", nameof(workingDirectory));
+            if (workingDirectory != null && !System.IO.Directory.Exists(workingDirectory))
+                throw new System.IO.DirectoryNotFoundException($"The working directory '{workingDirectory}' does not exist.");
             ThrowIfDisposed();
             string commandLine = "\"" + fileName + "\"" + (string.IsNullOrEmpty(arguments) ? "" : " " + arguments);
+            if (commandLine.Length > MaxCommandLine)
+                throw new ArgumentException($"The command line may be at most {MaxCommandLine} characters, the quoted file name included.", nameof(arguments));
             var startup = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>() };
             uint flags = CREATE_SUSPENDED | (createNoWindow ? CREATE_NO_WINDOW : 0);
             if (!CreateProcess(null, new System.Text.StringBuilder(commandLine), IntPtr.Zero, IntPtr.Zero, false, flags, IntPtr.Zero,
                     workingDirectory, ref startup, out PROCESS_INFORMATION info))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcess failed for '" + fileName + "'.");
+            {
+                int err = Marshal.GetLastWin32Error();
+                throw new Win32Exception(err, "CreateProcess failed for '" + fileName + "': " + new Win32Exception(err).Message);
+            }
             try
             {
                 if (!AssignProcessToJobObject(_handle, info.hProcess))
