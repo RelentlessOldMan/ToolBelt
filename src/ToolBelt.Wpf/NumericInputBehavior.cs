@@ -152,8 +152,10 @@ namespace ToolBelt.Wpf
             if (sawSep)
             {
                 // After the separator the integer part is fixed: the most the value can grow is to its digits with 9s
-                // up to the last place. "1.5" was accepted for [5, 10] and became "5.00" on losing focus.
-                double most = Math.Abs(ParseLoose(text + new string('9', rules.DecimalPlaces - fracDigits), nf));
+                // up to the last place. "1.5" was accepted for [5, 10] and became "5.00" on losing focus. Past 30 the 9s move
+                // the parsed double no more (it holds 17 digits); a DecimalPlaces of int.MaxValue built a string of that many
+                // on every keystroke and threw OutOfMemoryException.
+                double most = Math.Abs(ParseLoose(text + new string('9', Math.Min(30, rules.DecimalPlaces - fracDigits)), nf));
                 double least = Math.Abs(v);
                 bool positiveReaches = least <= max && most >= min;
                 bool negativeReaches = rules.AllowsNegative && -least >= min && -most <= max;
@@ -198,10 +200,19 @@ namespace ToolBelt.Wpf
             {
                 int sign = Math.Sign(direction);
                 double start = Round(parsed, rules);
-                v = Round(parsed + sign * step, rules);
-                if (double.IsInfinity(v)) v = sign * double.MaxValue;     // stepping past double.MaxValue read "∞"
-                // A step under half a display unit would round straight back (5 − 0.5 → 4.5 → 5): move one unit instead.
-                if (sign != 0 && v == start) v = Round(start + sign * Math.Pow(10, -RoundingDigits(rules)), rules);
+                // Stepping past double.MaxValue read "∞"; clamped only after rounding, at DecimalPlaces above 0 the rounding
+                // parsed "Infinity.00" and threw FormatException out of the arrow-key and mouse-wheel handlers.
+                double sum = parsed + sign * step;
+                v = Round(double.IsInfinity(sum) ? sign * double.MaxValue : sum, rules);
+                // A step under half a display unit would round straight back (5 − 0.5 → 4.5 → 5): move to the next shown
+                // value instead, rounding the neighbouring double toward the step. Adding a unit in binary and rounding to
+                // nearest stuck where a unit is one or two ulps (-48183132800358.88 + 0.01 rounded back to …358.88). Past
+                // ±double.MaxValue the neighbour is infinite, which Clamp brings back.
+                if (sign != 0 && v == start)
+                {
+                    double next = sign > 0 ? Math.BitIncrement(start) : Math.BitDecrement(start);
+                    v = double.IsInfinity(next) ? next : Rounded(next, RoundingDigits(rules), sign, out _);
+                }
                 // From 2^53 up a whole unit is below the spacing of doubles, so the value never moved: take the next double.
                 if (sign != 0 && v == start) v = sign > 0 ? Math.BitIncrement(start) : Math.BitDecrement(start);
             }

@@ -161,8 +161,21 @@ namespace ToolBelt.Wpf
             return Must(v => v is not string s || s.Length <= length, message ?? $"{_property} must be at most {length} characters.");
         }
 
+        // Any INumberBase<T> (NFloat as well as double, float and Half): a NaN NFloat minimum was accepted and ignored.
         private static bool IsNaN(T value)
-            => (object?)value is double d ? double.IsNaN(d) : (object?)value is float f ? float.IsNaN(f) : (object?)value is Half h && Half.IsNaN(h);
+        {
+            if (value is null) return false;
+            Type t = value.GetType();
+            foreach (Type i in t.GetInterfaces())
+                if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(System.Numerics.INumberBase<>) && i.GetGenericArguments()[0] == t)
+                    return (bool)NaNMethod.MakeGenericMethod(t).Invoke(null, new object[] { value })!;
+            return false;
+        }
+
+        private static readonly System.Reflection.MethodInfo NaNMethod =
+            typeof(RuleBuilder<T>).GetMethod(nameof(NaN), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+
+        private static bool NaN<U>(U v) where U : System.Numerics.INumberBase<U> => U.IsNaN(v);
 
         // A negative length was accepted: MaxLength(-1) failed every string, even "", and MinLength(-5) did nothing.
         private static void NonNegative(int length)

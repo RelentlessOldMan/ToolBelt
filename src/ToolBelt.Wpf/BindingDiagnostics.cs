@@ -19,7 +19,8 @@ namespace ToolBelt.Wpf
         {
             Code = code;
             Message = message;
-            Path = Match(message, @"BindingExpression:Path=([^;]*);");
+            // WPF follows the path with "; DataItem=": a ';' inside an indexer ("Map[a;b].Name") cut the path at "Map[a".
+            Path = Match(message, @"BindingExpression:Path=(.*?); DataItem=") ?? Match(message, @"BindingExpression:Path=((?:\[[^\]]*\]|[^;\[])*);");
             TargetProperty = Match(message, @"target property is '([^']*)'");
         }
 
@@ -38,7 +39,7 @@ namespace ToolBelt.Wpf
 
         private static string? Match(string s, string pattern)
         {
-            var m = Regex.Match(s, pattern);
+            var m = Regex.Match(s, pattern, RegexOptions.Singleline);
             return m.Success ? m.Groups[1].Value : null;
         }
     }
@@ -267,9 +268,12 @@ namespace ToolBelt.Wpf
                 line = _pending.ToString();
                 _pending.Clear();
             }
-            var m = Regex.Match(line, @"Error: (\d+) : (.*)", RegexOptions.Singleline);
-            if (m.Success && int.TryParse(m.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int id))   // int.Parse threw on a huge id
-                Report(id, m.Groups[2].Value);
+            // Only "Error:" lines matched: a critical line was dropped, and a warning even with IncludeWarnings, as on the
+            // TraceData path before.
+            var m = Regex.Match(line, @"(Critical|Error|Warning): (\d+) : (.*)", RegexOptions.Singleline);
+            if (!m.Success || (m.Groups[1].Value == "Warning" && !IncludeWarnings)) return;
+            if (int.TryParse(m.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int id))   // int.Parse threw on a huge id
+                Report(id, m.Groups[3].Value);
         }
 
         private void Report(int id, string message)

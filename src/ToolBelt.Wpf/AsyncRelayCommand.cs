@@ -46,20 +46,24 @@ namespace ToolBelt.Wpf
             if (!CanExecute(null))
                 return;
             _isExecuting = true;
-            Exception? failure = null;
+            // The operation's failure first, then any CanExecuteChanged handler's. A handler that threw at the start stopped
+            // the operation from running, and was then reported twice (as the failure and again from the end-of-run raise);
+            // one that threw at the end replaced the operation's own exception.
+            var errors = new System.Collections.Generic.List<Exception>(2);
+            try { RaiseCanExecuteChanged(); }
+            catch (Exception handlerError) { errors.Add(handlerError); }
             try
             {
-                RaiseCanExecuteChanged();
                 // No ConfigureAwait(false): the end-of-run CanExecuteChanged must be raised on the UI thread. A null task threw
                 // a bare NullReferenceException from inside the command.
                 await (_execute() ?? throw new InvalidOperationException("The execute delegate returned null instead of a Task."));
             }
-            catch (Exception ex) { failure = ex; }
+            catch (Exception ex) { errors.Insert(0, ex); }
             _isExecuting = false;
-            // A CanExecuteChanged handler that threw here replaced the operation's own exception.
             try { RaiseCanExecuteChanged(); }
-            catch (Exception handlerError) when (failure != null) { throw new AggregateException(failure, handlerError); }
-            if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
+            catch (Exception handlerError) { if (!errors.Exists(e => ReferenceEquals(e, handlerError))) errors.Add(handlerError); }
+            if (errors.Count == 1) ExceptionDispatchInfo.Capture(errors[0]).Throw();
+            if (errors.Count > 1) throw new AggregateException(errors);
         }
 
         public event EventHandler? CanExecuteChanged;

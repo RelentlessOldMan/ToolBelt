@@ -1209,6 +1209,7 @@ tests/
     WpfReview158Tests.cs    (round 158: numeric boxes rounding the decimal they read as, in range and idempotent; Completion with a carried context whose dispatcher shut down; repeated hotkey modifiers; a null callback for a held hotkey)
     WpfReview175Tests.cs    (round 175: a reset from a reset handler, a throwing PropertyChanged handler in SetAndValidate, Complex and null enumerators in CountToVisibility, QWORD theme values, RecordingDialogService records and copies, overflowing literals in NumericRangeValidationRule, ResetView inside the zoom limits)
     WpfReview182Tests.cs    (round 182: zooms an ulp outside the bounds, the live Calls list, culture order for strings as object, text past the separator that cannot reach the range, coerced text the filter refused, lone signs left on lost focus)
+    WpfReview203Tests.cs    (round 203: a step past MaxValue at decimal places, a one-unit step that stuck, the keystroke filter at huge place counts, critical and warning trace lines, a ';' in an indexer path, ResetView at a singular zoom, NFloat NaN bounds, a throwing CanExecuteChanged handler)
     CallbackReview54Tests.cs  (round 54: throwing handlers in validation, commands and incremental loading)
     CancelDisposeReview55Tests.cs (round 55: incremental loading's cancelled tokens)
     UiReviewRegressionTests.cs  (2026-10-05 review regressions: WPF satellite)

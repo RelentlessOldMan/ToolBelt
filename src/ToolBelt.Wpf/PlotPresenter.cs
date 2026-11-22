@@ -164,7 +164,10 @@ namespace ToolBelt.Wpf
             _fitPending = false;
             // Identity ignored the zoom limits: with MinZoom 2 the view sat at 1 and the next zoom by 1 jumped to 2.
             double s = Clamp(1.0, MinZoom, MaxZoom);
-            SetView(new Matrix(s, 0, 0, s, 0, 0));
+            // A MaxZoom below about 5e-8 gave a scale WPF treats as singular, and ViewToContent then threw: such a view is
+            // refused here as ZoomAbout and Fit refuse it.
+            var m = new Matrix(s, 0, 0, s, 0, 0);
+            if (m.HasInverse) SetView(m);
         }
 
         // ---------- pure view math ----------
