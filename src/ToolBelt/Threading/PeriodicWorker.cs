@@ -25,6 +25,8 @@ namespace ToolBelt.Threading
         private int _started;
         private int _disposed;
         [ThreadStatic] private static PeriodicWorker? t_reporting; // the worker whose onError this thread is running
+        [ThreadStatic] private static PeriodicWorker? t_cancelling; // the worker whose token this thread is cancelling
+        [ThreadStatic] private static PeriodicWorker? t_working;    // the worker whose work this thread is starting
 
         public PeriodicWorker(
             Func<CancellationToken, Task> work,
@@ -65,8 +67,15 @@ namespace ToolBelt.Threading
             {
                 try
                 {
+                    // Marked while the work runs synchronously on the loop's thread: a Dispose there (from a continuation the
+                    // work completed inline, say) waited for the loop it was running on, and hung.
+                    Task work;
+                    PeriodicWorker? outer = t_working;
+                    t_working = this;
+                    try { work = _work(ct); }
+                    finally { t_working = outer; }
                     // A null task was reported as NullReferenceException.
-                    await (_work(ct) ?? throw new InvalidOperationException("The work returned a null task.")).ConfigureAwait(false);
+                    await (work ?? throw new InvalidOperationException("The work returned a null task.")).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -102,26 +111,46 @@ namespace ToolBelt.Threading
             finally { t_reporting = outer; }
         }
 
+        // The loop is this thread: onError, or the work's synchronous part (and what it runs inline).
+        private bool LoopIsCaller => ReferenceEquals(t_reporting, this) || ReferenceEquals(t_working, this);
+
         /// <summary>
-        /// Stops the loop and waits for the in-flight iteration to finish. Do not call from within the work
-        /// callback itself — that would wait on the loop that is calling it. Called from the <c>onError</c> callback
-        /// it stops the loop without waiting, since the loop is the caller.
+        /// Stops the loop and waits for the in-flight iteration to finish. Called from the <c>onError</c> callback, or
+        /// from the work's synchronous part (directly or from a continuation it runs inline), it stops the loop
+        /// without waiting, since the loop is the caller. Do not call it from the work after its first await: that
+        /// waits on the loop that is calling it.
         /// </summary>
         public void Dispose()
         {
             Task? loop;
+            bool first;
             lock (_gate)
             {
-                if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
+                first = Interlocked.Exchange(ref _disposed, 1) == 0;
                 loop = _loop;
+            }
+            if (!first)
+            {
+                // A second Dispose waits for the loop too: it returned while the first was still waiting, with the
+                // iteration still running (R97-3). Not from onError, whose loop is this thread, nor from a callback on the
+                // token that the first Dispose is running: the loop's own cancellation may be queued behind it.
+                if (!LoopIsCaller && !ReferenceEquals(t_cancelling, this))
+                {
+                    try { loop?.Wait(); }
+                    catch (AggregateException) { /* cancellation surfaces here; ignore */ }
+                }
+                return;
             }
             // A callback the work registered on its token may throw here; it threw out of Dispose, skipping the wait.
             AggregateException? cancelError = null;
+            PeriodicWorker? outerCancelling = t_cancelling;
+            t_cancelling = this;
             try { _cts.Cancel(); }
             catch (AggregateException ex) { cancelError = ex; }
+            finally { t_cancelling = outerCancelling; }
             // From onError the loop is this thread: waiting for it deadlocked. It stops once onError returns; the
             // token source stays undisposed because the loop still reads its token.
-            if (!ReferenceEquals(t_reporting, this))
+            if (!LoopIsCaller)
             {
                 try { loop?.Wait(); }
                 catch (AggregateException) { /* cancellation surfaces here; ignore */ }

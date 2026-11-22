@@ -20,6 +20,9 @@ namespace ToolBelt.Resilience
         // The tokens held at _lastRefill; the refill since is added on each read, not stored. Stored at every poll, a refill
         // too small to change a large count was lost with its time: 1e16 tokens polled each millisecond never refilled.
         private double _tokens;
+        // What _tokens could not hold: above 2^53 a double does not count whole tokens, so taking one left the bucket as
+        // full as before and the limiter granted everything. The held count is _tokens + _tokensLow, kept exact.
+        private double _tokensLow;
         private DateTimeOffset _lastRefill;
         private DateTimeOffset _seen;   // the latest clock reading, to tell a clock stepped back
 
@@ -69,11 +72,27 @@ namespace ToolBelt.Resilience
             // token: in proportion to the count, int.MaxValue was granted with two tokens short.
             if (tokens >= Needed(count))
             {
-                _tokens = Math.Max(0, tokens - count);
+                double high = _tokens, low = _tokensLow;
+                Add(ref high, ref low, (now - _lastRefill).TotalSeconds * _refillPerSecond);
+                if (high > _capacity || (high == _capacity && low > 0)) { high = _capacity; low = 0; }
+                Add(ref high, ref low, -count);
+                if (high + low < 0) { high = 0; low = 0; } // the tolerance may grant a hair more than held
+                _tokens = high;
+                _tokensLow = low;
                 _lastRefill = now;
                 return true;
             }
             return false;
+        }
+
+        // high + low += x, with what high cannot hold carried in low (Knuth's two-sum), so the pair stays exact.
+        private static void Add(ref double high, ref double low, double x)
+        {
+            double s = high + x, bp = s - high;
+            if (double.IsInfinity(s)) { high = s; low = 0; return; } // a refill past double.MaxValue fills the bucket
+            double e = (high - (s - bp)) + (x - bp) + low;
+            high = s + e;
+            low = e - (high - s);
         }
 
         private static double Needed(int count) => count - Math.Min(count, 1000) * 1e-9;
@@ -84,14 +103,19 @@ namespace ToolBelt.Resilience
         {
             if (now < _seen)
             {
-                _tokens = Math.Min(_capacity, _tokens + (_seen - _lastRefill).TotalSeconds * _refillPerSecond);
+                Add(ref _tokens, ref _tokensLow, (_seen - _lastRefill).TotalSeconds * _refillPerSecond);
+                if (_tokens > _capacity || (_tokens == _capacity && _tokensLow > 0)) { _tokens = _capacity; _tokensLow = 0; }
                 _lastRefill = now;
             }
             _seen = now;
-            double tokens = Math.Min(_capacity, _tokens + (now - _lastRefill).TotalSeconds * _refillPerSecond);
-            if (tokens >= _capacity)
+            double high = _tokens, low = _tokensLow;
+            Add(ref high, ref low, (now - _lastRefill).TotalSeconds * _refillPerSecond);
+            // Full by the exact count: the rounded one read a bucket a few tokens short of 1e17 as full, and refilled them.
+            double tokens = Math.Min(_capacity, high + low);
+            if (high > _capacity || (high == _capacity && low >= 0))
             {
                 _tokens = _capacity;
+                _tokensLow = 0;
                 _lastRefill = now;
             }
             return tokens;

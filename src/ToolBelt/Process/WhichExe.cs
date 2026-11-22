@@ -38,10 +38,12 @@ namespace ToolBelt.Process
             }
 
             string pathVar = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-            foreach (string entry in pathVar.Split(Path.PathSeparator))
+            foreach (string entry in SplitPath(pathVar, windows))
             {
                 // Windows allows a quoted entry ("C:\Some Dir"), as cmd and CreateProcess do; quotes can't be in a name.
-                string dir = windows ? entry.Replace("\"", string.Empty) : entry;
+                // Leading and trailing spaces are dropped, as cmd does ("C:\a; C:\b"): .NET 8 read " C:\b" as a
+                // relative folder where .NET Framework trimmed it.
+                string dir = windows ? entry.Replace("\"", string.Empty).Trim(' ') : entry;
                 if (dir.Length == 0) continue;
                 string candidate;
                 // Full: a relative entry (bin) gave a relative result, though the full path is promised.
@@ -53,6 +55,22 @@ namespace ToolBelt.Process
                 if (found != null) return found;
             }
             return null;
+        }
+
+        // Windows splits at a ';' outside quotes: a quoted folder may contain one ("C:\a;b"), which a plain split cut in two.
+        private static string[] SplitPath(string pathVar, bool windows)
+        {
+            if (!windows || pathVar.IndexOf('"') < 0) return pathVar.Split(Path.PathSeparator);
+            var parts = new System.Collections.Generic.List<string>();
+            bool quoted = false;
+            int start = 0;
+            for (int i = 0; i < pathVar.Length; i++)
+            {
+                if (pathVar[i] == '"') quoted = !quoted;
+                else if (pathVar[i] == ';' && !quoted) { parts.Add(pathVar.Substring(start, i - start)); start = i + 1; }
+            }
+            parts.Add(pathVar.Substring(start));
+            return parts.ToArray();
         }
 
         private static string? Resolve(string path, bool tryAsIs, bool pathExt)
