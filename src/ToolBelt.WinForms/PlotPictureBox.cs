@@ -236,6 +236,9 @@ namespace ToolBelt.WinForms
             // GDI+'s nearest-neighbour stretch drifts from ContentToView once magnified far enough (a boundary meant for
             // view x 100 landed at 109 at zoom 2e4, and at 1e6 not at all), so a magnified view maps each pixel itself.
             if (!_smooth && Zoom > 1) { DrawNearest(g, image, e.ClipRectangle, x, y, Zoom); return; }
+            // Its bicubic stretch drifts the same way (a boundary meant for view x 100.25 landed at 92.6 at zoom 1000, 141 at
+            // 5000), so a magnified smooth view is interpolated here too.
+            if (_smooth && Zoom > 1) { DrawBicubic(g, image, e.ClipRectangle, x, y, Zoom); return; }
             if (Math.Max(Math.Max(Math.Abs(x), Math.Abs(y)), Math.Max(Math.Abs(x + w), Math.Abs(y + h))) <= SafeCoordinate)
             {
                 if (_smooth) DrawSmooth(g, image, new RectangleF((float)x, (float)y, (float)w, (float)h), new RectangleF(0, 0, image.Width, image.Height));
@@ -322,6 +325,112 @@ namespace ToolBelt.WinForms
             finally { bmp.UnlockBits(target); }
             g.DrawImage(bmp, clip, 0, 0, clip.Width, clip.Height, GraphicsUnit.Pixel);   // 1:1, so no resampling
         }
+
+        // Each view pixel inside the image takes the bicubic (Keys, a = -0.5) interpolation of the premultiplied source at the
+        // point under its centre, with the edge pixels repeated past the border so the edges stay solid.
+        private static void DrawBicubic(Graphics g, Image image, Rectangle clip, double x, double y, double z)
+        {
+            if (clip.Width <= 0 || clip.Height <= 0) return;
+            int c0 = SourceIndex(Math.Floor((clip.Left - x) / z) - 2, image.Width), c1 = SourceIndex(Math.Ceiling((clip.Right - x) / z) + 2, image.Width);
+            int r0 = SourceIndex(Math.Floor((clip.Top - y) / z) - 2, image.Height), r1 = SourceIndex(Math.Ceiling((clip.Bottom - y) / z) + 2, image.Height);
+            if (c1 <= c0 || r1 <= r0) return;
+            int sw = c1 - c0, sh = r1 - r0;
+            var source = new int[sw * sh];
+            using (var pixels = new Bitmap(sw, sh, PixelFormat.Format32bppPArgb))
+            {
+                using (var pg = Graphics.FromImage(pixels))
+                {
+                    pg.CompositingMode = CompositingMode.SourceCopy;
+                    pg.DrawImage(image, new Rectangle(0, 0, sw, sh), c0, r0, sw, sh, GraphicsUnit.Pixel);
+                }
+                BitmapData data = pixels.LockBits(new Rectangle(0, 0, sw, sh), ImageLockMode.ReadOnly, PixelFormat.Format32bppPArgb);
+                try { for (int j = 0; j < sh; j++) Marshal.Copy(data.Scan0 + j * data.Stride, source, j * sw, sw); }
+                finally { pixels.UnlockBits(data); }
+            }
+            Taps(clip.Left, clip.Width, x, z, image.Width, c0, sw, out int[] colTap, out double[] colWeight);
+            Taps(clip.Top, clip.Height, y, z, image.Height, r0, sh, out int[] rowTap, out double[] rowWeight);
+            // Source rows interpolated across the view columns, then each view row down four of them. A view row's taps are
+            // at most four consecutive rows, so four slots (by row mod 4) hold them, recomputed as the rows move down.
+            var across = new double[4][];
+            var held = new[] { -1, -1, -1, -1 };
+            for (int k = 0; k < 4; k++) across[k] = new double[clip.Width * 4];
+            double[] Across(int j)
+            {
+                double[] line = across[j % 4];
+                if (held[j % 4] == j) return line;
+                held[j % 4] = j;
+                for (int i = 0; i < clip.Width; i++)
+                {
+                    if (colTap[i * 4] < 0) continue;
+                    double a = 0, r = 0, gr = 0, b = 0;
+                    for (int k = 0; k < 4; k++)
+                    {
+                        int p = source[j * sw + colTap[i * 4 + k]];
+                        double w = colWeight[i * 4 + k];
+                        a += w * ((p >> 24) & 0xFF); r += w * ((p >> 16) & 0xFF); gr += w * ((p >> 8) & 0xFF); b += w * (p & 0xFF);
+                    }
+                    line[i * 4] = a; line[i * 4 + 1] = r; line[i * 4 + 2] = gr; line[i * 4 + 3] = b;
+                }
+                return line;
+            }
+            var view = new int[clip.Width];
+            using var bmp = new Bitmap(clip.Width, clip.Height, PixelFormat.Format32bppPArgb);
+            BitmapData target = bmp.LockBits(new Rectangle(0, 0, clip.Width, clip.Height), ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
+            try
+            {
+                var lines = new double[4][];
+                for (int j = 0; j < clip.Height; j++)
+                {
+                    if (rowTap[j * 4] >= 0)
+                        for (int k = 0; k < 4; k++) lines[k] = Across(rowTap[j * 4 + k]);
+                    for (int i = 0; i < clip.Width; i++)
+                    {
+                        if (rowTap[j * 4] < 0 || colTap[i * 4] < 0) { view[i] = 0; continue; }
+                        double a = 0, r = 0, gr = 0, b = 0;
+                        for (int k = 0; k < 4; k++)
+                        {
+                            double[] line = lines[k];
+                            double w = rowWeight[j * 4 + k];
+                            a += w * line[i * 4]; r += w * line[i * 4 + 1]; gr += w * line[i * 4 + 2]; b += w * line[i * 4 + 3];
+                        }
+                        // Overshoot is clipped, and a premultiplied colour never exceeds its alpha.
+                        int ia = Channel(a, 255);
+                        view[i] = (ia << 24) | (Channel(r, ia) << 16) | (Channel(gr, ia) << 8) | Channel(b, ia);
+                    }
+                    Marshal.Copy(view, 0, target.Scan0 + j * target.Stride, clip.Width);
+                }
+            }
+            finally { bmp.UnlockBits(target); }
+            g.DrawImage(bmp, clip, 0, 0, clip.Width, clip.Height, GraphicsUnit.Pixel);   // 1:1, so no resampling
+        }
+
+        // For each of count view pixels from start: the four source taps (less first, clamped to the image) and their weights
+        // around the point under the pixel's centre, or a first tap of -1 where that point is outside the image.
+        private static void Taps(int start, int count, double offset, double z, int size, int first, int span, out int[] taps, out double[] weights)
+        {
+            taps = new int[count * 4];
+            weights = new double[count * 4];
+            for (int i = 0; i < count; i++)
+            {
+                double u = (start + i + 0.5 - offset) / z;
+                if (!(u >= 0 && u < size)) { taps[i * 4] = -1; continue; }
+                double s = u - 0.5, f = Math.Floor(s), t = s - f;
+                for (int k = 0; k < 4; k++)
+                {
+                    double index = Math.Max(0, Math.Min(size - 1, f - 1 + k));
+                    taps[i * 4 + k] = (int)Math.Max(0, Math.Min(span - 1, index - first));
+                    weights[i * 4 + k] = Cubic(Math.Abs(t + 1 - k));
+                }
+            }
+        }
+
+        private static double Cubic(double d)
+        {
+            const double A = -0.5;
+            return d <= 1 ? ((A + 2) * d - (A + 3)) * d * d + 1 : d < 2 ? ((A * d - 5 * A) * d + 8 * A) * d - 4 * A : 0;
+        }
+
+        private static int Channel(double v, int max) => (int)Math.Max(0, Math.Min(max, Math.Round(v)));
 
         // The source index (less first) under the centre of each of count view pixels from start, or -1 outside [first, end).
         private static int[] Indices(int start, int count, double offset, double z, int first, int end)

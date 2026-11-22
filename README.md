@@ -1235,6 +1235,7 @@ tests/
     WinFormsReview132Tests.cs (round 132: deep-zoom pixel placement, an overflowing wheel power, FindItem skipping hosted controls and blank paths, strict FormState.TryParse, the runner's --list exit code)
     WinFormsReview155Tests.cs (round 155: hidden rows in a selection, SaveCsv to NUL, streams and links, surrogate delimiters, Apply of an empty state)
     WinFormsReview176Tests.cs (round 176: other buttons during a pan, a zoom by 1, typed text in SetSelectedEnum, AutoSizeColumns on a Fill grid)
+    WinFormsReview204Tests.cs (round 204: smooth boundaries at deep zoom, a repeated shortcut modifier)
   ToolBelt.MathChecks/      differential cross-check satellite: grades the from-scratch numerics
                             (FFT, distributions, special functions, hypothesis tests, linear algebra,
                             fits, root-finding, statistics)

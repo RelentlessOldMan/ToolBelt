@@ -45,13 +45,17 @@ namespace ToolBelt.WinForms
                 parts = ReplaceTail(parts, "Oemplus");
             for (int i = 0; i < parts.Length - 1; i++)
             {
+                Keys modifier;
                 switch (parts[i].Trim().ToLowerInvariant())
                 {
-                    case "ctrl": case "control": keys |= Keys.Control; break;
-                    case "alt": keys |= Keys.Alt; break;
-                    case "shift": keys |= Keys.Shift; break;
+                    case "ctrl": case "control": modifier = Keys.Control; break;
+                    case "alt": modifier = Keys.Alt; break;
+                    case "shift": modifier = Keys.Shift; break;
                     default: keys = Keys.None; return false;
                 }
+                // A repeated modifier ("Ctrl+Ctrl+S") is a typo, not a shortcut, and Format never writes one.
+                if ((keys & modifier) != 0) { keys = Keys.None; return false; }
+                keys |= modifier;
             }
             string k = parts[parts.Length - 1].Trim();
             Keys key = Keys.None;
