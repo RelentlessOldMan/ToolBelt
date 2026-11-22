@@ -124,16 +124,18 @@ namespace ToolBelt.Cli
             return sb.Append(Reset).ToString();
         }
 
-        // Attribute groups: bold and dim share a reset (22), as do the two underlines (24).
-        private const int BoldDim = 1, Italic_ = 2, Underline_ = 4, Inverse_ = 8, Fore = 16, Back = 32, Blink = 64, Hidden = 128, Strike = 256;
+        // Attribute groups. Bold and dim share a reset (22) but are separate attributes: setting one does not bring back
+        // the other (they were one group, so the 2 in 22;2 undid the cancellation of our bold and it stayed off). The two
+        // underlines share a reset (24) and are one attribute.
+        private const int Bold_ = 1, Dim_ = 512, Italic_ = 2, Underline_ = 4, Inverse_ = 8, Fore = 16, Back = 32, Blink = 64, Hidden = 128, Strike = 256;
 
         private static int SetGroup(int p)
-            => p == 1 || p == 2 ? BoldDim : p == 3 ? Italic_ : p == 4 || p == 21 ? Underline_ : p == 5 || p == 6 ? Blink
+            => p == 1 ? Bold_ : p == 2 ? Dim_ : p == 3 ? Italic_ : p == 4 || p == 21 ? Underline_ : p == 5 || p == 6 ? Blink
              : p == 7 ? Inverse_ : p == 8 ? Hidden : p == 9 ? Strike
              : (p >= 30 && p <= 38) || (p >= 90 && p <= 97) ? Fore : (p >= 40 && p <= 48) || (p >= 100 && p <= 107) ? Back : 0;
 
         private static int ResetGroup(int p)
-            => p == 22 ? BoldDim : p == 23 ? Italic_ : p == 24 ? Underline_ : p == 25 ? Blink : p == 27 ? Inverse_
+            => p == 22 ? Bold_ | Dim_ : p == 23 ? Italic_ : p == 24 ? Underline_ : p == 25 ? Blink : p == 27 ? Inverse_
              : p == 28 ? Hidden : p == 29 ? Strike : p == 39 ? Fore : p == 49 ? Back : 0;
 
         // Walks the SGR parameters in [start, end) in order, skipping the arguments of 38, 48 and 58. With setting, the

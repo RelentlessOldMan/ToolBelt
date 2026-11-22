@@ -108,10 +108,10 @@ namespace ToolBelt.Cli
                 }
                 if (ex is ArgumentException)
                 {
-                    TryWrite(err, "error: " + Text(ex, () => ex.Message));
+                    TryWrite(err, "error: " + OneLine(Text(ex, () => ex.Message)));
                     return ExitCodes.Usage;
                 }
-                TryWrite(err, verbose ? "error: " + Text(ex, () => Describe(ex)) : $"error: {Text(ex, () => ex.Message)} ({ex.GetType().Name})");
+                TryWrite(err, verbose ? "error: " + Text(ex, () => Describe(ex)) : $"error: {OneLine(Text(ex, () => ex.Message))} ({ex.GetType().Name})");
                 return ExitCodes.Software;
             }
             finally
@@ -195,6 +195,22 @@ namespace ToolBelt.Cli
         }
 
         // An exception whose Message or ToString throws escaped RunAsync, and the exit code was lost.
+        // The one-line report: a message of several lines (and an ArgumentException's on .NET Framework, which puts
+        // "Parameter name: x" on a line of its own) was written over several, the type name on the last. Each line break
+        // becomes a space.
+        private static string OneLine(string message)
+        {
+            var sb = new StringBuilder(message.Length);
+            for (int i = 0; i < message.Length; i++)
+            {
+                char c = message[i];
+                if (c != '\r' && c != '\n') { sb.Append(c); continue; }
+                if (c == '\r' && i + 1 < message.Length && message[i + 1] == '\n') i++;
+                sb.Append(' ');
+            }
+            return sb.ToString();
+        }
+
         private static string Text(Exception ex, Func<string?> read)
         {
             try { return read() ?? string.Empty; }

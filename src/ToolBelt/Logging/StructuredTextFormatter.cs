@@ -29,6 +29,10 @@ namespace ToolBelt.Logging
         private readonly IReadOnlyList<LogField> _fields;
         private readonly string _delimiter;
         private readonly string _timestampFormat;
+        // The delimiter's KMP failure links, and for each matched-prefix length s whether some k in s's border chain is a
+        // tail that runs into the delimiter (see TrimOverlap).
+        private readonly int[] _fail;
+        private readonly bool[] _overlap;
 
         public StructuredTextFormatter(IReadOnlyList<LogField> fields, string delimiter = " ", string timestampFormat = "o")
         {
@@ -41,6 +45,20 @@ namespace ToolBelt.Logging
                     throw new ArgumentOutOfRangeException(nameof(fields), f, "Unknown log field.");
             _delimiter = delimiter ?? throw new ArgumentNullException(nameof(delimiter));
             _timestampFormat = timestampFormat ?? throw new ArgumentNullException(nameof(timestampFormat));
+            int n = delimiter.Length;
+            _fail = new int[n + 1];
+            for (int i = 1, t = 0; i < n; i++)
+            {
+                while (t > 0 && delimiter[i] != delimiter[t]) t = _fail[t];
+                if (delimiter[i] == delimiter[t]) t++;
+                _fail[i + 1] = t;
+            }
+            // k (1 to n - 1) runs into the delimiter when the delimiter's last n - k characters are its first: n - k is a
+            // border, one of the failure chain from n.
+            var period = new bool[n + 1];
+            for (int b = n > 0 ? _fail[n] : 0; b > 0; b = _fail[b]) period[n - b] = true;
+            _overlap = new bool[n + 1];
+            for (int s = 1; s < n; s++) _overlap[s] = period[s] || _overlap[_fail[s]];
             try { new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero).ToString(timestampFormat, CultureInfo.InvariantCulture); }
             catch (FormatException ex) { throw new ArgumentException("Invalid timestamp format: " + ex.Message, nameof(timestampFormat), ex); }
         }
@@ -147,62 +165,76 @@ namespace ToolBelt.Logging
             return value;
         }
 
+        // The output's matched-prefix length after each character is kept, so a delimiter at the end is found in constant
+        // time and, once it is replaced, matching resumes from the state before it. Comparing the whole delimiter at
+        // every character made this O(value × delimiter): 4.8 s for 100,000 characters and a 16,384-character delimiter.
         private string RemoveDelimiters(string value)
         {
             int n = _delimiter.Length;
             var sb = new StringBuilder(value.Length);
+            var states = new List<int>(value.Length + 1) { 0 };
+            var memo = new Dictionary<long, int>();
             foreach (char c in value)
             {
                 sb.Append(c);
-                while (EndsWithDelimiter(sb))
+                states.Add(Step(states[states.Count - 1], c, memo));
+                while (states[states.Count - 1] == n)
                 {
                     sb.Length -= n;
+                    states.RemoveRange(states.Count - n, n);
                     sb.Append(' ');
+                    states.Add(Step(states[states.Count - 1], ' ', memo));
                 }
             }
             return sb.ToString();
         }
 
-        private bool EndsWithDelimiter(StringBuilder sb)
+        // The matched-prefix length after state s reads c. Transitions are memoized per call, filled along the failure
+        // chain without recursion, so each (state, character) pair is worked out once.
+        private int Step(int s, char c, Dictionary<long, int> memo)
         {
-            int n = _delimiter.Length, start = sb.Length - n;
-            if (start < 0) return false;
-            for (int i = 0; i < n; i++)
-                if (sb[start + i] != _delimiter[i]) return false;
-            return true;
+            int n = _delimiter.Length;
+            List<int>? pending = null;
+            int t = s, result;
+            while (true)
+            {
+                if (t < n && _delimiter[t] == c) { result = t + 1; break; }
+                if (t == 0) { result = 0; break; }
+                if (memo.TryGetValue(((long)t << 16) | c, out result)) break;
+                (pending ??= new List<int>()).Add(t);
+                t = _fail[t];
+            }
+            if (pending != null)
+                foreach (int p in pending) memo[((long)p << 16) | c] = result;
+            return result;
         }
 
         // A value whose end runs into the delimiter that follows it ("x-" then "--", "a |" then " | ") made a delimiter
         // inside the value, and the line split one place early. Such a tail becomes spaces.
+        // A tail of k characters runs into the delimiter when it is the delimiter's first k and those are followed in the
+        // delimiter by its own start again; the tails of the value that are prefixes of the delimiter are the matched
+        // state's failure chain, so _overlap answers for all of them at once. Trying every k with a comparison of each
+        // was O(value × delimiter²).
         private string TrimOverlap(string value)
         {
             int n = _delimiter.Length;
-            if (n < 2 || value.Length == 0) return value;
+            if (n < 2 || value.Length == 0 || _delimiter.IndexOf(value[value.Length - 1], 0, n - 1) < 0) return value;
             var sb = new StringBuilder(value);
-            bool changed = true;
-            while (changed && sb.Length > 0)
+            var states = new int[value.Length + 1];
+            var memo = new Dictionary<long, int>();
+            for (int i = 0; i < value.Length; i++) states[i + 1] = Step(states[i], value[i], memo);
+            int length = value.Length;
+            // Each step blanks or drops a character, so it ends (a space dropped: the delimiter starts with one).
+            while (length > 0 && _overlap[states[length]])
             {
-                changed = false;
-                for (int k = Math.Min(n - 1, sb.Length); k >= 1; k--)
+                if (sb[length - 1] != ' ')
                 {
-                    if (!TailRunsIntoDelimiter(sb, k)) continue;
-                    // Each step blanks or drops a character, so it ends (a space dropped: the delimiter starts with one).
-                    if (sb[sb.Length - 1] != ' ') sb[sb.Length - 1] = ' ';
-                    else sb.Length--;
-                    changed = true;
-                    break;
+                    sb[length - 1] = ' ';
+                    states[length] = Step(states[length - 1], ' ', memo);
                 }
+                else sb.Length = --length;
             }
             return sb.ToString();
-        }
-
-        // The last k characters plus the start of the delimiter form a whole delimiter.
-        private bool TailRunsIntoDelimiter(StringBuilder sb, int k)
-        {
-            int n = _delimiter.Length;
-            for (int i = 0; i < k; i++)
-                if (sb[sb.Length - k + i] != _delimiter[i]) return false;
-            return string.CompareOrdinal(_delimiter, k, _delimiter, 0, n - k) == 0;
         }
     }
 }

@@ -71,7 +71,7 @@ namespace ToolBelt.Diagnostics
 
         /// <param name="report">Called synchronously on the throwing thread — keep it fast and non-blocking.</param>
         /// <param name="attach">Subscribe immediately (default) — pass false to test via <see cref="Observe"/>.</param>
-        /// <param name="clock">Time source for throttling (default: UTC now; a clock that steps backwards never mutes reports).</param>
+        /// <param name="clock">Time source for throttling (default: UTC now; a clock that steps backwards never mutes reports, and one that throws gives way to UTC now).</param>
         public FirstChanceMonitor(Action<FirstChanceRecord> report, bool attach = true, Func<DateTimeOffset>? clock = null)
         {
             _report = report ?? throw new ArgumentNullException(nameof(report));
@@ -180,7 +180,11 @@ namespace ToolBelt.Diagnostics
                         if (!ReferenceEquals(sig, fresh)) Interlocked.Decrement(ref _signatures);   // another thread added it
                     }
                 }
-                DateTimeOffset now = _clock();
+                // A clock that throws gives way to the system clock, as in Logger: the signature had been counted toward
+                // the cap with a count of 0 and the exception was never reported.
+                DateTimeOffset now;
+                try { now = _clock(); }
+                catch (Exception) { now = DateTimeOffset.UtcNow; }
                 int occurrence, suppressed;
                 lock (sig)
                 {

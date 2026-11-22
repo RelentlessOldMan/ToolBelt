@@ -40,9 +40,13 @@ namespace ToolBelt.Cli
 
         // Completed units, rounded down so the bar is full and the label says 100% only when the work is done (0.98 drew
         // a full bar, 0.996 said 100%). A product a rounding short of a whole number (0.29 × 100 = 28.999…) counts as it.
+        // "A rounding" is two ulps of the product: a fixed 1e-9 was too wide at small widths (0.95 − 3e-11 drew 19 of 20
+        // blocks beside a label of 94%) and too narrow at large ones (0.29 × 1e8 filled 28,999,999).
         private static int Floor(double fraction, int units)
         {
-            int n = (int)Math.Floor(fraction * units + 1e-9);
+            double product = fraction * units;
+            double whole = Math.Round(product);
+            int n = (int)(whole - product <= product * 4.5e-16 ? whole : Math.Floor(product));
             if (n >= units) n = fraction >= 1 ? units : units - 1;
             return n;
         }

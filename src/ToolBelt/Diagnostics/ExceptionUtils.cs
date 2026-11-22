@@ -101,7 +101,10 @@ namespace ToolBelt.Diagnostics
                     foreach (DictionaryEntry entry in e.Data)
                     {
                         // Invariant: values came out in the current culture (1,5 for 1.5 in German).
-                        sb.Append(indent).Append("  data[").Append(Safe(() => Convert.ToString(entry.Key, CultureInfo.InvariantCulture))).Append("] = ");
+                        // A key of several lines too (only values were indented).
+                        sb.Append(indent).Append("  data[");
+                        AppendLines(sb, Safe(() => Convert.ToString(entry.Key, CultureInfo.InvariantCulture)), indent + "    ", lineBreak: false);
+                        sb.Append("] = ");
                         AppendLines(sb, Safe(() => Convert.ToString(entry.Value, CultureInfo.InvariantCulture)), indent + "    ");
                     }
                 }
@@ -123,7 +126,7 @@ namespace ToolBelt.Diagnostics
         }
 
         // Appends text and a line break, each later line of the text (after CR LF, CR or LF) starting with the indent.
-        private static void AppendLines(StringBuilder sb, string text, string indent)
+        private static void AppendLines(StringBuilder sb, string text, string indent, bool lineBreak = true)
         {
             int start = 0;
             for (int i = 0; i < text.Length; i++)
@@ -134,7 +137,8 @@ namespace ToolBelt.Diagnostics
                 if (c == '\r' && i + 1 < text.Length && text[i + 1] == '\n') i++;
                 start = i + 1;
             }
-            sb.Append(text, start, text.Length - start).AppendLine();
+            sb.Append(text, start, text.Length - start);
+            if (lineBreak) sb.AppendLine();
         }
 
         /// <summary>

@@ -106,7 +106,14 @@ namespace ToolBelt.Diagnostics
         public string ToText()
         {
             var sb = new StringBuilder();
-            void Line(string label, object? value) => sb.Append(label).Append(": ").AppendLine(Convert.ToString(value, CultureInfo.InvariantCulture));
+            // A value of several lines (an environment variable, the command line, a directory name) had its later lines
+            // at column 0, where they read as entries of their own; they are indented.
+            void Line(string label, object? value)
+            {
+                sb.Append(label).Append(": ");
+                AppendLines(sb, Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty, "  ");
+                sb.AppendLine();
+            }
 
             Line("Captured", CapturedAt.ToString("o", CultureInfo.InvariantCulture));
             Line("Application version", ApplicationVersion);
@@ -128,11 +135,32 @@ namespace ToolBelt.Diagnostics
             {
                 sb.AppendLine("Environment:");
                 foreach (var kv in EnvironmentVariables)
-                    sb.Append("  ").Append(kv.Key).Append(" = ").AppendLine(kv.Value);
+                {
+                    sb.Append("  ");
+                    AppendLines(sb, kv.Key ?? string.Empty, "    ");
+                    sb.Append(" = ");
+                    AppendLines(sb, kv.Value ?? string.Empty, "    ");
+                    sb.AppendLine();
+                }
             }
             // Only the last line break: trimming all white space changed the last value ("value  " came out "value").
             sb.Length -= Environment.NewLine.Length;
             return sb.ToString();
+        }
+
+        // Appends text, each later line of it (after CR LF, CR or LF) starting with the indent.
+        private static void AppendLines(StringBuilder sb, string text, string indent)
+        {
+            int start = 0;
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (c != '\r' && c != '\n') continue;
+                sb.Append(text, start, i - start).AppendLine().Append(indent);
+                if (c == '\r' && i + 1 < text.Length && text[i + 1] == '\n') i++;
+                start = i + 1;
+            }
+            sb.Append(text, start, text.Length - start);
         }
 
         private static string SafeGet(Func<string> read)

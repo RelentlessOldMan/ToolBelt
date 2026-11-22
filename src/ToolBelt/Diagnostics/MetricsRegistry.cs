@@ -112,8 +112,10 @@ namespace ToolBelt.Diagnostics
             {
                 if (!_timers.TryGetValue(name, out var s)) { s = new Samples(); _timers[name] = s; }
                 s.Count++;
-                if (value < s.Min) s.Min = value;
-                if (value > s.Max) s.Max = value;
+                // −0 below +0: < and > never replaced one zero with the other, so the signs of Min and Max depended on
+                // which zero came first ([−0, +0, +0] gave a Max of −0).
+                if (value < s.Min || (value == 0 && s.Min == 0 && IsNegativeZero(value))) s.Min = value;
+                if (value > s.Max || (value == 0 && s.Max == 0 && IsNegativeZero(s.Max))) s.Max = value;
                 if (Math.Abs(value) >= BigFrom) Accumulate(ref s.Big, ref s.NBig, value * TwoToMinus64);
                 else Accumulate(ref s.Small, ref s.NSmall, value);
                 if (s.Kept.Count < _maxSamples) s.Kept.Add(value);
@@ -165,6 +167,7 @@ namespace ToolBelt.Diagnostics
                 double mean = ExactMean(c.Big, c.Small, c.Count);
                 var kept = new List<double>(c.Kept);
                 kept.Sort();
+                NegativeZerosFirst(kept);
                 timers[kv.Key] = new TimerStats(c.Count, c.Min, c.Max, mean, Quantile(kept, 0.50), Quantile(kept, 0.95), Quantile(kept, 0.99));
             }
             return new MetricsSnapshot(counters, gauges, timers);
@@ -249,6 +252,20 @@ namespace ToolBelt.Diagnostics
             long n = 8L * i;
             for (int t = b[i]; t != 0; t >>= 1) n++;
             return n;
+        }
+
+        private static bool IsNegativeZero(double v) => v == 0 && BitConverter.DoubleToInt64Bits(v) < 0;
+
+        // The default sort leaves −0 and +0 in whatever order it meets them, so P50 of [+0, −0, +0] was −0 beside a Min
+        // and Max of +0. The run of zeros is rewritten with its −0s first.
+        private static void NegativeZerosFirst(List<double> sorted)
+        {
+            int lo = sorted.BinarySearch(0.0);
+            if (lo < 0) return;
+            while (lo > 0 && sorted[lo - 1] == 0) lo--;
+            int hi = lo, negative = 0;
+            for (; hi < sorted.Count && sorted[hi] == 0; hi++) if (IsNegativeZero(sorted[hi])) negative++;
+            for (int i = lo; i < hi; i++) sorted[i] = i - lo < negative ? -0.0 : 0.0;
         }
 
         private static double Quantile(List<double> sorted, double p)
