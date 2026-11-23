@@ -208,7 +208,9 @@ namespace ToolBelt.Windows
         /// unchanged into a type too narrow for the unsigned reading (<c>sbyte</c>, <c>short</c>, <c>int</c>, and
         /// <c>long</c> for a QWORD); a wider one reads the unsigned number with those bits (-1L as a DWORD reads back
         /// into <c>long</c> as 4294967295). Other numbers, dates and enums stored as text are written in the invariant
-        /// culture, as <see cref="GetValue{T}"/> reads them.
+        /// culture, as <see cref="GetValue{T}"/> reads them. A floating-point number reads back exactly, except that any
+        /// NaN is written as the text "NaN" and reads back as the standard NaN: its sign and payload bits are not kept
+        /// (store the bits as a QWORD, via <see cref="BitConverter.DoubleToInt64Bits"/>, when they matter).
         /// </summary>
         public static void SetValue(RegistryHive hive, string subKey, string name, object value,
             RegistryValueKind kind = RegistryValueKind.Unknown)

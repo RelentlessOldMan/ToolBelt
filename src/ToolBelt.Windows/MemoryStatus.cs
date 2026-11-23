@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 
 namespace ToolBelt.Windows
 {
-    /// <summary>A snapshot of system-wide physical and page-file memory.</summary>
+    /// <summary>A snapshot of system-wide physical memory and commit (physical memory plus page files).</summary>
     public readonly struct SystemMemory
     {
         internal SystemMemory(int load, long totalPhys, long availPhys, long totalPage, long availPage)
@@ -22,7 +22,17 @@ namespace ToolBelt.Windows
 
         public long TotalPhysicalBytes { get; }
         public long AvailablePhysicalBytes { get; }
+        /// <summary>
+        /// The system commit limit in bytes: physical memory plus all page files (GlobalMemoryStatusEx's
+        /// <c>ullTotalPageFile</c>), not the size of the page file alone, so it is larger than
+        /// <see cref="TotalPhysicalBytes"/> whenever a page file exists.
+        /// </summary>
         public long TotalPageFileBytes { get; }
+
+        /// <summary>
+        /// The memory the system can still commit, in bytes (<c>ullAvailPageFile</c>): the commit limit
+        /// (<see cref="TotalPageFileBytes"/>) less the memory already committed, not the free space in the page file.
+        /// </summary>
         public long AvailablePageFileBytes { get; }
 
         /// <summary>Physical memory currently in use, in bytes.</summary>

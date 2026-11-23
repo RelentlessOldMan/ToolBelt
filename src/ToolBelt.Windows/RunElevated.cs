@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using SystemProcess = System.Diagnostics.Process;
 
@@ -64,15 +65,23 @@ namespace ToolBelt.Windows
         /// Relaunches the current executable elevated (optionally with <paramref name="arguments"/>) and
         /// returns the new elevated process. Throws <see cref="OperationCanceledException"/> if the user
         /// declines. Typical use: call when <see cref="Elevation.IsElevated"/> is false, then exit the
-        /// current (non-elevated) instance.
+        /// current (non-elevated) instance. The new process starts in the current directory, and under the
+        /// <c>dotnet</c> host it keeps the host's options (such as <c>exec --runtimeconfig</c> or <c>--roll-forward</c>).
         /// </summary>
         public static SystemProcess RestartCurrent(string? arguments = null)
+        {
+            var (file, args, directory) = RestartStart(arguments);
+            return Start(file, args, directory);
+        }
+
+        // An elevated process started without a directory began in System32, so relative paths in its arguments broke.
+        private static (string File, string Arguments, string WorkingDirectory) RestartStart(string? arguments)
         {
             string? path = Environment.ProcessPath;
             if (string.IsNullOrEmpty(path))
                 throw new InvalidOperationException("Could not determine the current executable path.");
-            var (file, args) = RestartCommand(path!, Assembly.GetEntryAssembly()?.Location, arguments);
-            return Start(file, args);
+            var (file, args) = RestartCommandFrom(path!, Assembly.GetEntryAssembly()?.Location, CurrentCommandLine(), arguments);
+            return (file, args, Environment.CurrentDirectory);
         }
 
         /// <summary>
@@ -118,14 +127,69 @@ namespace ToolBelt.Windows
         }
 
         // Under "dotnet app.dll" the process is the shared host; relaunching it bare would start the dotnet CLI, not the app.
-        private static (string File, string Arguments) RestartCommand(string processPath, string? entryAssemblyPath, string? arguments)
+        private static (string File, string Arguments) RestartCommand(string processPath, string? entryAssemblyPath, string? arguments) =>
+            RestartCommandFrom(processPath, entryAssemblyPath, null, arguments);
+
+        // commandLine is the process's own argv (host first). The host's options before the app's path are kept: relaunching
+        // "dotnet exec --runtimeconfig x.json app.dll" as "dotnet app.dll" could bind the app to a different runtime.
+        private static (string File, string Arguments) RestartCommandFrom(string processPath, string? entryAssemblyPath,
+            string[]? commandLine, string? arguments)
         {
             if (!string.Equals(Path.GetFileNameWithoutExtension(processPath), "dotnet", StringComparison.OrdinalIgnoreCase))
                 return (processPath, arguments ?? string.Empty);
             if (string.IsNullOrEmpty(entryAssemblyPath))
                 throw new InvalidOperationException("Running under the dotnet host, but the app's entry assembly path is unknown.");
-            string app = JoinArguments(new[] { entryAssemblyPath! });
+            var parts = new List<string>();
+            if (commandLine != null)
+            {
+                for (int i = 1; i < commandLine.Length; i++)
+                {
+                    if (SamePath(commandLine[i], entryAssemblyPath!))
+                    {
+                        for (int j = 1; j < i; j++) parts.Add(commandLine[j]);
+                        break;
+                    }
+                }
+            }
+            parts.Add(entryAssemblyPath!);
+            string app = JoinArguments(parts);
             return (processPath, string.IsNullOrEmpty(arguments) ? app : app + " " + arguments);
         }
+
+        private static bool SamePath(string candidate, string path)
+        {
+            try
+            {
+                return candidate.Length > 0
+                    && string.Equals(Path.GetFullPath(candidate), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                return false;
+            }
+        }
+
+        // The command line as the process got it: Environment.GetCommandLineArgs drops the dotnet host and its options.
+        private static string[]? CurrentCommandLine()
+        {
+            IntPtr argv = CommandLineToArgvW(GetCommandLineW(), out int count);
+            if (argv == IntPtr.Zero) return null;
+            try
+            {
+                var result = new string[count];
+                for (int i = 0; i < count; i++) result[i] = Marshal.PtrToStringUni(Marshal.ReadIntPtr(argv, i * IntPtr.Size)) ?? string.Empty;
+                return result;
+            }
+            finally { LocalFree(argv); }
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr GetCommandLineW();
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr CommandLineToArgvW(IntPtr lpCmdLine, out int pNumArgs);
+
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr LocalFree(IntPtr hMem);
     }
 }

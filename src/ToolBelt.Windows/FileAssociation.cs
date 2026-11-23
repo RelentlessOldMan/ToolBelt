@@ -1,5 +1,6 @@
 // ToolBelt.Windows drop-in — Windows-only (net8.0-windows), self-contained (Win32 shlwapi).
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -32,6 +33,9 @@ namespace ToolBelt.Windows
             if (extension.Length == 0) throw new ArgumentException("Extension must not be empty.", nameof(extension));
             // The API ends the text at a NUL: .txt + NUL + "x" answered for .txt.
             if (extension.IndexOf('\0') >= 0) throw new ArgumentException("Extension must not contain a NUL character.", nameof(extension));
+            // A path is not an extension: C:\x\y.txt was queried as ".C:\x\y.txt", and the shell answered for .txt.
+            if (extension.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                throw new ArgumentException("Extension must not contain path separators or other characters invalid in a file name.", nameof(extension));
             string assoc = extension[0] == '.' ? extension : "." + extension;
 
             uint length = 0;

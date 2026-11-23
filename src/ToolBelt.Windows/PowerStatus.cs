@@ -8,10 +8,12 @@ namespace ToolBelt.Windows
     /// <summary>A point-in-time snapshot of the system power status (AC line, battery, saver mode).</summary>
     public readonly struct PowerStatusInfo
     {
-        internal PowerStatusInfo(bool? acOnline, bool batteryPresent, int? chargePercent, bool saverOn, TimeSpan? remaining)
+        internal PowerStatusInfo(bool? acOnline, bool batteryPresent, int? chargePercent, bool saverOn, TimeSpan? remaining,
+            bool batteryStateKnown = true)
         {
             AcLineOnline = acOnline;
             BatteryPresent = batteryPresent;
+            BatteryStateKnown = batteryStateKnown;
             BatteryChargePercent = chargePercent;
             BatterySaverOn = saverOn;
             BatteryLifeRemaining = remaining;
@@ -20,8 +22,14 @@ namespace ToolBelt.Windows
         /// <summary>True if on AC power, false if on battery, null if the state is unknown.</summary>
         public bool? AcLineOnline { get; }
 
-        /// <summary>True if a system battery is installed.</summary>
+        /// <summary>
+        /// True if a system battery is installed; false if none is, or if Windows does not know
+        /// (<see cref="BatteryStateKnown"/> is then false).
+        /// </summary>
         public bool BatteryPresent { get; }
+
+        /// <summary>False if Windows reports the battery state as unknown, so <see cref="BatteryPresent"/> says nothing.</summary>
+        public bool BatteryStateKnown { get; }
 
         /// <summary>Battery charge 0–100, or null if unknown / no battery.</summary>
         public int? BatteryChargePercent { get; }
@@ -35,8 +43,9 @@ namespace ToolBelt.Windows
         public override string ToString()
         {
             string ac = AcLineOnline is null ? "AC unknown" : (AcLineOnline.Value ? "on AC" : "on battery");
-            string batt = BatteryPresent
-                ? (BatteryChargePercent is int p ? $"{p}%" : "battery present")
+            // An unknown battery state printed "no battery".
+            string batt = !BatteryStateKnown ? "battery unknown"
+                : BatteryPresent ? (BatteryChargePercent is int p ? $"{p}%" : "battery present")
                 : "no battery";
             return BatterySaverOn ? $"{ac}, {batt}, saver on" : $"{ac}, {batt}";
         }
@@ -54,13 +63,17 @@ namespace ToolBelt.Windows
         {
             if (!GetSystemPowerStatus(out SYSTEM_POWER_STATUS s))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "GetSystemPowerStatus failed.");
+            return FromRaw(s);
+        }
 
+        private static PowerStatusInfo FromRaw(SYSTEM_POWER_STATUS s)
+        {
             bool? ac = s.ACLineStatus == Unknown ? (bool?)null : s.ACLineStatus == 1;
             bool batteryPresent = s.BatteryFlag != Unknown && (s.BatteryFlag & NoBatteryFlag) == 0;
             int? charge = (!batteryPresent || s.BatteryLifePercent == Unknown) ? (int?)null : s.BatteryLifePercent;
             bool saver = (s.SystemStatusFlag & 0x01) != 0;
             TimeSpan? remaining = s.BatteryLifeTime == TimeUnknown ? (TimeSpan?)null : TimeSpan.FromSeconds(s.BatteryLifeTime);
-            return new PowerStatusInfo(ac, batteryPresent, charge, saver, remaining);
+            return new PowerStatusInfo(ac, batteryPresent, charge, saver, remaining, s.BatteryFlag != Unknown);
         }
 
         [StructLayout(LayoutKind.Sequential)]

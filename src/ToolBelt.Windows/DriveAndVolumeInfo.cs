@@ -78,10 +78,16 @@ namespace ToolBelt.Windows
             else if ((query.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase) || query.StartsWith(@"\\.\Volume{", StringComparison.OrdinalIgnoreCase))
                 && query.EndsWith("}", StringComparison.Ordinal) && query.IndexOf('\\', 4) < 0)
                 query += @"\";
-            if (query.Length >= 248 && !query.StartsWith(@"\\?\", StringComparison.Ordinal))
+            // A long path needs the extended-length form, which takes a full path with a trailing backslash. The full path
+            // decides: a short relative path under a deep current directory failed although its full form worked.
+            string? full = null;
+            if (!query.StartsWith(@"\\?\", StringComparison.Ordinal))
             {
-                // A long path needs the extended-length form, which takes a full path with a trailing backslash.
-                string full = Path.GetFullPath(query);
+                try { full = Path.GetFullPath(query); }
+                catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException) { }   // the API reports it
+            }
+            if (full != null && full.Length >= 248)
+            {
                 // A \\.\ device path is local, not UNC: \\?\UNC\.\C:\... failed where \\?\C:\... works.
                 if (full.StartsWith(@"\\.\", StringComparison.Ordinal)) query = @"\\?\" + full.Substring(4);
                 else query = full.StartsWith(@"\\", StringComparison.Ordinal) ? @"\\?\UNC\" + full.Substring(2) : @"\\?\" + full;

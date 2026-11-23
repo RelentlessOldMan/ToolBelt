@@ -18,6 +18,10 @@ namespace ToolBelt.Windows
             IconIndex = iconIndex;
         }
 
+        /// <summary>
+        /// The target: a file path, or for a URL or shell-namespace target (<c>https://…</c>, the Recycle Bin) its shell
+        /// parsing name (<c>https://…</c>, <c>::{645FF040-…}</c>), which <see cref="ShortcutUtils.Create"/> takes back.
+        /// </summary>
         public string TargetPath { get; }
         public string Arguments { get; }
         public string WorkingDirectory { get; }
@@ -69,10 +73,16 @@ namespace ToolBelt.Windows
         // a bare name it could not find on the PATH at the Desktop.
         private static string ResolveTarget(string target)
         {
-            if (target.IndexOf('%') >= 0 || System.IO.Path.IsPathFullyQualified(target)) return target;
-            // A scheme or a shell namespace ("shell:", "https://") is not a file path.
+            // The shell refuses the extended-length prefix (E_INVALIDARG): \\?\C:\x.exe is C:\x.exe, \\?\UNC\s\x is \\s\x.
+            if (target.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase)) target = @"\\" + target.Substring(8);
+            else if (target.StartsWith(@"\\?\", StringComparison.Ordinal) && target.Length > 6 && target[5] == ':') target = target.Substring(4);
+            // A shell item's parsing name, as Read reports one (::{645FF040-...}), was resolved as a relative file name.
+            if (target.IndexOf('%') >= 0 || target.StartsWith("::", StringComparison.Ordinal) || System.IO.Path.IsPathFullyQualified(target))
+                return target;
+            // A scheme or a shell namespace ("shell:", "https://") is not a file path. A colon after a separator is not a
+            // scheme: sub\a:b (a stream of a relative file) was kept as written, and the shell refused it.
             int colon = target.IndexOf(':');
-            if (colon > 1) return target;
+            if (colon > 1 && target.IndexOfAny(new[] { '\\', '/' }, 0, colon) < 0) return target;
             string full;
             try { full = System.IO.Path.GetFullPath(target); }
             catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is System.IO.PathTooLongException)
@@ -120,7 +130,9 @@ namespace ToolBelt.Windows
             IShellLinkW link = NewShellLink();
             try
             {
-                link.SetPath(targetPath);
+                // The shell's own refusal (E_INVALIDARG) came out as an ArgumentException naming no parameter.
+                try { link.SetPath(targetPath); }
+                catch (ArgumentException ex) { throw new ArgumentException("The shell does not accept this target: " + ex.Message, nameof(targetPath), ex); }
                 if (!string.IsNullOrEmpty(arguments)) link.SetArguments(arguments);
                 if (!string.IsNullOrEmpty(workingDirectory)) link.SetWorkingDirectory(workingDirectory);
                 if (!string.IsNullOrEmpty(description)) link.SetDescription(description);
@@ -149,9 +161,10 @@ namespace ToolBelt.Windows
             IShellLinkW link = NewShellLink();
             try
             {
-                // A corrupt file came out as a bare COMException (E_FAIL).
+                // A corrupt file came out as a bare COMException: E_FAIL, or ERROR_NOT_FOUND for a valid header over zeros.
+                // A missing or locked file is not a COMException (FileNotFoundException, IOException) and passes through.
                 try { ((IPersistFile)link).Load(shortcutPath, 0 /* STGM_READ */); }
-                catch (COMException ex) when (ex.HResult == unchecked((int)0x80004005))
+                catch (Exception ex) when (ex is COMException || ex is ArgumentException)
                 {
                     throw new System.IO.InvalidDataException("The file is not a readable shortcut.", ex);
                 }
@@ -160,6 +173,8 @@ namespace ToolBelt.Windows
                 var buffer = new StringBuilder(ReadBuffer);
                 link.GetPath(buffer, buffer.Capacity, IntPtr.Zero, SlgpRawPath);
                 string target = buffer.ToString();
+                // A URL or shell-namespace target is stored as an item ID list with no file path: https://x read back as "".
+                if (target.Length == 0) target = ParsingName(link) ?? "";
 
                 buffer = new StringBuilder(ReadBuffer);
                 link.GetArguments(buffer, buffer.Capacity);
@@ -181,6 +196,29 @@ namespace ToolBelt.Windows
             }
             finally { Marshal.FinalReleaseComObject(link); }
         }
+
+        private static string? ParsingName(IShellLinkW link)
+        {
+            IntPtr pidl = IntPtr.Zero, name = IntPtr.Zero;
+            try
+            {
+                link.GetIDList(out pidl);
+                if (pidl == IntPtr.Zero || SHGetNameFromIDList(pidl, SigdnDesktopAbsoluteParsing, out name) != 0 || name == IntPtr.Zero)
+                    return null;
+                return Marshal.PtrToStringUni(name);
+            }
+            catch (COMException) { return null; }
+            finally
+            {
+                if (name != IntPtr.Zero) Marshal.FreeCoTaskMem(name);
+                if (pidl != IntPtr.Zero) Marshal.FreeCoTaskMem(pidl);
+            }
+        }
+
+        private const uint SigdnDesktopAbsoluteParsing = 0x80028000;
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        private static extern int SHGetNameFromIDList(IntPtr pidl, uint sigdnName, out IntPtr ppszName);
 
         private static ArgumentException TooLong(string param, int max) =>
             new ArgumentException($"A shortcut stores at most {max} characters here.", param);

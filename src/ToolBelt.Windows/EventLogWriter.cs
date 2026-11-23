@@ -73,9 +73,10 @@ namespace ToolBelt.Windows
             string text = message.IndexOf('\0') >= 0 ? message.Replace('\0', (char)0x2400) : message;
             if (text.Length > MaxMessageLength)
             {
-                int cut = MaxMessageLength - 14;
+                const string marker = " …[truncated]";
+                int cut = MaxMessageLength - marker.Length;                       // a hand count of 14 lost a character
                 if (char.IsHighSurrogate(text[cut - 1])) cut--;                  // don't split a surrogate pair
-                text = text.Substring(0, cut) + " …[truncated]";
+                text = text.Substring(0, cut) + marker;
             }
             return text;
         }

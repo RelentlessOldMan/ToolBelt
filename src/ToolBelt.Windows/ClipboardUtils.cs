@@ -315,7 +315,8 @@ namespace ToolBelt.Windows
             }
             long offset = (long)headerSize + (compression == 3 && headerSize == 40 ? 12 : 0) + (long)colorsUsed * 4;
             long stride = ((long)w * bpp / 8 + 3) & ~3L;
-            if (offset + stride * h > dib.Length) throw new InvalidOperationException("Clipboard DIB is truncated.");
+            // The last row's pixels must be there, not its padding: a DIB ending at its last pixel was refused.
+            if (offset + stride * (h - 1) + (long)w * (bpp / 8) > dib.Length) throw new InvalidOperationException("Clipboard DIB is truncated.");
             // A 24-bit DIB near the 2 GB array limit expands past it at 4 bytes a pixel.
             if ((long)w * h * 4 > Array.MaxLength) throw new InvalidOperationException("Clipboard DIB is too large to decode.");
             var pixels = new byte[(long)w * h * 4];

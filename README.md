@@ -583,7 +583,7 @@ src/
       StructuredTextFormatter.cs  configurable field order / delimiter / timestamp (delimited preset)
       ScopedContext.cs      ambient flow-local scope label folded into each event's category (out-of-order dispose safe; any depth)
   ToolBelt.Windows/         Windows platform satellite (net8.0-windows) — Win32 / registry utilities
-    PowerStatus.cs          AC line / battery charge / saver mode via GetSystemPowerStatus
+    PowerStatus.cs          AC line / battery charge / saver mode via GetSystemPowerStatus (an unknown battery state is BatteryStateKnown = false)
     SingleInstance.cs       single-instance gate over a named mutex (abandoned-owner safe, not tied to the calling thread)
     SingleInstanceApp.cs    second launch forwards args + cwd to the primary (per-user pipe) + foreground handoff; app ids ignore case; at most 100 launches wait
     DriveAndVolumeInfo.cs   fixed-drive enumeration + free space for any path
@@ -594,7 +594,7 @@ src/
     JobObject.cs            job object grouping child processes (kill-on-close; memory / process-count / CPU-rate caps; accounting; start suspended inside the job)
     WindowUtils.cs          enumerate top-level windows / foreground / find by title
     FileAssociation.cs      per-extension opener / friendly name / command / ProgID
-    ShortcutUtils.cs        create & read .lnk shortcuts via COM IShellLink (fields up to the shell's 260-char limit; no NULs; a corrupt .lnk is InvalidDataException)
+    ShortcutUtils.cs        create & read .lnk shortcuts via COM IShellLink (fields up to the shell's 260-char limit; no NULs; a corrupt .lnk is InvalidDataException; a URL or shell target reads back as its parsing name)
     ClipboardUtils.cs       clipboard text, Explorer file lists (CF_HDROP) and images (CF_DIB) via raw Win32 on an STA thread; DecodeDropFiles/DecodeDib parse untrusted blocks within bounds
     ScreenCapture.cs        capture screen/region to a raw BGRA buffer via GDI BitBlt, physical pixels (no System.Drawing)
     ResourceSampler.cs      per-process CPU% (core-normalised, at most 100) + working-set / private memory; IDisposable; Measure takes a CancellationToken
@@ -1170,6 +1170,7 @@ tests/
     WindowsReview164Tests.cs (tenth pass: invariant info and rectangle text, opaque captures, regions wider than a GDI bitmap, refused deep registry paths leave nothing, relative shortcut targets)
     WindowsReview184Tests.cs (eleventh pass: NULs in JoinArguments and RunElevated.Start, zero-timeout launches to a running primary)
     WindowsReview207Tests.cs (twelfth pass: one forward deadline, registry keys over 32 levels deep, privilege scopes closed out of order, a process that has exited, JobObject.Start's arguments, a DIB header too short for its masks)
+    WindowsReview211Tests.cs (thirteenth pass: free space for a short relative path under a deep directory, damaged and URL shortcuts, \\?\ shortcut targets, an unknown battery state, a path as a file extension, an unpadded last DIB row, NVMe over Fabrics, the dotnet host's options and directory on restart, the event-log truncation length)
     FlakeRootCauseTests.cs  (round 46: JobObject.Start keeps grandchildren in the job, refuses over the limit before running)
     DriveAndVolumeInfoTests.cs
     MonitorInfoTests.cs

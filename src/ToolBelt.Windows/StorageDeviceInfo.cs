@@ -12,7 +12,7 @@ namespace ToolBelt.Windows
     public enum StorageBusType
     {
         Unknown = 0, Scsi = 1, Atapi = 2, Ata = 3, Ieee1394 = 4, Ssa = 5, FibreChannel = 6, Usb = 7, Raid = 8, iScsi = 9,
-        Sas = 10, Sata = 11, Sd = 12, Mmc = 13, Virtual = 14, FileBackedVirtual = 15, Spaces = 16, Nvme = 17, Scm = 18, Ufs = 19,
+        Sas = 10, Sata = 11, Sd = 12, Mmc = 13, Virtual = 14, FileBackedVirtual = 15, Spaces = 16, Nvme = 17, Scm = 18, Ufs = 19, Nvmeof = 20,
     }
 
     /// <summary>What <see cref="StorageDeviceInfo.Describe"/> found out about a volume's device.</summary>

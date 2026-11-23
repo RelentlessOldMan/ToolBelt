@@ -387,9 +387,10 @@ namespace ToolBelt.Tests.Documents
                     catch (Exception ex) { failed = ex; }
                 });
                 saver.Start();
+                // A count, not a 3 s window: on a loaded machine the window held only 97 loads and the floor failed.
                 int silent = 0, loads = 0;
-                var until = DateTime.UtcNow.AddSeconds(3);
-                while (DateTime.UtcNow < until)
+                var until = DateTime.UtcNow.AddSeconds(60);
+                while (loads < 200 && DateTime.UtcNow < until)
                 {
                     var r = SettingsStore<S>.LoadFrom(path);
                     loads++;
