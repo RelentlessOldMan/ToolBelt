@@ -96,26 +96,19 @@ namespace ToolBelt.Logging
                 {
                     throw new ObjectDisposedException(nameof(AsyncLogSink));   // Dispose ran while this was queueing
                 }
+                catch (InvalidOperationException)
+                {
+                    // Pool work the inner sink started carries the consumer's flow, so a full blocking queue refuses it
+                    // rather than wait on its own consumer; the event was lost to a raw InvalidOperationException. It
+                    // is written through, as from another sink's consumer.
+                    EmitDirect(logEvent);
+                }
                 return;
             }
             if (consuming != this)
             {
-                // Another sink's consumer (a cycle, or a chain of sinks): waiting here for space could deadlock. Checked
-                // for Dispose as the queued path is: the event reached an inner sink already released.
-                if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(AsyncLogSink));
-                // Bounded as on our own consumer: an inner sink that logged its own failure back into this sink recursed
-                // here until the stack overflowed, as only the consuming sink's depth was counted.
-                var direct = t_direct ??= new List<AsyncLogSink>();
-                int entered = 0;
-                foreach (AsyncLogSink s in direct) if (s == this) entered++;
-                if (entered > 1)
-                {
-                    Interlocked.Increment(ref _reentrantDropped);
-                    return;
-                }
-                direct.Add(this);
-                try { _inner.Emit(logEvent); }
-                finally { direct.RemoveAt(direct.Count - 1); }
+                // Another sink's consumer (a cycle, or a chain of sinks): waiting here for space could deadlock.
+                EmitDirect(logEvent);
                 return;
             }
             // Re-entered from the inner sink on our own consumer thread: queueing could wait forever for space.
@@ -127,6 +120,25 @@ namespace ToolBelt.Logging
             t_depth++;
             try { _inner.Emit(logEvent); }
             finally { t_depth--; }
+        }
+
+        private void EmitDirect(LogEvent logEvent)
+        {
+            // Checked for Dispose as the queued path is: the event reached an inner sink already released.
+            if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(AsyncLogSink));
+            // Bounded as on our own consumer: an inner sink that logged its own failure back into this sink recursed
+            // here until the stack overflowed, as only the consuming sink's depth was counted.
+            var direct = t_direct ??= new List<AsyncLogSink>();
+            int entered = 0;
+            foreach (AsyncLogSink s in direct) if (s == this) entered++;
+            if (entered > 1)
+            {
+                Interlocked.Increment(ref _reentrantDropped);
+                return;
+            }
+            direct.Add(this);
+            try { _inner.Emit(logEvent); }
+            finally { direct.RemoveAt(direct.Count - 1); }
         }
 
         private void Consume(LogEvent logEvent)

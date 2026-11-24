@@ -167,7 +167,9 @@ namespace ToolBelt.Diagnostics
 
         /// <summary>
         /// Estimates the bytes a run will write: <paramref name="bytesPerSecond"/> × <paramref name="duration"/> ×
-        /// <paramref name="safetyFactor"/>, rounded up. Feed the result to <see cref="Preflight"/>.
+        /// <paramref name="safetyFactor"/>, rounded up. The product is a double, so past 2^53 bytes it carries a double's
+        /// rounding (it may be a unit or so either side of the exact product); a positive rate over a positive duration is
+        /// at least 1 byte, however small. Feed the result to <see cref="Preflight"/>.
         /// </summary>
         public static long EstimateBytes(double bytesPerSecond, TimeSpan duration, double safetyFactor = 1.2)
         {
@@ -178,6 +180,8 @@ namespace ToolBelt.Diagnostics
             if (double.IsNaN(safetyFactor) || double.IsInfinity(safetyFactor) || safetyFactor < 1)
                 throw new ArgumentOutOfRangeException(nameof(safetyFactor), safetyFactor, "Must be finite and at least 1.");
             double bytes = Math.Ceiling(bytesPerSecond * duration.TotalSeconds * safetyFactor);
+            // A product that underflowed to 0 (5e-324 B/s for half a second) still rounds up to a byte.
+            if (bytes == 0 && bytesPerSecond > 0 && duration > TimeSpan.Zero) bytes = 1;
             if (bytes >= long.MaxValue)
                 throw new OverflowException("Estimated size exceeds the range of a 64-bit byte count.");
             return (long)bytes;

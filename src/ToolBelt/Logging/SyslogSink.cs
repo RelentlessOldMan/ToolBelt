@@ -353,10 +353,13 @@ namespace ToolBelt.Logging
         {
             if (string.IsNullOrEmpty(value)) return "-";
             var sb = new StringBuilder(Math.Min(value!.Length, maxLength));
-            foreach (char c in value)
+            for (int i = 0; i < value.Length; i++)
             {
                 if (sb.Length == maxLength) break;
+                char c = value[i];
                 sb.Append(c > 32 && c < 127 ? c : '_');
+                // One character, one placeholder: a surrogate pair (an emoji in an app name) became "__".
+                if (char.IsHighSurrogate(c) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1])) i++;
             }
             return sb.ToString();
         }

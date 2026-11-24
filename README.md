@@ -303,7 +303,7 @@ src/
     Diagnostics/
       Benchmark.cs          micro-benchmark harness (warmup, stats, bytes/op, compare-to-baseline, MaxIterations; .NET Framework counts the domain's bytes)
       MetricsRegistry.cs    named counters / gauges / timers with percentile snapshots (thread-safe, capped samples per timer)
-      ScopedTimer.cs        time a using-block to a callback / metrics (injectable clock)
+      ScopedTimer.cs        time a using-block to a callback / metrics (injectable clock; a clock stepped back reports zero)
       ExceptionUtils.cs     root-cause / flatten / describe / transient-vs-permanent classify
       EnvironmentReport.cs  one-call bug-report snapshot (versions/OS/culture/uptime/env, secret-safe)
       HealthCheck.cs        named probes w/ enforced timeouts (an abandoned probe's token is cancelled; a stuck one isn't restarted), run concurrently -> worst-status report
@@ -1154,6 +1154,7 @@ tests/
       LoggingReview161Tests.cs (round 161: very deep and cyclic inner-exception chains in every formatter and the verbose console report, colon-form underline resets, environment names holding a NUL)
       LoggingReview180Tests.cs (round 180: the metrics mean after an overflowing sum and of signed zeros, sub-millisecond timeouts in HealthCheck, SyslogSink and AsyncLogSink, a writer stopping the spinner during a Message draw, probes off the thread pool, trimmed Choose options)
       LoggingReview202Tests.cs (round 202: bold and dim kept apart under a 22 reset, multi-line environment values and Data keys indented, one-line ConsoleApp failures, a ProgressBar tolerance that scales with the width, signed zeros in the metrics in any order, linear formatter escaping, a throwing FirstChanceMonitor clock)
+      LoggingReview213Tests.cs (round 213: an underflowing size estimate, a clock stepped back in ScopedTimer, multi-line probe messages in HealthReport, astral characters in syslog header tokens, pool work from AsyncLogSink's inner sink on a full queue)
   ToolBelt.Windows.Tests/   Windows-only integration tests for the platform satellite (net8.0-windows)
     PowerStatusTests.cs
     SingleInstanceTests.cs

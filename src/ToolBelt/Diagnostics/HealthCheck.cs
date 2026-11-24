@@ -92,14 +92,32 @@ namespace ToolBelt.Diagnostics
 
         public bool IsHealthy => Status == HealthStatus.Healthy;
 
-        /// <summary>A multi-line summary: overall status, then one line per probe.</summary>
+        /// <summary>
+        /// A multi-line summary: overall status, then one line per probe (a message of several lines continues indented
+        /// under its probe). Lines end with <see cref="Environment.NewLine"/>, as the other reports' do.
+        /// </summary>
         public override string ToString()
         {
             var sb = new StringBuilder();
             sb.Append("Overall: ").Append(Status)
               .Append(" (").Append(Duration.TotalMilliseconds.ToString("0", CultureInfo.InvariantCulture)).Append(" ms)");
+            // A probe message's second line started at column 0, where it read as a line of the report's own, and the
+            // lines ended with '\n' where EnvironmentReport and ExceptionUtils use Environment.NewLine.
             foreach (var p in Probes)
-                sb.Append('\n').Append("  ").Append(p);
+            {
+                sb.AppendLine().Append("  ");
+                string text = p.ToString();
+                int start = 0;
+                for (int i = 0; i < text.Length; i++)
+                {
+                    char c = text[i];
+                    if (c != '\r' && c != '\n') continue;
+                    sb.Append(text, start, i - start).AppendLine().Append("    ");
+                    if (c == '\r' && i + 1 < text.Length && text[i + 1] == '\n') i++;
+                    start = i + 1;
+                }
+                sb.Append(text, start, text.Length - start);
+            }
             return sb.ToString();
         }
     }

@@ -7,7 +7,8 @@ namespace ToolBelt.Diagnostics
     /// <summary>
     /// Times a named block and reports the elapsed duration to a callback when disposed — pair it with a
     /// <c>using</c>. Nest instances to time a call tree. The clock is injectable, so tests are deterministic
-    /// (no sleeping); by default it uses <see cref="System.Diagnostics.Stopwatch"/>, which a clock change doesn't move.
+    /// (no sleeping); by default it uses <see cref="System.Diagnostics.Stopwatch"/>, which a clock change doesn't move. An
+    /// injected clock that steps back (a wall clock adjusted mid-block) reports zero, never a negative duration.
     /// </summary>
     public sealed class ScopedTimer : IDisposable
     {
@@ -43,6 +44,8 @@ namespace ToolBelt.Diagnostics
             TimeSpan elapsed = _clock != null
                 ? _clock() - _start
                 : TimeSpan.FromTicks((long)((System.Diagnostics.Stopwatch.GetTimestamp() - _startTicks) * (10_000_000.0 / System.Diagnostics.Stopwatch.Frequency)));
+            // A clock stepped back gave a negative elapsed time, which a duration (and a metrics histogram) cannot be.
+            if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
             _onComplete(_name, elapsed);
         }
     }
