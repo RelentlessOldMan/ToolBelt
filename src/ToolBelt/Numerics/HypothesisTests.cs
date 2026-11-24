@@ -334,9 +334,9 @@ namespace ToolBelt.Numerics
         /// <summary>
         /// One-sample KS test comparing a sample to a reference CDF. Statistic is the KS distance D. The p-value is exact
         /// for up to 140 points (the Marsaglia–Tsang–Wang matrix form) and wherever it is below 1e-4 or D ≥ ½ (twice the
-        /// exact one-sided Smirnov tail, for up to 100,000 points). Up to 1,000 points it is exact everywhere; up to 100,000
+        /// exact one-sided Smirnov tail, at any size). Up to 1,000 points it is exact everywhere; up to 100,000
         /// it is exact while n·D^(3/2) &lt; 1.4 and otherwise Pelz and Good's expansion (good to about five digits there);
-        /// past 100,000 points it is Stephens' approximation to the asymptotic Kolmogorov distribution, good
+        /// past 100,000 points, above 1e-4, it is Stephens' approximation to the asymptotic Kolmogorov distribution, good
         /// to about three digits there.
         /// </summary>
         public static TestResult KolmogorovSmirnovOneSample(IReadOnlyList<double> sample, Func<double, double> cdf)
@@ -369,10 +369,14 @@ namespace ToolBelt.Numerics
         {
             if (!(d > 0) || n * d <= 0.5) return 1;      // D ≥ 1/(2n) always
             if (d >= 1) return 0;
-            if (n <= 100000)
+            // D⁺ ≥ d and D⁻ ≥ d together need D⁺ + D⁻ ≥ 2d, and D⁺ + D⁻ ≤ 1: for d > ½ the tails are disjoint and the
+            // doubled one-sided tail is exact; below, their overlap is of order p⁴ and negligible once p < 1e-4. At any n:
+            // past 100,000 points the tail was Stephens' form, 6% off at p = 5e-56 (n = 100,001). The sum is about n terms,
+            // so past 100,000 it is taken only where Stephens' form (good to a few percent) puts the tail below 2e-4.
+            double en = Math.Sqrt(n);
+            double stephens = n > 100000 ? KolmogorovQ((en + 0.12 + 0.11 / en) * d) : 0;
+            if (d >= 0.5 || stephens < 2e-4)
             {
-                // D⁺ ≥ d and D⁻ ≥ d together need D⁺ + D⁻ ≥ 2d, and D⁺ + D⁻ ≤ 1: for d > ½ the tails are disjoint and the
-                // doubled one-sided tail is exact; below, their overlap is of order p⁴ and negligible once p < 1e-4.
                 double s2 = 2 * SmirnovUpper(n, d);
                 if (d >= 0.5 || s2 < 1e-4) return Math.Min(1, s2);
             }
@@ -382,8 +386,7 @@ namespace ToolBelt.Numerics
             // form was off by 2.7% at n = 200 (p = 2e-4) and 1.5% at n = 141 (p = ½), against an exact n = 140.
             if (n <= 1000 || n <= 100000 && n * d * Math.Sqrt(d) < 1.4) return Math.Max(0, Math.Min(1, 1 - KolmogorovCdfExact(n, d)));
             if (n <= 100000) return Math.Max(0, Math.Min(1, PelzGoodUpper(n, d)));
-            double en = Math.Sqrt(n);
-            return KolmogorovQ((en + 0.12 + 0.11 / en) * d);
+            return stephens;
         }
 
         // Pelz and Good's (1976) expansion of P(D_n ≥ d) to order n^(−3/2), with z = √n·d, in Simard and L'Ecuyer's form:
@@ -431,7 +434,9 @@ namespace ToolBelt.Numerics
         {
             // ln C(n, j) summed with Neumaier's compensation, and 1 − d − j/n formed from the whole count n − j: a plain
             // running sum of 100,000 logarithms put 5e-10 relative error in the tail.
-            double sum = 0, lnC = 0, lnCarry = 0, nd = n * d;
+            // The terms rise to one peak (near j = n/2 in the tail) and fall: the sum stops once they are past it and 60 nats
+            // (1e-26) below it, which skips the last sixth or so of the terms.
+            double sum = 0, lnC = 0, lnCarry = 0, nd = n * d, peak = double.NegativeInfinity, last = double.NegativeInfinity;
             int jMax = (int)Math.Floor(n * (1 - d));
             for (int j = 0; j <= jMax; j++)
             {
@@ -443,7 +448,11 @@ namespace ToolBelt.Numerics
                 }
                 double a = ((n - j) - nd) / n, b = (nd + j) / n;
                 if (!(a > 0)) break;
-                sum += Math.Exp((lnC + lnCarry) + (n - j) * Math.Log(a) + (j - 1) * Math.Log(b));
+                double lnTerm = (lnC + lnCarry) + (n - j) * Math.Log(a) + (j - 1) * Math.Log(b);
+                sum += Math.Exp(lnTerm);
+                if (lnTerm < last && lnTerm < peak - 60) break;
+                peak = Math.Max(peak, lnTerm);
+                last = lnTerm;
             }
             return Math.Min(1, d * sum);
         }

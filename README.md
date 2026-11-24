@@ -927,6 +927,7 @@ tests/
       StatisticsReview171Tests.cs    (round 171: chi-square quantiles below the smallest double, all-tied Mann-Whitney, KS p against SciPy, exact paired permutation p, Pearson on offset data, large-shape beta and F against 40 digits)
       StatisticsReview186Tests.cs    (round 186: two-sample permutation ties on exact sums, Bland-Altman and Individuals limits near MaxValue, Weibull shape and log-likelihood on tight data, Weibull on values a few ulps apart)
       StatisticsReview201Tests.cs    (round 201: lognormal, gamma and Weibull shapes scale-free at 2^+-1000, a subnormal gamma scale, the beta fraction at a second shape near MaxValue in all four copies, a regression slope that overflowed where it is exactly 0)
+      StatisticsReview216Tests.cs    (round 216: confidence intervals for a spread past double.MaxValue, the exact KS tail past 100,000 points)
       HugeShapeTests.cs              (round 46: incomplete beta at shapes near MaxValue and subnormal; drop-in copies agree)
       DifferentialHarnessTests.cs    (round 47: tiny-shape tails and prefixes, huge-other-shape prefix, from the mpmath harness)
       NumericsCoreReviewTests.cs     (review regressions: QR fit, cancellation-free roots, extreme magnitudes, NaN rejection, fast primes)

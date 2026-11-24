@@ -26,8 +26,7 @@ namespace ToolBelt.Numerics
             // From the tail mass α/2: (1 + confidence)/2 rounded to 1 for a confidence of 1 − 2⁻⁵³, and the quantile threw
             // for a parameter "p" the caller never passed.
             double z = -Distributions.NormalQuantile((1 - confidence) / 2);
-            double margin = z * stdErr;
-            return ((mean - margin) / unit, (mean + margin) / unit);
+            return Around(mean, z, stdErr, unit);
         }
 
         /// <summary>
@@ -38,8 +37,21 @@ namespace ToolBelt.Numerics
         {
             var (n, mean, sd, unit) = Moments(sample, confidence);
             double t = -Distributions.StudentTQuantile((1 - confidence) / 2, n - 1);
-            double margin = t * (sd / Math.Sqrt(n));
-            return ((mean - margin) / unit, (mean + margin) / unit);
+            return Around(mean, t, sd / Math.Sqrt(n), unit);
+        }
+
+        // mean ± q·stdErr, moved back by unit. A margin or a bound past double.MaxValue is formed again in units of 16
+        // (exact): the other bound can still be finite (a margin of 1.5·MaxValue about a mean of −MaxValue/2).
+        private static (double Lower, double Upper) Around(double mean, double q, double stdErr, double unit)
+        {
+            double margin = q * stdErr, lower = mean - margin, upper = mean + margin;
+            if (double.IsInfinity(lower) || double.IsInfinity(upper))
+            {
+                double m = mean * HugeUnit, e = q * (stdErr * HugeUnit);
+                lower = (m - e) / HugeUnit;
+                upper = (m + e) / HugeUnit;
+            }
+            return (lower / unit, upper / unit);
         }
 
         /// <summary>
@@ -62,10 +74,13 @@ namespace ToolBelt.Numerics
         }
 
         private static readonly double TinyData = Math.Pow(2, -900), Upscale = Math.Pow(2, 600);
+        private const double HugeUnit = 1.0 / 16;
 
         // A sample entirely below 2^-900 is moved up by Unit = 2^600 (exact), its moments taken there and the interval moved
         // back by the caller: down in the subnormals the spread was rounded and the margin rounded again (ForMeanT of
-        // [0, ε, 0, ε] had zero width). Unit is 1 otherwise.
+        // [0, ε, 0, ε] had zero width). A sample whose spread is past double.MaxValue (half at −MaxValue, half at
+        // +MaxValue) is moved down by Unit = 1/16 (exact but for values below 2^-1070, far under the spread's ulp): the
+        // intervals were (−∞, ∞) and (∞, ∞) where their finite bounds are finite. Unit is 1 otherwise.
         private static (int N, double Mean, double Sd, double Unit) Moments(IReadOnlyList<double> sample, double confidence)
         {
             if (sample is null) throw new ArgumentNullException(nameof(sample));
@@ -86,6 +101,13 @@ namespace ToolBelt.Numerics
                 return (n, m, s, Upscale);
             }
             var (mean, sd) = MeanSd(sample);
+            if (double.IsInfinity(sd))
+            {
+                var down = new double[n];
+                for (int i = 0; i < n; i++) down[i] = sample[i] * HugeUnit;
+                var (m, s) = MeanSd(down);
+                return (n, m, s, HugeUnit);
+            }
             return (n, mean, sd, 1);
         }
 
