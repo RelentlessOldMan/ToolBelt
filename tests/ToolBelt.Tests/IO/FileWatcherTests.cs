@@ -40,7 +40,7 @@ namespace ToolBelt.Tests.IO
             Check.Equal("", Net(C(FileChangeKind.Created, "a"), C(FileChangeKind.Deleted, "a")));                    // came and went
             Check.Equal("Changed a", Net(C(FileChangeKind.Deleted, "a"), C(FileChangeKind.Created, "a")));           // replaced
             Check.Equal("Deleted a", Net(C(FileChangeKind.Changed, "a"), C(FileChangeKind.Deleted, "a")));
-            Check.Equal("Renamed a -> b", Net(C(FileChangeKind.Renamed, "b", "a"), C(FileChangeKind.Changed, "b")));
+            Check.Equal("Renamed a -> b | Changed b", Net(C(FileChangeKind.Renamed, "b", "a"), C(FileChangeKind.Changed, "b")));   // moved and edited (round 212)
             Check.Equal("Created b", Net(C(FileChangeKind.Created, "a"), C(FileChangeKind.Renamed, "b", "a")));      // new, then renamed
             Check.Equal("Renamed a -> c", Net(C(FileChangeKind.Renamed, "b", "a"), C(FileChangeKind.Renamed, "c", "b")));
             Check.Equal("Changed a", Net(C(FileChangeKind.Renamed, "b", "a"), C(FileChangeKind.Renamed, "a", "b")));  // renamed back

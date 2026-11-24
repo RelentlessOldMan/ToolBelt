@@ -219,8 +219,13 @@ namespace ToolBelt.Tests.IO
             var added = new HashSet<string>();
             var changed = new HashSet<string>();
             var seen = new HashSet<string>();
+            FileChange? last = null;
             foreach (var c in outp)
             {
+                // Round 212: a file renamed and changed is its Renamed, then Changed at the new path.
+                bool editAfterRename = c.Kind == FileChangeKind.Changed && last is { Kind: FileChangeKind.Renamed } r && r.FullPath == c.FullPath;
+                last = c;
+                if (editAfterRename) continue;
                 if (!seen.Add(c.FullPath)) return "path reported twice: " + c.FullPath;
                 switch (c.Kind)
                 {

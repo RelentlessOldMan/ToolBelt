@@ -419,8 +419,8 @@ src/
       ZipUtils.cs           zip create/extract/list/read (entry and total size caps, keeps empty dirs and times; update via a streamed copy that keeps modes and comments); Zip-Slip guarded, links never followed
       TarUtils.cs           tar/.tar.gz create/extract/list (keeps empty dirs, total size cap); traversal rejected, links never created or followed (net8)
       DirectoryUtils.cs     tree copy (overwrite/filter policies), delete w/ read-only + cancellable lock retry, never follows links (re-checked per file); CopyOptions.CancellationToken
-      ChecksumManifest.cs   SHA-256 tree manifest in sha256sum format: create/save/verify/compare directories (with a file filter)
-      FileWatcher.cs        debounced, coalescing FileSystemWatcher; wait-until-stable; rescans on overflow/restart/dir moves
+      ChecksumManifest.cs   SHA-256 tree manifest in sha256sum format: create/save/verify/compare directories (with a file filter; a name with an unpaired surrogate is refused)
+      FileWatcher.cs        debounced, coalescing FileSystemWatcher (batches replay in order); wait-until-stable; rescans on overflow/restart/dir moves
     Numerics/
       Angle.cs              degree normalize / shortest-diff / lerp / deg-rad
       Anova.cs              one-way ANOVA (F-test table) + F-distribution tail probability
@@ -897,6 +897,7 @@ tests/
       IOReview172Tests.cs    (tenth pass: ByteSize parsing and formatting rounded once from the exact value, CsvDialect numbers past double's range on .NET Framework, a PAX global header before a GNU long name)
       IOReview188Tests.cs    (eleventh pass: roots ending in a dot, copies through a short name, archives reached through a junction, tar replace keeping Hidden, every tar entry listed after small files, 8.3-alias entries refused, zip host kept by AddOrReplaceEntry, lone-surrogate names refused, too-long backup names, TempFile extensions, non-recursive snapshots ignoring short names)
       IOReview195Tests.cs    (twelfth pass: ByteSize with non-ASCII digits, NaN and Infinity words on every runtime, correctly rounded CSV and config numbers on .NET Framework, FileChangeCoalescer against a model file system)
+      IOReview212Tests.cs    (thirteenth pass: PAX sparse tar entries, repeated directory entries in tar and zip, duplicate zip names, repeated ./ and unpaired surrogates in manifests, ShiftNumbered on a trimmed name and a read-only copy, coalescer batches against a replaying model)
       CoverageGapTests.cs   (behaviour behind coverage holes found by a coverlet run)
     Numerics/
       AngleTests.cs

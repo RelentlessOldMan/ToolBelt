@@ -104,6 +104,7 @@ namespace ToolBelt.IO
             // After the archive opens: a missing or corrupt one left the new (possibly nested) folders behind.
             Directory.CreateDirectory(root);
             var directoryTimes = new List<(string Path, DateTime Time)>();
+            var directoryIndex = new Dictionary<string, int>(PathComparison == StringComparison.Ordinal ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase);
             foreach (ZipArchiveEntry entry in EntriesOf(archive))
             {
                 string target = SafeTarget(root, rootWithSeparator, entry.FullName);
@@ -116,7 +117,10 @@ namespace ToolBelt.IO
                     || (Path.DirectorySeparatorChar == '\\' && entry.FullName.EndsWith("\\", StringComparison.Ordinal)))
                 {
                     Directory.CreateDirectory(target);
-                    directoryTimes.Add((target, entry.LastWriteTime.DateTime));
+                    // A later entry for the same directory wins, as it does for files: the first one's time was kept.
+                    string key = target.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    if (directoryIndex.TryGetValue(key, out int at)) directoryTimes[at] = (target, entry.LastWriteTime.DateTime);
+                    else { directoryIndex.Add(key, directoryTimes.Count); directoryTimes.Add((target, entry.LastWriteTime.DateTime)); }
                     continue;
                 }
                 if (target.Equals(root, PathComparison) || target.Equals(rootWithSeparator, PathComparison))
@@ -483,7 +487,8 @@ namespace ToolBelt.IO
         }
 
         /// <summary>
-        /// Reads a single entry's bytes without extracting, or null if it is absent. An entry that inflates past
+        /// Reads a single entry's bytes without extracting, or null if it is absent (of several entries with one name, the last,
+        /// as extraction leaves it). An entry that inflates past
         /// <paramref name="maxBytes"/> throws <see cref="InvalidDataException"/> instead of exhausting memory
         /// (a guard against zip bombs and lying size headers).
         /// </summary>
@@ -496,8 +501,11 @@ namespace ToolBelt.IO
 
             using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             using var archive = OpenArchive(fs, ZipArchiveMode.Read);
-            EntriesOf(archive);
-            ZipArchiveEntry? entry = archive.GetEntry(entryName);
+            // The last entry of that name, as extraction leaves it: GetEntry took the first, so a check read one content
+            // and extraction wrote another.
+            ZipArchiveEntry? entry = null;
+            foreach (ZipArchiveEntry e in EntriesOf(archive))
+                if (string.Equals(e.FullName, entryName, StringComparison.Ordinal)) entry = e;
             if (entry is null) return null;
             if (entry.Length > cap)
                 throw new InvalidDataException($"Zip entry '{entryName}' is {entry.Length} bytes, over the {cap}-byte limit.");

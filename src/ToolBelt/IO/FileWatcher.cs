@@ -39,7 +39,7 @@ namespace ToolBelt.IO
     /// separated so it can be tested deterministically with an explicit clock. Per path: created then changed → Created;
     /// created then deleted → nothing; deleted then created → Changed (replaced); changed then deleted → Deleted; a rename
     /// chain a→b→c → Renamed a→c (Created c if a was new; back to a → Changed a); renamed then deleted → Deleted of the
-    /// original name. <see cref="TakeQuiet"/> releases changes that have been quiet for the debounce interval. Not
+    /// original name; renamed and changed → Renamed, then Changed. <see cref="TakeQuiet"/> releases changes that have been quiet for the debounce interval. Not
     /// thread-safe: callers lock.
     /// </summary>
     public sealed class FileChangeCoalescer
@@ -72,9 +72,13 @@ namespace ToolBelt.IO
         }
 
         /// <summary>
-        /// Removes and returns the changes with no activity for at least <paramref name="quiet"/>, in first-seen order. A
+        /// Removes and returns the changes with no activity for at least <paramref name="quiet"/>, in an order that replays
+        /// them: first-seen order, except that a rename away from a path comes before any change at that path, and a ring of
+        /// renames (a swap) that no order can replay has its earliest rename split into Deleted (old) and Created (new). A
+        /// file renamed and also changed is its Renamed followed by Changed at the new path. A
         /// change for which <paramref name="isReady"/> returns false stays pending (its quiet period restarts) — used to
-        /// hold back files that are still being written. If <paramref name="isReady"/> throws, nothing is taken.
+        /// hold back files that are still being written — and so does a change that must follow one staying pending. If
+        /// <paramref name="isReady"/> throws, nothing is taken.
         /// </summary>
         public IReadOnlyList<FileChange> TakeQuiet(DateTime now, TimeSpan quiet, Func<FileChange, bool>? isReady = null)
         {
@@ -90,17 +94,86 @@ namespace ToolBelt.IO
                 changes[i] = due[i].Value.ToChange(due[i].Key);
                 ready[i] = isReady == null || isReady(changes[i]);
             }
-            var result = new List<FileChange>(due.Count);
             for (int i = 0; i < due.Count; i++)
+                if (!ready[i]) due[i].Value.LastActivity = now;
+            // The rename that moves a file away from each path: anything at that path must come after it. "C b; R a->c;
+            // R b->a" was released as "Created a | Renamed a -> c", which replayed in order moved the new a to c.
+            var vacater = new Dictionary<string, string>(_comparer);
+            foreach (var kv in _pending)
+                if (kv.Value.Kind == FileChangeKind.Renamed && !_comparer.Equals(kv.Value.OldPath!, kv.Key))   // not a case-only rename
+                    vacater[kv.Value.OldPath!] = kv.Key;
+            var index = new Dictionary<string, int>(_comparer);
+            for (int i = 0; i < due.Count; i++) index[due[i].Key] = i;
+            var dep = new int[due.Count];
+            for (int i = 0; i < due.Count; i++)
+                dep[i] = due[i].Value.Kind != FileChangeKind.Deleted && vacater.TryGetValue(due[i].Key, out string? v)
+                    ? (index.TryGetValue(v, out int j) ? j : -2) : -1;   // -2: the rename stays pending
+            // A change whose rename stays pending (not quiet, or not ready) stays too, and so on down the chain.
+            var take = (bool[])ready.Clone();
+            for (bool more = true; more;)
             {
-                if (!ready[i]) { due[i].Value.LastActivity = now; continue; }
-                _pending.Remove(due[i].Key);
-                result.Add(changes[i]);
+                more = false;
+                for (int i = 0; i < due.Count; i++)
+                    if (take[i] && (dep[i] == -2 || (dep[i] >= 0 && !take[dep[i]]))) { take[i] = false; more = true; }
             }
+            var result = new List<FileChange>(due.Count);
+            foreach (int i in ReplayOrder(due, changes, take, dep, result))
+                _pending.Remove(due[i].Key);
             return result;
         }
 
-        /// <summary>Removes and returns everything pending, in first-seen order.</summary>
+        // Kahn's order over "after the rename that vacates my path", first-seen order breaking ties. Each change has at most
+        // one such rename, so a stall is a ring of renames (a swap, a rotation), which no order of renames can replay: the
+        // earliest rename in the ring goes out as Deleted (old) now and Created (new) once its path is free.
+        private static List<int> ReplayOrder(List<KeyValuePair<string, Entry>> due, FileChange[] changes, bool[] take, int[] dep,
+            List<FileChange> result)
+        {
+            var taken = new List<int>();
+            var dependents = new List<int>?[due.Count];
+            var waiting = new SortedSet<int>();
+            var free = new SortedSet<int>();
+            for (int i = 0; i < due.Count; i++)
+            {
+                if (!take[i]) continue;
+                taken.Add(i);
+                waiting.Add(i);
+                if (dep[i] >= 0) (dependents[dep[i]] ??= new List<int>()).Add(i);
+                else free.Add(i);
+            }
+            var released = new bool[due.Count];
+            void Release(int i)
+            {
+                if (released[i]) return;
+                released[i] = true;
+                if (dependents[i] != null) foreach (int d in dependents[i]!) free.Add(d);
+            }
+            while (waiting.Count > 0)
+            {
+                if (free.Count == 0)
+                {
+                    // Follow the chain from any waiting change into its ring; split the ring's earliest rename.
+                    var seen = new HashSet<int>();
+                    int at = waiting.Min;
+                    while (seen.Add(at)) at = dep[at];
+                    int split = at;
+                    for (int k = dep[at]; k != at; k = dep[k]) split = Math.Min(split, k);
+                    result.Add(new FileChange(FileChangeKind.Deleted, changes[split].OldFullPath!));
+                    changes[split] = new FileChange(FileChangeKind.Created, changes[split].FullPath);
+                    Release(split);
+                    continue;
+                }
+                int next = free.Min;
+                free.Remove(next);
+                waiting.Remove(next);
+                result.Add(changes[next]);
+                if (changes[next].Kind == FileChangeKind.Renamed && due[next].Value.Modified)
+                    result.Add(new FileChange(FileChangeKind.Changed, changes[next].FullPath));
+                Release(next);
+            }
+            return taken;
+        }
+
+        /// <summary>Removes and returns everything pending, in replay order (see <see cref="TakeQuiet"/>).</summary>
         public IReadOnlyList<FileChange> TakeAll() => TakeQuiet(DateTime.MaxValue, TimeSpan.Zero);
 
         internal bool IsPending(string path) => _pending.ContainsKey(path);
@@ -131,6 +204,7 @@ namespace ToolBelt.IO
             if (_pending.TryGetValue(path, out Entry? e))
             {
                 if (e.Kind == FileChangeKind.Deleted) { e.Kind = FileChangeKind.Changed; e.Fresh = true; }
+                else if (e.Kind == FileChangeKind.Renamed) e.Modified = true;   // "R a->c; M c" said only that it moved
                 e.LastActivity = now;
             }
             else Put(path, new Entry(FileChangeKind.Changed, null, now, ++_sequence));
@@ -186,10 +260,11 @@ namespace ToolBelt.IO
                         result = new Entry(FileChangeKind.Changed, null, now, prior.Order) { FirstSeen = prior.FirstSeen }; // renamed back
                         break;
                     case FileChangeKind.Renamed:
-                        result = new Entry(FileChangeKind.Renamed, prior.OldPath, now, prior.Order) { FirstSeen = prior.FirstSeen };
+                        result = new Entry(FileChangeKind.Renamed, prior.OldPath, now, prior.Order) { FirstSeen = prior.FirstSeen, Modified = prior.Modified };
                         break;
                     default:
-                        result = new Entry(FileChangeKind.Renamed, oldPath, now, prior.Order) { FirstSeen = prior.FirstSeen };
+                        // Changed (the original, edited) and then renamed: "M a; R a->c" lost the edit.
+                        result = new Entry(FileChangeKind.Renamed, oldPath, now, prior.Order) { FirstSeen = prior.FirstSeen, Modified = prior.Kind == FileChangeKind.Changed };
                         break;
                 }
             }
@@ -252,6 +327,8 @@ namespace ToolBelt.IO
             // Changed, but the file at the path is not the one there before the batch (deleted and recreated, or replaced
             // by a new file): renamed away, it is a creation there and a deletion here, not a rename of the original.
             public bool Fresh;
+            // Renamed, and its content changed too: released as the rename followed by Changed at the new path.
+            public bool Modified;
 
             public FileChange ToChange(string path) => new FileChange(Kind, path, OldPath);
         }

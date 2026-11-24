@@ -13,7 +13,7 @@ namespace ToolBelt.IO
     /// Tar and .tar.gz archives over <see cref="System.Formats.Tar"/>, with the same safety as <see cref="ZipUtils"/>:
     /// extraction rejects entries that would escape the destination (<c>../</c>, absolute paths, or a junction or symbolic
     /// link already inside it) and never creates symbolic or hard links (which can point outside it): a link entry is an
-    /// error, or is skipped with <c>skipLinks</c>. Sparse files are rejected rather than silently dropped. Gzip is chosen by extension (<c>.tar.gz</c>,
+    /// error, or is skipped with <c>skipLinks</c>. Sparse files (GNU's old 'S' type and its PAX forms) are rejected rather than silently dropped. Gzip is chosen by extension (<c>.tar.gz</c>,
     /// <c>.tgz</c>) or by the <c>gzip</c> argument. Entries are written in PAX format with forward-slash names.
     /// </summary>
     public static class TarUtils
@@ -97,6 +97,7 @@ namespace ToolBelt.IO
             using Stream input = UseGzip(archivePath, gzip) ? new GZipStream(fs, CompressionMode.Decompress) : (Stream)fs;
             using var reader = new TarReader(new MetadataGuardStream(input));
             var directoryTimes = new List<(string Path, DateTimeOffset Time)>();
+            var directoryIndex = new Dictionary<string, int>(PathComparison == StringComparison.Ordinal ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase);
             // After the first header reads: a missing or corrupt archive left the new (possibly nested) folders behind.
             TarEntry? entry = NextEntry(reader);
             Directory.CreateDirectory(root);
@@ -105,6 +106,10 @@ namespace ToolBelt.IO
                 // PAX/GNU metadata, devices and FIFOs are skipped before their names are checked: a PAX global header is
                 // named with an absolute path ("$TMPDIR/GlobalHead.%p.%n"), which failed the whole extraction.
                 if (!IsExtractable(entry.EntryType)) continue;
+                // GNU tar's PAX sparse forms (--sparse --format=posix) are ordinary files with GNU.sparse.* records: the
+                // map and the packed data were written as one file, named "GNUSparseFile.0/<name>".
+                if (IsPaxSparse(entry))
+                    throw new InvalidDataException($"Archive entry '{entry.Name}' is a sparse file, which is not supported.");
                 string target = SafeTarget(rootWithSep, entry.Name);
                 EnsureNoLinks(rootWithSep, target, entry.Name);
                 EnsureNoShortAliases(rootWithSep, entry.Name);
@@ -116,7 +121,10 @@ namespace ToolBelt.IO
                 {
                     case TarEntryType.Directory:
                         Directory.CreateDirectory(target);
-                        directoryTimes.Add((target, entry.ModificationTime));
+                        // A later entry for the same directory wins, as it does for files (and in GNU tar): the first one's time was kept.
+                        string key = target.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                        if (directoryIndex.TryGetValue(key, out int at)) directoryTimes[at] = (target, entry.ModificationTime);
+                        else { directoryIndex.Add(key, directoryTimes.Count); directoryTimes.Add((target, entry.ModificationTime)); }
                         break;
                     case TarEntryType.RegularFile:
                     case TarEntryType.V7RegularFile:
@@ -254,6 +262,14 @@ namespace ToolBelt.IO
             => type == TarEntryType.Directory || type == TarEntryType.RegularFile || type == TarEntryType.V7RegularFile
             || type == TarEntryType.ContiguousFile || type == TarEntryType.SymbolicLink || type == TarEntryType.HardLink
             || type == TarEntryType.SparseFile;
+
+        private static bool IsPaxSparse(TarEntry entry)
+        {
+            if (entry is PaxTarEntry pax)
+                foreach (string key in pax.ExtendedAttributes.Keys)
+                    if (key.StartsWith("GNU.sparse.", StringComparison.Ordinal)) return true;
+            return false;
+        }
 
         private static bool UseGzip(string path, bool? gzip)
             => gzip ?? (path.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase));

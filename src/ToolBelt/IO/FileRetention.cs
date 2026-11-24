@@ -219,21 +219,30 @@ namespace ToolBelt.IO
             if (path is null) throw new ArgumentNullException(nameof(path));
             if (keep < 1) throw new ArgumentOutOfRangeException(nameof(keep), keep, "Keep at least one rotated copy.");
             if (!File.Exists(path)) return false;
-            string Numbered(int n) => path + "." + n.ToString(CultureInfo.InvariantCulture);
+            // The full path names the file that was found: "app.log." (or "app.log ") exists as app.log, but the copies
+            // were built from the raw text as "app.log..1", so the rotation failed with FileNotFoundException.
+            string file = Path.GetFullPath(path);
+            string Numbered(int n) => file + "." + n.ToString(CultureInfo.InvariantCulture);
             // One listing, read before anything moves. Every copy at or above keep goes (cleanup that stopped at the first
             // missing number left path.7 behind a gap at 6), and every name a copy moves onto is checked first: a
             // directory there failed the rotation half done, with some copies already renamed.
-            List<int> present = NumberedCopies(path);
+            List<int> present = NumberedCopies(file);
             foreach (int n in present)
                 if (n < keep && Directory.Exists(Numbered(n + 1)))
                     throw new IOException($"Cannot rotate: '{Numbered(n + 1)}' is a directory.");
             if (Directory.Exists(Numbered(1))) throw new IOException($"Cannot rotate: '{Numbered(1)}' is a directory.");
+            // A read-only copy is deleted as Prune deletes one: File.Delete threw UnauthorizedAccessException and nothing rotated.
             foreach (int n in present)
-                if (n >= keep) File.Delete(Numbered(n));
+            {
+                if (n < keep) continue;
+                FileAttributes attributes = File.GetAttributes(Numbered(n));
+                if ((attributes & FileAttributes.ReadOnly) != 0) File.SetAttributes(Numbered(n), attributes & ~FileAttributes.ReadOnly);
+                File.Delete(Numbered(n));
+            }
             // From the highest copy present, not from keep: probing every number made keep = int.MaxValue take hours.
             for (int i = present.Count - 1; i >= 0; i--)
                 if (present[i] < keep) File.Move(Numbered(present[i]), Numbered(present[i] + 1));
-            File.Move(path, Numbered(1));
+            File.Move(file, Numbered(1));
             return true;
         }
 

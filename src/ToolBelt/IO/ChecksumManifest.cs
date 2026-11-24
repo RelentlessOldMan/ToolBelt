@@ -72,7 +72,8 @@ namespace ToolBelt.IO
 
         /// <summary>
         /// Hashes every file under <paramref name="directory"/> (optionally only those whose relative path passes
-        /// <paramref name="fileFilter"/>). Unreadable directories or files go to <paramref name="onError"/> and are left out;
+        /// <paramref name="fileFilter"/>). Unreadable directories or files, and names a manifest cannot store (an unpaired surrogate), go to
+        /// <paramref name="onError"/> and are left out;
         /// with no <paramref name="onError"/> the first one throws (a manifest must not silently miss a subtree).
         /// </summary>
         public static ChecksumManifest Create(string directory, Func<string, bool>? fileFilter = null, Action<string, Exception>? onError = null)
@@ -85,7 +86,13 @@ namespace ToolBelt.IO
                 string rel = DirectoryUtils.GetRelativePath(directory, file);
                 if (fileFilter != null && !fileFilter(rel)) continue;
                 // The exact name: a listed "a." opened by its plain path is "a", another file.
-                try { pairs.Add(new KeyValuePair<string, string>(rel, HashFile(DirectoryUtils.Exact(file)))); }
+                try
+                {
+                    // Saved, the name became U+FFFD, so the manifest never verified its own unchanged tree.
+                    if (HasLoneSurrogate(rel))
+                        throw new IOException($"'{file}' has a name that is not valid Unicode (an unpaired surrogate), which a manifest cannot store.");
+                    pairs.Add(new KeyValuePair<string, string>(rel, HashFile(DirectoryUtils.Exact(file))));
+                }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
                     if (onError is null) throw;
@@ -218,10 +225,25 @@ namespace ToolBelt.IO
         {
             // Backslashes are kept: they are legal in POSIX names. A leading "./" (as `find . | xargs sha256sum`
             // produces) is dropped so such manifests compare with ones written here. Empty is checked after: "./" was
-            // accepted as "", which wrote a line Parse refuses.
-            string name = path.StartsWith("./", StringComparison.Ordinal) ? path.Substring(2) : path;
+            // accepted as "", which wrote a line Parse refuses. Every leading "./" goes: "././a" was kept as "./a", which
+            // its own text read back as "a" (or as a duplicate of "a").
+            string name = path;
+            while (name.StartsWith("./", StringComparison.Ordinal)) name = name.Substring(2);
             if (name.Length == 0) throw new ArgumentException($"The path '{path}' names no file.", paramName);
+            // The text is UTF-8, where an unpaired surrogate has no form: it was saved as U+FFFD, another name.
+            if (HasLoneSurrogate(name))
+                throw new ArgumentException($"The path '{path}' is not valid Unicode (an unpaired surrogate), which a manifest cannot store.", paramName);
             return name;
+        }
+
+        private static bool HasLoneSurrogate(string s)
+        {
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1])) i++;
+                else if (char.IsSurrogate(s[i])) return true;
+            }
+            return false;
         }
 
         private static string? NormalizeHash(string? hash)
