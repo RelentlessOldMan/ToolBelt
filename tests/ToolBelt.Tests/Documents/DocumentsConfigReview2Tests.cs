@@ -173,8 +173,9 @@ namespace ToolBelt.Tests.Documents
 
         public void Pdf_CodeDoesNotSplitASurrogatePair()
         {
-            string pdf = PdfText(new PdfWriter().Code(new string('x', 82) + "\U0001F600y"));
-            Check.True(pdf.Contains("(" + new string('x', 82) + ") Tj"), "the first line stops before the emoji");
+            // 83 columns fit a line; the pair (one column since round 217) goes whole to the next.
+            string pdf = PdfText(new PdfWriter().Code(new string('x', 83) + "\U0001F600y"));
+            Check.True(pdf.Contains("(" + new string('x', 83) + ") Tj"), "the first line stops before the emoji");
             Check.True(pdf.Contains("(?y) Tj"), "the emoji is one '?'");
         }
 

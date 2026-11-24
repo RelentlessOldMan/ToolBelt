@@ -76,7 +76,15 @@ namespace ToolBelt.Configuration
                 lookup[kv.Key] = kv.Value;
             }
 
-            var result = new T();
+            T result;
+            // The root's constructor ran through Activator, so its own exception escaped wrapped in a
+            // TargetInvocationException; it is rethrown as it was thrown.
+            try { result = new T(); }
+            catch (TargetInvocationException ex) when (ex.InnerException != null)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
+            }
             object boxed = result!;
             // A null value is unset, so its key is no section member either: "Port:0" = null on an int was "nested keys
             // cannot be bound", and "Server:Port" = null created a Server that was meant to stay at its default.
@@ -378,7 +386,7 @@ namespace ToolBelt.Configuration
         // number past its range); precision is 53 for a double, 24 for a float. .NET Framework's parse is not correctly
         // rounded: long decimals came out a unit in the last place off ("9.8598758830020559e-205"), and a float parsed
         // through a double rounded twice. False when the text holds no digits (a word: NaN, Infinity), left to the caller.
-        // CsvDialect, CsvBinder and ConfigBinder hold this same block: change one, change all three.
+        // CsvDialect, CsvBinder, ConfigBinder and EnvironmentVariables hold this same block: change one, change all four.
         private static bool TryNearestBinary(string text, int precision, out double value)
         {
             value = 0;
@@ -710,7 +718,19 @@ namespace ToolBelt.Configuration
             s = s.Trim();
             if (s.Length == 0) return false;
             if (s.IndexOf(':') >= 0)
+            {
+                // Past 7 fractional digits the runtimes disagreed: .NET read "00:00:00.00000005" as 1 tick and refused
+                // ".12345678", .NET Framework read the first as 5 ticks (an 8-digit fraction under 10^7 was a tick count)
+                // and refused others. The fraction is cut to whole ticks first, truncated as the unit form is.
+                int dot = s.IndexOf('.', s.LastIndexOf(':'));
+                if (dot >= 0)
+                {
+                    int end = dot + 1;
+                    while (end < s.Length && s[end] >= '0' && s[end] <= '9') end++;
+                    if (end - dot - 1 > 7 && end == s.Length) s = s.Substring(0, dot + 8);
+                }
                 return TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out value) && (allowNegative || value >= TimeSpan.Zero);
+            }
             int i = 0;
             bool negative = s[0] == '-';
             if (negative) { if (!allowNegative) return false; i++; }

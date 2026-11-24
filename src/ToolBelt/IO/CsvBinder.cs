@@ -157,7 +157,7 @@ namespace ToolBelt.IO
         // number past its range); precision is 53 for a double, 24 for a float. .NET Framework's parse is not correctly
         // rounded: long decimals came out a unit in the last place off ("9.8598758830020559e-205"), and a float parsed
         // through a double rounded twice. False when the text holds no digits (a word: NaN, Infinity), left to the caller.
-        // CsvDialect, CsvBinder and ConfigBinder hold this same block: change one, change all three.
+        // CsvDialect, CsvBinder, ConfigBinder and EnvironmentVariables hold this same block: change one, change all four.
         private static bool TryNearestBinary(string text, int precision, out double value)
         {
             value = 0;

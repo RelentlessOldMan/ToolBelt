@@ -101,7 +101,11 @@ namespace ToolBelt.Documents
         public HtmlReport CodeBlock(string code, string language = "")
         {
             if (code is null) throw new ArgumentNullException(nameof(code));
-            string cls = string.IsNullOrEmpty(language) ? "" : $" class=\"language-{EscapeAttr(language)}\"";
+            // One class token: whitespace in the language split it, so "c sharp" was the classes language-c and sharp.
+            var token = new StringBuilder(language ?? "");
+            for (int i = 0; i < token.Length; i++)
+                if (token[i] == ' ' || token[i] == '\t' || token[i] == '\n' || token[i] == '\f' || token[i] == '\r') token[i] = '-';
+            string cls = token.Length == 0 ? "" : $" class=\"language-{EscapeAttr(token.ToString())}\"";
             _body.Append("<pre><code").Append(cls).Append('>').Append(Escape(code)).Append("</code></pre>\n");
             return this;
         }
@@ -127,6 +131,9 @@ namespace ToolBelt.Documents
         public HtmlReport ImageData(string altText, byte[] data, string mimeType = "image/png")
         {
             if (data is null) throw new ArgumentNullException(nameof(data));
+            // A type/subtype of MIME token characters: null made "data:;base64,..." and any other text a broken URI.
+            if (mimeType is null) throw new ArgumentNullException(nameof(mimeType));
+            if (!IsMimeType(mimeType)) throw new ArgumentException("Not a MIME type (type/subtype): '" + mimeType + "'.", nameof(mimeType));
             return Image(altText, $"data:{mimeType};base64,{Convert.ToBase64String(data)}");
         }
 
@@ -212,6 +219,21 @@ namespace ToolBelt.Documents
                 }
             }
             return sb.ToString();
+        }
+
+        // RFC 6838's restricted names: type "/" subtype, each 1 to 127 of letters, digits and !#$&-^_.+
+        private static bool IsMimeType(string s)
+        {
+            int slash = s.IndexOf('/');
+            if (slash < 1 || slash > 127 || s.Length - slash - 1 < 1 || s.Length - slash - 1 > 127) return false;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (i == slash) continue;
+                bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || "!#$&-^_.+".IndexOf(c) >= 0;
+                if (!ok) return false;
+            }
+            return true;
         }
 
         private static string EscapeAttr(string text)

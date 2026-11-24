@@ -285,7 +285,8 @@ src/
       Trie.cs               prefix tree (contains / starts-with / with-prefix)
       TtlCache.cs           time-expiring cache (injectable clock)
     Configuration/
-      ConfigLayers.cs       merge sources by priority into a flat key space (with provenance)
+      ConfigLayers.cs       merge sources by priority into a flat key space (with provenance); keys fold case by one
+                            fixed rule on every runtime, and a key held only as null is not found
       ConfigBinder.cs       bind a flat key space to a typed object (nested/arrays/enums/durations); public setters only, null = unset
       EnvironmentVariables.cs  typed env reads (int/bool/duration/enum/list), malformed = error naming the variable
       SettingsStore.cs      per-user JSON settings: atomic save, corrupt file moved aside, defaults, Update restores on a throw;
@@ -773,6 +774,7 @@ tests/
       DocumentsConfigReview160Tests.cs (round 160: long names and held files in PDF and DOCX saves, settings paths ending in a separator, loads during a save or of a file that vanishes mid-read and beside other stores' temps, report escaping and slugs on every runtime, infinity, NaN and -0 in the binder and environment, derived nested sections)
       DocumentsConfigReview181Tests.cs (round 181: computed section getters, property names holding the separator, huge values in errors, TimeSpan.MinValue in seconds, the nearest float on every runtime, nulls in config layers, a settings file holding null, line separators and newer Unicode letters in slugs, Raw's first-line indentation, changes from 0 and -0 in Comparison)
       DocumentsConfigReview194Tests.cs (round 194: Word tables over 63 columns, signless zeros and short huge percentages in Comparison, DateTime offsets as UTC, properties differing only in case, list items that are only a marker)
+      DocumentsConfigReview217Tests.cs (round 217: net48 GetDouble rounding, long duration fractions, PDF break spaces, nested bullets and emoji code lines, root constructor exceptions, CodeBlock and ImageData checks, ConfigLayers key casing and null-only keys)
       DocumentsConfigReview155Tests.cs (round 155: a load during a slow save waits two seconds, then warns)
     Enums/
       EnumExtensionsTests.cs

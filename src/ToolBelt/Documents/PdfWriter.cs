@@ -161,10 +161,21 @@ namespace ToolBelt.Documents
             }
             foreach (var (level, text) in all)
             {
-                double offset = Math.Min(level * step, UsableWidth / 2);
+                // The bullet and any one character of the text stay inside the margins (a wrapped line holds at least
+                // one): at large sizes the nested indent plus the bullet was wider than the line, so the text started past
+                // the right margin (Courier 150, level 1: "B" at x = 564 of a 558 margin) and ran off the page. The
+                // nesting gives way first, then the bullet's gap.
+                string t = text ?? "";
+                string bullet = level % 2 == 0 ? "•" : "–";
+                double room = 0;
+                for (int i = 0; i < t.Length; i += IsPairStart(t, i) ? 2 : 1)
+                    room = Math.Max(room, Measure(t.Substring(i, IsPairStart(t, i) ? 2 : 1), _fontSize, false));
+                double glyph = Measure(bullet, _fontSize, false);
+                double offset = Math.Max(0, Math.Min(Math.Min(level * step, UsableWidth / 2), UsableWidth - bulletWidth - room));
+                double indent = Math.Max(offset + glyph, Math.Min(offset + bulletWidth, UsableWidth - room));
                 EnsureRoom(_fontSize);
-                EmitText(level % 2 == 0 ? "•" : "–", _margin + offset, _y - _fontSize, _fontSize, false);
-                WriteWrapped(text ?? "", _fontSize, false, offset + bulletWidth);
+                EmitText(bullet, _margin + offset, _y - _fontSize, _fontSize, false);
+                WriteWrapped(t, _fontSize, false, indent);
             }
             _y -= _leading * 0.5;
             return this;
@@ -183,11 +194,11 @@ namespace ToolBelt.Documents
             {
                 for (int start = 0, len; start == 0 || start < raw.Length; start += len)
                 {
-                    len = Math.Min(perLine, raw.Length - start);
-                    // Never split a surrogate pair across lines (an emoji is one '?', not two).
-                    // One char a line takes the pair whole: the guard skipped that case, and the emoji became two '?'.
-                    if (start + len < raw.Length && char.IsHighSurrogate(raw[start + len - 1]) && char.IsLowSurrogate(raw[start + len]))
-                        len = len > 1 ? len - 1 : 2;
+                    // perLine columns, a surrogate pair taking one (it is drawn as one '?', never split across lines):
+                    // counting UTF-16 units wrapped 80 emoji onto two lines where 83 characters fit on one.
+                    int end = start;
+                    for (int cols = 0; end < raw.Length && cols < perLine; cols++) end += IsPairStart(raw, end) ? 2 : 1;
+                    len = end - start;
                     string piece = raw.Length == 0 ? "" : raw.Substring(start, len);
                     // Room for the whole bar, not just the text: the last line's bar ran into the bottom margin.
                     EnsureRoom(s * 1.3);
@@ -657,8 +668,12 @@ namespace ToolBelt.Documents
                     }
                 }
                 double wUnits = MeasureUnits(table, w);
-                if (!started) { line.Append(w); lineUnits += wUnits; }
+                // An empty word is a second (third, ...) space of a run. At the start of a continuation line it is dropped,
+                // and where it does not fit it ends the line: the run used to start the next line, so that line began a
+                // space or more right of the margin, and trailing spaces added a near-blank line.
+                if (!started) { if (w.Length == 0 && lines.Count > 0) continue; line.Append(w); lineUnits += wUnits; }
                 else if ((lineUnits + space + wUnits) / 1000 * size <= width) { line.Append(' ').Append(w); lineUnits += space + wUnits; }
+                else if (w.Length == 0) { lines.Add(line.ToString()); line.Clear(); lineUnits = 0; started = false; continue; }
                 else { lines.Add(line.ToString()); line.Clear(); line.Append(w); lineUnits = wUnits; }
                 started = true;
             }

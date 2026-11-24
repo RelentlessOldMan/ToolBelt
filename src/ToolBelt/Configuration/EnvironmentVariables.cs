@@ -95,9 +95,107 @@ namespace ToolBelt.Configuration
             }
             if (word.Equals("NaN", StringComparison.OrdinalIgnoreCase)) { value = double.NaN; return true; }
             if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value)) return false;
+#if NETSTANDARD2_0
+            // .NET Framework's parse is not correctly rounded: long decimals were a unit in the last place off, where
+            // ConfigBinder read the same text right.
+            if (!double.IsInfinity(value) && TryNearestBinary(s, 53, out double nearest)) value = nearest;
+#endif
             if (value == 0 && minus) value = -0.0;
             return true;
         }
+
+#if NETSTANDARD2_0
+        // The double nearest the decimal in text, ties to even, for text the invariant parse accepts (or a well-formed
+        // number past its range); precision is 53 for a double, 24 for a float. .NET Framework's parse is not correctly
+        // rounded: long decimals came out a unit in the last place off ("9.8598758830020559e-205"), and a float parsed
+        // through a double rounded twice. False when the text holds no digits (a word: NaN, Infinity), left to the caller.
+        // CsvDialect, CsvBinder, ConfigBinder and EnvironmentVariables hold this same block: change one, change all four.
+        private static bool TryNearestBinary(string text, int precision, out double value)
+        {
+            value = 0;
+            int i = 0, n = text.Length;
+            while (i < n && (text[i] == ' ' || (text[i] >= '\t' && text[i] <= '\r'))) i++;
+            bool negative = false;
+            if (i < n && (text[i] == '+' || text[i] == '-')) { negative = text[i] == '-'; i++; }
+            var kept = new System.Text.StringBuilder();
+            long exp10 = 0;                         // the value is kept * 10^exp10, before the exponent part
+            bool any = false, point = false, sticky = false;
+            for (; i < n; i++)
+            {
+                char c = text[i];
+                if (c == '.' && !point) { point = true; continue; }
+                if (c < '0' || c > '9') break;
+                any = true;
+                if (kept.Length == 0 && c == '0') { if (point) exp10--; continue; }
+                // 800 significant digits decide the rounding (a midpoint has at most 767); the rest only say "above".
+                if (kept.Length < 800) { kept.Append(c); if (point) exp10--; }
+                else { if (c != '0') sticky = true; if (!point) exp10++; }
+            }
+            if (!any) return false;
+            if (i < n && (text[i] == 'e' || text[i] == 'E'))
+            {
+                i++;
+                bool minus = i < n && text[i] == '-';
+                if (i < n && (text[i] == '+' || text[i] == '-')) i++;
+                long e = 0;
+                for (; i < n && text[i] >= '0' && text[i] <= '9'; i++) if (e < 100000000) e = e * 10 + (text[i] - '0');
+                exp10 += minus ? -e : e;
+            }
+            double magnitude = 0;
+            if (kept.Length > 0)
+            {
+                long top = exp10 + kept.Length;     // the value is below 10^top and at least 10^(top - 1)
+                if (top > 310) magnitude = double.PositiveInfinity;
+                else if (top >= -330)
+                {
+                    var digits = System.Numerics.BigInteger.Parse(kept.ToString(), NumberStyles.None, CultureInfo.InvariantCulture);
+                    if (sticky) { digits = digits * 10 + 1; exp10--; }
+                    magnitude = NearestBinary(digits, (int)exp10, precision);
+                }
+            }
+            value = negative ? -magnitude : magnitude;
+            return true;
+        }
+
+        // digits * 10^exp10 to the nearest value of the given precision, ties to even; infinity past the largest finite.
+        private static double NearestBinary(System.Numerics.BigInteger digits, int exp10, int precision)
+        {
+            int least = precision == 53 ? -1074 : -149;      // the exponent of the smallest subnormal
+            int limit = precision == 53 ? 1024 : 128;        // 2^limit is past the largest finite value
+            System.Numerics.BigInteger num = digits, den = System.Numerics.BigInteger.One;
+            if (exp10 >= 0) num *= System.Numerics.BigInteger.Pow(10, exp10);
+            else den = System.Numerics.BigInteger.Pow(10, -exp10);
+            long e = Math.Max(least, BinaryLength(num) - BinaryLength(den) - precision);
+            while (true)
+            {
+                // q = floor(value / 2^e), with precision bits unless e is the subnormal floor.
+                System.Numerics.BigInteger d = e > 0 ? den << (int)e : den;
+                System.Numerics.BigInteger q = System.Numerics.BigInteger.DivRem(e < 0 ? num << (int)-e : num, d, out System.Numerics.BigInteger r);
+                long bits = BinaryLength(q);
+                if (bits > precision) { e++; continue; }
+                if (bits < precision && e > least) { e--; continue; }
+                int c = (r << 1).CompareTo(d);
+                if (c > 0 || (c == 0 && !q.IsEven)) q += 1;
+                if (BinaryLength(q) > precision) { q >>= 1; e++; }
+                if (e + precision > limit) return double.PositiveInfinity;
+                double m = (long)q;                          // exact: below 2^53
+                // Scaling by a power of two is exact when the result is representable; a subnormal one goes in two steps.
+                return e < -1022 ? m * PowerOfTwo((int)e + 64) * PowerOfTwo(-64) : m * PowerOfTwo((int)e);
+            }
+        }
+
+        private static long BinaryLength(System.Numerics.BigInteger x)
+        {
+            byte[] b = x.ToByteArray();
+            int top = b.Length - 1;
+            while (top > 0 && b[top] == 0) top--;
+            int bits = 0;
+            for (int v = b[top]; v != 0; v >>= 1) bits++;
+            return top * 8L + bits;
+        }
+
+        private static double PowerOfTwo(int k) => BitConverter.Int64BitsToDouble((long)(k + 1023) << 52);
+#endif
 
         public bool GetBool(string name, bool defaultValue = false) => GetBoolOrNull(name) ?? defaultValue;
         public bool? GetBoolOrNull(string name) => Parse(name, ParseBool, "a boolean (true/false, 1/0, yes/no, on/off)");
@@ -209,13 +307,27 @@ namespace ToolBelt.Configuration
             s = s.Trim();
             if (s.Length == 0) return false;
             if (s.IndexOf(':') >= 0)
+            {
+                // Past 7 fractional digits the runtimes disagreed: .NET read "00:00:00.00000005" as 1 tick and refused
+                // ".12345678", .NET Framework read the first as 5 ticks (an 8-digit fraction under 10^7 was a tick count)
+                // and refused others. The fraction is cut to whole ticks first, truncated as the unit form is.
+                int dot = s.IndexOf('.', s.LastIndexOf(':'));
+                if (dot >= 0)
+                {
+                    int end = dot + 1;
+                    while (end < s.Length && s[end] >= '0' && s[end] <= '9') end++;
+                    if (end - dot - 1 > 7 && end == s.Length) s = s.Substring(0, dot + 8);
+                }
                 return TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out value) && (allowNegative || value >= TimeSpan.Zero);
+            }
             int i = 0;
             bool negative = s[0] == '-';
             if (negative) { if (!allowNegative) return false; i++; }
             else if (s[0] == '+') i++;
             BigInteger ticks = 0;                                               // the sum so far is ticks / 10^scale
             int scale = 0;
+            // TimeSpan.MinValue's magnitude is one past long.MaxValue: "-922337203685.4775808s" was refused.
+            BigInteger limit = negative ? (BigInteger)long.MaxValue + 1 : long.MaxValue;
             bool sawTerm = false;
             while (i < s.Length)
             {
@@ -255,12 +367,12 @@ namespace ToolBelt.Configuration
                 double t = number * perUnit;
                 if (!(t < 1e19)) return false;
                 AddExact(token, perUnit, ref ticks, ref scale);
-                if (ticks > long.MaxValue * BigInteger.Pow(10, scale)) return false;
+                if (ticks > limit * BigInteger.Pow(10, scale)) return false;
                 sawTerm = true;
             }
             if (!sawTerm) return false;
-            long whole = (long)(ticks / BigInteger.Pow(10, scale));
-            value = TimeSpan.FromTicks(negative ? -whole : whole);
+            BigInteger whole = ticks / BigInteger.Pow(10, scale);
+            value = TimeSpan.FromTicks((long)(negative ? -whole : whole));
             return true;
 
             // Adds the term's number ("12.5", "1e3", "0.5E-2") times perUnit to sum / 10^scale. Digits more than 400 places
