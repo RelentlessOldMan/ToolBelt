@@ -265,7 +265,7 @@ namespace ToolBelt.Signal
             for (int n = 0; n < taps; n++)
             {
                 double m = n - alpha, sum = 0;
-                for (int b = 0; b < bands.Count; b += 2) sum += bands[b + 1] / top * Sinc(bands[b + 1] * m) - bands[b] / top * Sinc(bands[b] * m);
+                for (int b = 0; b < bands.Count; b += 2) sum += BandTerm(bands[b], bands[b + 1], top, m);
                 h[n] = sum * Window(window, kaiserBeta, n, taps);
             }
             // The window's cosines round differently at n and taps − 1 − n; mirroring makes the taps exactly symmetric, so
@@ -274,9 +274,11 @@ namespace ToolBelt.Signal
 
             // Unit gain at the centre of the first passband (DC for pass-zero, Nyquist for a high-pass).
             double left = bands[0], right = bands[1];
-            double scaleFrequency = left == 0 ? 0 : right == 1 ? 1 : (left + right) / 2;
+            // The centre's cosines are reduced exactly too: by Nyquist they sit next to zeros, and π·m·(left + right)/2
+            // rounded left the gain at the band's centre 1e-8 off 1.
+            double scaleLo = left == 0 ? 0 : right == 1 ? 1 : left, scaleHi = left == 0 ? 0 : right == 1 ? 1 : right;
             double s = 0;
-            for (int n = 0; n < taps; n++) s += h[n] * Math.Cos(Math.PI * (n - alpha) * scaleFrequency);
+            for (int n = 0; n < taps; n++) s += h[n] * CosPiHalfSum(n - alpha, scaleLo, scaleHi);
             if (!(Math.Abs(s) > 0) || double.IsInfinity(s))
                 throw new ArgumentException("The window leaves no gain to normalise (all taps are zero): use more taps or another window.", nameof(taps));
             for (int n = 0; n < taps; n++) h[n] /= s;
@@ -297,6 +299,48 @@ namespace ToolBelt.Signal
                     "The taps need an array over 2 GB, which .NET Framework allows only with gcAllowVeryLargeObjects (or memory ran out).");
             }
 #endif
+        }
+
+        // hi·sinc(hi·m) − lo·sinc(lo·m), over top. As that difference a narrow band lost its digits to cancellation (a
+        // 1e-9-wide band's taps were 6e-8 off, a band by Nyquist 1.6e-4): it is taken in product form,
+        // (hi − lo)·cos(π·m·(lo + hi)/2)·sinc(m·(hi − lo)/2), with nothing left to cancel.
+        private static double BandTerm(double lo, double hi, double top, double m)
+        {
+            if (lo == 0) return hi / top * Sinc(hi * m);
+            double width = hi - lo;
+            if (m == 0) return width / top;
+            return width / top * CosPiHalfSum(m, lo, hi) * Sinc(m * width * 0.5);
+        }
+
+        // cos(π·m·(lo + hi)/2) with the argument reduced exactly: by Nyquist the cosine sits next to a zero, where π·m·s
+        // rounded (and s = (lo + hi)/2 rounded) carried most of the small remainder that decides it. m·lo and m·hi are
+        // each split into an integer, an exact fraction and an exact product error (Dekker), and the fractions are
+        // brought within a quarter turn, so only a small remainder meets the cosine.
+        private static double CosPiHalfSum(double m, double lo, double hi)
+        {
+            double pLo = m * lo, pHi = m * hi;
+            double kLo = Math.Round(pLo), kHi = Math.Round(pHi);
+            double dLo = pLo - kLo, dHi = pHi - kHi;             // exact, each in [-1/2, 1/2]
+            double j = Math.Round(dLo + dHi);                    // -1, 0 or 1
+            double t = ((dLo - 0.5 * j) + (dHi - 0.5 * j)) + (ProductError(m, lo, pLo) + ProductError(m, hi, pHi));
+            double x = Math.PI * 0.5 * t;                        // m·(lo + hi) = kLo + kHi + j + t, |t| about 1/2 or less
+            switch ((int)(((long)kLo + (long)kHi + (long)j) & 3))
+            {
+                case 0: return Math.Cos(x);
+                case 1: return -Math.Sin(x);
+                case 2: return -Math.Cos(x);
+                default: return Math.Sin(x);
+            }
+        }
+
+        // The rounding error of p = a·b (Dekker's TwoProduct, by Veltkamp splitting): a·b = p + error exactly, barring
+        // underflow. Used on both targets (netstandard2.0 has no fused multiply-add).
+        private static double ProductError(double a, double b, double p)
+        {
+            const double Split = 134217729;   // 2^27 + 1
+            double c = Split * a, aHi = c - (c - a), aLo = a - aHi;
+            double d = Split * b, bHi = d - (d - b), bLo = b - bHi;
+            return ((aHi * bHi - p) + aHi * bLo + aLo * bHi) + aLo * bLo;
         }
 
         private static double Sinc(double x)

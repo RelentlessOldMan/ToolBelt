@@ -742,6 +742,7 @@ tests/
       FiltersControlReview150Tests.cs (round 150: PID terms overflowing with opposite signs, an integral past double.MaxValue, Td underflow in the open-loop rules, band edges that cancelled, edges at Nyquist or 0, the subnormal flush after a large sample)
       FiltersControlReview190Tests.cs (round 190: the lag and Kalman blends over long steps, +0 gains, a PID integral past 4e488, FIR edges that underflow at the sample rate, Biquad text on every runtime, FitStep and Analyze ParamNames)
       FiltersControlReview200Tests.cs (round 200: PID derivative overflow and cancellation, the output held at the windup limit, Kalman weights and the lag decay that underflow)
+      FiltersControlReview215Tests.cs (round 215: a slew gap that rounds to the step, narrow FIR band-pass taps and the band centre by Nyquist)
     Diagnostics/
       BenchmarkTests.cs
       MetricsRegistryTests.cs

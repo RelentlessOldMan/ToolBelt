@@ -54,13 +54,29 @@ namespace ToolBelt.Control
             bool halvesDown = double.IsInfinity(down) && !double.IsPositiveInfinity(_maxFall);
             double halfDelta = target * 0.5 - Value * 0.5;
             double halfUp = _maxRise * 0.5 * dt, halfDown = _maxFall * 0.5 * dt;
-            bool rising = halvesUp ? halfDelta > halfUp : delta > up;
-            bool falling = !rising && (halvesDown ? halfDelta < -halfDown : delta < -down);
+            // The gap is rounded before it is compared: a true gap just past the step that rounds to exactly the step fired
+            // neither test, and the output jumped to the target (2 toward -1e-16 by 2 landed on -1e-16, not 0). On a tie the
+            // rounding error says which side the true gap is on.
+            double error = TwoSumError(target, -Value, delta);
+            double halfError = TwoSumError(target * 0.5, -(Value * 0.5), halfDelta);
+            bool rising = halvesUp ? halfDelta > halfUp || (halfDelta == halfUp && halfError > 0)
+                : delta > up || (delta == up && error > 0);
+            bool falling = !rising && (halvesDown ? halfDelta < -halfDown || (halfDelta == -halfDown && halfError < 0)
+                : delta < -down || (delta == -down && error < 0));
             IsLimiting = rising || falling;
             Value = rising ? (halvesUp ? Value + halfUp + halfUp : Value + up)
                 : falling ? (halvesDown ? Value - halfDown - halfDown : Value - down)
                 : target;
             return Value;
+        }
+
+        // The rounding error of s = a + b (Knuth's TwoSum): a + b = s + error exactly. Zero (not NaN) for an infinite s,
+        // which a tie never is with a finite step.
+        private static double TwoSumError(double a, double b, double s)
+        {
+            if (double.IsInfinity(s)) return 0;
+            double bv = s - a, av = s - bv;
+            return (a - av) + (b - bv);
         }
 
         /// <summary>Jumps straight to <paramref name="value"/>.</summary>
