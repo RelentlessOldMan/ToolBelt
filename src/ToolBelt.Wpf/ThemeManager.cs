@@ -28,7 +28,8 @@ namespace ToolBelt.Wpf
     /// theme keys with <c>DynamicResource</c> restyle immediately. <see cref="AppTheme.System"/> resolves through
     /// <see cref="GetSystemTheme"/>; with <see cref="FollowSystem"/> on, a change in Windows settings re-applies it
     /// (marshalled to the dispatcher of the thread that created the manager; created on a non-STA thread that has none,
-    /// the application's, and turning it on with neither throws <see cref="InvalidOperationException"/>). <see cref="CreateDefaultPalette"/>
+    /// the application's, and turning it on with neither, or after that thread has ended, throws
+    /// <see cref="InvalidOperationException"/>; if the thread ends while it is on, it turns itself off). <see cref="CreateDefaultPalette"/>
     /// offers a minimal starter set of brushes. Dispose to stop listening for system changes.
     /// </summary>
     public sealed class ThemeManager : IDisposable
@@ -78,8 +79,9 @@ namespace ToolBelt.Wpf
             set
             {
                 ThrowIfDisposed();
-                if (value && _dispatcher is null)
-                    throw new InvalidOperationException("Following the system theme needs a dispatcher: create the manager on a UI thread.");   // queued to a dispatcher nothing pumped
+                // queued to a dispatcher nothing pumped: none, or the dispatcher of an STA thread that has ended
+                if (value && (_dispatcher is null || !_dispatcher.Thread.IsAlive || _dispatcher.HasShutdownStarted))
+                    throw new InvalidOperationException("Following the system theme needs a dispatcher: create the manager on a UI thread.");
                 _followSystem = value;
                 if (value && !_subscribed) { SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged; _subscribed = true; }
                 else if (!value && _subscribed) { SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged; _subscribed = false; }
@@ -142,12 +144,20 @@ namespace ToolBelt.Wpf
             // On the first Apply, adopt a registered dictionary the app already merged (App.xaml): adding a second copy
             // left the first behind it, so it outlived every later switch. A theme registered by Uri is matched by the
             // merged copy's Source (it is a different instance).
+            // An app that merged both themes kept the other one behind the slot it was given: Light reported Light and
+            // showed Dark, and after Dark the list held two Darks, so Light could never show again. The first theme
+            // dictionary found is the slot; the others are removed.
             if (_applied is null)
             {
-                foreach (ResourceDictionary? known in new[] { dictionary, _light, _dark })
-                    if (known != null && (index = merged.IndexOf(known)) >= 0) break;
-                for (int i = 0; index < 0 && i < merged.Count; i++)
-                    if (SameSource(merged[i].Source, _lightUri) || SameSource(merged[i].Source, _darkUri)) index = i;
+                for (int i = merged.Count - 1; i >= 0; i--)
+                {
+                    ResourceDictionary d = merged[i];
+                    bool known = d != null && (ReferenceEquals(d, dictionary) || ReferenceEquals(d, _light) || ReferenceEquals(d, _dark)
+                        || SameSource(d.Source, _lightUri) || SameSource(d.Source, _darkUri));
+                    if (!known) continue;
+                    if (index >= 0) merged.RemoveAt(index);
+                    index = i;
+                }
             }
             if (index < 0) merged.Add(dictionary);
             else if (!ReferenceEquals(merged[index], dictionary)) merged[index] = dictionary;
@@ -264,7 +274,15 @@ namespace ToolBelt.Wpf
         private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
         {
             if (e.Category != UserPreferenceCategory.General) return; // app-mode changes arrive as General
-            _dispatcher!.BeginInvoke(new Action(() =>
+            // The manager's STA thread ended: nothing will run what is queued, which piled up for the life of the process.
+            if (!_dispatcher!.Thread.IsAlive || _dispatcher.HasShutdownStarted)
+            {
+                if (_subscribed) { SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged; _subscribed = false; }
+                _followSystem = false;
+                Trace.TraceWarning("ThemeManager stopped following the system theme: its dispatcher's thread has ended.");
+                return;
+            }
+            _dispatcher.BeginInvoke(new Action(() =>
             {
                 try
                 {

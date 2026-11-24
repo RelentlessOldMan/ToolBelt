@@ -174,8 +174,10 @@ namespace ToolBelt.Wpf
 
         /// <summary>
         /// The view after zooming <paramref name="view"/> by <paramref name="factor"/> about <paramref name="viewPoint"/>,
-        /// with the resulting scale clamped to [<paramref name="minZoom"/>, <paramref name="maxZoom"/>]. The figure point
-        /// under <paramref name="viewPoint"/> stays under it. A zoom that would leave the view non-invertible (WPF treats
+        /// with the resulting scale clamped to [<paramref name="minZoom"/>, <paramref name="maxZoom"/>]. The scale is the
+        /// length of the x axis (|M11| for an unrotated view); both axes are scaled by the same factor, so a mirrored
+        /// (y-up) or non-uniform view keeps its signs and aspect. The figure point under <paramref name="viewPoint"/>
+        /// stays under it. A zoom that would leave the view non-invertible (WPF treats
         /// a scale below about 5e-8 as singular) or not finite returns <paramref name="view"/> unchanged.
         /// <paramref name="viewPoint"/> must be finite, and the bounds not NaN with <paramref name="minZoom"/> at most
         /// <paramref name="maxZoom"/>.
@@ -189,16 +191,32 @@ namespace ToolBelt.Wpf
             if (double.IsNaN(minZoom)) throw new ArgumentOutOfRangeException(nameof(minZoom), minZoom, "The bound must not be NaN.");
             if (double.IsNaN(maxZoom) || maxZoom < minZoom)
                 throw new ArgumentOutOfRangeException(nameof(maxZoom), maxZoom, "The bound must not be NaN or below minZoom.");
-            double current = view.M11;
+            // The signed M11 was the scale and M11 and M22 were clamped apart: a y-up view (M22 = -1) was clamped to a
+            // positive scale, flipping the figure and losing the anchor, and a non-uniform view lost its anchor.
+            bool axisAligned = view.M12 == 0 && view.M21 == 0;
+            double current = axisAligned ? Math.Abs(view.M11) : Hypot(view.M11, view.M12);
             double target = Clamp(current * factor, minZoom, maxZoom);
             double f = target / current;
             if (double.IsNaN(f) || double.IsInfinity(f)) return view;
             Matrix m = view;
             m.ScaleAt(f, f, viewPoint.X, viewPoint.Y);
             // current * (target / current) can miss target by an ulp, leaving the scale just outside the bounds.
-            m.M11 = Clamp(m.M11, minZoom, maxZoom);
-            m.M22 = Clamp(m.M22, minZoom, maxZoom);
+            if (axisAligned)
+            {
+                bool uniform = Math.Abs(view.M22) == Math.Abs(view.M11);
+                m.M11 = Math.CopySign(Clamp(Math.Abs(m.M11), minZoom, maxZoom), m.M11);
+                if (uniform) m.M22 = Math.CopySign(Math.Abs(m.M11), m.M22);
+            }
             return m.HasInverse && IsFinite(m) ? m : view;   // ViewToContent and panning invert the view
+        }
+
+        private static double Hypot(double x, double y)
+        {
+            x = Math.Abs(x); y = Math.Abs(y);
+            double big = Math.Max(x, y), small = Math.Min(x, y);
+            if (big == 0 || double.IsInfinity(big)) return big;
+            double r = small / big;
+            return big * Math.Sqrt(1 + r * r);
         }
 
         private static bool IsFinite(Matrix m)

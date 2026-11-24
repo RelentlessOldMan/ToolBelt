@@ -242,7 +242,10 @@ namespace ToolBelt.Wpf
                 // A PropertyChanged handler that reset the list from IsLoading superseded this load: it still called the
                 // loader, at the new list's offset.
                 if (generation != _generation) return 0;
-                IReadOnlyList<T> page = await _loadPage(Count, PageSize, cts.Token).ConfigureAwait(true)
+                // A loader that returned a null Task threw NullReferenceException, and LastError showed that.
+                Task<IReadOnlyList<T>> loading = _loadPage(Count, PageSize, cts.Token)
+                    ?? throw new InvalidOperationException("The page loader returned null instead of a Task.");
+                IReadOnlyList<T> page = await loading.ConfigureAwait(true)
                     ?? throw new InvalidOperationException("The page loader returned null.");
                 if (generation != _generation) return 0; // reset while we were loading: drop the stale page
 

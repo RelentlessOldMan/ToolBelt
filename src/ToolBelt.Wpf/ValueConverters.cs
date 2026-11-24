@@ -6,6 +6,7 @@ using System.Numerics;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Data;
+using System.Windows.Threading;
 
 namespace ToolBelt.Wpf
 {
@@ -113,8 +114,10 @@ namespace ToolBelt.Wpf
     /// <summary>
     /// Maps a count to a <see cref="Visibility"/>: a positive number (any numeric type), or a non-empty collection /
     /// sequence, becomes Visible; null, zero, or an empty collection becomes Collapsed (or Hidden via
-    /// <see cref="UseHidden"/>). A bool counts as itself; any other object (not a number or a sequence) counts as
-    /// present, so is Visible. A number that is not real (a Complex with an imaginary part) has no sign: it is Visible
+    /// <see cref="UseHidden"/>). <see cref="DBNull"/> counts as null. A bool counts as itself; any other object (not a
+    /// number or a sequence: a char, a TimeSpan, an enum value) counts as present, so is Visible. A sequence without a
+    /// count is checked through its WPF default view on a dispatcher thread, so a one-shot source (a data reader) keeps
+    /// its items for an ItemsControl bound to it; off a dispatcher it is enumerated. A number that is not real (a Complex with an imaginary part) has no sign: it is Visible
     /// unless it is zero or has a NaN part. A string is a sequence of characters, so "0" is Visible: bind the number itself. <see cref="Invert"/> swaps the sense — handy for "show this when the list is
     /// empty" placeholders. One-way: <see cref="ConvertBack"/> returns <see cref="Binding.DoNothing"/>.
     /// </summary>
@@ -129,6 +132,8 @@ namespace ToolBelt.Wpf
             {
                 null => false,
                 _ when ReferenceEquals(value, DependencyProperty.UnsetValue) => false,
+                DBNull => false,   // a database null was Visible
+                char => true,      // a char is a character, not a count: '\0' was Collapsed and 'a' Visible
                 int n => n > 0,
                 long n => n > 0,
                 uint n => n > 0,
@@ -144,7 +149,9 @@ namespace ToolBelt.Wpf
                 Complex z => !double.IsNaN(z.Real) && !double.IsNaN(z.Imaginary) && (z.Imaginary != 0 || z.Real > 0),
                 bool b => b,   // false showed the element (a HasItems mis-bound to the count converter)
                 ICollection c => c.Count > 0,
-                IEnumerable e => HasAny(e),
+                string s => s.Length > 0,
+                System.ComponentModel.ICollectionView v => !v.IsEmpty,
+                IEnumerable e => ReadOnlyCount(e) is int n ? n > 0 : HasAnyKeepingItems(e),
                 _ => IsPositiveNumber(value) ?? true,
             };
             if (Invert) any = !any;
@@ -171,6 +178,27 @@ namespace ToolBelt.Wpf
         // looked at the real part only, so Complex(0, 5) was Collapsed.
         private static bool Positive<T>(T v) where T : INumberBase<T>
             => !T.IsZero(v) && !T.IsNaN(v) && (T.IsPositive(v) || !T.IsRealNumber(v));
+
+        private static int? ReadOnlyCount(IEnumerable sequence)
+        {
+            foreach (Type i in sequence.GetType().GetInterfaces())
+                if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(System.Collections.Generic.IReadOnlyCollection<>))
+                    return (int)i.GetProperty("Count")!.GetValue(sequence)!;
+            return null;
+        }
+
+        // Peeking with MoveNext used up the first item of a one-shot source (a DbDataReader, a consuming enumerable), so
+        // the ItemsControl bound to it lost data. WPF snapshots such a source once in its default view, which an
+        // ItemsControl bound to the same source shares: ask the view.
+        private static bool HasAnyKeepingItems(IEnumerable sequence)
+        {
+            if (Dispatcher.FromThread(System.Threading.Thread.CurrentThread) is null) return HasAny(sequence);
+            IEnumerator? e = sequence.GetEnumerator();   // a broken GetEnumerator: WPF's view would throw
+            if (e is null) return false;
+            (e as IDisposable)?.Dispose();
+            System.ComponentModel.ICollectionView? view = CollectionViewSource.GetDefaultView(sequence);
+            return view is null ? HasAny(sequence) : !view.IsEmpty;
+        }
 
         private static bool HasAny(IEnumerable sequence)
         {
