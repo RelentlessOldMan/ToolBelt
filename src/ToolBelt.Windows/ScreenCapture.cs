@@ -129,8 +129,8 @@ namespace ToolBelt.Windows
             try
             {
                 // GDI refuses a bitmap past about 1 GB (400,000,000 x 1 failed as "GetDIBits failed" though the image fits
-                // an array), so the region is copied in tiles of at most TileWidth x TileArea / TileWidth pixels.
-                int tileW = Math.Min(width, TileWidth), tileH = Math.Min(height, Math.Max(1, TileArea / tileW));
+                // an array), so the region is copied in tiles of at most TileSide x TileArea / tileW pixels.
+                int tileW = Math.Min(width, TileSide), tileH = Math.Min(height, Math.Min(TileSide, Math.Max(1, TileArea / tileW)));
                 memDc = CreateCompatibleDC(screenDc);
                 bmp = CreateCompatibleBitmap(screenDc, tileW, tileH);
                 if (memDc == IntPtr.Zero || bmp == IntPtr.Zero)
@@ -179,8 +179,9 @@ namespace ToolBelt.Windows
             }
         }
 
-        // A tile is at most 16,777,216 pixels wide and 16,777,216 pixels in all (64 MB), well inside what GDI holds.
-        private const int TileWidth = 1 << 24, TileArea = 1 << 24;
+        // A tile is at most 16,777,215 pixels on a side (GDI's limit: a 1 x 16,777,216 tile failed to be created) and
+        // 16,777,216 pixels in all (64 MB), well inside what GDI holds.
+        private const int TileSide = (1 << 24) - 1, TileArea = 1 << 24;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct BITMAPINFOHEADER

@@ -594,7 +594,8 @@ src/
     DriveAndVolumeInfo.cs   fixed-drive enumeration + free space for any path
     StorageDeviceInfo.cs    bus type (USB/NVMe/SATA/SD…), removable, SSD vs HDD, vendor/serial; mapped drive -> UNC path
     MonitorInfo.cs          attached monitors: bounds / work area / primary in physical pixels (EnumDisplayMonitors)
-    RegistryUtils.cs        hive+subkey read/write/delete/enumerate helpers (default view)
+    RegistryUtils.cs        hive+subkey read/write/delete/enumerate helpers (default view); every integer type stored by its
+                            bits as a DWORD or QWORD; arrays refused for text kinds, NULs in a multi-string refused
     Elevation.cs            elevation / Administrator role / mandatory integrity level
     JobObject.cs            job object grouping child processes (kill-on-close; memory / process-count / CPU-rate caps; accounting; start suspended inside the job)
     WindowUtils.cs          enumerate top-level windows / foreground / find by title
@@ -1184,6 +1185,7 @@ tests/
     WindowsReview184Tests.cs (eleventh pass: NULs in JoinArguments and RunElevated.Start, zero-timeout launches to a running primary)
     WindowsReview207Tests.cs (twelfth pass: one forward deadline, registry keys over 32 levels deep, privilege scopes closed out of order, a process that has exited, JobObject.Start's arguments, a DIB header too short for its masks)
     WindowsReview211Tests.cs (thirteenth pass: free space for a short relative path under a deep directory, damaged and URL shortcuts, \\?\ shortcut targets, an unknown battery state, a path as a file extension, an unpadded last DIB row, NVMe over Fabrics, the dotnet host's options and directory on restart, the event-log truncation length)
+    WindowsReview221Tests.cs (fourteenth pass: arrays given a text kind, a NUL in a multi-string, every integer type as a DWORD or QWORD, the PerformanceData hive, a 1-pixel-wide capture 2^24 tall)
     FlakeRootCauseTests.cs  (round 46: JobObject.Start keeps grandchildren in the job, refuses over the limit before running)
     DriveAndVolumeInfoTests.cs
     MonitorInfoTests.cs

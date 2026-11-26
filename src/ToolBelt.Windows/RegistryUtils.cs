@@ -138,6 +138,9 @@ namespace ToolBelt.Windows
         private static RegistryKey? OpenForRead(RegistryKey baseKey, string subKey, out bool denied)
         {
             denied = false;
+            // An empty path is the hive itself. OpenSubKey("") opens it for every hive but PerformanceData, whose values
+            // all read as absent. The caller disposes both keys, and disposing one twice does nothing.
+            if (subKey.Length == 0) return baseKey;
             if (subKey.IndexOf('\0') >= 0) return null;
             try { return OpenPath(baseKey, subKey, writable: false); }
             catch (Exception ex) when (ex is System.Security.SecurityException || ex is UnauthorizedAccessException)
@@ -210,7 +213,9 @@ namespace ToolBelt.Windows
         /// into <c>long</c> as 4294967295). Other numbers, dates and enums stored as text are written in the invariant
         /// culture, as <see cref="GetValue{T}"/> reads them. A floating-point number reads back exactly, except that any
         /// NaN is written as the text "NaN" and reads back as the standard NaN: its sign and payload bits are not kept
-        /// (store the bits as a QWORD, via <see cref="BitConverter.DoubleToInt64Bits"/>, when they matter).
+        /// (store the bits as a QWORD, via <see cref="BitConverter.DoubleToInt64Bits"/>, when they matter). A
+        /// <c>string[]</c> is stored as a REG_MULTI_SZ, so none of its strings may contain a NUL; it and a <c>byte[]</c> are
+        /// refused for a text kind rather than stored as their type name.
         /// </summary>
         public static void SetValue(RegistryHive hive, string subKey, string name, object value,
             RegistryValueKind kind = RegistryValueKind.Unknown)
@@ -224,6 +229,9 @@ namespace ToolBelt.Windows
             // RegistryKey threw ArgumentException with no parameter name for a null in a REG_MULTI_SZ array.
             if (value is string?[] lines && Array.IndexOf(lines, null) >= 0)
                 throw new ArgumentException("A string array may not contain null.", nameof(value));
+            // REG_MULTI_SZ ends an element at a NUL, so ["a\0b"] read back as ["a", "b"].
+            if (value is string[] multi && Array.Exists(multi, line => line.IndexOf('\0') >= 0))
+                throw new ArgumentException("A string array's elements may not contain a NUL character.", nameof(value));
             // RegistryKey range-checks a DWORD against int and a QWORD against long, and stored an unknown-kind uint as text:
             // 0x80000000u threw, or became REG_SZ "2147483648", although GetValue reads DWORDs as unsigned.
             if (value is uint u && (kind == RegistryValueKind.Unknown || kind == RegistryValueKind.DWord))
@@ -240,6 +248,9 @@ namespace ToolBelt.Windows
             // A collection other than string[] and byte[] was stored as its type name.
             else if (value is System.Collections.IEnumerable && !(value is string) && !(value is byte[]) && !(value is string[]))
                 throw new ArgumentException($"A {value.GetType().Name} cannot be stored; pass a string[] or byte[].", nameof(value));
+            // So was a string[] or byte[] given a text kind: "System.String[]" was stored and the call returned normally.
+            else if ((value is byte[] || value is string[]) && (kind == RegistryValueKind.String || kind == RegistryValueKind.ExpandString))
+                throw new ArgumentException($"A {value.GetType().Name} cannot be stored as {kind}; pass a string.", nameof(value));
             // Anything else stored as text went through ToString() in the current culture, but GetValue<T> parses it
             // invariantly: under de-DE 1.5 was written "1,5" and read back as 15 (and -5L under sv-SE had a Unicode minus).
             else if (value is IFormattable formattable && ((kind == RegistryValueKind.Unknown && !(value is int))
@@ -361,6 +372,15 @@ namespace ToolBelt.Windows
                 case long v: n = v; break;
                 case ulong v: n = v; break;
                 case char v: n = v; break;
+                // The other integer types (the doc's "any other integer"): each was refused as a type RegistryKey cannot store.
+                case nint v: n = v; break;
+                case nuint v: n = v; break;
+                case Int128 v: n = (System.Numerics.BigInteger)v; break;
+                case UInt128 v: n = (System.Numerics.BigInteger)v; break;
+                case System.Numerics.BigInteger v: n = v; break;
+                case Half h when !Half.IsNaN(h) && !Half.IsInfinity(h) && Math.Floor((double)h) == (double)h: n = new System.Numerics.BigInteger((double)h); break;
+                case Half _:
+                    throw new ArgumentException($"{Convert.ToString(value, CultureInfo.InvariantCulture)} is not a whole number.", nameof(value));
                 case float f when !float.IsNaN(f) && !float.IsInfinity(f) && Math.Floor(f) == f: n = new System.Numerics.BigInteger(f); break;
                 case double d when !double.IsNaN(d) && !double.IsInfinity(d) && Math.Floor(d) == d: n = new System.Numerics.BigInteger(d); break;
                 case decimal m when decimal.Floor(m) == m: n = new System.Numerics.BigInteger(m); break;

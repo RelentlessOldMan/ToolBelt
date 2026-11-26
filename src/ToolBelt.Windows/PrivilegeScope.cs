@@ -39,7 +39,12 @@ namespace ToolBelt.Windows
         /// <summary>The privilege name as Windows spells it, e.g. "SeShutdownPrivilege" (also for "seshutdownprivilege").</summary>
         public string Name { get; }
 
-        /// <summary>True if the privilege was already enabled (so disposing leaves it enabled).</summary>
+        /// <summary>
+        /// True if the privilege was already enabled when this scope opened (the token had it on, or another scope for it
+        /// was open). Disposing this scope does not by itself turn it off, but the privilege stays on only while a scope for
+        /// it is open: when the last one closes, the state from before the first is restored, so an inner scope that closes
+        /// after the outer one turns it off.
+        /// </summary>
         public bool WasAlreadyEnabled => _wasEnabled;
 
         /// <summary>Enables <paramref name="privilegeName"/> on the process token until disposed.</summary>
