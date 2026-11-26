@@ -9,7 +9,9 @@ namespace ToolBelt.Process
     /// Resolves an executable name against the <c>PATH</c> (and, on Windows, the <c>PATHEXT</c> extension
     /// list), returning the full path or null. On Windows a name without an extension only matches through
     /// <c>PATHEXT</c>, as the shell resolves it: an extensionless file next to <c>npm.cmd</c> (a Unix script)
-    /// can't be launched. Makes a "command not found" explicable instead of surfacing an
+    /// can't be launched. On Windows a drive-relative name (<c>C:tool.exe</c>) is resolved against that drive's current
+    /// directory, as cmd does, never against <c>PATH</c>; a name holding any other ':' (an NTFS stream such as
+    /// <c>tool.exe::$DATA</c>) names no executable and gives null on every runtime. Makes a "command not found" explicable instead of surfacing an
     /// opaque platform error from a failed launch.
     /// </summary>
     public static class WhichExe
@@ -20,6 +22,20 @@ namespace ToolBelt.Process
             if (name.Length == 0) return null;
 
             bool windows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+            // A ':' past a drive letter: .NET 8 resolved "cmd.exe::$DATA" to the stream's path where .NET Framework
+            // refused it (null), so the two builds disagreed.
+            bool driveRelative = false;
+            if (windows)
+            {
+                int from = name.StartsWith(@"\\?\", StringComparison.Ordinal) || name.StartsWith(@"\\.\", StringComparison.Ordinal) ? 4 : 0;
+                int colon = name.IndexOf(':', from);
+                if (colon >= 0)
+                {
+                    if (colon != from + 1 || !IsAsciiLetter(name[from]) || name.IndexOf(':', colon + 1) >= 0) return null;
+                    if (from == 0 && name.Length == 2) return null; // a bare drive names a folder
+                    driveRelative = from == 0 && name[2] != '\\' && name[2] != '/';
+                }
+            }
             bool tryAsIs;
             // A trailing '.' is an empty extension, as the launcher reads it: "cmd." names a file "cmd" and is not given
             // PATHEXT (it found cmd.EXE, which "cmd." does not start), and "cmd.exe." names cmd.exe (it found nothing).
@@ -27,8 +43,10 @@ namespace ToolBelt.Process
             try { tryAsIs = !windows || trailingDot || Path.HasExtension(name); }
             catch (ArgumentException) { return null; } // .NET Framework checks for invalid characters here ("a|b")
 
-            // A name that already includes a directory is resolved directly.
-            if (name.IndexOf(Path.DirectorySeparatorChar) >= 0 || name.IndexOf(Path.AltDirectorySeparatorChar) >= 0)
+            // A name that already includes a directory is resolved directly. So is a drive-relative one ("C:tool.exe"): it
+            // went down the PATH loop, where Path.Combine dropped each folder for the rooted name, so it named the file in
+            // drive C's current directory with any PATH set and null with an empty one.
+            if (driveRelative || name.IndexOf(Path.DirectorySeparatorChar) >= 0 || name.IndexOf(Path.AltDirectorySeparatorChar) >= 0)
             {
                 string full;
                 try { full = Path.GetFullPath(name); }
@@ -56,6 +74,8 @@ namespace ToolBelt.Process
             }
             return null;
         }
+
+        private static bool IsAsciiLetter(char c) => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
 
         // Windows splits at a ';' outside quotes: a quoted folder may contain one ("C:\a;b"), which a plain split cut in two.
         private static string[] SplitPath(string pathVar, bool windows)

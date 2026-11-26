@@ -504,7 +504,8 @@ src/
       AsyncLazy.cs          run-once async initialization (result cached)
       AsyncManualResetEvent.cs  awaitable manual-reset event
       AsyncCountdownEvent.cs  awaitable countdown latch
-      ConcurrentPipeline.cs  bounded producer-consumer (block / drop-newest / drop-oldest); CompleteAsync throws if a Dispose cut the drain short
+      ConcurrentPipeline.cs  bounded producer-consumer (block / drop-newest / drop-oldest); CompleteAsync throws if a Dispose cut the drain short;
+                             a second Dispose waits for the consumer too
       KeyedLock.cs          per-key async locks (lock striping, ref-counted)
       ParallelUtils.cs      bounded-concurrency async fan-out (fail-fast / collect-all)
       PeriodicWorker.cs     run an action on an interval, graceful stop (injectable delay)
@@ -570,8 +571,9 @@ src/
       PasswordHasher.cs     encoded PBKDF2 hash + constant-time verify + rehash-needed check (MaxIterations cap)
       AuthenticatedEncryption.cs  AES-GCM AEAD: self-describing nonce‖ct‖tag blob + detached form (net8.0)
     Process/
-      ProcessRunner.cs      run a child: deadlock-free capture, timeout + tree-kill, stdin/env/cancel; with no timeout, stops reading when output goes quiet after exit
-      WhichExe.cs           resolve an executable on PATH (+ PATHEXT on Windows)
+      ProcessRunner.cs      run a child: deadlock-free capture, timeout + tree-kill, stdin/env/cancel; with no timeout, stops reading when output goes quiet after exit;
+                            a slow line callback is not the child's timeout; on Windows a grandchild holding the pipes does not keep the reader threads
+      WhichExe.cs           resolve an executable on PATH (+ PATHEXT on Windows); C:tool.exe against drive C's current directory, a stream name gives null
       ShellOpen.cs          open a file/folder/URL with the default handler (per-OS)
     Logging/
       Log.cs                LogLevel, LogEvent, ILogSink (shared contracts)
@@ -1045,6 +1047,7 @@ tests/
       ConcurrencyReview165Tests.cs (round 165: AtomicDouble text that reads back on .NET Framework, StartupTiming's exact report, a cancelled token wins in WithCancellation and PauseToken, one pending pipeline wake-up, null tasks reported as InvalidOperationException, a stuck output callback, a late cancel after every item finished)
       ConcurrencyReview183Tests.cs (round 183: a failed last item disposed from onError, an empty pipeline disposed then completed, a count within the grant tolerance of capacity, the synchronous Run with the pool busy)
       ConcurrencyReview206Tests.cs (round 206: quoted and space-padded PATH entries in WhichExe, PeriodicWorker's concurrent and inline Dispose, a token bucket above 2^53)
+      ConcurrencyReview219Tests.cs (round 219: ConcurrentPipeline's second Dispose, ProcessRunner's reader threads and slow callbacks, WhichExe's drive-relative and stream names)
       FlakeRootCauseTests.cs  (round 46: pipeline, async log sink and process readers run off the thread pool)
       CallbackReview54Tests.cs (round 54, cross-cutting: throwing comparers, hashes, clocks, handlers, error sinks and token callbacks)
       CancelDisposeReview55Tests.cs (round 55, cross-cutting: the caller's token, cancelled tokens honoured, Dispose racing the work)

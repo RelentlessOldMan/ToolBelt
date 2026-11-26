@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -44,7 +45,9 @@ namespace ToolBelt.Process
         /// once the child exits the run reads its output until the pipes close or nothing has arrived for a second, so a
         /// grandchild holding them open can't keep the run waiting (it waited for the grandchild, or forever for a
         /// server); any text counts as arriving, a line not yet finished too, and is kept. The result is then not
-        /// flagged timed out. Must be between zero and <see cref="int.MaxValue"/> milliseconds; <see cref="System.Threading.Timeout.InfiniteTimeSpan"/> means no
+        /// flagged timed out. Time the line callbacks spend on text already read when the timeout runs out is the
+        /// caller's, not the child's: the run waits while they get through it (each second must finish a call), so a slow
+        /// callback does not turn a child that exited on time into a timeout. Must be between zero and <see cref="int.MaxValue"/> milliseconds; <see cref="System.Threading.Timeout.InfiniteTimeSpan"/> means no
         /// timeout. An invalid value throws before the child starts.
         /// </summary>
         public TimeSpan? Timeout { get; set; }
@@ -124,7 +127,9 @@ namespace ToolBelt.Process
     /// stall the call); the three are dedicated threads, not the thread pool, so callers that block pool
     /// threads cannot starve them, and a timeout or cancellation kills the child — the whole
     /// process tree on .NET Core 3.0+ builds, only the direct child on the netstandard2.0 build. Exact
-    /// interleaving of the two streams is not guaranteed by the OS.
+    /// interleaving of the two streams is not guaranteed by the OS. Once a run has returned, a grandchild still
+    /// holding the inherited output pipes does not keep the run's reader threads: on Windows their blocked reads are
+    /// cancelled. Elsewhere each reader thread stays blocked until the grandchild closes its end of the pipe.
     /// </summary>
     public static class ProcessRunner
     {
@@ -152,7 +157,7 @@ namespace ToolBelt.Process
             {
                 while (!run.ReadersLeft.Wait(OutputGraceMilliseconds) && !Quiet(run)) { }
             }
-            else if (!run.ReadersLeft.Wait(OutputBudget(run, timeoutMs, killed)))
+            else if (!ReadersEndWithin(run, OutputBudget(run, timeoutMs, killed)))
                 timedOut = true;
             return Finish(run, timedOut, killed, options);
         }
@@ -184,8 +189,8 @@ namespace ToolBelt.Process
                 if (!closed && !cancellationToken.IsCancellationRequested) closed = true;   // quiet: done, not timed out
             }
             else
-                closed = await CompletesWithin(
-                    run.OutputClosed, OutputBudget(run, timeoutMs, !exited), exited ? cancellationToken : CancellationToken.None).ConfigureAwait(false);
+                closed = await OutputClosesWithin(
+                    run, OutputBudget(run, timeoutMs, !exited), exited ? cancellationToken : CancellationToken.None).ConfigureAwait(false);
             if (!closed)
             {
                 if (exited && cancellationToken.IsCancellationRequested) canceled = true;
@@ -195,6 +200,7 @@ namespace ToolBelt.Process
             if (canceled)
             {
                 StopCallbacks(run);
+                ReleaseReaders(run);
                 run.Process.Dispose();
                 throw new OperationCanceledException(cancellationToken);
             }
@@ -216,12 +222,22 @@ namespace ToolBelt.Process
             public int CallbacksRunning; // raised before Done is checked, so StopCallbacks can wait for the ones under way
             public long Lines;           // reads that returned text and callbacks finished, so a wait can tell flowing from quiet
             public long LinesSeen;
+            public long CallbacksDone;   // callbacks finished, so a wait can tell a backlog moving from one stuck
+            public readonly Reader Out = new Reader(), Err = new Reader();
 
             public Task Exited => ExitedSource.Task;
             public Task OutputClosed => Task.WhenAll(OutputEnd.Task, ErrorEnd.Task);
             // For the synchronous Run: the WhenAll above completes on a pool thread (the sources run continuations
             // asynchronously), so with the pool busy Run waited out its timeout and reported TimedOut for a child that met it.
             public readonly CountdownEvent ReadersLeft = new CountdownEvent(2);
+        }
+
+        // One reader thread's progress: chunks it has read from the pipe, and chunks whose lines it has handed to the
+        // callback. A chunk read but not yet done is backlog the callback is still working through.
+        private sealed class Reader
+        {
+            public long Read, Done;
+            public SafeHandle? Handle;   // the pipe, so a read still blocked once the run has returned can be cancelled
         }
 
         private static RunState Start(string fileName, string? arguments, ProcessRunOptions options)
@@ -276,8 +292,10 @@ namespace ToolBelt.Process
             // the pool's threads blocked (in Run, say: two Runs on a pool capped at two threads) the child filled its
             // pipe and stalled, timing out with nothing captured.
             StreamReader stdout = process.StandardOutput, stderr = process.StandardError;
-            StartThread(() => ReadLines(run, stdout, run.Output, options.OnOutputLine, run.OutputEnd), "ProcessRunner stdout");
-            StartThread(() => ReadLines(run, stderr, run.Error, options.OnErrorLine, run.ErrorEnd), "ProcessRunner stderr");
+            run.Out.Handle = (stdout.BaseStream as FileStream)?.SafeFileHandle;
+            run.Err.Handle = (stderr.BaseStream as FileStream)?.SafeFileHandle;
+            StartThread(() => ReadLines(run, run.Out, stdout, run.Output, options.OnOutputLine, run.OutputEnd), "ProcessRunner stdout");
+            StartThread(() => ReadLines(run, run.Err, stderr, run.Error, options.OnErrorLine, run.ErrorEnd), "ProcessRunner stderr");
 
             if (options.StandardInput != null)
             {
@@ -297,7 +315,7 @@ namespace ToolBelt.Process
         private static void StartThread(Action body, string name) =>
             new Thread(() => body()) { IsBackground = true, Name = name }.Start();
 
-        private static void ReadLines(RunState run, StreamReader reader, StringBuilder buffer, Action<string>? callback, TaskCompletionSource<bool> end)
+        private static void ReadLines(RunState run, Reader progress, StreamReader reader, StringBuilder buffer, Action<string>? callback, TaskCompletionSource<bool> end)
         {
             try
             {
@@ -309,8 +327,10 @@ namespace ToolBelt.Process
                 var lines = new List<string>();
                 bool afterCr = false;
                 int n;
-                while ((n = reader.Read(chars, 0, chars.Length)) > 0)
+                // Done: the run has returned and nothing reads what follows (see ReleaseReaders).
+                while (Volatile.Read(ref run.Done) == 0 && (n = reader.Read(chars, 0, chars.Length)) > 0)
                 {
+                    Interlocked.Increment(ref progress.Read);
                     Interlocked.Increment(ref run.Lines);
                     text.Clear();
                     lines.Clear();
@@ -332,10 +352,17 @@ namespace ToolBelt.Process
                     line?.Append(chars, start, n - start);
                     Capture(run, buffer, text.ToString());
                     foreach (string l in lines) OnLine(run, l, callback);
+                    Interlocked.Increment(ref progress.Done);
                 }
                 // As ReadLine: an unfinished last line is still a line.
-                if (line != null && line.Length > 0) OnLine(run, line.ToString(), callback);
+                if (line != null && line.Length > 0)
+                {
+                    Interlocked.Increment(ref progress.Read);
+                    OnLine(run, line.ToString(), callback);
+                    Interlocked.Increment(ref progress.Done);
+                }
             }
+            catch (OperationCanceledException) when (Volatile.Read(ref run.Done) != 0) { /* ReleaseReaders cancelled the read */ }
             catch (IOException) { /* the pipe broke */ }
             catch (ObjectDisposedException) { /* the run already finished */ }
             catch (Exception ex)
@@ -347,6 +374,8 @@ namespace ToolBelt.Process
             }
             finally
             {
+                // Closed here, not left to the finalizer: the pipe handle stayed open as long as the process object lived.
+                try { reader.Dispose(); } catch { }
                 run.ReadersLeft.Signal();
                 end.TrySetResult(true);
             }
@@ -361,6 +390,7 @@ namespace ToolBelt.Process
             }
             catch (IOException) { }
             catch (ObjectDisposedException) { }
+            catch (OperationCanceledException) { } // ReleaseReaders cancelled the read
         }
 
         // Nothing read and no callback finished for a whole grace period: what is holding the pipes open has gone quiet.
@@ -402,6 +432,7 @@ namespace ToolBelt.Process
                 try { callback(line); }
                 catch (Exception ex) { Interlocked.CompareExchange(ref run.CallbackError, ex, null); }
                 Interlocked.Increment(ref run.Lines); // progress, for Quiet
+                Interlocked.Increment(ref run.CallbacksDone);
             }
             finally { Interlocked.Decrement(ref run.CallbacksRunning); }
         }
@@ -439,6 +470,7 @@ namespace ToolBelt.Process
         private static ProcessResult Finish(RunState run, bool timedOut, bool killed, ProcessRunOptions options)
         {
             StopCallbacks(run);
+            ReleaseReaders(run);
             run.Stopwatch.Stop();
             // A child that exited on time but left a grandchild holding the pipes had its real exit code replaced by -1.
             int exitCode = killed ? -1 : run.Process.ExitCode;
@@ -479,6 +511,79 @@ namespace ToolBelt.Process
             long left = timeoutMs - run.Stopwatch.ElapsedMilliseconds;
             return left > OutputGraceMilliseconds ? (int)left : OutputGraceMilliseconds;
         }
+
+        // The output budget ran out with text already read still waiting for the callback: that time is the caller's, not
+        // the child's. A child that exited in milliseconds, with a callback taking 100 ms a line for 30 lines, was
+        // reported TimedOut (exit code 0) and the callback missed 12 of the lines StandardOutput held. The wait goes on
+        // while the callbacks get through what was read before the budget ran out (each grace period must finish one),
+        // then allows the grace period for the pipes to close. Text read after that is the child's (or a grandchild's)
+        // and still counts against the timeout.
+        private static bool ReadersEndWithin(RunState run, int milliseconds)
+        {
+            if (run.ReadersLeft.Wait(milliseconds)) return true;
+            long outRead = Interlocked.Read(ref run.Out.Read), errRead = Interlocked.Read(ref run.Err.Read);
+            if (!Backlog(run, outRead, errRead)) return false;
+            do
+            {
+                long done = Interlocked.Read(ref run.CallbacksDone);
+                if (run.ReadersLeft.Wait(OutputGraceMilliseconds)) return true;
+                if (Interlocked.Read(ref run.CallbacksDone) == done) return false; // a callback is stuck
+            } while (Backlog(run, outRead, errRead));
+            return run.ReadersLeft.Wait(OutputGraceMilliseconds);
+        }
+
+        // RunAsync's ReadersEndWithin.
+        private static async Task<bool> OutputClosesWithin(RunState run, int milliseconds, CancellationToken cancellationToken)
+        {
+            if (await CompletesWithin(run.OutputClosed, milliseconds, cancellationToken).ConfigureAwait(false)) return true;
+            long outRead = Interlocked.Read(ref run.Out.Read), errRead = Interlocked.Read(ref run.Err.Read);
+            if (!Backlog(run, outRead, errRead)) return false;
+            do
+            {
+                if (cancellationToken.IsCancellationRequested) return false;
+                long done = Interlocked.Read(ref run.CallbacksDone);
+                if (await CompletesWithin(run.OutputClosed, OutputGraceMilliseconds, cancellationToken).ConfigureAwait(false)) return true;
+                if (Interlocked.Read(ref run.CallbacksDone) == done) return false;
+            } while (Backlog(run, outRead, errRead));
+            return !cancellationToken.IsCancellationRequested
+                && await CompletesWithin(run.OutputClosed, OutputGraceMilliseconds, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Whether a reader still has lines to hand to its callback from the chunks it had read by the snapshot.
+        private static bool Backlog(RunState run, long outRead, long errRead) =>
+            Interlocked.Read(ref run.Out.Done) < outRead || Interlocked.Read(ref run.Err.Done) < errRead;
+
+        // Once the run has returned nothing reads the pipes, but a grandchild holding them open kept both reader threads
+        // blocked in Read, with the pipe handles, for its whole life: ten runs that each left a daemon behind took a
+        // process from 7 threads to 31 (R81-2). On Windows the blocked reads are cancelled (the reader stops at Done
+        // when it gets back to its loop); elsewhere a reader ends when the grandchild closes its end of the pipe.
+        // Cancelling is retried for a grace period, off the caller's thread, since a reader between two reads has nothing
+        // pending to cancel; one still inside a callback stops when it returns.
+        private static void ReleaseReaders(RunState run)
+        {
+            if (run.ReadersLeft.IsSet || !RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+            Task.Run(async () =>
+            {
+                var wait = Stopwatch.StartNew();
+                while (true)
+                {
+                    if (!run.OutputEnd.Task.IsCompleted) CancelRead(run.Out.Handle);
+                    if (!run.ErrorEnd.Task.IsCompleted) CancelRead(run.Err.Handle);
+                    if (run.ReadersLeft.IsSet || wait.ElapsedMilliseconds >= OutputGraceMilliseconds) return;
+                    await Task.Delay(10).ConfigureAwait(false);
+                }
+            });
+        }
+
+        private static void CancelRead(SafeHandle? handle)
+        {
+            if (handle is null) return;
+            try { CancelIoEx(handle, IntPtr.Zero); }
+            catch (ObjectDisposedException) { /* the reader closed it as it ended */ }
+        }
+
+        [DllImport("kernel32.dll")]
+        private static extern bool CancelIoEx(SafeHandle handle, IntPtr overlapped);
 
         private static async Task<bool> CompletesWithin(Task task, int milliseconds, CancellationToken cancellationToken)
         {

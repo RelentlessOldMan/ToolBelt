@@ -32,6 +32,14 @@ namespace ToolBelt.Threading
     /// return without waiting for the consumer. To have such work wait like any other producer, start it under
     /// <see cref="ExecutionContext.SuppressFlow"/>, or after the callback has returned.
     /// </para>
+    /// <para>
+    /// Do not call <see cref="Dispose"/> from a continuation the callback runs inline after its first await (a default
+    /// <see cref="TaskCompletionSource{TResult}"/> it completes, whose waiter disposes the pipeline): that runs on the
+    /// pool thread the callback resumed on, under the waiter's context, where nothing tells it from any other thread, and
+    /// it waits for a consumer that is waiting for it. Before the first await, on the consumer's own thread, it is
+    /// recognised and does not wait. Create such a source with
+    /// <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/>.
+    /// </para>
     /// </summary>
     public sealed class ConcurrentPipeline<T> : IDisposable
     {
@@ -60,6 +68,7 @@ namespace ToolBelt.Threading
         // thread runs inside the consumer: a continuation the callback ran inline (a default TaskCompletionSource it
         // completed) has no Flow, and Dispose from it waited on its own thread for good.
         [ThreadStatic] private static object? t_loop;
+        [ThreadStatic] private static object? t_cancelling; // the pipeline whose token this thread is cancelling in Dispose
         // The callback this flow belongs to: set on the consumer thread for each item, so it follows the callback across
         // awaits. A task the callback starts inherits it too, so it counts only while the callback runs: the pipeline
         // alone was marked, and CompleteAsync or Dispose from a timer or Task.Run the consumer started returned at once
@@ -284,15 +293,30 @@ namespace ToolBelt.Threading
         /// <summary>
         /// Cancels processing and waits for the consumer to stop. Called from the consumer callback or from
         /// <c>onError</c> it cancels without waiting, since the consumer is the caller. For an orderly drain of buffered
-        /// items, call <see cref="CompleteAsync"/> first.
+        /// items, call <see cref="CompleteAsync"/> first. A second call, from another thread while the first is still
+        /// waiting, waits too. See the class remarks for a continuation the callback runs inline.
         /// </summary>
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
+            if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            {
+                // A second Dispose returned at once while the first was still waiting, with the consumer still running
+                // (R97-3, as round 206 fixed for PeriodicWorker). Not from the consumer, nor from a callback on the token
+                // the first Dispose is cancelling: the consumer's own wake-up may be queued behind it.
+                if (!InConsumer() && !ReferenceEquals(t_cancelling, this))
+                {
+                    try { _loop.Wait(); }
+                    catch (AggregateException) { /* cancellation */ }
+                }
+                return;
+            }
             // A callback the consumer registered on its token may throw here; it threw out of Dispose, skipping the wait.
             AggregateException? cancelError = null;
+            object? outerCancelling = t_cancelling;
+            t_cancelling = this;
             try { _cts.Cancel(); }
             catch (AggregateException ex) { cancelError = ex; }
+            finally { t_cancelling = outerCancelling; }
             // From onError or the callback the consumer is the caller: waiting for it deadlocked. It stops when the caller
             // returns, and its cancellation source and semaphores are disposed then.
             if (InConsumer())
