@@ -94,7 +94,8 @@ namespace ToolBelt.Net
     /// is appended only if the server's Content-Range starts where the partial file ends; a 416 answer saying the file
     /// is already complete finishes the download without fetching anything. A 206 that covers only part of what is
     /// left is appended and the rest asked for (that does not count as an attempt); without Resume it fails, since
-    /// nothing may be asked for by range. A 206 must give the file's total size.
+    /// nothing may be asked for by range. A 206 must give the file's total size. A 204 or 205 answer (no content) is
+    /// an error, not an empty file.
     /// </para>
     /// </summary>
     public static class HttpDownload
@@ -264,7 +265,13 @@ namespace ToolBelt.Net
             if (status == 206 && range != null && range.From.HasValue && range.To.HasValue && range.Length is null
                 && (range.From == existing || range.From == 0))
             {
-                // "bytes 0-99/*" was taken as the whole file: with no total there is no telling whether more follows.
+                // "bytes 0-99/*" was taken as the whole file: with no total there is no telling whether more follows. A
+                // kept partial file made every later call ask for the same range and fail the same way.
+                if (existing > 0)
+                {
+                    Discard(partial, destination);
+                    throw new HttpDownloadException($"Server answered {url} with the range {range} but not the file's size, so the download cannot be known to be complete. The partial file was deleted, so the next download starts over.");
+                }
                 throw new HttpDownloadException($"Server answered {url} with the range {range} but not the file's size, so the download cannot be known to be complete.");
             }
             if (status == 206 && existing > 0 && range!.From == existing && range.To.HasValue)
@@ -280,7 +287,8 @@ namespace ToolBelt.Net
                 total = range.Length;
                 end = range.To.Value + 1;
             }
-            else if (status >= 200 && status < 300 && status != 206)
+            // 204 and 205 carry no representation, not an empty one: taken as the file, they replaced it with nothing.
+            else if (status >= 200 && status < 300 && status != 206 && status != 204 && status != 205)
             {
                 existing = 0; resumed = false;   // the server ignored the range (or there was none)
                 total = contentLength;
@@ -318,6 +326,11 @@ namespace ToolBelt.Net
             bool shortRange = end.HasValue && total.HasValue && end.Value < total.Value;
             if (shortRange && !options.Resume)
                 throw new HttpDownloadException($"Server sent only the bytes {range!.From}-{range.To} of {total} for {url}; fetching the rest needs Resume.");
+            // A short range from byte 0 rewrites the file: one that ends no further on than the file already did (bytes
+            // 0-5 of 20, every time) was retried without counting as an attempt, forever, and it truncated the partial
+            // file to its own length before failing, so the bytes past it were lost. It fails before anything is written.
+            if (shortRange && end!.Value <= had)
+                throw new HttpDownloadException($"Server sent the bytes {range!.From}-{range.To} of {total} for {url}, which adds nothing to the {had} bytes already downloaded.");
             if (options.MaxBytes is long max && (total > max || existing > max))
             {
                 Discard(partial, destination);
@@ -394,10 +407,6 @@ namespace ToolBelt.Net
             }
             if (end.HasValue && downloaded != end.Value)
                 throw new IOException($"The response from {url} ended after {downloaded} of {end.Value} bytes.");
-            // A short range from byte 0 rewrote the file: one that ended no further on than the file already did (bytes
-            // 0-5 of 20, every time) was retried without counting as an attempt, forever.
-            if (shortRange && downloaded <= had)
-                throw new HttpDownloadException($"Server sent the bytes {range!.From}-{range.To} of {total} for {url}, which adds nothing to the {had} bytes already downloaded.");
             if (shortRange) throw new MoreToFetch();
             return Local(() => Finish(destination, partial, options, downloaded, total ?? -1, resumed));
         }

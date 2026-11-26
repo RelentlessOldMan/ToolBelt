@@ -353,7 +353,8 @@ src/
       TcpLineClient.cs      line-oriented TCP client (connect/read/write timeouts, MaxLineLength, partial lines survive a timeout,
                             a strict encoding's bad line throws once and is dropped)
       HostInfo.cs           local host/interface info + DNS resolve with a timeout
-      HttpDownload.cs       download to file via .part: progress, resume (Range), checksum, transient retry, ReadTimeout, MaxBytes
+      HttpDownload.cs       download to file via .part: progress, resume (Range), checksum, transient retry, ReadTimeout, MaxBytes;
+                            a 204 or 205 answer is an error
     Quality/
       ProcessCapability.cs  Cp/Cpk/sigma-level/ppm (explicit overall vs within-subgroup sigma)
       ControlChart.cs       I-MR limits + run rules (beyond-limits / one-side / trend)
@@ -1074,6 +1075,7 @@ tests/
       SecurityNetTimeReview10Tests.cs (round 166: cron across a fall-back that crosses midnight, CreateIncremental's bad names, TcpLineClient's blank host)
       SecurityNetTimeReview192Tests.cs (round 192: an HttpDownload resume that looped forever, cron at the end of the calendar, mapped CIDR blocks and plain prefixes, duration grammars, canonical password hashes, port 0)
       SecurityNetTimeReview193Tests.cs (round 193: a 416 resume held to MaxBytes and reporting progress, no space before a CIDR slash, bad-byte counting, cron's impossible dates in a zone, no rerun after a clock step back)
+      SecurityNetTimeReview218Tests.cs (round 218: HttpDownload resumes without a total, short ranges from byte 0, 204 and 205 answers)
       TimeOfDayRangeTests.cs
       UnixTimeTests.cs
     Visualization/
