@@ -188,9 +188,12 @@ namespace ToolBelt.Collections
         public bool TryGet(TKey key, out TValue value)
         {
             if (key is null) throw new ArgumentNullException(nameof(key));
+            // The clock first: one that set this key while the entry read before it was being checked lost that fresh
+            // entry, removed here as the expired one.
+            var now = _clock();
             if (_entries.TryGetValue(key, out var entry))
             {
-                if (entry.LiveAt(_clock()))
+                if (entry.LiveAt(now))
                 {
                     value = entry.Value;
                     return true;
@@ -207,9 +210,12 @@ namespace ToolBelt.Collections
         public bool Remove(TKey key)
         {
             if (key is null) throw new ArgumentNullException(nameof(key));
+            // The clock before the lookup (as TryGet) and before removing: a clock that threw removed the entry and then
+            // failed.
+            var now = _clock();
             // An expired entry is absent, as TryGet says; it returned true for one not yet pruned.
             if (!_entries.TryGetValue(key, out var entry)) return false;
-            bool live = entry.LiveAt(_clock());   // before removing: a clock that threw removed the entry and then failed
+            bool live = entry.LiveAt(now);
             _entries.Remove(key);
             if (_entries.Count <= _pruneAt / 4) ResetPruneAt();
             return live;

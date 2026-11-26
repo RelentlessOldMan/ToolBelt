@@ -7,7 +7,8 @@ namespace ToolBelt.Collections
     /// <summary>
     /// Lazily enumerates fixed-size sliding windows over a list, advancing one element at a time
     /// (window i covers indices [i, i+size)). A source shorter than the window yields nothing. Each
-    /// window is a fresh array the caller may keep.
+    /// window is a fresh array the caller may keep. A list whose count changes during enumeration throws
+    /// InvalidOperationException; a change that keeps the count (an item replaced) is not noticed.
     /// </summary>
     public static class SlidingWindow
     {
@@ -31,6 +32,8 @@ namespace ToolBelt.Collections
                     window[j] = source[start + j];
                 yield return window;
             }
+            // After the last window too: a list that grew then ended the enumeration as if nothing had changed.
+            if (source.Count != count) throw new InvalidOperationException("The list changed during enumeration.");
         }
     }
 }

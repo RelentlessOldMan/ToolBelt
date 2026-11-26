@@ -236,11 +236,16 @@ namespace ToolBelt.Collections
 
         // Uniform on (0, 1): never exactly 0, so logarithms stay finite. Redrawing until nonzero hung on a Random that
         // only ever returns 0; a sound one returns 0 sixty-four times running with probability 2^-3392.
+        // 53 random bits from two draws: a seeded Random's NextDouble (and any on .NET Framework) is a multiple of
+        // 1/int.MaxValue, so past about 2^31 items a slot ReservoirSampler's skips only landed on a grid (1 position in 93
+        // at n/k = 1e11) and most items could never be the next replacement.
         internal static double NonZeroUniform(Random random)
         {
             for (int i = 0; i < 64; i++)
             {
-                double u = random.NextDouble();
+                double hi = Math.Floor(random.NextDouble() * 67108864.0);   // 26 bits
+                double lo = Math.Floor(random.NextDouble() * 134217728.0);  // 27 bits
+                double u = (hi * 134217728.0 + lo) * (1.0 / 9007199254740992.0);
                 if (u != 0) return u;
             }
             throw new InvalidOperationException("The random source returned 0 sixty-four times in a row.");

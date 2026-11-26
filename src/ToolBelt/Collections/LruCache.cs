@@ -183,20 +183,22 @@ namespace ToolBelt.Collections
             _map[key] = fresh; // first: a key whose hash throws must leave no orphan node to be evicted later
             _order.AddFirst(fresh);
 
-            if (_map.Count > _capacity)
+            // A loop that takes off the node it evicted, not whatever is last: a key whose hash re-enters Set evicted that
+            // node itself during _map.Remove, and RemoveLast then took a different node off the list, leaving its key in
+            // the map for good and the cache one over capacity.
+            while (_map.Count > _capacity && _order.Last is { } lru)
             {
                 // The map first: a key whose hash throws on a later call (a disposed object) was taken off the list and
                 // left in the map, so the cache grew past its capacity and that key failed every call after. If it
                 // throws, the new entry is undone and the cache is as it was.
-                var lru = _order.Last!;
                 try { _map.Remove(lru.Value.Key); }
                 catch
                 {
-                    _order.Remove(fresh);
+                    if (fresh.List != null) _order.Remove(fresh);
                     _map.Remove(key);
                     throw;
                 }
-                _order.RemoveLast();
+                if (lru.List != null) _order.Remove(lru);
             }
         }
 

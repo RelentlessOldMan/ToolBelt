@@ -272,13 +272,14 @@ src/
       FenwickTree.cs        binary indexed tree (prefix/range sums, point update)
       IndexedPriorityQueue.cs  keyed min-priority queue with decrease-key (O(log n))
       BitSet.cs             growable bit set (union / intersect / except); Count is a long
-      LruCache.cs           fixed-capacity least-recently-used cache (O(1))
+      LruCache.cs           fixed-capacity least-recently-used cache (O(1)); stays consistent when a key's hash re-enters it
       MultiDictionary.cs    key -> many-values multimap; Total is a long
       ObjectPool.cs         bounded thread-safe pool of reusable objects (rent/return/reset)
       OrderedDictionary.cs  insertion-ordered generic dictionary
       OrderedSet.cs         insertion-ordered set
       Sampling.cs           Fisher-Yates shuffle + weighted pick (injected Random)
-      StreamSampling.cs     ReservoirSampler (Algorithm L) + SamplingPlans: weighted w/o replacement (A-ES), stratified
+      StreamSampling.cs     ReservoirSampler (Algorithm L) + SamplingPlans: weighted w/o replacement (A-ES), stratified;
+                            53-bit uniform draws, so skips stay exact past 2^31 items a slot
       SortedListExtensions.cs  LowerBound/UpperBound/EqualRange/NearestBy/InsertSorted/RemoveSorted/RangeSorted
       SequenceEqualityComparer.cs  structural sequence equality: ordered element-wise + unordered multiset (dict/set keys)
       TopN.cs               streaming N-largest via a bounded min-heap
@@ -707,6 +708,7 @@ tests/
       CollectionsReview173Tests.cs (round 173: NaN inside tuple and object keys on .NET Framework, signed-zero sums in Summarize, MostCommon ties by first added, CountMinSketch size product)
       CollectionsReview189Tests.cs (round 189: comparers that change the heap, TopN or queue they order, DisjointSet and FenwickTree ParamNames, Pivot's read-only values, Summarize's mean after cancellation, DataTableLite float and -0 text on every runtime)
       CollectionsReview199Tests.cs (round 199: DataTableLite's shortest text worked out exactly on every runtime, mixed numbers in OrderBy, ObjectPool's last slot, BitSet no-op changes and enumerators)
+      CollectionsReview220Tests.cs (round 220: LruCache's re-entrant hash, the sampler's 53-bit draw, TtlCache's re-entrant clock, enumerators that notice a list grown after the last item)
       CounterTests.cs
       CountMinSketchTests.cs
       DataTableLiteTests.cs

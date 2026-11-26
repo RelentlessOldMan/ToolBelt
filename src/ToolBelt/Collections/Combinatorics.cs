@@ -11,7 +11,10 @@ namespace ToolBelt.Collections
     /// </summary>
     public static class Combinatorics
     {
-        /// <summary>All <paramref name="k"/>-element combinations of <paramref name="items"/> (order preserved).</summary>
+        /// <summary>
+        /// All <paramref name="k"/>-element combinations of <paramref name="items"/> (order preserved). A list whose count
+        /// changes during enumeration throws InvalidOperationException; a change that keeps the count is not noticed.
+        /// </summary>
         public static IEnumerable<T[]> Combinations<T>(IReadOnlyList<T> items, int k)
         {
             if (items is null) throw new ArgumentNullException(nameof(items));
@@ -44,7 +47,11 @@ namespace ToolBelt.Collections
                 while (p >= 0 && indices[p] == n - k + p)
                     p--;
                 if (p < 0)
+                {
+                    // After the last combination too: a list that grew then ended the enumeration as if unchanged.
+                    if (items.Count != n) throw new InvalidOperationException("The list changed during enumeration.");
                     yield break;
+                }
                 indices[p]++;
                 for (int j = p + 1; j < k; j++)
                     indices[j] = indices[j - 1] + 1;

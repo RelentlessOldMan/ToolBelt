@@ -8,7 +8,8 @@ namespace ToolBelt.Collections
     /// Lazily enumerates the Cartesian product of several sequences: every combination that picks one
     /// element from each input, in input order (the last sequence varies fastest, like an odometer). If
     /// any input is empty the product is empty; with no inputs the product is a single empty tuple. Each
-    /// yielded tuple is a fresh array.
+    /// yielded tuple is a fresh array. An input whose count changes during enumeration throws
+    /// InvalidOperationException; a change that keeps the count is not noticed.
     /// </summary>
     public static class CartesianProduct
     {
@@ -81,7 +82,12 @@ namespace ToolBelt.Collections
                     p--;
                 }
                 if (p < 0)
+                {
+                    // After the last tuple too: an input that grew then ended the product as if unchanged.
+                    for (int i = 0; i < n; i++)
+                        if (sequences[i].Count != counts[i]) throw new InvalidOperationException("A sequence changed during enumeration.");
                     yield break;
+                }
             }
         }
     }
