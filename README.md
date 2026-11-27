@@ -502,7 +502,7 @@ src/
       AsyncEvent.cs         awaitable multicast event (sequential/parallel, aggregated errors)
       AtomicCounters.cs     lock-free AtomicLong / AtomicDouble (interlocked add/exchange); invariant ToString
       AsyncLock.cs          async mutual-exclusion lock (held across await)
-      AsyncLazy.cs          run-once async initialization (result cached)
+      AsyncLazy.cs          run-once async initialization (result cached; other callers never wait on the factory's start)
       AsyncManualResetEvent.cs  awaitable manual-reset event
       AsyncCountdownEvent.cs  awaitable countdown latch
       ConcurrentPipeline.cs  bounded producer-consumer (block / drop-newest / drop-oldest); CompleteAsync throws if a Dispose cut the drain short;
@@ -551,7 +551,7 @@ src/
       BandChart.cs          shaded band between lower/upper curves + optional center line
       LinePlot.cs           line/scatter/bar series to an image (auto-scale, frame; no text)
     Resilience/
-      Retry.cs              retry with constant/linear/exponential backoff + injectable delay
+      Retry.cs              retry with constant/linear/exponential backoff + injectable delay (a failing delay keeps the operation's exception)
       CircuitBreaker.cs     Closed/Open/HalfOpen breaker (injectable clock)
       TokenBucketRateLimiter.cs  token-bucket rate limiter (injectable clock)
       Throttle.cs           leading-edge throttle gate (injectable clock)
@@ -1053,6 +1053,7 @@ tests/
       ConcurrencyReview183Tests.cs (round 183: a failed last item disposed from onError, an empty pipeline disposed then completed, a count within the grant tolerance of capacity, the synchronous Run with the pool busy)
       ConcurrencyReview206Tests.cs (round 206: quoted and space-padded PATH entries in WhichExe, PeriodicWorker's concurrent and inline Dispose, a token bucket above 2^53)
       ConcurrencyReview219Tests.cs (round 219: ConcurrentPipeline's second Dispose, ProcessRunner's reader threads and slow callbacks, WhichExe's drive-relative and stream names)
+      ConcurrencyReview225Tests.cs (round 225: Retry's failing delay keeps the operation's exception, AsyncLazy's other callers do not wait on the factory's start)
       FlakeRootCauseTests.cs  (round 46: pipeline, async log sink and process readers run off the thread pool)
       CallbackReview54Tests.cs (round 54, cross-cutting: throwing comparers, hashes, clocks, handlers, error sinks and token callbacks)
       CancelDisposeReview55Tests.cs (round 55, cross-cutting: the caller's token, cancelled tokens honoured, Dispose racing the work)

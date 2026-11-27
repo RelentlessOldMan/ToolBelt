@@ -41,7 +41,9 @@ namespace ToolBelt.Resilience
         /// <summary>
         /// The delay implementation. Defaults to <see cref="Task.Delay(TimeSpan, CancellationToken)"/>, waited
         /// in pieces when the delay is longer than it accepts. Tests replace this with a delegate that records
-        /// the requested delay and returns immediately, so no wall-clock time passes.
+        /// the requested delay and returns immediately, so no wall-clock time passes. One that throws or faults
+        /// (other than for the caller's cancellation) ends the run with an <see cref="AggregateException"/> holding
+        /// the operation's exception, then the delay's.
         /// </summary>
         public Func<TimeSpan, CancellationToken, Task> DelayAsync { get; set; } = LongDelay;
 
@@ -146,10 +148,21 @@ namespace ToolBelt.Resilience
                     }
                     if (!policy.ShouldRetry(ex)) throw;
                     var delay = policy.DelayForAttempt(attempt);
+                    // A custom delay that threw (or faulted) came out alone, and the operation's exception was lost: both
+                    // come out, the operation's first. The caller's cancellation still comes out as the delay's.
+                    Task? wait;
+                    try { wait = policy.DelayAsync(delay, cancellationToken); }
+                    catch (Exception delayEx) when (!(delayEx is OperationCanceledException && cancellationToken.IsCancellationRequested))
+                    {
+                        throw DelayFailed(ex, delayEx);
+                    }
                     // A custom delay returning null threw NullReferenceException here, and the operation's exception was lost.
-                    Task wait = policy.DelayAsync(delay, cancellationToken)
-                        ?? throw new InvalidOperationException("RetryPolicy.DelayAsync returned null instead of a task.", ex);
-                    await wait.ConfigureAwait(false);
+                    if (wait is null) throw new InvalidOperationException("RetryPolicy.DelayAsync returned null instead of a task.", ex);
+                    try { await wait.ConfigureAwait(false); }
+                    catch (Exception delayEx) when (!(delayEx is OperationCanceledException && cancellationToken.IsCancellationRequested))
+                    {
+                        throw DelayFailed(ex, delayEx);
+                    }
                 }
             }
         }
@@ -164,6 +177,9 @@ namespace ToolBelt.Resilience
             // A null task is passed on as null, so the generic overload reports it rather than retrying it.
             return ExecuteAsync<bool>(ct => operation(ct) is Task t ? Done(t) : null!, policy, cancellationToken);
         }
+
+        private static AggregateException DelayFailed(Exception operation, Exception delay) =>
+            new AggregateException("RetryPolicy.DelayAsync failed after the operation did; InnerExceptions holds the operation's exception, then the delay's.", operation, delay);
 
         private static async Task<bool> Done(Task task)
         {
