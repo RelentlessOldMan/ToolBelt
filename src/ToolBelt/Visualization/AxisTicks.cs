@@ -43,7 +43,10 @@ namespace ToolBelt.Visualization
     /// unavoidable exception: ticks sit on multiples of the step, so a loose range straddling zero needs at least
     /// three (−s, 0, s) even when <c>maxTicks</c> is 2 (it must be 2 to 10,000). With
     /// <c>loose</c> labelling the ticks bracket the data and <see cref="TickSet.Min"/>/<see cref="TickSet.Max"/>
-    /// give the rounded axis range; otherwise only ticks inside the data range are returned.
+    /// give the rounded axis range; otherwise only ticks inside the data range are returned. A flat range
+    /// (<c>min == max</c>) has no inside, so it is first opened around its value (by 10% each side; at 0, [−1, 1], or [0, 1] for two ticks):
+    /// its ticks, tight or loose, lie in that opened range, which <see cref="TickSet.Min"/>/<see cref="TickSet.Max"/>
+    /// give, so an axis drawn from them still has width.
     /// </summary>
     public static class AxisTicks
     {
@@ -116,7 +119,8 @@ namespace ToolBelt.Visualization
         /// <summary>
         /// Decade ticks (…, 0.1, 1, 10, 100, …) for a log axis over a strictly positive range. Loose labelling
         /// rounds out to whole decades. A tight range that holds fewer than two decades (e.g. [2, 8]) gets
-        /// <see cref="Linear"/> ticks inside it instead, so the axis is never unlabelled.
+        /// <see cref="Linear"/> ticks inside it instead, so the axis is never unlabelled (a flat range, which has no
+        /// inside, gets those of the opened range, as <see cref="AxisTicks"/> describes).
         /// </summary>
         public static TickSet Log10(double min, double max, bool loose = true)
         {

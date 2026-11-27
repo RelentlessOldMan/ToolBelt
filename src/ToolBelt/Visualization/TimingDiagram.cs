@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 
 namespace ToolBelt.Visualization
@@ -239,14 +240,19 @@ namespace ToolBelt.Visualization
                     // ticks an ulp or two apart are not whole steps apart as doubles.
                     bool still = false;
                     for (int i = 2; i < tickLabels.Count; i++) still |= tickLabels[i] == tickLabels[i - 1];
-                    var exact = new decimal[ticks.Count];
-                    bool parsed = true;
-                    for (int i = 0; i < ticks.Count && parsed; i++)
-                        parsed = decimal.TryParse(ticks.Labels[i], NumberStyles.Float, CultureInfo.InvariantCulture, out exact[i]);
+                    // Exact, not decimal: its 28 places rounded labels near 1e-17 that differ near 1e-31 together, and every
+                    // offset read "+0 s".
                     if (still)
+                    {
+                        bool parsed = TryExact(ticks.Labels[0], out BigInteger mFirst, out int eFirst);
                         for (int i = 1; i < tickLabels.Count; i++)
-                            tickLabels[i] = "+" + (parsed ? (double)(exact[i] - exact[0]) : Math.Round((ticks.Values[i] - ticks.Values[0]) / ticks.Step) * ticks.Step)
-                                .ToString("G15", CultureInfo.InvariantCulture) + " s";
+                        {
+                            double d = parsed && TryExact(ticks.Labels[i], out BigInteger mTick, out int eTick)
+                                ? ExactDifference(mTick, eTick, mFirst, eFirst)
+                                : Math.Round((ticks.Values[i] - ticks.Values[0]) / ticks.Step) * ticks.Step;
+                            tickLabels[i] = "+" + d.ToString("G15", CultureInfo.InvariantCulture) + " s";
+                        }
+                    }
                 }
             }
             sb.Append("<g stroke=\"#eeeeee\">\n");
@@ -379,24 +385,68 @@ namespace ToolBelt.Visualization
             if (!hatch.IsEmpty) sb.Append("<path d=\"").Append(hatch).Append("\" stroke=\"#c8c8c8\" stroke-width=\"0.8\" fill=\"none\"/>\n");
         }
 
-        /// <summary>Seconds with an SI prefix: 0.0015 → "1.5 ms", 2e-6 → "2 µs", 0 → "0"; below 5e-16 s or from 1e15 s in exponent form ("1e+300 s").</summary>
+        /// <summary>Seconds with an SI prefix: 0.0015 → "1.5 ms", 2e-6 → "2 µs", 0 → "0"; below 1 ps or from 1e15 s (as rounded) in exponent form ("5e-16 s", "1e+300 s").</summary>
         public static string FormatSeconds(double seconds)
         {
             if (double.IsNaN(seconds) || double.IsInfinity(seconds)) // gave "NaN ps" and "Infinity s"
                 throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "Seconds must be finite.");
             if (seconds == 0) return "0";
             double a = Math.Abs(seconds);
-            // Below half a femtosecond the picoseconds rounded to "0 ps", and 1e300 s printed all 301 digits.
-            if (a < 5e-16 || a >= 1e15) return seconds.ToString("0.###e+0", CultureInfo.InvariantCulture) + " s";
+            // 1e300 s printed all 301 digits. Below 1 ps the picoseconds kept three decimals but few digits (5e-16 read
+            // "0.001 ps", twice its value), and a value just under 1e15 printed as "1000000000000000 s": both ends are
+            // judged as rounded.
+            if (a >= 1e15 || Rounded(a) >= 1e15 || Rounded(a * 1e12) < 1)
+                return seconds.ToString("0.###e+0", CultureInfo.InvariantCulture) + " s";
             (double scale, string unit) = a >= 1 ? (1, "s") : a >= 1e-3 ? (1e3, "ms") : a >= 1e-6 ? (1e6, "µs") : a >= 1e-9 ? (1e9, "ns") : (1e12, "ps");
             // Choose the unit after rounding: 0.9999999 s came out as "1000 ms". By the label's own rounding: Math.Round's
             // ties-to-even disagreed with the format string at 999.9995, printing "1000 ps" for 9.999995e-10.
-            if (scale > 1 && double.Parse((a * scale).ToString("0.###", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture) >= 1000)
+            if (scale > 1 && Rounded(a * scale) >= 1000)
             {
                 scale /= 1000;
                 unit = unit == "ms" ? "s" : unit == "µs" ? "ms" : unit == "ns" ? "µs" : "ns";
             }
             return (seconds * scale).ToString("0.###", CultureInfo.InvariantCulture) + " " + unit;
         }
+
+        // A tick label ("-1.5E+7", "0.25", "6.40873316821915E-17") as exactly m × 10^e.
+        private static bool TryExact(string s, out BigInteger m, out int e)
+        {
+            m = BigInteger.Zero;
+            e = 0;
+            int i = 0;
+            bool negative = i < s.Length && s[i] == '-';
+            if (i < s.Length && (s[i] == '-' || s[i] == '+')) i++;
+            var digits = new StringBuilder();
+            bool point = false;
+            for (; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c >= '0' && c <= '9') { digits.Append(c); if (point) e--; }
+                else if (c == '.' && !point) point = true;
+                else break;
+            }
+            if (digits.Length == 0) return false;
+            if (i < s.Length)
+            {
+                if (s[i] != 'E' && s[i] != 'e') return false;
+                if (!int.TryParse(s.Substring(i + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int x) || Math.Abs(x) > 100000) return false;
+                e += x;
+            }
+            m = BigInteger.Parse(digits.ToString(), CultureInfo.InvariantCulture);
+            if (negative) m = -m;
+            return true;
+        }
+
+        // (a × 10^ea) − (b × 10^eb) as a double.
+        private static double ExactDifference(BigInteger a, int ea, BigInteger b, int eb)
+        {
+            int e = Math.Min(ea, eb);
+            BigInteger d = a * BigInteger.Pow(10, ea - e) - b * BigInteger.Pow(10, eb - e);
+            return double.Parse(d.ToString(CultureInfo.InvariantCulture) + "E" + e.ToString(CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture);
+        }
+
+        // A magnitude as the "0.###" label shows it.
+        private static double Rounded(double x) =>
+            double.Parse(x.ToString("0.###", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
     }
 }

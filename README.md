@@ -541,8 +541,8 @@ src/
       Waterfall.cs          time x frequency waterfall: SVG (embedded PNG cells, freq/time axes, color scale) or raster; ValueMin ≤ ValueMax
       HexBin.cs             exact hexagonal binning in pixel space + SVG (log colour, count scale, edge cells clipped)
       ScatterMatrix.cs      pairs plot: histograms on the diagonal, group colours + legend, Pearson r per panel (equal lengths)
-      TimingDiagram.cs      logic-analyser view: digital lanes, labelled buses, unknown hatching, cursors, SI time axis (an explicit window needs Start < End; a period or sample interval must be resolvable at its start time)
-      Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops; MapFraction spans any stop range)
+      TimingDiagram.cs      logic-analyser view: digital lanes, labelled buses, unknown hatching, cursors, SI time axis (labels keep four digits, exponent form below 1 ps or from 1e15 s; an explicit window needs Start < End; a period or sample interval must be resolvable at its start time)
+      Colormap.cs           value->color (Grayscale/Hot/Cool/Viridis + custom stops; MapFraction spans any stop range; 0 and 1 are the first and last stops)
       Colorbar.cs           render a colormap as a gradient legend strip (vertical/horizontal)
       HeatMap.cs            render a 2-D grid via a colormap (cell size, range, NaN color)
       Histogram.cs          bin 1-D data (exposed; decimal edges exact, rounded once) and render the counts as bars (at most one bin per pixel column; explicit min = max counts only that value)
@@ -1121,6 +1121,7 @@ tests/
       ChartsReview178Tests.cs (round 178: scatter points and reference lines on the same column, markers, callouts and arrowheads kept out of the margin, short arrows, SVG arrows on huge frames, labels held inside the plot, huge and infinite box-plot values, decimal histogram edges rounded once, colormap halves)
       ChartsReview196Tests.cs (round 196: axis ticks settled on their exact decimals, no extra loose step, the smallest tight step, tight ticks inside the range, flat and subnormal ranges at two ticks, distinct sub-minute time labels, bars past the range clipped, legends on narrow charts, segments missing the range, distinct timing offsets, ScatterMatrix title fitted)
       ChartsReview210Tests.cs (round 210: box-plot outliers against exact fences, an all-infinite box plot drawn, equal multi-panel plot areas, thick dotted lines stamped once, tiled bands without a seam, a histogram from double.MaxValue, Waterfall's flat label read back on .NET Framework, in-frame lines as one subpath)
+      ChartsReview224Tests.cs (round 224: MapFraction on coincident stops, FormatSeconds below 1 ps and just under 1e15 s, exact timing-axis offsets on a tiny window)
       DocsVizReviewRegressionTests.cs  (2026-10-05 review regressions: Documents and Visualization)
     Resilience/
       RetryTests.cs

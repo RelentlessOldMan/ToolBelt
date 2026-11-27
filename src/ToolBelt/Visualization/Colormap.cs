@@ -41,8 +41,9 @@ namespace ToolBelt.Visualization
         public Rgba MapFraction(double fraction)
         {
             double s = StartPosition, e = EndPosition;
-            if (!(fraction > 0)) return Map(s);
-            if (fraction >= 1) return Map(e);
+            // The stops' own colors: with every stop at one position, Map(e) gave the first stop's color for 1.
+            if (!(fraction > 0)) return _stops[0].Color;
+            if (fraction >= 1) return _stops[_stops.Length - 1].Color;
             double span = e - s;
             return Map(double.IsInfinity(span) ? 2 * (s / 2 + fraction * (e / 2 - s / 2)) : s + fraction * span);
         }
