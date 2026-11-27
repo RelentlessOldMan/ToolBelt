@@ -177,9 +177,13 @@ namespace ToolBelt.Documents
             for (int k = 0; k < block.Length && char.IsWhiteSpace(block[k]); k++)
                 if (block[k] == '\n' || block[k] == '\r') from = k + 1;
             block = block.Substring(from);
-            // A block that starts with an item of the list just written joined that list ("1. x" after a numbered list):
-            // an empty HTML comment between them ends the list.
-            if (_lastMarker != '\0' && FirstItemMarker(block) == _lastMarker) Block("<!-- -->");
+            // An empty block wrote only blank lines, which never end a list, yet it reset the marker: the next list took the
+            // same one and joined the list before.
+            if (block.Length == 0) return this;
+            // A block that starts with an item of the list just written joined that list ("1. x" after a numbered list),
+            // and one whose first line is indented was read as more of the list's last item ("    x = 1" became a paragraph
+            // in it, not code): an empty HTML comment between them ends the list.
+            if (_lastMarker != '\0' && (FirstItemMarker(block) == _lastMarker || block[0] == ' ' || block[0] == '\t')) Block("<!-- -->");
             Block(block);
             // Raw Markdown that ends in a list (a hand-built table of contents) is a list too: the next list must not join it.
             // The list may end in a continuation or lazy line ("- a\n  b", "- a\nlazy"), so the last item line anywhere in
@@ -287,17 +291,49 @@ namespace ToolBelt.Documents
         private static string ItemText(string? item, int indent)
         {
             string text = (item ?? "").Trim().Replace("\r\n", "\n").Replace('\r', '\n');
-            // A first line made only of '-', '*' or '_' joins the marker into a thematic break ("- --", "* **") or is one
-            // itself ("- ***"), or is a nested empty item ("- -"): the item became <hr> and its text was lost.
-            if (RuleChars(text)) text = "\\" + text;
-            // A first line of block markers alone ("+", "1.", "1)", "#", ">", "+ 2.") opened an empty list, heading or
-            // quote, and the text was lost the same way.
-            else text = EscapeMarkerLine(text);
-            if (text.IndexOf('\n') < 0) return text;
             string pad = new string(' ', indent);
             var lines = text.Split('\n');
-            for (int i = 1; i < lines.Length; i++) if (lines[i].Length > 0) lines[i] = pad + lines[i];
+            // Every line, not only the first: a continuation line "---" or "===" made the line above a setext heading.
+            for (int i = 0; i < lines.Length; i++)
+            {
+                lines[i] = ItemLine(lines[i]);
+                if (i > 0 && lines[i].Length > 0) lines[i] = pad + lines[i];
+            }
             return string.Join("\n", lines);
+        }
+
+        // One line of an item's text, escaped when it is block syntax that would swallow it or the line above.
+        private static string ItemLine(string line)
+        {
+            // Up to three spaces of indentation keep the line's block syntax; four (or a tab) continue the paragraph.
+            int k = 0;
+            while (k < line.Length && line[k] == ' ') k++;
+            if (k > 3 || k == line.Length || line[k] == '\t') return line;
+            string rest = line.Substring(k), lead = line.Substring(0, k);
+            // A line made only of '-', '*' or '_' joins the marker into a thematic break ("- --", "* **") or is one itself
+            // ("- ***"), or is a nested empty item ("- -"): the item became <hr> and its text was lost. A run of '=' made the
+            // line above a heading, and a code fence ("```", "~~~ x") opened a code block that took the text with it.
+            if (RuleChars(rest) || SetextEquals(rest) || FenceOpener(rest)) return lead + "\\" + rest;
+            // A line of block markers alone ("+", "1.", "1)", "#", ">", "+ 2.") opened an empty list, heading or quote, and
+            // the text was lost the same way.
+            return lead + EscapeMarkerLine(rest);
+        }
+
+        // "===" (any run of '=', then only white space).
+        private static bool SetextEquals(string line)
+        {
+            int n = 0;
+            while (n < line.Length && line[n] == '=') n++;
+            return n > 0 && line.Substring(n).Trim(' ', '\t').Length == 0;
+        }
+
+        // Three or more backticks or tildes; a backtick fence's info string has no backtick ("```x```" is a code span).
+        private static bool FenceOpener(string line)
+        {
+            if (line.Length < 3 || (line[0] != '`' && line[0] != '~')) return false;
+            int n = 0;
+            while (n < line.Length && line[n] == line[0]) n++;
+            return n >= 3 && (line[0] == '~' || line.IndexOf('`', n) < 0);
         }
         /// <summary>Inline code span.</summary>
         public static string Code(string text)

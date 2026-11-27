@@ -204,11 +204,12 @@ namespace ToolBelt.Tests.Documents
         {
             Check.Equal("    x = 1\n    y = 2\n", new MarkdownReport().Raw("    x = 1\n    y = 2").ToString());
             Check.Equal("  - a\n", new MarkdownReport().Raw("\n\n  - a  \n\n").ToString());
-            // Indented by up to three spaces, a Raw item still follows a list without joining it; by four it is code.
+            // Indented by up to three spaces, a Raw item still follows a list without joining it. By four it is code, but
+            // only once the list is ended (round 222): right after "- x" it was a nested item of x.
             string md = new MarkdownReport().BulletList(new[] { "x" }).Raw("  - y").ToString();
             Check.True(md.Contains("<!-- -->"), md);
             md = new MarkdownReport().BulletList(new[] { "x" }).Raw("    - y").ToString();
-            Check.True(!md.Contains("<!-- -->"), md);
+            Check.Equal("- x\n\n<!-- -->\n\n    - y\n", md);
         }
 
 #if !NETFRAMEWORK

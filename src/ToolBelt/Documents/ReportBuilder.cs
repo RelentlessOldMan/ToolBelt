@@ -263,7 +263,8 @@ namespace ToolBelt.Documents
             if (_metadata.Count > 0)
             {
                 var lines = new List<string>();
-                foreach (var kv in _metadata) lines.Add(MarkdownReport.Bold(OneLine(kv.Key) + ":") + " " + EscMdLine(kv.Value));
+                // Trimmed: a key's edge white space stays outside the bold markers, and an indented first line made the block code.
+                foreach (var kv in _metadata) lines.Add(MarkdownReport.Bold(OneLine(kv.Key).Trim() + ":") + " " + EscMdLine(kv.Value));
                 md.Raw(string.Join("  \n", lines)); // hard line breaks keep the block compact
             }
 

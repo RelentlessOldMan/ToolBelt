@@ -33,7 +33,7 @@ namespace ToolBelt.Configuration
     /// property holding an object) makes it throw <see cref="NotSupportedException"/>. A save keeps the file's ACL (and on
     /// Unix its mode).
     /// A settings path that is a symbolic link is written through to its target; a save keeps the file's Hidden and System
-    /// attributes, fails at once on a read-only file, waits about half a second for another reader of the file to let go,
+    /// attributes, fails at once on a read-only file, waits about two seconds for another reader of the file to let go,
     /// and removes temp files that a crashed save left behind more than a day ago.
     /// A file that is not valid UTF-8 (or UTF-16 or UTF-32 with a byte-order mark, read as such and saved back as UTF-8)
     /// counts as corrupt, as does one holding only <c>null</c>; one reached through a symbolic link is moved aside at its
@@ -184,6 +184,12 @@ namespace ToolBelt.Configuration
         // ERROR_SHARING_VIOLATION or ERROR_LOCK_VIOLATION: the file is there and fine, only open elsewhere.
         private static bool IsSharingViolation(IOException ex) => (ex.HResult & 0xFFFF) is 32 or 33;
 
+        // One per settings file saved in this process: instances saving the same file took turns at random, and under load
+        // one could miss every turn of its retries ("Unable to remove the file to be replaced", about one run in 50 of six
+        // instances saving one file 60 times each).
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> SaveGates =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, object>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+
         private static readonly UTF8Encoding Strict = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
         // The file a path names, through any symbolic links (the path itself when it is no link).
@@ -276,45 +282,51 @@ namespace ToolBelt.Configuration
                 if (ex is TargetInvocationException && ex.InnerException != null) ex = ex.InnerException;
                 throw new InvalidOperationException($"These settings would be rejected when loaded back ({ex.Message}), so they were not saved.", ex);
             }
+            object gate = SaveGates.GetOrAdd(target, _ => new object());
             try
             {
-                using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                lock (gate)
                 {
-                    fs.Write(json, 0, json.Length);
-                    fs.Flush(flushToDisk: true);
-                }
-                // A Unix file's mode (0600 for one holding a token) became the umask default.
-                if (!OperatingSystem.IsWindows() && File.Exists(target))
-                {
-                    try { File.SetUnixFileMode(temp, File.GetUnixFileMode(target)); }
-                    catch (FileNotFoundException) { }                            // replaced by another instance just now
-                }
-                // Another reader holding the file (an editor, a scanner, another instance loading it) made the move fail at
-                // once; it gets about half a second to let go.
-                using (var never = new System.Threading.ManualResetEventSlim(false))
-                    for (int attempt = 0; ; attempt++)
+                    using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                     {
-                        // Replace keeps the file's own ACL: the move gave it the folder's inherited one, so an owner-only file
-                        // became readable by everyone the folder admits.
-                        try
-                        {
-                            if (OperatingSystem.IsWindows() && File.Exists(target)) File.Replace(temp, target, null);
-                            else File.Move(temp, target, overwrite: true);
-                            break;
-                        }
-                        // Also when the target is missing: another instance replacing it leaves no file at the name for a
-                        // moment, and the save failed at once. The next attempt moves the temp file into place.
-                        catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < 10 && File.Exists(temp))
-                        {
-                            never.Wait(50);
-                        }
+                        fs.Write(json, 0, json.Length);
+                        fs.Flush(flushToDisk: true);
                     }
-                // The move gave the file the temp file's attributes, so a hidden settings file became visible. The save has
-                // happened by now, so this is best effort: a failure here rolled Value back while the file held the new data.
-                if (keep != 0 && OperatingSystem.IsWindows())
-                {
-                    try { File.SetAttributes(target, File.GetAttributes(target) | keep); }
-                    catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+                    // A Unix file's mode (0600 for one holding a token) became the umask default.
+                    if (!OperatingSystem.IsWindows() && File.Exists(target))
+                    {
+                        try { File.SetUnixFileMode(temp, File.GetUnixFileMode(target)); }
+                        catch (FileNotFoundException) { }                            // replaced by another instance just now
+                    }
+                    // Another reader holding the file (an editor, a scanner, another instance loading it) made the move fail at
+                    // once; it gets about two seconds to let go. Timed, not counted: ten tries 50 ms apart ran out while a
+                    // reader in another process held the file for most of a second.
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    using (var never = new System.Threading.ManualResetEventSlim(false))
+                        for (; ; )
+                        {
+                            // Replace keeps the file's own ACL: the move gave it the folder's inherited one, so an owner-only file
+                            // became readable by everyone the folder admits.
+                            try
+                            {
+                                if (OperatingSystem.IsWindows() && File.Exists(target)) File.Replace(temp, target, null);
+                                else File.Move(temp, target, overwrite: true);
+                                break;
+                            }
+                            // Also when the target is missing: another instance replacing it leaves no file at the name for a
+                            // moment, and the save failed at once. The next attempt moves the temp file into place.
+                            catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && clock.ElapsedMilliseconds < 2000 && File.Exists(temp))
+                            {
+                                never.Wait(50);
+                            }
+                        }
+                    // The move gave the file the temp file's attributes, so a hidden settings file became visible. The save has
+                    // happened by now, so this is best effort: a failure here rolled Value back while the file held the new data.
+                    if (keep != 0 && OperatingSystem.IsWindows())
+                    {
+                        try { File.SetAttributes(target, File.GetAttributes(target) | keep); }
+                        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+                    }
                 }
             }
             finally

@@ -157,22 +157,22 @@ namespace ToolBelt.Documents
                 // above 0 (the default 5 among them), 0 -> 100 was never flagged and the callout said nothing changed.
                 if (r.A == 0 && r.B != 0 && !double.IsNaN(r.B)) flagged.Add(r.Metric + " (from 0)");
                 else if (!double.IsNaN(p) && (flagPercent > 0 ? Math.Abs(p) >= flagPercent : p != 0))
-                    flagged.Add(r.Metric + " (" + SignedPercent(p) + "%)");
+                    flagged.Add(r.Metric + " (" + SignedPercent(p, flagPercent) + "%)");
             }
 
             if (list.Count == 0)
                 report.Callout(CalloutKind.Note, "No metrics to compare.");
             else if (flagged.Count > 0)
                 report.Callout(CalloutKind.Warning, flagged.Count.ToString(CultureInfo.InvariantCulture) + " metric(s) changed"
-                    + (flagPercent > 0 ? " by " + Percent(flagPercent) + "% or more" : "")
+                    + (flagPercent > 0 ? " by " + ThresholdText(flagPercent) + "% or more" : "")
                     + ": " + string.Join(", ", flagged) + ".");
             else
                 report.Callout(CalloutKind.Success, flagPercent > 0
-                    ? "No metric changed by " + Percent(flagPercent) + "% or more."
+                    ? "No metric changed by " + ThresholdText(flagPercent) + "% or more."
                     : "No metric changed.");
 
             if (largest != null)
-                report.Paragraph("Largest relative change: " + largest.Metric + ", " + SignedPercent(largest.PercentChange) + "%.");
+                report.Paragraph("Largest relative change: " + largest.Metric + ", " + SignedPercent(largest.PercentChange, flagPercent) + "%.");
 
             var table = new List<IReadOnlyList<string>>();
             foreach (var r in list)
@@ -184,7 +184,7 @@ namespace ToolBelt.Documents
                     Plain(r.A, numberFormat) + u,
                     Plain(r.B, numberFormat) + u,
                     Signed(r.Delta, numberFormat) + u,
-                    double.IsNaN(r.PercentChange) ? "n/a" : SignedPercent(r.PercentChange) + "%",
+                    double.IsNaN(r.PercentChange) ? "n/a" : SignedPercent(r.PercentChange, flagPercent) + "%",
                 });
             }
             report.Heading("Metrics").Table(new[] { "Metric", labelA, labelB, "Change", "Change %" }, table);
@@ -250,7 +250,28 @@ namespace ToolBelt.Documents
             return v.ToString(v != 0 && (a < 0.005 || a >= 1e6) ? "G3" : "0.##", CultureInfo.InvariantCulture);
         }
 
-        private static string SignedPercent(double v) => v == 0 ? "0" : (v > 0 ? "+" : "") + Percent(v);
+        private static string SignedPercent(double v, double threshold) => v == 0 ? "0" : (v > 0 ? "+" : "") + Percent(v, threshold);
+
+        // Rounded, a change and the threshold could print in the wrong order: 4.996% printed "+5%" beside "No metric changed
+        // by 5% or more", and a threshold of 0.014 printed "0.01%" beside an unflagged "+0.01%". The threshold prints in full
+        // and a change takes the digits it needs to print on the same side of it as it is.
+        private static string ThresholdText(double threshold)
+        {
+            string s = Percent(threshold);
+            for (int g = 3; g <= 17 && Parsed(s) != threshold; g++) s = threshold.ToString("G" + g.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+            return s;
+        }
+
+        private static string Percent(double v, double threshold)
+        {
+            string s = Percent(v);
+            if (!(threshold > 0) || double.IsInfinity(v) || double.IsNaN(v)) return s;
+            bool reaches = Math.Abs(v) >= threshold;
+            for (int g = 3; g <= 17 && (Math.Abs(Parsed(s)) >= threshold) != reaches; g++) s = v.ToString("G" + g.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+            return s;
+        }
+
+        private static double Parsed(string s) => double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
 
         // A value that rounds to zero prints as "0", never "-0" (-0.0, or -0.001 under "0.##"), as in the Change column.
         private static string Plain(double v, string format)
