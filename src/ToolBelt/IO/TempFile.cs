@@ -83,6 +83,11 @@ namespace ToolBelt.IO
             {
                 (string dir, bool emptied) = pending.Pop();
                 if (emptied) { Try(() => Directory.Delete(Exact(dir))); continue; }
+                // Checked as each folder is reached, the root too: a root swapped for a junction (or a subfolder swapped
+                // after it was listed) had its target emptied. A link loses only the link.
+                bool link = false;
+                Try(() => link = (File.GetAttributes(Exact(dir)) & FileAttributes.ReparsePoint) != 0);
+                if (link) { Try(() => Directory.Delete(Exact(dir))); continue; }
                 pending.Push((dir, true));
                 string[] files = Array.Empty<string>(), subs = Array.Empty<string>();
                 Try(() => files = List(dir, directories: false));

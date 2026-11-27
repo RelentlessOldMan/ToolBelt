@@ -410,7 +410,7 @@ src/
       CsvLine.cs            RFC 4180 CSV line parse + format (an unterminated quote throws)
       CsvDialect.cs         delimiter/decimal/header presets (Excel European, tab, pipe) + Detect sniffing
       FileRetention.cs      prune by count/age/total size (+ dry run), numbered rotation, timestamped names
-      JsonFile.cs           JSON load/save with shared options and atomic writes + JsonLines (NDJSON) (net8)
+      JsonFile.cs           JSON load/save with shared options and atomic writes + JsonLines (NDJSON; records end at \n only) (net8)
       DotEnv.cs             .env key=value parser (comments, quotes + inline comments, export, BOM)
       FixedWidth.cs         fixed column-width record parse + format
       HexDump.cs            classic offset/hex/ascii hex dump
@@ -418,7 +418,7 @@ src/
       SafeFileName.cs       sanitize a string into a filename safe on every OS (Windows rules everywhere; capped in UTF-8 bytes)
       StreamUtils.cs        copy-with-progress (+ cancellation) / read-exactly (memory grows with the data)
       StreamWrappers.cs     CountingStream (bytes read/written) and TeeStream (duplicate reads or writes); closed after Dispose even when leaving the inner open
-      TempFile.cs           disposable temp file & directory scopes (extension checked; iterative delete, any depth)
+      TempFile.cs           disposable temp file & directory scopes (extension checked; iterative delete, any depth; links lose only the link)
       ZipUtils.cs           zip create/extract/list/read (entry and total size caps, keeps empty dirs and times; update via a streamed copy that keeps modes and comments); Zip-Slip guarded, links never followed
       TarUtils.cs           tar/.tar.gz create/extract/list (keeps empty dirs, total size cap); traversal rejected, links never created or followed (net8)
       DirectoryUtils.cs     tree copy (overwrite/filter policies), delete w/ read-only + cancellable lock retry, never follows links (re-checked per file); CopyOptions.CancellationToken
@@ -908,6 +908,7 @@ tests/
       IOReview188Tests.cs    (eleventh pass: roots ending in a dot, copies through a short name, archives reached through a junction, tar replace keeping Hidden, every tar entry listed after small files, 8.3-alias entries refused, zip host kept by AddOrReplaceEntry, lone-surrogate names refused, too-long backup names, TempFile extensions, non-recursive snapshots ignoring short names)
       IOReview195Tests.cs    (twelfth pass: ByteSize with non-ASCII digits, NaN and Infinity words on every runtime, correctly rounded CSV and config numbers on .NET Framework, FileChangeCoalescer against a model file system)
       IOReview212Tests.cs    (thirteenth pass: PAX sparse tar entries, repeated directory entries in tar and zip, duplicate zip names, repeated ./ and unpaired surrogates in manifests, ShiftNumbered on a trimmed name and a read-only copy, coalescer batches against a replaying model)
+      IOReview223Tests.cs    (fourteenth pass: JsonLines lone CR and line count past 2^31, TempDirectory root swapped for a junction)
       CoverageGapTests.cs   (behaviour behind coverage holes found by a coverlet run)
     Numerics/
       AngleTests.cs

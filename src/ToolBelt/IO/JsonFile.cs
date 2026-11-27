@@ -156,9 +156,10 @@ namespace ToolBelt.IO
 
         private static IEnumerable<T> ReadReader<T>(TextReader reader, JsonSerializerOptions? options)
         {
-            int lineNumber = 0;
+            long lineNumber = 0;   // an int went negative past 2^31 lines
             string? line;
-            while ((line = reader.ReadLine()) != null)
+            var sb = new StringBuilder();
+            while ((line = ReadRecordLine(reader, sb)) != null)
             {
                 lineNumber++;
                 if (string.IsNullOrWhiteSpace(line)) continue;
@@ -177,9 +178,11 @@ namespace ToolBelt.IO
         private static async IAsyncEnumerable<T> ReadAsyncIterator<T>(TextReader reader, JsonSerializerOptions? options,
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
-            int lineNumber = 0;
+            long lineNumber = 0;   // an int went negative past 2^31 lines
             string? line;
-            while ((line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false)) != null)
+            var sb = new StringBuilder();
+            var one = new char[1];
+            while ((line = await ReadRecordLineAsync(reader, sb, one, cancellationToken).ConfigureAwait(false)) != null)
             {
                 // A line already in the reader's buffer comes back without looking at the token, so a cancel mid-stream
                 // was ignored until the buffer ran dry.
@@ -190,7 +193,30 @@ namespace ToolBelt.IO
             }
         }
 
-        private static T ParseLine<T>(string line, int lineNumber, JsonSerializerOptions? options)
+        // Records end at '\n' (a '\r' before it is JSON white space). ReadLine also ended a line at a lone '\r', so a record
+        // holding one was split in two and failed. One character at a time, as ReadLine reads, so the caller's reader is
+        // not read past the record; one buffer per read, so a run of blank lines allocates nothing.
+        private static string? ReadRecordLine(TextReader reader, StringBuilder sb)
+        {
+            sb.Clear();
+            int c;
+            while ((c = reader.Read()) != -1 && c != '\n') sb.Append((char)c);
+            return c == -1 && sb.Length == 0 ? null : RecordText(sb);
+        }
+
+        private static async ValueTask<string?> ReadRecordLineAsync(TextReader reader, StringBuilder sb, char[] one,
+            CancellationToken cancellationToken)
+        {
+            sb.Clear();
+            int n;
+            while ((n = await reader.ReadAsync(one.AsMemory(), cancellationToken).ConfigureAwait(false)) != 0 && one[0] != '\n')
+                sb.Append(one[0]);
+            return n == 0 && sb.Length == 0 ? null : RecordText(sb);
+        }
+
+        private static string RecordText(StringBuilder sb) => sb.Length == 0 ? string.Empty : sb.ToString();
+
+        private static T ParseLine<T>(string line, long lineNumber, JsonSerializerOptions? options)
         {
             try
             {
